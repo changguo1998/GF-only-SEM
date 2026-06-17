@@ -96,7 +96,7 @@ def _geometric_partition(
     centroids = gll_coords.mean(axis=(1, 2, 3))  # [n_cell, 3]
 
     # Find longest axis
-    span = centroids.ptp(axis=0)  # max - min per dimension
+    span = np.ptp(centroids, axis=0)  # max - min per dimension
     longest_axis = int(np.argmax(span))
 
     # Sort by centroid along longest axis
