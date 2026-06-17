@@ -1,0 +1,61 @@
+"""Shared fixtures for preprocess tests."""
+
+import pytest
+import sys
+from types import ModuleType
+from pathlib import Path
+
+
+@pytest.fixture
+def config_dict():
+    """Returns a dict that can be used to build a mock config module."""
+    return {
+        "title": "test_run",
+        "polynomial_order": 3,
+        "output_dt": 0.001,
+        "nsteps": 100,
+        "cfl_safety": 0.5,
+        "cfl_threshold": 1.0,
+        "checkpoint_interval": 10,
+        "checkpoint_precision": "float32",
+        "storage_limit_gb": 100,
+        "n_ranks": 4,
+        "pml_thickness": {"xmin": 3, "xmax": 3, "ymin": 3, "ymax": 3, "zmin": 0, "zmax": 3},
+        "source_x": 500.0,
+        "source_y": 500.0,
+    }
+
+
+@pytest.fixture
+def mock_config_module(config_dict):
+    """Creates a mock Python module with config attributes + callables."""
+    mod = ModuleType("mock_config")
+    for key, val in config_dict.items():
+        setattr(mod, key, val)
+
+    def stf_func(t):
+        import numpy as np
+        return (1 - 2 * (np.pi * 5.0 * (t - 0.3))**2) * np.exp(-(np.pi * 5.0 * (t - 0.3))**2)
+
+    def vp(x, y, z):
+        return 3000.0
+
+    def vs(x, y, z):
+        return 1500.0
+
+    def density(x, y, z):
+        return 2500.0
+
+    mod.stf_func = stf_func
+    mod.vp = vp
+    mod.vs = vs
+    mod.density = density
+    return mod
+
+
+@pytest.fixture
+def tmp_dir():
+    """Temporary directory that auto-cleans after test."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        yield Path(d)
