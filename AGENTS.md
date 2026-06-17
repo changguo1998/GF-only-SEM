@@ -29,7 +29,7 @@ used only to study SEM implementation patterns.
 
 ## Project State
 
-Design phase — 5 module design docs complete, implementation plans drafted. No source code yet beyond external references.
+Implementation complete — all 5 modules have source code and passing tests (126 tests across Python + C++). Elastic-only forward solver (SLS/attenuation deferred).
 
 Key design docs:
 - `docs/design-decisions.md` — system-level decisions (CG-SEM, hexahedra, Newmark, etc.)

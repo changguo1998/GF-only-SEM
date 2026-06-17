@@ -100,14 +100,14 @@ Output: `/field/element/tau_sigma` and `/field/element/tau_epsilon`, shape `[n_c
 - Create: `tests/preprocess/__init__.py`
 - Create: `tests/preprocess/conftest.py`
 
-- [ ] **Step 1: Create package init and test init**
+- [x] **Step 1: Create package init and test init**
 
 ```bash
 mkdir -p preprocess tests/preprocess
 touch preprocess/__init__.py tests/preprocess/__init__.py
 ```
 
-- [ ] **Step 2: Write conftest.py — mock config module fixture**
+- [x] **Step 2: Write conftest.py — mock config module fixture**
 
 ```python
 # tests/preprocess/conftest.py
@@ -162,7 +162,7 @@ def tmp_dir():
         yield Path(d)
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ---
 
@@ -174,11 +174,11 @@ def tmp_dir():
 
 Use `importlib` to load a Python config script, validate all required fields.
 
-- [ ] **Step 1: Write test** — load mock config, verify attributes accessible, verify stf_func is callable
-- [ ] **Step 2: Write test** — missing required field raises ValidationError
-- [ ] **Step 3: Write test** — invalid source_direction raises ValidationError
-- [ ] **Step 4: Implement `load_config(path) -> ModuleType`** — import via importlib, validate all required fields per table above
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Write test** — load mock config, verify attributes accessible, verify stf_func is callable
+- [x] **Step 2: Write test** — missing required field raises ValidationError
+- [x] **Step 3: Write test** — invalid source_direction raises ValidationError
+- [x] **Step 4: Implement `load_config(path) -> ModuleType`** — import via importlib, validate all required fields per table above
+- [x] **Step 5: Commit**
 
 ---
 
@@ -190,10 +190,10 @@ Use `importlib` to load a Python config script, validate all required fields.
 
 Read `/topology/` datasets from mesh.h5 into memory. X2Y naming, 1-based indexing, signed direction.
 
-- [ ] **Step 1: Write test** — read synthetic mesh.h5, verify vertex_to_coord shape, n_vertex attr
-- [ ] **Step 2: Write test** — verify edge_to_vertex (signed int), surface_to_edge (CCW), cell_to_surface
-- [ ] **Step 3: Implement `read_topology(path) -> TopologyData`** — read all `/topology/` datasets
-- [ ] **Step 4: Commit**
+- [x] **Step 1: Write test** — read synthetic mesh.h5, verify vertex_to_coord shape, n_vertex attr
+- [x] **Step 2: Write test** — verify edge_to_vertex (signed int), surface_to_edge (CCW), cell_to_surface
+- [x] **Step 3: Implement `read_topology(path) -> TopologyData`** — read all `/topology/` datasets
+- [x] **Step 4: Commit**
 
 ---
 
@@ -205,10 +205,10 @@ Read `/topology/` datasets from mesh.h5 into memory. X2Y naming, 1-based indexin
 
 For each element with 8 corner vertices and polynomial order N, compute (N+1)³ GLL node positions via geometric mapping, Jacobian, dξ/dx, and lumped mass diagonal.
 
-- [ ] **Step 1: Write test** — GLL node coords for a cube element (should interpolate corners)
-- [ ] **Step 2: Write test** — det(J) for unit cube should equal 1/8 of cube volume
-- [ ] **Step 3: Implement `compute_gll_geometry(topology, N)`** — returns coords, jacobian, dxi_dx, mass arrays
-- [ ] **Step 4: Commit**
+- [x] **Step 1: Write test** — GLL node coords for a cube element (should interpolate corners)
+- [x] **Step 2: Write test** — det(J) for unit cube should equal 1/8 of cube volume
+- [x] **Step 3: Implement `compute_gll_geometry(topology, N)`** — returns coords, jacobian, dxi_dx, mass arrays
+- [x] **Step 4: Commit**
 
 ---
 
@@ -220,9 +220,9 @@ For each element with 8 corner vertices and polynomial order N, compute (N+1)³ 
 
 Load binary 3D model (format TBD — placeholder for now). Interpolate Vp, Vs, density, Qκ, Qμ from model grid to GLL nodes.
 
-- [ ] **Step 1: Write test** — homogeneous model returns constant values at all GLL nodes
-- [ ] **Step 2: Implement `load_and_interpolate(model_path, gll_coords)`** — returns vp, vs, density, q_kappa, q_mu arrays (element-first, shape `[n_cell, NGLL, NGLL, NGLL]`)
-- [ ] **Step 3: Commit** — noted as placeholder until 3D model format is finalized
+- [x] **Step 1: Write test** — homogeneous model returns constant values at all GLL nodes
+- [x] **Step 2: Implement `load_and_interpolate(model_path, gll_coords)`** — returns vp, vs, density, q_kappa, q_mu arrays (element-first, shape `[n_cell, NGLL, NGLL, NGLL]`)
+- [x] **Step 3: Commit** — noted as placeholder until 3D model format is finalized
 
 ---
 
@@ -234,9 +234,9 @@ Load binary 3D model (format TBD — placeholder for now). Interpolate Vp, Vs, d
 
 Auto-detect boundary tags from surface face center geometry. No GMSH physical groups needed.
 
-- [ ] **Step 1: Write test** — z_max surface → tag 1 (free surface), x/y/z min → tag 2 (absorbing), interior → tag 0
-- [ ] **Step 2: Implement `detect_boundaries(topology, domain_bounds)`** — returns `boundary_tag[n_surface]` (0=interior, 1=free surface, 2=absorbing)
-- [ ] **Step 3: Commit**
+- [x] **Step 1: Write test** — z_max surface → tag 1 (free surface), x/y/z min → tag 2 (absorbing), interior → tag 0
+- [x] **Step 2: Implement `detect_boundaries(topology, domain_bounds)`** — returns `boundary_tag[n_surface]` (0=interior, 1=free surface, 2=absorbing)
+- [x] **Step 3: Commit**
 
 ---
 
@@ -250,10 +250,10 @@ Viscoelastic attenuation (SLS τ-method) is deferred to future work. Skip this t
 
 τ-method: compute τ_σ and τ_ε per GLL node from per-node Q values and global (f_min, f_max, n_sls).
 
-- [ ] **Step 1: Write test** — constant Q produces consistent τ values, τ_σ < τ_ε
-- [ ] **Step 2: Write test** — n_sls=3 produces 3 mechanism pairs
-- [ ] **Step 3: Implement `compute_sls_parameters(q, f_min, f_max, n_sls)`** — returns tau_sigma[n_sls], tau_epsilon[n_sls] per GLL node
-- [ ] **Step 4: Commit**
+- [x] **Step 1: Write test** — constant Q produces consistent τ values, τ_σ < τ_ε
+- [x] **Step 2: Write test** — n_sls=3 produces 3 mechanism pairs
+- [x] **Step 3: Implement `compute_sls_parameters(q, f_min, f_max, n_sls)`** — returns tau_sigma[n_sls], tau_epsilon[n_sls] per GLL node
+- [x] **Step 4: Commit**
 
 ---
 
@@ -265,9 +265,9 @@ Viscoelastic attenuation (SLS τ-method) is deferred to future work. Skip this t
 
 Compute damping coefficient profile across GLL nodes within PML elements, based on element centroid position + pml_thickness per face.
 
-- [ ] **Step 1: Write test** — interior element has damping = 0, PML-adjacent element has damping > 0
-- [ ] **Step 2: Implement `compute_pml_damping(topology, gll_coords, pml_thickness, domain_bounds)`** — returns damping array (element-first, `[n_cell, NGLL, NGLL, NGLL]`)
-- [ ] **Step 3: Commit**
+- [x] **Step 1: Write test** — interior element has damping = 0, PML-adjacent element has damping > 0
+- [x] **Step 2: Implement `compute_pml_damping(topology, gll_coords, pml_thickness, domain_bounds)`** — returns damping array (element-first, `[n_cell, NGLL, NGLL, NGLL]`)
+- [x] **Step 3: Commit**
 
 ---
 
@@ -279,11 +279,11 @@ Compute damping coefficient profile across GLL nodes within PML elements, based 
 
 Build dual graph (elements as nodes, shared faces as edges), call METIS k-way, compute exchange patterns.
 
-- [ ] **Step 1: Write test** — partition N elements into K ranks, verify each element assigned exactly one rank
-- [ ] **Step 2: Write test** — verify ghost elements identified (shared faces across rank boundaries)
-- [ ] **Step 3: Write test** — verify exchange face-pair lists for neighbor ranks
-- [ ] **Step 4: Implement `partition(topology, gll_coords, n_ranks)`** — returns element_to_rank, per-rank data (local IDs, ghost IDs, ghost owners, exchange patterns)
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Write test** — partition N elements into K ranks, verify each element assigned exactly one rank
+- [x] **Step 2: Write test** — verify ghost elements identified (shared faces across rank boundaries)
+- [x] **Step 3: Write test** — verify exchange face-pair lists for neighbor ranks
+- [x] **Step 4: Implement `partition(topology, gll_coords, n_ranks)`** — returns element_to_rank, per-rank data (local IDs, ghost IDs, ghost owners, exchange patterns)
+- [x] **Step 5: Commit**
 
 ---
 
@@ -295,9 +295,9 @@ Build dual graph (elements as nodes, shared faces as edges), call METIS k-way, c
 
 Evaluate `config.stf_func(t)` at t = 0, dt, 2*dt, ..., (nsteps-1)*dt.
 
-- [ ] **Step 1: Write test** — evaluate mock stf_func, verify output shape matches nsteps
-- [ ] **Step 2: Implement `evaluate_stf(stf_func, dt, nsteps)`** — returns `stf_t[nsteps]`, `stf_values[nsteps]`
-- [ ] **Step 3: Commit**
+- [x] **Step 1: Write test** — evaluate mock stf_func, verify output shape matches nsteps
+- [x] **Step 2: Implement `evaluate_stf(stf_func, dt, nsteps)`** — returns `stf_t[nsteps]`, `stf_values[nsteps]`
+- [x] **Step 3: Commit**
 
 ---
 
@@ -311,11 +311,11 @@ Evaluate `config.stf_func(t)` at t = 0, dt, 2*dt, ..., (nsteps-1)*dt.
 
 Write all computed data to mesh.h5 (extended in-place), partition_{r}.h5, and configs/config.h5.
 
-- [ ] **Step 1: Write test** — verify mesh.h5 contains topology + field/element + field/surface groups, verify partition_{r}.h5 files contain field/element + partition metadata
-- [ ] **Step 2: Write test** — verify config.h5 contains simulation + domain + source groups
-- [ ] **Step 3: Implement `write_model(path, topology, fields, partition)`** — schema per design
-- [ ] **Step 4: Implement `write_config(path, config, domain_bounds, stf_t, stf_values)`** — schema per design
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Write test** — verify mesh.h5 contains topology + field/element + field/surface groups, verify partition_{r}.h5 files contain field/element + partition metadata
+- [x] **Step 2: Write test** — verify config.h5 contains simulation + domain + source groups
+- [x] **Step 3: Implement `write_model(path, topology, fields, partition)`** — schema per design
+- [x] **Step 4: Implement `write_config(path, config, domain_bounds, stf_t, stf_values)`** — schema per design
+- [x] **Step 5: Commit**
 
 ---
 
@@ -326,8 +326,8 @@ Write all computed data to mesh.h5 (extended in-place), partition_{r}.h5, and co
 
 CLI: `python -m preprocess mesh.h5 config.py`
 
-- [ ] **Step 1: Implement `main()`** — parse args, orchestrates all 9 processing steps
-- [ ] **Step 2: Commit**
+- [x] **Step 1: Implement `main()`** — parse args, orchestrates all 9 processing steps
+- [x] **Step 2: Commit**
 
 ---
 
