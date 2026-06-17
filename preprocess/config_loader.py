@@ -1,0 +1,163 @@
+"""Config loader — import config.py via importlib, validate required fields."""
+
+import importlib
+import importlib.util
+import sys
+from pathlib import Path
+from types import ModuleType
+
+REQUIRED_KEYS = {
+    "title": (str,),
+    "polynomial_order": (int,),
+    "output_dt": (int, float),
+    "nsteps": (int,),
+    "cfl_safety": (int, float),
+    "cfl_threshold": (int, float),
+    "checkpoint_interval": (int,),
+    "checkpoint_precision": (str,),
+    "storage_limit_gb": (int, float),
+    "n_ranks": (int,),
+    "pml_thickness": (dict,),
+    "source_x": (int, float),
+    "source_y": (int, float),
+}
+
+REQUIRED_CALLABLES = ["stf_func", "vp", "vs", "density"]
+
+
+class ConfigValidationError(Exception):
+    """Raised when config validation fails."""
+    pass
+
+
+def load_config(config_path: str, validate: bool = True) -> ModuleType:
+    """Load a Python config script as a module and optionally validate.
+
+    Args:
+        config_path: Path to config.py file.
+        validate: If True, validate all required fields.
+
+    Returns:
+        The loaded config module.
+    """
+    path = Path(config_path).resolve()
+    if not path.exists():
+        raise ConfigValidationError(f"Config file not found: {config_path}")
+
+    # Derive unique module name from path
+    module_name = f"_config_{path.stem}_{id(path)}"
+
+    # Add parent dir to sys.path temporarily
+    parent_dir = str(path.parent)
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+
+    spec = importlib.util.spec_from_file_location(module_name, str(path))
+    if spec is None or spec.loader is None:
+        raise ConfigValidationError(f"Could not load config file: {config_path}")
+
+    mod = importlib.util.module_from_spec(spec)
+    # Store original sys.path to restore later
+    old_path = sys.path[:]
+
+    try:
+        spec.loader.exec_module(mod)
+    except Exception as e:
+        raise ConfigValidationError(f"Error executing config file: {e}") from e
+    finally:
+        sys.path = old_path
+
+    if validate:
+        validate_config(mod)
+
+    return mod
+
+
+def validate_config(mod: ModuleType) -> None:
+    """Validate a loaded config module.
+
+    Checks required attributes, their types, and valid ranges.
+
+    Raises:
+        ConfigValidationError: If any validation fails.
+    """
+    # Check required scalar attributes
+    for key, expected_types in REQUIRED_KEYS.items():
+        if not hasattr(mod, key):
+            raise ConfigValidationError(
+                f"Missing required config field: '{key}'"
+            )
+        val = getattr(mod, key)
+        if not isinstance(val, expected_types):
+            raise ConfigValidationError(
+                f"Config field '{key}' has wrong type. "
+                f"Expected {expected_types}, got {type(val)}"
+            )
+
+    # Check required callables
+    for name in REQUIRED_CALLABLES:
+        if not hasattr(mod, name):
+            raise ConfigValidationError(
+                f"Missing required config callable: '{name}'"
+            )
+        fn = getattr(mod, name)
+        if not callable(fn):
+            raise ConfigValidationError(
+                f"Config field '{name}' must be callable, got {type(fn)}"
+            )
+
+    # Validate ranges
+    _validate_range(mod)
+    _validate_pml_thickness(mod.pml_thickness)
+    _validate_checkpoint_precision(mod.checkpoint_precision)
+
+
+def _validate_range(mod: ModuleType) -> None:
+    """Validate numeric ranges for config fields."""
+    errors = []
+
+    if mod.polynomial_order < 1:
+        errors.append(f"polynomial_order must be >= 1, got {mod.polynomial_order}")
+
+    if mod.output_dt <= 0:
+        errors.append(f"output_dt must be > 0, got {mod.output_dt}")
+
+    if mod.nsteps < 1:
+        errors.append(f"nsteps must be > 0, got {mod.nsteps}")
+
+    if not (0 < mod.cfl_safety < 1):
+        errors.append(f"cfl_safety must be between 0 and 1, got {mod.cfl_safety}")
+
+    if mod.cfl_threshold <= 0:
+        errors.append(f"cfl_threshold must be > 0, got {mod.cfl_threshold}")
+
+    if mod.storage_limit_gb <= 0:
+        errors.append(f"storage_limit_gb must be > 0, got {mod.storage_limit_gb}")
+
+    if mod.n_ranks < 1:
+        errors.append(f"n_ranks must be >= 1, got {mod.n_ranks}")
+
+    if errors:
+        raise ConfigValidationError("; ".join(errors))
+
+
+def _validate_pml_thickness(pml: dict) -> None:
+    """Validate pml_thickness dict."""
+    required_keys = {"xmin", "xmax", "ymin", "ymax", "zmin", "zmax"}
+    if set(pml.keys()) != required_keys:
+        raise ConfigValidationError(
+            f"pml_thickness must have keys {required_keys}, got {set(pml.keys())}"
+        )
+    for key, val in pml.items():
+        if not isinstance(val, int) or val < 0:
+            raise ConfigValidationError(
+                f"pml_thickness['{key}'] must be >= 0 integer, got {val}"
+            )
+
+
+def _validate_checkpoint_precision(precision: str) -> None:
+    """Validate checkpoint_precision."""
+    if precision not in ("float32", "float64"):
+        raise ConfigValidationError(
+            f"checkpoint_precision must be 'float32' or 'float64', got '{precision}'"
+        )
