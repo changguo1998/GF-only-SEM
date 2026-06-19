@@ -63,7 +63,7 @@ All mesh-dependent quantities (GLL coords, Jacobian, dξ/dx, lumped mass, materi
 
 **Force direction**: passed via `--direction {x,y,z}` CLI flag (not embedded in config.h5). Three independent SLURM jobs share one config.h5 with different `--direction` values.
 
-**Parallelism**: pure MPI (one rank per core). Architecture leaves GPU/DCU kernel swap-in for element loop in the future. Single-threaded per rank — no OpenMP, no element coloring needed.
+**Parallelism**: pure MPI (one rank per core). GPU/DCU kernel swap-in path is designed in [`gpu.md`](gpu.md) — device abstraction with template policy. Single-threaded per rank — no OpenMP, no element coloring needed.
 
 ## Technology
 

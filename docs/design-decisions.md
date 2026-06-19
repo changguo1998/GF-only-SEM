@@ -271,7 +271,7 @@ Each tile contains the strain Green's functions for all receivers within its spa
 - **Strain in record**: L2-smoothed strain (not raw element strain). Stored as float32 (default) or float64 (configurable).
 - **3 runs per source**: 3 orthogonal force directions (x, y, z), independent gf_solver invocations managed by SLURM. Single config.h5 shared across all 3 runs; force direction passed via CLI `--direction {x,y,z}`. Each run writes checkpoints to its own directory `wavefields/{direction}/`.
 - **Restart/resume**: Checkpoints save corrected (u, v, a) state alongside strain. `--resume` flag restores state and continues the time loop — the `a` in checkpoint is the corrected M⁻¹·r, directly usable for Newmark prediction.
-- **Parallelism**: Pure MPI (one rank per core). Architecture leaves GPU/DCU kernel swap-in path for future acceleration.
+- **Parallelism**: Pure MPI (one rank per core). Architecture leaves GPU/DCU kernel swap-in path for future acceleration — see [`design/gpu.md`](superpowers/design/gpu.md) for the device-abstraction design.
 - **ibool/GLL node numbering**: Per-rank global GLL node IDs stored in partition_{r}.h5 `/partition/gll_to_global`, 1-based with 0=null. Interface node lists precomputed for MPI exchange.
 
 ## 9. Testing & Validation
