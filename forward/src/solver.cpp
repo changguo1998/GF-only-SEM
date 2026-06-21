@@ -87,31 +87,18 @@ int run_forward(const std::string& partition_dir,
 
         // === Allocate displacement, velocity, acceleration ===
         // Flat arrays: [n_local_dof] for owned elements
-        // Ghost DOF for exchange
-        size_t n_ghost_dof = part.ghost_element_ids.size() * n_node * 3;
-        size_t n_total_dof = n_local_dof + n_ghost_dof;
 
         std::vector<double> u(n_local_dof, 0.0);
         std::vector<double> v(n_local_dof, 0.0);
         std::vector<double> a(n_local_dof, 0.0);
         std::vector<double> r(n_local_dof, 0.0);      // residual
         std::vector<double> u_tilde(n_local_dof, 0.0); // predicted displacement
-        std::vector<double> ghost_u(n_ghost_dof, 0.0); // for halo exchange
 
-        // === Build exchange patterns from partition data ===
-        // neighbors are read from partition_*.h5; construct simple face patterns
-        std::vector<ExchangePattern> patterns;
-        // For now: if neighbors exist, create placeholder patterns
-        // Full face-pair construction requires topology from mesh.h5
-        if (!part.neighbors.empty()) {
-            for (int32_t neighbor : part.neighbors) {
-                ExchangePattern pat;
-                pat.neighbor_rank = static_cast<int>(neighbor);
-                // send/recv indices would come from precomputed face-pair lists
-                // For now, they are empty (no actual exchange if not precomputed)
-                patterns.push_back(pat);
-            }
-        }
+        // === Use precomputed exchange patterns from partition file ===
+        // These contain send_dof and recv_dof indices for shared interface nodes.
+        // For CG-SEM: send_dof == recv_dof (both point to local element interface DOFs,
+        // since each rank accumulates neighbor contributions into its own local DOFs).
+        const auto& exchange_patterns = part.exchange_patterns;
 
         // === Initialize record writer ===
         CompressionConfig comp_cfg;
@@ -174,8 +161,11 @@ int run_forward(const std::string& partition_dir,
                 }
             }
 
-            // --- MPI halo exchange ---
-            exchange_halo(patterns, u_tilde, ghost_u, 3);
+            // --- MPI halo exchange (CG-SEM assembly) ---
+            // Exchange residual r at shared interface nodes so that contributions
+            // from neighbor ranks are summed (accumulate, not overwrite).
+            // After this, r has all contributions at shared nodes across all ranks.
+            exchange_halo(exchange_patterns, r, 3);
 
             // --- Newmark correct ---
             newmark_correct(dt, beta, gamma, part.mass, u, v, a, r);
