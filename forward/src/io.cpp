@@ -52,7 +52,6 @@ std::vector<T> read_dataset_impl(hid_t file_id, const std::string& name) {
     for (int i = 0; i < ndims; ++i) total *= dims[i];
 
     std::vector<T> data(total);
-    // Determine native type
     hid_t nat_type;
     if (std::is_same<T, double>::value) {
         nat_type = H5T_NATIVE_DOUBLE;
@@ -69,6 +68,28 @@ std::vector<T> read_dataset_impl(hid_t file_id, const std::string& name) {
         throw std::runtime_error("H5Dread failed for: " + name);
     }
     return data;
+}
+
+// Try-read a dataset; return empty vector if not found
+template <typename T>
+std::vector<T> try_read_dataset(hid_t file_id, const std::string& name) {
+    if (H5Lexists(file_id, name.c_str(), H5P_DEFAULT) > 0) {
+        return read_dataset_impl<T>(file_id, name);
+    }
+    return {};
+}
+
+// Read int32 attribute
+bool read_attr_int(hid_t loc_id, const std::string& name, int& out) {
+    if (H5Aexists(loc_id, name.c_str()) > 0) {
+        hid_t attr = H5Aopen(loc_id, name.c_str(), H5P_DEFAULT);
+        H5FileGuard attr_guard(attr);
+        if (attr >= 0) {
+            H5Aread(attr, H5T_NATIVE_INT, &out);
+            return true;
+        }
+    }
+    return false;
 }
 
 } // anonymous namespace
@@ -93,38 +114,92 @@ RankData read_partition(const std::string& path, int rank) {
 
     RankData data;
 
-    // Read polynomial order from shape of coords or jacobian
-    // Shape is typically [n_local_elem * NGLL^3, ...] so we can extract NGLL
-    auto jacobian = read_dataset_double(fid, "/partition/rank_" + std::to_string(rank) + "/jacobian");
-    auto ngll = read_dataset_int32(fid, "/partition/rank_" + std::to_string(rank) + "/ngll");
-    data.ngll = ngll.empty() ? 5 : static_cast<int>(ngll[0]); // default 5 if not found
+    // --- Read element counts ---
+    auto local_ids = read_dataset_int64(fid, "/partition/local_element_ids");
+    auto ghost_ids = read_dataset_int64(fid, "/partition/ghost_element_ids");
+    auto ghost_owners = read_dataset_int32(fid, "/partition/ghost_owners");
 
-    // Read element counts
-    auto n_local = read_dataset_int64(fid, "/partition/rank_" + std::to_string(rank) + "/n_local_elem");
-    auto n_ghost = read_dataset_int64(fid, "/partition/rank_" + std::to_string(rank) + "/n_ghost_elem");
-    auto n_total = read_dataset_int64(fid, "/partition/rank_" + std::to_string(rank) + "/n_total_elem");
-    data.n_local_elem = static_cast<int>(n_local[0]);
-    data.n_ghost_elem = static_cast<int>(n_ghost[0]);
-    data.n_total_elem = static_cast<int>(n_total[0]);
+    data.n_local_elem = static_cast<int>(local_ids.size());
+    data.n_ghost_elem = static_cast<int>(ghost_ids.size());
+    data.n_total_elem = data.n_local_elem + data.n_ghost_elem;
 
-    // Read topology
-    data.local_element_ids = read_dataset_int64(fid, "/partition/rank_" + std::to_string(rank) + "/local_element_ids");
-    data.ghost_element_ids = read_dataset_int64(fid, "/partition/rank_" + std::to_string(rank) + "/ghost_element_ids");
-    data.ghost_owners = read_dataset_int32(fid, "/partition/rank_" + std::to_string(rank) + "/ghost_owners");
+    data.local_element_ids = local_ids;
+    data.ghost_element_ids = ghost_ids;
+    data.ghost_owners = ghost_owners;
 
-    // Read geometry and material (precomputed at GLL nodes: [n_elem * NGLL^3, ...])
-    data.coords  = read_dataset_double(fid, "/partition/rank_" + std::to_string(rank) + "/coords");
-    data.jacobian = read_dataset_double(fid, "/partition/rank_" + std::to_string(rank) + "/jacobian");
-    data.dxi_dx  = read_dataset_double(fid, "/partition/rank_" + std::to_string(rank) + "/dxi_dx");
-    data.mass    = read_dataset_double(fid, "/partition/rank_" + std::to_string(rank) + "/mass");
-    data.vp      = read_dataset_double(fid, "/partition/rank_" + std::to_string(rank) + "/vp");
-    data.vs      = read_dataset_double(fid, "/partition/rank_" + std::to_string(rank) + "/vs");
-    data.density = read_dataset_double(fid, "/partition/rank_" + std::to_string(rank) + "/density");
-    data.pml_damping = read_dataset_double(fid, "/partition/rank_" + std::to_string(rank) + "/pml_damping");
+    // --- Derive NGLL from array shape ---
+    // coords has shape [n_elem, NGLL, NGLL, NGLL, 3]
+    {
+        hid_t dset = H5Dopen2(fid, "/field/element/coords", H5P_DEFAULT);
+        hid_t dspace = H5Dget_space(dset);
+        int ndims = H5Sget_simple_extent_ndims(dspace);
+        hsize_t dims[8];
+        H5Sget_simple_extent_dims(dspace, dims, nullptr);
+        if (ndims >= 4) {
+            data.ngll = static_cast<int>(dims[1]);  // NGLL = shape[1]
+        } else {
+            data.ngll = 5;  // default N+1=5
+        }
+        H5Sclose(dspace);
+        H5Dclose(dset);
+    }
 
-    // Read exchange patterns
-    auto neighbors = read_dataset_int32(fid, "/partition/rank_" + std::to_string(rank) + "/neighbors");
-    data.neighbors = neighbors;
+    // --- Read geometry and material fields ---
+    // All stored under /field/element/ with shape [n_local_elem, NGLL, NGLL, NGLL, ...]
+    data.coords    = try_read_dataset<double>(fid, "/field/element/coords");
+    data.jacobian  = try_read_dataset<double>(fid, "/field/element/jacobian");
+    data.dxi_dx    = try_read_dataset<double>(fid, "/field/element/dxi_dx");
+    data.mass      = try_read_dataset<double>(fid, "/field/element/mass");
+    data.vp        = try_read_dataset<double>(fid, "/field/element/vp");
+    data.vs        = try_read_dataset<double>(fid, "/field/element/vs");
+    data.density   = try_read_dataset<double>(fid, "/field/element/density");
+    data.pml_damping = try_read_dataset<double>(fid, "/field/element/damping");
+
+    // --- Read exchange patterns ---
+    hid_t exch_grp = H5Gopen2(fid, "/partition/exchange", H5P_DEFAULT);
+    if (exch_grp >= 0) {
+        H5FileGuard exch_guard(exch_grp);
+
+        hsize_t num_neighbors = 0;
+        H5G_info_t grp_info;
+        herr_t info_status = H5Gget_info(exch_grp, &grp_info);
+        if (info_status >= 0) {
+            num_neighbors = grp_info.nlinks;
+        }
+
+        for (hsize_t i = 0; i < num_neighbors; ++i) {
+            char link_name[256];
+            ssize_t name_len = H5Lget_name_by_idx(
+                exch_grp, ".", H5_INDEX_NAME, H5_ITER_NATIVE,
+                i, link_name, sizeof(link_name), H5P_DEFAULT);
+
+            if (name_len <= 0) continue;
+
+            std::string neighbor_name(link_name, name_len);
+            // neighbor_name is like "neighbor_1"
+            // Extract rank number after underscore
+            size_t underscore = neighbor_name.find('_');
+            if (underscore == std::string::npos) continue;
+
+            std::string rank_str = neighbor_name.substr(underscore + 1);
+            int neighbor_rank = std::stoi(rank_str);
+
+            hid_t ng = H5Gopen2(exch_grp, neighbor_name.c_str(), H5P_DEFAULT);
+            if (ng < 0) continue;
+            H5FileGuard ng_guard(ng);
+
+            auto send_dof = try_read_dataset<int32_t>(ng, "send_dof");
+            auto recv_dof = try_read_dataset<int32_t>(ng, "recv_dof");
+
+            if (!send_dof.empty() || !recv_dof.empty()) {
+                RankData::ExchangePattern pat;
+                pat.neighbor_rank = neighbor_rank;
+                pat.send_dof_indices.assign(send_dof.begin(), send_dof.end());
+                pat.recv_dof_indices.assign(recv_dof.begin(), recv_dof.end());
+                data.exchange_patterns.push_back(std::move(pat));
+            }
+        }
+    }
 
     return data;
 }
@@ -135,46 +210,52 @@ ConfigData read_config(const std::string& path) {
 
     ConfigData cfg;
 
-    // Read attributes/datasets from config.h5 root group
-    // Try as root-level datasets first, then under /config
-    auto titles = read_dataset_double(fid, "title");
-    if (titles.empty()) {
-        cfg.title = "untitled";
-    }
+    cfg.title = "untitled";
 
-    cfg.polynomial_order = static_cast<int>(
-        read_dataset_double(fid, "polynomial_order")[0]);
+    auto poly_order = try_read_dataset<double>(fid, "polynomial_order");
+    cfg.polynomial_order = poly_order.empty() ? 3 : static_cast<int>(poly_order[0]);
 
-    cfg.dt = read_dataset_double(fid, "dt")[0];
-    cfg.nsteps = static_cast<int>(read_dataset_double(fid, "nsteps")[0]);
-    cfg.cfl_safety = read_dataset_double(fid, "cfl_safety")[0];
-    cfg.checkpoint_interval = static_cast<int>(
-        read_dataset_double(fid, "checkpoint_interval")[0]);
+    auto dt = try_read_dataset<double>(fid, "dt");
+    cfg.dt = dt.empty() ? 0.005 : dt[0];
+
+    auto nsteps = try_read_dataset<double>(fid, "nsteps");
+    cfg.nsteps = nsteps.empty() ? 1000 : static_cast<int>(nsteps[0]);
+
+    auto cfl = try_read_dataset<double>(fid, "cfl_safety");
+    cfg.cfl_safety = cfl.empty() ? 1.0 : cfl[0];
+
+    auto ckpt_int = try_read_dataset<double>(fid, "checkpoint_interval");
+    cfg.checkpoint_interval = ckpt_int.empty() ? 10 : static_cast<int>(ckpt_int[0]);
+
     cfg.checkpoint_precision = "float64";
-    if (read_dataset_int64(fid, "use_float32")[0] == 1) {
+    auto use_f32 = try_read_dataset<int64_t>(fid, "use_float32");
+    if (!use_f32.empty() && use_f32[0] == 1) {
         cfg.checkpoint_precision = "float32";
     }
 
     // Domain bounds
-    auto xmin = read_dataset_double(fid, "xmin")[0];
-    auto xmax = read_dataset_double(fid, "xmax")[0];
-    auto ymin = read_dataset_double(fid, "ymin")[0];
-    auto ymax = read_dataset_double(fid, "ymax")[0];
-    auto zmin = read_dataset_double(fid, "zmin")[0];
-    auto zmax = read_dataset_double(fid, "zmax")[0];
-    cfg.xmin = xmin;  cfg.xmax = xmax;
-    cfg.ymin = ymin;  cfg.ymax = ymax;
-    cfg.zmin = zmin;  cfg.zmax = zmax;
+    auto xmin = try_read_dataset<double>(fid, "xmin");
+    auto xmax = try_read_dataset<double>(fid, "xmax");
+    auto ymin = try_read_dataset<double>(fid, "ymin");
+    auto ymax = try_read_dataset<double>(fid, "ymax");
+    auto zmin = try_read_dataset<double>(fid, "zmin");
+    auto zmax = try_read_dataset<double>(fid, "zmax");
+    if (!xmin.empty()) cfg.xmin = xmin[0];
+    if (!xmax.empty()) cfg.xmax = xmax[0];
+    if (!ymin.empty()) cfg.ymin = ymin[0];
+    if (!ymax.empty()) cfg.ymax = ymax[0];
+    if (!zmin.empty()) cfg.zmin = zmin[0];
+    if (!zmax.empty()) cfg.zmax = zmax[0];
 
-    // Source: STFs and location
-    cfg.stf_t    = read_dataset_double(fid, "stf_t");
-    cfg.stf_values = read_dataset_double(fid, "stf_values");
-    auto src_x = read_dataset_double(fid, "source_x");
-    auto src_y = read_dataset_double(fid, "source_y");
-    auto src_z = read_dataset_double(fid, "source_z");
-    cfg.source_x = src_x[0];
-    cfg.source_y = src_y[0];
-    cfg.source_z = src_z[0];
+    // Source data
+    cfg.stf_t      = try_read_dataset<double>(fid, "stf_t");
+    cfg.stf_values = try_read_dataset<double>(fid, "stf_values");
+    auto src_x = try_read_dataset<double>(fid, "source_x");
+    auto src_y = try_read_dataset<double>(fid, "source_y");
+    auto src_z = try_read_dataset<double>(fid, "source_z");
+    if (!src_x.empty()) cfg.source_x = src_x[0];
+    if (!src_y.empty()) cfg.source_y = src_y[0];
+    if (!src_z.empty()) cfg.source_z = src_z[0];
 
     return cfg;
 }
