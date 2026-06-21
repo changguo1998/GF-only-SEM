@@ -49,6 +49,15 @@ add_gf_test(test_io test_io.cpp)
 # Record writer tests (HDF5)
 add_gf_test(test_record test_record.cpp)
 
+# Assembly tests
+add_gf_test(test_assembly test_assembly.cpp)
+
+# Exchange tests (MPI, requires mpirun -np 2)
+add_gf_test(test_exchange test_exchange.cpp)
+
+# Integration tests (single-element end-to-end)
+add_gf_test(test_integration test_integration.cpp)
+
 # ---------------------------------------------------------------
 # Compress module tests
 # ---------------------------------------------------------------

@@ -193,7 +193,7 @@ Read `/topology/` datasets from mesh.h5 into memory. X2Y naming, 1-based indexin
 - [x] **Step 1: Write test** — read synthetic mesh.h5, verify vertex_to_coord shape, n_vertex attr
 - [x] **Step 2: Write test** — verify edge_to_vertex (signed int), surface_to_edge (CCW), cell_to_surface
 - [x] **Step 3: Implement `read_topology(path) -> TopologyData`** — read all `/topology/` datasets
-- [ ] **Step 4: Commit** (DEFERRED -- SLS parameter computation not implemented, no sls.py file exists)
+- [x] **Step 4: Commit**
 
 ---
 
@@ -208,7 +208,7 @@ For each element with 8 corner vertices and polynomial order N, compute (N+1)³ 
 - [x] **Step 1: Write test** — GLL node coords for a cube element (should interpolate corners)
 - [x] **Step 2: Write test** — det(J) for unit cube should equal 1/8 of cube volume
 - [x] **Step 3: Implement `compute_gll_geometry(topology, N)`** — returns coords, jacobian, dxi_dx, mass arrays
-- [ ] **Step 4: Commit** (DEFERRED -- SLS parameter computation not implemented, no sls.py file exists)
+- [x] **Step 4: Commit**
 
 ---
 

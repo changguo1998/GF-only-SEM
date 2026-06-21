@@ -2,6 +2,8 @@
 #include "gf/solver.hpp"
 #include "gf/types.hpp"
 #include "gf/gll.hpp"
+#include "gf/pml.hpp"
+#include "gf/assembly.hpp"
 #include "gf/element.hpp"
 #include "gf/exchange.hpp"
 #include "gf/io.hpp"
@@ -144,8 +146,8 @@ int run_forward(const std::string& partition_dir,
                                          ngll, elem_u, elem_r);
             }
 
-            // --- PML damping (placeholder) ---
-            // TODO: apply PML damping from part.pml_damping
+            // --- PML damping ---
+            apply_pml_damping(part.pml_damping, u_tilde, v, static_cast<int>(v.size()));
 
             // --- Source injection ---
             // Distribute STF * source_weights at source_node
