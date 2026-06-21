@@ -133,12 +133,16 @@ def partition(
     Returns:
         dict with:
           element_to_rank: [n_cell] int64 array
-          rank_data: list of dicts per rank, each with:
-            local_element_ids: list of element indices local to this rank
-            ghost_element_ids: list of element indices owned by other ranks
+          n_ranks: number of ranks
+          per_rank: dict rank → dict with:
+            local_element_ids: list of 1-based element indices local to this rank
+            ghost_element_ids: list of 1-based element indices owned by other ranks
                                but needed by this rank
             ghost_owners: list of rank IDs for each ghost element
-            exchange: dict neighbor_rank → list of (local_surf_idx, ghost_surf_idx)
+            exchange: dict neighbor_rank → {
+                "send_dof": list of local DOF indices (flat, 3*ngll_idx + dir),
+                "recv_dof": list of ghost DOF indices (flat, 3*ngll_idx + dir),
+            }
     """
     n_cell = topology.n_cell
 
@@ -159,27 +163,66 @@ def partition(
     except ImportError:
         element_to_rank = _geometric_partition(gll_coords, n_ranks)
 
-    # Build rank data
-    rank_data: list[dict] = []
+    # Build rank data as a dict of per-rank dicts
+    per_rank: dict[int, dict] = {}
+    n_cell_total = topology.n_cell
+    n_surface = topology.n_surface
+    c2s = topology.cell_to_surface
+    NGLL = gll_coords.shape[1]
+    n_node = NGLL * NGLL * NGLL
+
+    # Precompute element → surface→face mapping for fast lookup
+    # For each element e, surf_to_face[surf_idx] = face_idx (0..5)
+    elem_surf_to_face: list[dict] = [{} for _ in range(n_cell_total)]
+    for e in range(n_cell_total):
+        for face_idx, signed_sid in enumerate(c2s[e]):
+            abs_sid = abs(int(signed_sid)) - 1
+            elem_surf_to_face[e][abs_sid] = face_idx
+
+    # GLL node indices on each face
+    def _face_gll_nodes(face_idx: int) -> list[int]:
+        nodes = []
+        if face_idx == 0:  # -z: k=0
+            for i in range(NGLL):
+                for j in range(NGLL):
+                    nodes.append((i * NGLL + j) * NGLL + 0)
+        elif face_idx == 1:  # +z: k=NGLL-1
+            for i in range(NGLL):
+                for j in range(NGLL):
+                    nodes.append((i * NGLL + j) * NGLL + (NGLL - 1))
+        elif face_idx == 2:  # -y: j=0
+            for i in range(NGLL):
+                for k in range(NGLL):
+                    nodes.append((i * NGLL + 0) * NGLL + k)
+        elif face_idx == 3:  # +y: j=NGLL-1
+            for i in range(NGLL):
+                for k in range(NGLL):
+                    nodes.append((i * NGLL + (NGLL - 1)) * NGLL + k)
+        elif face_idx == 4:  # -x: i=0
+            for j in range(NGLL):
+                for k in range(NGLL):
+                    nodes.append((0 * NGLL + j) * NGLL + k)
+        elif face_idx == 5:  # +x: i=NGLL-1
+            for j in range(NGLL):
+                for k in range(NGLL):
+                    nodes.append(((NGLL - 1) * NGLL + j) * NGLL + k)
+        return nodes
+
     for rank in range(n_ranks):
         locals_list: list[int] = []
-        for e in range(n_cell):
+        for e in range(n_cell_total):
             if element_to_rank[e] == rank:
                 locals_list.append(e)
-        rank_data.append({
+        per_rank[rank] = {
             "local_element_ids": locals_list,
             "ghost_element_ids": [],
             "ghost_owners": [],
             "exchange": {},
-        })
-
-    # Compute ghost elements and exchange patterns
-    n_surface = topology.n_surface
-    c2s = topology.cell_to_surface
+        }
 
     # Build surface → cells map
     surf_to_cells: dict[int, list[int]] = {}
-    for e in range(n_cell):
+    for e in range(n_cell_total):
         for signed_sid in c2s[e]:
             abs_sid = abs(int(signed_sid)) - 1
             if abs_sid not in surf_to_cells:
@@ -187,41 +230,98 @@ def partition(
             if e not in surf_to_cells[abs_sid]:
                 surf_to_cells[abs_sid].append(e)
 
+    # First pass: identify ghost elements
     for surf_idx in range(n_surface):
         cells_on_surf = surf_to_cells.get(surf_idx, [])
         if len(cells_on_surf) < 2:
             continue
 
-        # Identify pairs of cells on different ranks
         for i in range(len(cells_on_surf)):
             for j in range(i + 1, len(cells_on_surf)):
                 c1 = cells_on_surf[i]
                 c2 = cells_on_surf[j]
-                r1 = element_to_rank[c1]
-                r2 = element_to_rank[c2]
+                r1 = int(element_to_rank[c1])
+                r2 = int(element_to_rank[c2])
 
                 if r1 == r2:
-                    continue  # same rank, no exchange needed
+                    continue
 
-                # c1 is ghost for rank r2, c2 is ghost for rank r1
-                for owner_rank, ghost_cell, local_cell in [
-                    (r1, c2, c1),
-                    (r2, c1, c2),
-                ]:
-                    rd = rank_data[owner_rank]
+                for owner_rank, ghost_cell in [(r1, c2), (r2, c1)]:
+                    rd = per_rank[owner_rank]
                     if ghost_cell not in rd["ghost_element_ids"]:
                         rd["ghost_element_ids"].append(ghost_cell)
-                        rd["ghost_owners"].append(element_to_rank[ghost_cell])
+                        rd["ghost_owners"].append(int(element_to_rank[ghost_cell]))
 
-                    # Exchange: face pair (local_surf_idx, ghost_surf_idx)
-                    # We use surface index as the face identifier
-                    if element_to_rank[ghost_cell] not in rd["exchange"]:
-                        rd["exchange"][int(element_to_rank[ghost_cell])] = []
-                    rd["exchange"][int(element_to_rank[ghost_cell])].append(
-                        (int(surf_idx), int(surf_idx))
-                    )
+    # Second pass: compute exchange DOF indices
+    # For CG-SEM assembly: each rank sends its local residual contributions at shared
+    # interface nodes to the neighbor, and receives the neighbor's contributions at
+    # the SAME local interface nodes (accumulate). send_dof == recv_dof on each rank.
+    for rank in range(n_ranks):
+        rd = per_rank[rank]
+        local_idx_map: dict[int, int] = {
+            e_global: idx for idx, e_global in enumerate(rd["local_element_ids"])
+        }
+        ghost_set: set[int] = set(rd["ghost_element_ids"])  # elements owned by other ranks
+        # Build reverse map: ghost_elem → {neighbor_rank}
+        ghost_to_owner: dict[int, list[int]] = {}
+        for idx, g_elem in enumerate(rd["ghost_element_ids"]):
+            owner = int(rd["ghost_owners"][idx])
+            if g_elem not in ghost_to_owner:
+                ghost_to_owner[g_elem] = []
+            ghost_to_owner[g_elem].append(owner)
+
+        exchange_dof: dict[int, dict] = {}
+
+        for surf_idx in range(n_surface):
+            cells = surf_to_cells.get(surf_idx, [])
+            for i in range(len(cells)):
+                for j in range(i + 1, len(cells)):
+                    c1 = cells[i]
+                    c2 = cells[j]
+                    r1 = int(element_to_rank[c1])
+                    r2 = int(element_to_rank[c2])
+
+                    if r1 == r2:
+                        continue
+
+                    # Process from rank r1's perspective
+                    if r1 == rank:
+                        if r2 not in exchange_dof:
+                            exchange_dof[r2] = {"send_dof": [], "recv_dof": []}
+
+                        ex = exchange_dof[r2]
+
+                        # c1 is local element → interface nodes
+                        face = elem_surf_to_face[c1].get(surf_idx)
+                        local_idx = local_idx_map.get(c1)
+                        if face is not None and local_idx is not None:
+                            for n in _face_gll_nodes(face):
+                                base = local_idx * n_node * 3 + n * 3
+                                for d in [base, base + 1, base + 2]:
+                                    ex["send_dof"].append(d)
+                                    ex["recv_dof"].append(d)
+
+                    # Process from rank r2's perspective
+                    if r2 == rank:
+                        if r1 not in exchange_dof:
+                            exchange_dof[r1] = {"send_dof": [], "recv_dof": []}
+
+                        ex = exchange_dof[r1]
+
+                        # c2 is local element → interface nodes
+                        face = elem_surf_to_face[c2].get(surf_idx)
+                        local_idx = local_idx_map.get(c2)
+                        if face is not None and local_idx is not None:
+                            for n in _face_gll_nodes(face):
+                                base = local_idx * n_node * 3 + n * 3
+                                for d in [base, base + 1, base + 2]:
+                                    ex["send_dof"].append(d)
+                                    ex["recv_dof"].append(d)
+
+        rd["exchange"] = exchange_dof
 
     return {
         "element_to_rank": element_to_rank,
-        "rank_data": rank_data,
+        "n_ranks": n_ranks,
+        "per_rank": per_rank,
     }

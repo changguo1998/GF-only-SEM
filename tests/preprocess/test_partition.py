@@ -127,11 +127,11 @@ class TestPartition:
         # Each element should belong to a different rank
         assert result["element_to_rank"][0] != result["element_to_rank"][1] or result["element_to_rank"][0] == 0
 
-        # Check rank_data length
-        assert len(result["rank_data"]) == 2
+        # Check per_rank length
+        assert len(result["per_rank"]) == 2
 
         # Sum of local elements across ranks = total elements
-        total_local = sum(len(rd["local_element_ids"]) for rd in result["rank_data"])
+        total_local = sum(len(rd["local_element_ids"]) for rd in result["per_rank"].values())
         assert total_local == 2
 
     def test_each_element_assigned_exactly_once(self):
@@ -142,7 +142,7 @@ class TestPartition:
         result = partition(topo, gll_coords, n_ranks=2)
 
         all_local = []
-        for rd in result["rank_data"]:
+        for rank, rd in result["per_rank"].items():
             all_local.extend(rd["local_element_ids"])
         assert len(all_local) == 2
         assert set(all_local) == {0, 1}
@@ -156,25 +156,33 @@ class TestPartition:
 
         assert result["element_to_rank"].shape == (2,)
         assert np.all(result["element_to_rank"] == 0)
-        assert len(result["rank_data"]) == 1
-        assert set(result["rank_data"][0]["local_element_ids"]) == {0, 1}
-        assert len(result["rank_data"][0]["ghost_element_ids"]) == 0
+        assert len(result["per_rank"]) == 1
+        assert set(result["per_rank"][0]["local_element_ids"]) == {0, 1}
+        assert len(result["per_rank"][0]["ghost_element_ids"]) == 0
 
     def test_exchange_patterns_consistency(self):
-        """Exchange patterns should reference faces shared across ranks."""
+        """Exchange patterns should have send_dof/recv_dof for shared faces."""
         topo = _make_two_cube_topo()
-        gll_coords = np.zeros((2, 2, 2, 2, 3), dtype=np.float64)
+        gll_coords = np.zeros((2, 3, 3, 3, 3), dtype=np.float64)  # NGLL=3
 
         result = partition(topo, gll_coords, n_ranks=2)
 
         # Check that exchange lists exist and are consistent
-        for rank_id, rd in enumerate(result["rank_data"]):
-            for neighbor, faces in rd["exchange"].items():
+        exchange_found = False
+        for rank_id, rd in result["per_rank"].items():
+            for neighbor, dof_dict in rd["exchange"].items():
+                exchange_found = True
                 # neighbor should never be self
                 assert neighbor != rank_id
-                # neighbor's exchange should reference this rank back
-                # (not checking symmetry strictly, as it depends on partition)
-                pass
+                # both send_dof and recv_dof should exist
+                assert "send_dof" in dof_dict
+                assert "recv_dof" in dof_dict
+                # CG-SEM: send_dof == recv_dof (both point to local interface DOFs)
+                assert len(dof_dict["send_dof"]) > 0
+                assert dof_dict["send_dof"] == dof_dict["recv_dof"]
+                # DOF count = 3 * NGLL * NGLL (3 directions per GLL node on shared face)
+                assert len(dof_dict["send_dof"]) == 3 * 3 * 3  # NGLL=3, face has 3x3 nodes, 3 dirs = 27
+        assert exchange_found, "Expected at least one exchange pattern for 2 ranks with 2 cubes"
 
     def test_four_cubes_four_ranks(self):
         """Four cubes in 2x2 grid, partition into 4 ranks."""
@@ -222,7 +230,7 @@ class TestPartition:
 
         assert result["element_to_rank"].shape == (4,)
         assert len(np.unique(result["element_to_rank"])) == 4  # all ranks used
-        assert len(result["rank_data"]) == 4
+        assert len(result["per_rank"]) == 4
 
-        total_local = sum(len(rd["local_element_ids"]) for rd in result["rank_data"])
+        total_local = sum(len(rd["local_element_ids"]) for rd in result["per_rank"].values())
         assert total_local == 4

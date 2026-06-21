@@ -82,30 +82,21 @@ def _write_partition_files(
 
     element_to_rank = partition_result.get("element_to_rank")
     n_ranks = partition_result.get("n_ranks", 1)
+    per_rank = partition_result.get("per_rank", {})  # dict rank → dict
 
     if element_to_rank is None:
         element_to_rank = np.zeros(topology.n_cell, dtype=np.int32)
 
-    per_rank = partition_result.get("per_rank", {})
-
     field_keys = ["coords", "dxi_dx", "jacobian", "mass", "vp", "vs",
-                   "density", "is_pml", "damping"]
+                   "density", "damping"]
 
     for r in range(n_ranks):
-        local_ids = per_rank.get(r, {}).get(
-            "local_element_ids",
-            np.where(element_to_rank == r)[0] + 1,
-        )
-        ghost_ids = per_rank.get(r, {}).get(
-            "ghost_element_ids",
-            np.array([], dtype=np.int64),
-        )
-        ghost_owners = per_rank.get(r, {}).get(
-            "ghost_owners",
-            np.array([], dtype=np.int32),
-        )
+        rk = per_rank.get(r, {})
+        local_ids = np.asarray(rk.get("local_element_ids", []), dtype=np.int64)
+        ghost_ids = np.asarray(rk.get("ghost_element_ids", []), dtype=np.int64)
+        ghost_owners = np.asarray(rk.get("ghost_owners", []), dtype=np.int32)
 
-        local_zero = np.asarray(local_ids, dtype=np.int64) - 1
+        local_zero = local_ids  # already 0-based from partition.py
         n_local = len(local_zero)
 
         part_path = os.path.join(parts_dir, f"partition_{r}.h5")
@@ -117,38 +108,28 @@ def _write_partition_files(
                 arr = fields.get(key)
                 if arr is None:
                     continue
-                local_data = arr[local_zero] if n_local > 0 else np.array([])
+                local_data = arr[local_zero] if n_local > 0 else np.array([], dtype=arr.dtype)
                 _write_dataset(felem_grp, key, local_data, compression=True)
 
             fsurf_grp = fld_grp.create_group("surface")
-            if n_local > 0:
-                # map surface boundary tags: identify surfaces belonging to
-                # local cells and assign boundary_tag values
-                c2s = topology.cell_to_surface
-                n_surf_local = topology.n_surface
-                _write_dataset(fsurf_grp, "boundary_tag", boundary_tag,
-                               dtype="int64")
+            _write_dataset(fsurf_grp, "boundary_tag", boundary_tag, dtype="int64")
 
             part_grp = f.create_group("partition")
             part_grp.attrs["n_ranks"] = n_ranks
-            _write_dataset(part_grp, "element_to_rank", element_to_rank,
-                           dtype="int32")
+            _write_dataset(part_grp, "element_to_rank", element_to_rank, dtype="int32")
+            _write_dataset(part_grp, "local_element_ids", local_ids, dtype="int64")
+            _write_dataset(part_grp, "ghost_element_ids", ghost_ids, dtype="int64")
+            _write_dataset(part_grp, "ghost_owners", ghost_owners, dtype="int32")
 
-            _write_dataset(part_grp, "local_element_ids",
-                           np.asarray(local_ids, dtype=np.int64), dtype="int64")
-            _write_dataset(part_grp, "ghost_element_ids",
-                           np.asarray(ghost_ids, dtype=np.int64), dtype="int64")
-            _write_dataset(part_grp, "ghost_owners",
-                           np.asarray(ghost_owners, dtype=np.int32),
-                           dtype="int32")
-
-            exchange = per_rank.get(r, {}).get("exchange", {})
+            exchange = rk.get("exchange", {})
             if exchange:
                 exch_grp = part_grp.create_group("exchange")
-                for neighbor, pairs in exchange.items():
-                    _write_dataset(exch_grp, f"neighbor_{neighbor}",
-                                   np.asarray(pairs, dtype=np.int64),
-                                   dtype="int64")
+                for neighbor, dof_dict in exchange.items():
+                    ng = exch_grp.create_group(f"neighbor_{neighbor}")
+                    send_arr = np.asarray(dof_dict.get("send_dof", []), dtype=np.int32)
+                    recv_arr = np.asarray(dof_dict.get("recv_dof", []), dtype=np.int32)
+                    _write_dataset(ng, "send_dof", send_arr, dtype="int32")
+                    _write_dataset(ng, "recv_dof", recv_arr, dtype="int32")
 
 
 def _write_dataset(

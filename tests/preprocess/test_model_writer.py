@@ -135,7 +135,7 @@ class TestModelWriter:
                 "n_ranks": 1,
                 "per_rank": {
                     0: {
-                        "local_element_ids": np.array([1], dtype=np.int64),
+                        "local_element_ids": np.array([0], dtype=np.int64),
                         "ghost_element_ids": np.array([], dtype=np.int64),
                         "ghost_owners": np.array([], dtype=np.int32),
                         "exchange": {},
@@ -168,7 +168,7 @@ class TestModelWriter:
                 part = f["partition"]
                 assert part.attrs["n_ranks"] == 1
                 assert np.array_equal(
-                    part["local_element_ids"][:], np.array([1], dtype=np.int64))
+                    part["local_element_ids"][:], np.array([0], dtype=np.int64))
 
     def test_partition_multi_rank(self):
         with tempfile.TemporaryDirectory() as td:
@@ -184,10 +184,10 @@ class TestModelWriter:
                 "n_ranks": 1,
                 "per_rank": {
                     0: {
-                        "local_element_ids": np.array([1], dtype=np.int64),
+                        "local_element_ids": np.array([0], dtype=np.int64),
                         "ghost_element_ids": np.array([], dtype=np.int64),
                         "ghost_owners": np.array([], dtype=np.int32),
-                        "exchange": {1: np.array([[1, 3]], dtype=np.int64)},
+                        "exchange": {1: {"send_dof": [1,2,3], "recv_dof": [1,2,3]}},
                     },
                 },
             }
@@ -199,6 +199,9 @@ class TestModelWriter:
             with h5py.File(part_path, "r") as f:
                 exch = f["partition/exchange"]
                 assert "neighbor_1" in exch
+                ng = exch["neighbor_1"]
+                assert "send_dof" in ng
+                assert "recv_dof" in ng
 
     def test_is_pml_int8_written(self):
         with tempfile.TemporaryDirectory() as td:
