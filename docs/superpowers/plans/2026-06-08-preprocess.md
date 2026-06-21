@@ -193,7 +193,7 @@ Read `/topology/` datasets from mesh.h5 into memory. X2Y naming, 1-based indexin
 - [x] **Step 1: Write test** — read synthetic mesh.h5, verify vertex_to_coord shape, n_vertex attr
 - [x] **Step 2: Write test** — verify edge_to_vertex (signed int), surface_to_edge (CCW), cell_to_surface
 - [x] **Step 3: Implement `read_topology(path) -> TopologyData`** — read all `/topology/` datasets
-- [x] **Step 4: Commit**
+- [ ] **Step 4: Commit** (DEFERRED -- SLS parameter computation not implemented, no sls.py file exists)
 
 ---
 
@@ -208,7 +208,7 @@ For each element with 8 corner vertices and polynomial order N, compute (N+1)³ 
 - [x] **Step 1: Write test** — GLL node coords for a cube element (should interpolate corners)
 - [x] **Step 2: Write test** — det(J) for unit cube should equal 1/8 of cube volume
 - [x] **Step 3: Implement `compute_gll_geometry(topology, N)`** — returns coords, jacobian, dxi_dx, mass arrays
-- [x] **Step 4: Commit**
+- [ ] **Step 4: Commit** (DEFERRED -- SLS parameter computation not implemented, no sls.py file exists)
 
 ---
 
@@ -222,7 +222,7 @@ Load binary 3D model (format TBD — placeholder for now). Interpolate Vp, Vs, d
 
 - [x] **Step 1: Write test** — homogeneous model returns constant values at all GLL nodes
 - [x] **Step 2: Implement `load_and_interpolate(model_path, gll_coords)`** — returns vp, vs, density, q_kappa, q_mu arrays (element-first, shape `[n_cell, NGLL, NGLL, NGLL]`)
-- [x] **Step 3: Commit** — noted as placeholder until 3D model format is finalized
+- [x] **Step 3: Commit** — noted as placeholder until 3D model format is finalized (STILL PLACEHOLDER -- model_loader.py returns constant values, no real 3D model format support)
 
 ---
 
@@ -251,9 +251,9 @@ Viscoelastic attenuation (SLS τ-method) is deferred to future work. Skip this t
 τ-method: compute τ_σ and τ_ε per GLL node from per-node Q values and global (f_min, f_max, n_sls).
 
 - [x] **Step 1: Write test** — constant Q produces consistent τ values, τ_σ < τ_ε
-- [x] **Step 2: Write test** — n_sls=3 produces 3 mechanism pairs
-- [x] **Step 3: Implement `compute_sls_parameters(q, f_min, f_max, n_sls)`** — returns tau_sigma[n_sls], tau_epsilon[n_sls] per GLL node
-- [x] **Step 4: Commit**
+- [ ] **Step 2: Write test** -- n_sls=3 produces 3 mechanism pairs (DEFERRED -- SLS not implemented)
+- [ ] **Step 3: Implement compute_sls_parameters(q, f_min, f_max, n_sls)** -- returns tau_sigma[n_sls], tau_epsilon[n_sls] per GLL node (DEFERRED -- SLS not implemented)
+- [ ] **Step 4: Commit** (DEFERRED -- SLS parameter computation not implemented, no sls.py file exists)
 
 ---
 
