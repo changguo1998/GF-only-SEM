@@ -43,7 +43,16 @@ struct RankData {
     // Precomputed exchange patterns (from /partition/rank_{r}/exchange/)
     // Face-pair send/recv lists per neighbor
     std::vector<int32_t> neighbors;
-    // ... exchange pattern structures ...
+
+    // Exchange patterns for MPI halo: per-neighbor send/recv DOF index lists.
+    // send_dof_indices[i]: local DOF index to send to neighbor i
+    // recv_dof_indices[i]: local DOF index to receive from neighbor i
+    struct ExchangePattern {
+        int neighbor_rank;
+        std::vector<int> send_dof_indices;   // local DOF indices to send
+        std::vector<int> recv_dof_indices;   // local DOF indices to receive into (ghost DOFs)
+    };
+    std::vector<ExchangePattern> exchange_patterns;
 };
 
 // --- Time stepping ---
