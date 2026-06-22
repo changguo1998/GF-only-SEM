@@ -64,15 +64,63 @@ def _get_cell_vertex_ids(
     s2e: npt.NDArray[np.int64],
     e2v: npt.NDArray[np.int64],
 ) -> npt.NDArray[np.int64]:
-    """Extract the 8 vertex IDs (1-based, sorted) for cell e."""
-    all_verts: set[int] = set()
-    for signed_sid in c2s[e]:
+    """Extract the 8 vertex IDs (1-based, GMSH hex order) for cell e.
+
+    Returns vertices in GMSH hex ordering:
+    v0(-1,-1,-1), v1(1,-1,-1), v2(1,1,-1), v3(-1,1,-1),
+    v4(-1,-1,1),  v5(1,-1,1),  v6(1,1,1),  v7(-1,1,1).
+
+    Uses face-membership: each corner belongs to exactly 3 faces.
+    The 6 faces in cell_to_surface are ordered -z, +z, -y, +y, -x, +x
+    (indices 0..5).  By checking which 3 faces each vertex appears on,
+    the 8 GMSH corners are uniquely identified.
+    """
+    # Collect vertex sets for each face (indices 0..5)
+    face_vertices: list[set[int]] = [set() for _ in range(6)]
+    for fi, signed_sid in enumerate(c2s[e]):
         abs_sid = abs(int(signed_sid)) - 1
         for sedge in s2e[abs_sid]:
             abs_eid = abs(int(sedge)) - 1
-            all_verts.add(int(e2v[abs_eid, 0]))
-            all_verts.add(int(e2v[abs_eid, 1]))
-    return np.array(sorted(all_verts), dtype=np.int64)
+            face_vertices[fi].add(int(e2v[abs_eid, 0]))
+            face_vertices[fi].add(int(e2v[abs_eid, 1]))
+
+    # Build vertex → face membership (set of face indices 0..5)
+    vertex_to_faces: dict[int, set[int]] = {}
+    for fi, fv in enumerate(face_vertices):
+        for v in fv:
+            if v not in vertex_to_faces:
+                vertex_to_faces[v] = set()
+            vertex_to_faces[v].add(fi)
+
+    # GMSH corner → face membership
+    # Face 0=-z, 1=+z, 2=-y, 3=+y, 4=-x, 5=+x
+    corner_faces = [
+        {0, 2, 4},  # v0: -z, -y, -x
+        {0, 2, 5},  # v1: -z, -y, +x
+        {0, 3, 5},  # v2: -z, +y, +x
+        {0, 3, 4},  # v3: -z, +y, -x
+        {1, 2, 4},  # v4: +z, -y, -x
+        {1, 2, 5},  # v5: +z, -y, +x
+        {1, 3, 5},  # v6: +z, +y, +x
+        {1, 3, 4},  # v7: +z, +y, -x
+    ]
+
+    result = np.zeros(8, dtype=np.int64)
+    for corner_idx, target_faces in enumerate(corner_faces):
+        found = False
+        for v, vfaces in vertex_to_faces.items():
+            if vfaces == target_faces:
+                result[corner_idx] = np.int64(v)
+                found = True
+                break
+        if not found:
+            raise ValueError(
+                f"Cannot identify GMSH corner {corner_idx} for cell {e}. "
+                f"Vertex->faces: {vertex_to_faces}. "
+                f"Target faces: {target_faces}."
+            )
+
+    return result
 
 
 def compute_gll_geometry(
