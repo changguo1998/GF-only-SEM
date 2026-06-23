@@ -4,6 +4,8 @@
 //   mpirun -np 2 ./tests/test_exchange
 //
 // Single-rank runs skip the multi-rank tests gracefully.
+#define CATCH_CONFIG_RUNNER
+#include <catch2/catch_session.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <mpi.h>
@@ -13,6 +15,13 @@
 
 using namespace gf;
 using Catch::Matchers::WithinAbs;
+
+int main(int argc, char* argv[]) {
+    MPI_Init(&argc, &argv);
+    int result = Catch::Session().run(argc, argv);
+    MPI_Finalize();
+    return result;
+}
 
 // Helper: build patterns for two-rank exchange
 // Rank 0 sends DOFs 0-5 to rank 1; rank 1 receives into DOFs 0-5.

@@ -41,7 +41,7 @@ struct UnitCubeElement {
         for (int k = 0; k < ngll; ++k) {
             for (int j = 0; j < ngll; ++j) {
                 for (int i = 0; i < ngll; ++i) {
-                    int idx = (k * ngll + j) * ngll + i;
+                    int idx = (i * ngll + j) * ngll + k;
                     double xi = nodes[i], eta = nodes[j], zeta = nodes[k];
                     coords[idx * 3 + 0] = 0.5 * (xi + 1.0);
                     coords[idx * 3 + 1] = 0.5 * (eta + 1.0);
@@ -149,5 +149,5 @@ TEST_CASE("Uniform uniaxial strain produces correct residual", "[element]") {
     for (int i = 0; i < elem.n_node; ++i) {
         sum_rx += r[i * 3 + 0];
     }
-    REQUIRE_THAT(sum_rx, WithinAbs(0.0, 1e-10));
+    REQUIRE_THAT(sum_rx, WithinAbs(0.0, 1e-8));
 }

@@ -1,5 +1,9 @@
 # tests/CMakeLists.txt — Catch2 tests for forward solver + compress module
 
+if(POLICY CMP0110)
+    cmake_policy(SET CMP0110 NEW)
+endif()
+
 # Include Catch2 helper module (provides catch_discover_tests)
 list(PREPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)
@@ -52,8 +56,35 @@ add_gf_test(test_record test_record.cpp)
 # Assembly tests
 add_gf_test(test_assembly test_assembly.cpp)
 
-# Exchange tests (MPI, requires mpirun -np 2)
-add_gf_test(test_exchange test_exchange.cpp)
+# Exchange tests (MPI, requires mpirun -np 2 for multi-rank cases)
+add_executable(test_exchange test_exchange.cpp)
+target_include_directories(test_exchange PRIVATE
+    ${CMAKE_SOURCE_DIR}/forward/include
+    ${CMAKE_SOURCE_DIR}/compress/include
+    ${EIGEN3_INCLUDE_DIR}
+    ${HDF5_INCLUDE_DIRS}
+)
+target_link_libraries(test_exchange PRIVATE
+    libgf
+    Catch2::Catch2
+    MPI::MPI_CXX
+    Eigen3::Eigen
+    ${HDF5_C_LIBRARIES}
+)
+target_compile_features(test_exchange PRIVATE cxx_std_17)
+
+add_test(
+    NAME "Exchange halo transfers data between two ranks"
+    COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 $<TARGET_FILE:test_exchange> "Exchange halo transfers data between two ranks"
+)
+add_test(
+    NAME "Exchange accumulate adds received data (CG-SEM assembly)"
+    COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 $<TARGET_FILE:test_exchange> "Exchange accumulate adds received data (CG-SEM assembly)"
+)
+add_test(
+    NAME "Exchange with empty patterns is no-op"
+    COMMAND $<TARGET_FILE:test_exchange> "Exchange with empty patterns is no-op"
+)
 
 # Integration tests (single-element end-to-end)
 add_gf_test(test_integration test_integration.cpp)

@@ -14,6 +14,12 @@
 using namespace gf;
 using Catch::Matchers::WithinAbs;
 
+static bool lzf_available()
+{
+    constexpr H5Z_filter_t H5Z_FILTER_LZF_ID = 32000;
+    return H5Zfilter_avail(H5Z_FILTER_LZF_ID) > 0;
+}
+
 // Helper: write a checkpoint file and read it back, comparing values
 static void roundtrip_test(const CompressionConfig& comp, bool use_float32,
                            double abs_tol)
@@ -63,8 +69,19 @@ static void roundtrip_test(const CompressionConfig& comp, bool use_float32,
     H5Sselect_hyperslab(filespace, H5S_SELECT_SET, start, nullptr, count, nullptr);
 
     hid_t memspace = H5Screate_simple(6, size, nullptr);
-    hid_t write_type = select_precision_type(cfg.use_float32);
-    H5Dwrite(dset_id, write_type, memspace, filespace, H5P_DEFAULT, original.data());
+    herr_t write_status = -1;
+    if (cfg.use_float32) {
+        std::vector<float> write_buffer(total);
+        for (hsize_t i = 0; i < total; ++i) {
+            write_buffer[i] = static_cast<float>(original[i]);
+        }
+        write_status = H5Dwrite(dset_id, H5T_NATIVE_FLOAT, memspace, filespace,
+                                 H5P_DEFAULT, write_buffer.data());
+    } else {
+        write_status = H5Dwrite(dset_id, H5T_NATIVE_DOUBLE, memspace, filespace,
+                                 H5P_DEFAULT, original.data());
+    }
+    REQUIRE(write_status >= 0);
 
     H5Sclose(memspace);
     H5Sclose(filespace);
@@ -127,6 +144,10 @@ TEST_CASE("Zlib level 9 round-trip (float64)", "[compress]") {
 }
 
 TEST_CASE("LZF round-trip (float64)", "[compress]") {
+    if (!lzf_available()) {
+        WARN("HDF5 LZF filter 32000 is not registered; LZF round-trip not exercised");
+        return;
+    }
     CompressionConfig cfg;
     cfg.method = CompressionMethod::LZF;
     // LZF is lossless, so bit-exact
@@ -149,6 +170,10 @@ TEST_CASE("Zlib level 1 round-trip (float32)", "[compress]") {
 }
 
 TEST_CASE("LZF round-trip (float32)", "[compress]") {
+    if (!lzf_available()) {
+        WARN("HDF5 LZF filter 32000 is not registered; LZF round-trip not exercised");
+        return;
+    }
     CompressionConfig cfg;
     cfg.method = CompressionMethod::LZF;
     roundtrip_test(cfg, true, 1e-6);

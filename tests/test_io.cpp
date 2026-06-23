@@ -3,6 +3,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <hdf5.h>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 #include <string>
 #include <cmath>
@@ -81,6 +82,7 @@ static std::string create_synth_partition(const std::string& path, int rank, int
     H5Dclose(dset);
     H5Sclose(s0);
 
+    s0 = H5Screate_simple(1, dims0, nullptr);
     dset = H5Dcreate2(part_grp, "ghost_owners", H5T_NATIVE_INT32, s0,
                       H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
     H5Dclose(dset);
@@ -116,37 +118,86 @@ TEST_CASE("Read partition data round-trip", "[io]") {
 }
 
 TEST_CASE("Read config data round-trip", "[io]") {
-    // Create a synthetic config.h5
+    // Create a synthetic config.h5 using the new group/attribute schema.
     hid_t file = H5Fcreate("test_config.h5", H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
     REQUIRE(file >= 0);
 
-    // Write some config values
-    hsize_t dims1[1] = {1}; hid_t s = H5Screate_simple(1, dims1, nullptr);
+    auto write_double_attr = [](hid_t loc, const char* name, double value) {
+        hid_t space = H5Screate(H5S_SCALAR);
+        hid_t attr = H5Acreate2(loc, name, H5T_NATIVE_DOUBLE, space, H5P_DEFAULT, H5P_DEFAULT);
+        H5Awrite(attr, H5T_NATIVE_DOUBLE, &value);
+        H5Aclose(attr);
+        H5Sclose(space);
+    };
+    auto write_int_attr = [](hid_t loc, const char* name, int value) {
+        hid_t space = H5Screate(H5S_SCALAR);
+        hid_t attr = H5Acreate2(loc, name, H5T_NATIVE_INT, space, H5P_DEFAULT, H5P_DEFAULT);
+        H5Awrite(attr, H5T_NATIVE_INT, &value);
+        H5Aclose(attr);
+        H5Sclose(space);
+    };
+    auto write_string_attr = [](hid_t loc, const char* name, const char* value) {
+        hid_t type = H5Tcopy(H5T_C_S1);
+        H5Tset_size(type, std::strlen(value));
+        hid_t space = H5Screate(H5S_SCALAR);
+        hid_t attr = H5Acreate2(loc, name, type, space, H5P_DEFAULT, H5P_DEFAULT);
+        H5Awrite(attr, type, value);
+        H5Aclose(attr);
+        H5Sclose(space);
+        H5Tclose(type);
+    };
 
-    double dt_val = 0.001; hid_t ds;
-    ds = H5Dcreate2(file, "dt", H5T_NATIVE_DOUBLE, s, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-    H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, &dt_val); H5Dclose(ds);
+    hid_t sim = H5Gcreate2(file, "/simulation", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    REQUIRE(sim >= 0);
+    write_string_attr(sim, "title", "test");
+    write_int_attr(sim, "polynomial_order", 3);
+    write_double_attr(sim, "solver_dt", 0.001);
+    write_double_attr(sim, "output_dt_s", 0.01);
+    write_int_attr(sim, "snapshot_stride", 10);
+    write_int_attr(sim, "nsteps", 500);
+    write_double_attr(sim, "cfl_safety", 0.5);
+    write_string_attr(sim, "snapshot_precision", "float32");
+    H5Gclose(sim);
 
-    int nsteps_val = 500; 
-    ds = H5Dcreate2(file, "nsteps", H5T_NATIVE_DOUBLE, s, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-    double nsteps_d = 500.0; H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, &nsteps_d);
-    H5Dclose(ds);
+    hid_t domain = H5Gcreate2(file, "/domain", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    REQUIRE(domain >= 0);
+    write_double_attr(domain, "xmin", 0.0);
+    write_double_attr(domain, "xmax", 1.0);
+    write_double_attr(domain, "ymin", 0.0);
+    write_double_attr(domain, "ymax", 2.0);
+    write_double_attr(domain, "zmin", 0.0);
+    write_double_attr(domain, "zmax", 3.0);
+    H5Gclose(domain);
 
-    // Source STF
+    hid_t source = H5Gcreate2(file, "/source", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    REQUIRE(source >= 0);
+    write_double_attr(source, "x", 0.5);
+    write_double_attr(source, "y", 0.6);
+    write_double_attr(source, "z", 0.0);
+
     std::vector<double> stf(10, 1.0);
-    hsize_t dims10[1] = {10}; hid_t st = H5Screate_simple(1, dims10, nullptr);
-    ds = H5Dcreate2(file, "stf_values", H5T_NATIVE_DOUBLE, st, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-    H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, stf.data()); H5Dclose(ds);
-    ds = H5Dcreate2(file, "stf_t", H5T_NATIVE_DOUBLE, st, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-    H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, stf.data()); H5Dclose(ds);
+    hsize_t dims10[1] = {10};
+    hid_t st = H5Screate_simple(1, dims10, nullptr);
+    hid_t ds = H5Dcreate2(source, "stf_values", H5T_NATIVE_DOUBLE, st, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, stf.data());
+    H5Dclose(ds);
+    ds = H5Dcreate2(source, "stf_t", H5T_NATIVE_DOUBLE, st, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, stf.data());
+    H5Dclose(ds);
     H5Sclose(st);
-    H5Sclose(s);
+    H5Gclose(source);
     H5Fclose(file);
 
     ConfigData cfg = read_config("test_config.h5");
-    REQUIRE(cfg.dt == 0.001);
+    REQUIRE(cfg.title == "test");
+    REQUIRE(cfg.polynomial_order == 3);
+    REQUIRE(cfg.solver_dt == 0.001);
+    REQUIRE(cfg.output_dt_s == 0.01);
+    REQUIRE(cfg.snapshot_stride == 10);
     REQUIRE(cfg.nsteps == 500);
+    REQUIRE(cfg.snapshot_precision == "float32");
     REQUIRE(cfg.stf_values.size() == 10);
+    REQUIRE(cfg.source_x == 0.5);
 
     std::remove("test_config.h5");
 }

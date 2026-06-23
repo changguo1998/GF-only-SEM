@@ -47,7 +47,7 @@ RankData build_single_element(int ngll) {
     for (int k = 0; k < n; ++k) {
         for (int j = 0; j < n; ++j) {
             for (int i = 0; i < n; ++i) {
-                int idx = (k * n + j) * n + i;
+                int idx = (i * n + j) * n + k;
                 double xi = nodes[i], eta = nodes[j], zeta = nodes[k];
 
                 // Coordinates in [0,1]^3

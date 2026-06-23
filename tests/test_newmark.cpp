@@ -106,7 +106,9 @@ TEST_CASE("Newmark predictor-corrector energy conservation", "[newmark]") {
         std::vector<double> residual(n_dof, 0.0);
         residual[0] = -k_spring * u_tilde[0];
 
-        // Correct
+        // Corrector expects u/v to hold predictor outputs.
+        u = u_tilde;
+        v = v_tilde;
         newmark_corrector(params, mass, residual, u, v, a);
     }
 
