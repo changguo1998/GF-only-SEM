@@ -37,11 +37,11 @@ It is a working reference for development, kept under `docs/`.
 - **Directions**: 3 orthogonal (x, y, z)
 - **Green's tensor**: Full 3×3 strain GF requires 3 forward runs (one per orthogonal force direction x, y, z)
 - **Injection**: Lagrange interpolation to surrounding GLL nodes (sub-node accuracy)
-- **Source position**: User specifies source_x, source_y only. source_z is auto-placed on top free surface (z ≈ z_min) by preprocessor.
+- **Source position**: User specifies source_x_m, source_y_m only. source_z is auto-placed on top free surface (z ≈ z_min) by preprocessor.
 - **Source weights**: Precomputed by preprocessor (element list + (ξ_s, η_s, ζ_s) natural coordinates + Lagrange weights w_ijk per element) — forward solver just reads and distributes
 - **Source interpolation weights**: Normalized across all sharing surface elements so Σ w_ijk = 1
 - **STF**: External — user-defined Python function in config script, evaluated by preprocessor
-- **STF evaluation**: Integer timesteps only. STF[n] = force amplitude at t = n·dt
+- **STF evaluation**: Integer timesteps only. STF[n] = force amplitude at t = n·solver_dt
 - **No inline STF types**: Single user function replaces all STF parameterization
 - **Source direction**: NOT in config.py. Preprocessor writes one config.h5. Forward solver reads source direction from CLI `--direction` flag — three independent runs (x, y, z) managed by SLURM.
 
@@ -76,7 +76,7 @@ GMSH .msh → converter → mesh.h5 (topology only)
                     ├── Material at GLL nodes
                     ├── lumped mass
                     ├── PML damping profiles
-                    ├── Auto-dt from CFL + time_length
+                    ├── Auto solver_dt from CFL + output_dt_s snapshot stride
                     ├── Comprehensive validation
                     ├── METIS partition
                     ├── STF time series
@@ -171,9 +171,9 @@ One file per MPI rank per forward run. Extendible datasets for strain and restar
 
 ```
 wavefields/{direction}/record_{r}.h5
-├── attrs: rank, dt, checkpoint_interval, nsteps, current_step
+├── attrs: rank, source_direction, ngll
 ├── local_element_ids  : int64[n_elem_local]
-├── strain             : float32[n_checkpoints, n_elem_local, NGLL, NGLL, NGLL, 6]
+├── strain             : float32[n_snapshots, n_elem_local, NGLL, NGLL, NGLL, 6]
 └── /restart/          — latest state (u, v, a) for resume
     ├── displacement   : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
     ├── velocity       : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
@@ -189,12 +189,12 @@ config.h5
 ├── /simulation/
 │   ├── title                  : string
 │   ├── polynomial_order       : int32
-│   ├── dt                     : float64            — user-specified output time step
-│   ├── nsteps                 : int32
+│   ├── solver_dt              : float64            — auto-computed CFL timestep (Newmark loop)
+│   ├── output_dt_s            : float64            — user-specified snapshot interval
+│   ├── snapshot_stride        : int32              — solver steps per snapshot (integer)
+│   ├── nsteps                 : int32              — total solver steps (derived from total_duration_s)
 │   ├── cfl_safety             : float64
-│   ├── cfl_threshold          : float64            — max dt/cfl_dt ratio before abort
-│   ├── checkpoint_interval    : int32
-│   ├── checkpoint_precision   : string             — "float32" or "float64"
+│   ├── snapshot_precision     : string             — "float32" or "float64"
 │   └── storage_limit_gb       : int32              — abort if estimated storage exceeds this
 │
 ├── /domain/
@@ -203,7 +203,7 @@ config.h5
 │
 └── /source/
     ├── x, y                   : float64            — source position (z auto-placed on top free surface)
-    ├── stf                     : float64[nsteps]    — pre-evaluated STF time series (amplitude at t = n·dt)
+    ├── stf                     : float64[nsteps]    — pre-evaluated STF time series (amplitude at t = n·solver_dt)
     ├── n_src_elements         : attr int32         — number of containing elements
     └── /elements/
         ├── element_ids        : int64[n_src_elements]   — global element IDs (1-based)
@@ -230,26 +230,27 @@ Each tile contains the strain Green's functions for all receivers within its spa
 
 ## 7. Preprocessor Decisions
 
-- **Config format**: Importable Python script (not YAML/TOML). Config file IS the configuration.
-- **Material functions**: Callable Python functions `vp(x,y,z)`, `vs(x,y,z)`, `density(x,y,z)` in config.py — no separate binary model file.
+- **Config format**: Importable Python script (not YAML/TOML). Config file IS the configuration. All dimensional fields carry SI-unit suffixes (`_m`, `_s`, `_m_s`, `_kg_m3`).
+- **Material functions**: Callable Python functions with SI-unit suffixes `vp_m_s(x_m, y_m, z_m)`, `vs_m_s(x_m, y_m, z_m)`, `density_kg_m3(x_m, y_m, z_m)` in config.py — no separate binary model file.
 - **Output**: partition_{r}.h5 (per-rank subset of element data) + single config.h5 (rank-invariant simulation + domain + source data).
 - **Source direction**: NOT in config.py or config.h5. Preprocessor auto-generates one config.h5. Forward solver takes force direction via CLI `--direction {x,y,z}`.
-- **dt**: User specifies `output_dt` in config.py. Preprocessor computes `cfl_dt = cfl_safety × h_min / vp_max` from minimum GLL node spacing and maximum vp. Validates `output_dt / cfl_dt ≤ cfl_threshold` — aborts if exceeded.
+- **Timestep split**: User specifies `output_dt_s` (snapshot interval) and `total_duration_s` in config.py. Preprocessor computes `cfl_dt = cfl_safety × h_min / vp_max` from minimum GLL node spacing and maximum vp, then derives `solver_dt` by searching for an integer stride such that `output_dt_s / stride ≤ cfl_dt`. The `snapshot_stride = output_dt_s / solver_dt` (integer). `nsteps = ceil(total_duration_s / solver_dt)`. Forward solver uses `solver_dt` in the Newmark loop and writes snapshots when `step % snapshot_stride == 0`.
 - **Validation**: Comprehensive checks at preprocess time:
   - Mesh: n_cell > 0, non-degenerate hex elements, det(J) > 0 at all GLL nodes
   - Material: vp > 0, vs ≥ 0, density > 0 at all GLL nodes
-  - CFL: output_dt validated against CFL limit, abort if ratio exceeds threshold
+  - CFL: solver_dt auto-derived from CFL constraint, snapshot_stride validated as integer
   - Boundary: Free surface detected at z ≈ z_min; PML has ≥ 2 elements per absorbing face (warn if thinner)
-  - Source: x,y within domain bounds; stf_func returns finite non-NaN values over [0, nsteps×dt]
+  - Source: x_m, y_m within domain bounds; stf_func returns finite non-NaN values over [0, nsteps×solver_dt]
   - Storage: estimated disk usage ≤ storage_limit_gb, abort if exceeded
+  - Snapshot stride: nsteps % snapshot_stride == 0
 - **Mesh output format**: Extended HDF5 — preprocessor writes GLL geometry (`coords`, `dxi_dx`, `jacobian`, `is_pml`) back to mesh.h5; all rank-local data to partition_{r}.h5.
-- **STF precomputation**: stf_func(t) evaluated over full time range, written as time series array to config.h5. Forward solver reads array — no runtime STF evaluation.
+- **STF precomputation**: stf_func(t_s) evaluated over full time range at solver_dt spacing, written as time series array to config.h5. Forward solver reads array — no runtime STF evaluation.
 - **Mass computation**: After material interpolation (ρ needed for lumped mass).
 - **CPML precomputation**: Layer-based — trace element connectivity from boundary faces inward. Classify each CPML element as face/edge/corner type. Precompute all C-PML arrays: damping profiles d_x, d_y, d_z per GLL node; stretched-coordinate functions K, α; convolution coefficients; element type tags. Written to partition_{r}.h5 `/field/element/cpml/`.
 - **Partitioning**: METIS k-way partition + GLL node global numbering (ibool equivalent) + precomputed exchange patterns. Each rank gets its own partition_{r}.h5 with local subset.
 - **Geometric precompute**: GLL coords, Jacobian, dξ/dx, lumped mass, C-PML arrays — all at GLL nodes. Written to partition_{r}.h5 `/field/element/`.
 - **Source precompute**: Source z auto-placed on top free surface (z ≈ z_min). Element list, natural coordinates (ξ_s, η_s, ζ_s), Lagrange interpolation weights w_ijk for source injection. Weights normalized across sharing surface elements (Σ w_ijk = 1).
-- **No receivers**: Postprocess extracts receiver positions from checkpoints.
+- **No receivers**: Postprocess extracts receiver positions from snapshots.
 - **No inline STF**: User-defined function, evaluated over full time range.
 - **DRY metric**: N/NGLL embedded in array shapes — no separate config attribute.
 - **Elastic only**: SLS attenuation deferred to future work.
@@ -265,12 +266,12 @@ Each tile contains the strain Green's functions for all receivers within its spa
 - **C-PML memory**: 21 rmemory arrays = 39 scalar values per GLL node per CPML element. Second-order recursive convolution (Wang et al. 2006, eq. 21, θ=1/8). Read from partition_{r}.h5.
 - **C-PML**: Read all precomputed convolution coefficients from partition_{r}.h5. Apply C-PML memory variable update and acceleration correction per element — no runtime damping computation.
 - **Shared node assembly**: Within-rank: implicit via global array accumulation. Cross-rank: MPI halo exchange using precomputed face-pair patterns — pack/unpack per face, assemble shared nodes.
-- **Runtime loop**: Newmark predict → element residual (matrix-free K·u) → C-PML → source → MPI exchange → Newmark correct → strain compute (separate pass on corrected u) → checkpoint.
+- **Runtime loop**: Newmark predict → element residual (matrix-free K·u) → C-PML → source → MPI exchange → Newmark correct → strain compute (separate pass on corrected u) → snapshot write.
 - **Strain computation**: Separate element pass after Newmark correct — computes ε = ½(∇u_new + ∇u_newᵀ) from corrected displacement field.
 - **L2 strain smoothing**: After element-wise strain computation, global L2 projection onto continuous GLL nodal basis. ε_smooth = M⁻¹ · Σ ∫ N · ε_elem dΩ. Produces C⁰-continuous strain at shared nodes. Matches SPECFEM3D convention.
-- **Strain in record**: L2-smoothed strain (not raw element strain). Stored as float32 (default) or float64 (configurable).
-- **3 runs per source**: 3 orthogonal force directions (x, y, z), independent gf_solver invocations managed by SLURM. Single config.h5 shared across all 3 runs; force direction passed via CLI `--direction {x,y,z}`. Each run writes checkpoints to its own directory `wavefields/{direction}/`.
-- **Restart/resume**: Checkpoints save corrected (u, v, a) state alongside strain. `--resume` flag restores state and continues the time loop — the `a` in checkpoint is the corrected M⁻¹·r, directly usable for Newmark prediction.
+- **Strain in record**: L2-smoothed strain (not raw element strain). Stored as float32 (default) or float64 (configurable). Written when `step % snapshot_stride == 0`.
+- **3 runs per source**: 3 orthogonal force directions (x, y, z), independent gf_solver invocations managed by SLURM. Single config.h5 shared across all 3 runs; force direction passed via CLI `--direction {x,y,z}`. Each run writes snapshots to its own directory `wavefields/{direction}/`.
+- **Restart/resume**: Snapshots save corrected (u, v, a) state alongside strain. `--resume` flag restores state and continues the time loop — the `a` in snapshot is the corrected M⁻¹·r, directly usable for Newmark prediction.
 - **Parallelism**: Pure MPI (one rank per core). Architecture leaves GPU/DCU kernel swap-in path for future acceleration — see [`design/gpu.md`](superpowers/design/gpu.md) for the device-abstraction design.
 - **ibool/GLL node numbering**: Per-rank global GLL node IDs stored in partition_{r}.h5 `/partition/gll_to_global`, 1-based with 0=null. Interface node lists precomputed for MPI exchange.
 
@@ -279,7 +280,7 @@ Each tile contains the strain Green's functions for all receivers within its spa
 - **C++ framework**: Catch2 (header-only via CMake FetchContent)
 - **Python framework**: pytest + numpy.testing.assert_allclose
 - **Testing tiers**:
-  - **Unit (CI, always)**: Element assembly, Newmark step, PML variables, mesh loader, checkpoint I/O, preprocessor validation (material, mesh, CFL, boundary)
+  - **Unit (CI, always)**: Element assembly, Newmark step, PML variables, mesh loader, snapshot I/O, preprocessor validation (material, mesh, CFL, boundary)
   - **Integration (CI)**: Small forward run (N=3, few time steps), verify no crash, hash-check output
   - **Benchmark (Manual)**: Analytical benchmarks (homogeneous half-space, layered medium)
   - **Profile (Manual)**: Performance profiling, scalability check
@@ -302,7 +303,7 @@ Both are untracked (`*.gitignore`). Changes to them do not affect the repo.
 
 - **3 orthogonal force directions**: 3 independent forward runs (one per fx, fy, fz) produce the full 3×3 strain Green's tensor at a single source location.
 - **Single source location**: One source position per GF computation. Multiple source locations require separate preprocessor + 3×N forward runs.
-- **Postprocess alignment**: Postprocess validates dt, nsteps, n_cell alignment across the 3 force-direction runs before extracting Green's functions.
+- **Postprocess alignment**: Postprocess validates solver_dt, nsteps, n_cell alignment across the 3 force-direction runs before extracting Green's functions.
 - **PML exclusion**: PML elements excluded from the Green's function library — only physical-domain elements contribute.
 - **Spatial tiling**: Green's function library is spatially tiled by lat/lon bounding boxes. Each `greenfun/tile_{i}.h5` stores all receivers within its spatial extent, with attributes `minlat, maxlat, minlon, maxlon`.
 - **Reciprocity**: Numerical source placed at top free surface. Strain recorded everywhere in the physical domain, enabling reciprocity-based interpretation.

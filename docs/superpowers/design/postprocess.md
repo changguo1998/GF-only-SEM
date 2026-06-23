@@ -5,13 +5,13 @@
 
 ## Goal
 
-Python module that reads HDF5 strain checkpoints from the C++ SEM solver and mesh.h5 for GLL-node geometry, locates receiver positions within mesh elements, performs GLL basis interpolation at receiver positions, and outputs strain Green's functions in HDF5.
+Python module that reads HDF5 strain snapshots from the C++ SEM solver and mesh.h5 for GLL-node geometry, locates receiver positions within mesh elements, performs GLL basis interpolation at receiver positions, and outputs strain Green's functions in HDF5.
 
 ## Context
 
-The forward C++ solver checkpoints strain at all GLL nodes per MPI rank. Three independent forward runs (force directions x, y, z) produce 3 sets of checkpoint files in separate directories. Postprocess reads these checkpoints together with mesh.h5 (topology + GLL geometry) to extract strain time series at arbitrary receiver positions.
+The forward C++ solver writes strain snapshots at all GLL nodes per MPI rank. Three independent forward runs (force directions x, y, z) produce 3 sets of snapshot files in separate directories (wavefields/x/, wavefields/y/, wavefields/z/). Postprocess reads these snapshot files together with mesh.h5 (topology + GLL geometry) to extract strain time series at arbitrary receiver positions.
 
-Green's function extraction requires these 3 forward runs per source location (3 orthogonal force directions x, y, z). Postprocess assembles the 3×6 strain Green's tensor from these checkpoint sets, each containing 6 strain components per timestep (symmetric tensor in Voigt notation).
+Green's function extraction requires these 3 forward runs per source location (3 orthogonal force directions x, y, z). Postprocess assembles the 3×6 strain Green's tensor from these snapshot sets, each containing 6 strain components per timestep (symmetric tensor in Voigt notation).
 
 Strain is the primary scientific output — no displacement integration in postprocess.
 
@@ -44,14 +44,14 @@ Three forward runs produce 3 sets of per-rank record files in `wavefields/{x,y,z
 ## Architecture
 
 ```
-mesh.h5 + checkpoint files
+mesh.h5 + snapshot files
          │
          ▼
-  CheckpointReader  — reads strain dataset + attrs from checkpoint files
+  CheckpointReader  — reads strain dataset + attrs from snapshot files
   GeometryReader    — reads /field/element/coords, dxi_dx from mesh.h5
          │
          ▼
-  Time alignment validation  — dt, nsteps, n_cell must match across 3 runs
+  Time alignment validation  — NGLL, source_direction, n_cell via record + config.h5 metadata
          │
          ▼
   Spatial index (KD-tree)  — non-PML element centroids from GLL coords
@@ -84,7 +84,7 @@ Receivers placed in PML regions receive a "no containing element found" error �
 
 - Python 3.10+
 - Dependencies: numpy, h5py, scipy, click (CLI), pytest
-- NGLL derived from mesh.h5 array shapes or checkpoint strain shape
+- NGLL derived from mesh.h5 array shapes or snapshot strain shape
 - Hexahedral elements only (GMSH-generated)
 - Receivers are arbitrary 3D points (PML regions excluded)
 
@@ -101,7 +101,7 @@ Geometry comes from mesh.h5, which the converter creates (topology) and the prep
 | /field/element/coords | float64[n_cell, NGLL, NGLL, NGLL, 3] | GLL node (x,y,z) per element |
 | /field/element/dxi_dx | float64[n_cell, NGLL, NGLL, NGLL, 3,3] | Newton iteration for point-in-hex |
 | /field/element/is_pml | int8[n_cell] | 1 = PML element, 0 = ordinary |
-| /partition/n_ranks | attr int32 | Number of checkpoint files to expect |
+| /partition/n_ranks | attr int32 | Number of snapshot files to expect |
 
 NGLL = N+1 is extracted from shape[1] of any element dataset.
 
@@ -113,7 +113,7 @@ Receivers placed in PML regions will produce a "no containing element found" err
 
 ### Time Alignment Validation
 
-Before processing any receivers, postprocess validates that all 3 checkpoint sets (fx, fy, fz) have identical time parameters. The `dt`, `nsteps`, and `n_cell` attributes from rank 0 of each set are compared. If any mismatch is found, postprocess aborts with an error message listing the mismatched values, for example:
+Before processing any receivers, postprocess validates that all 3 snapshot sets (fx, fy, fz) have identical run metadata. The NGLL and local_element_ids count from rank 0 of each set are compared. Run metadata (solver_dt, nsteps, snapshot_stride, n_cell) is read from configs/config.h5 and validated across the three direction runs. If any mismatch is found, postprocess aborts with an error message listing the mismatched values, for example:
 
     Time alignment mismatch:
       fx: dt=0.01 nsteps=1000 n_cell=512
@@ -123,9 +123,9 @@ Before processing any receivers, postprocess validates that all 3 checkpoint set
 
 ### Strain: Smoothed
 
-The strain in checkpoint files is L2-smoothed — globally projected to be C⁰ continuous across element boundaries. This eliminates the element-boundary discontinuity inherent in SEM strain fields, so no strain averaging or handling of multi-valued GLL nodes is needed at shared faces. Postprocess interpolates the smoothed strain field directly.
+The strain in snapshot files is L2-smoothed — globally projected to be C⁰ continuous across element boundaries. This eliminates the element-boundary discontinuity inherent in SEM strain fields, so no strain averaging or handling of multi-valued GLL nodes is needed at shared faces. Postprocess interpolates the smoothed strain field directly.
 
-### Checkpoint Files — Strain Source
+### Snapshot Files — Strain Source
 
 Per MPI rank, one file per forward run:
 
@@ -133,13 +133,10 @@ Per MPI rank, one file per forward run:
 wavefields/{direction}/record_{r}.h5
 ├── attrs:
 │   ├── rank               : int32
-│   ├── source_direction   : int32           # 0=x, 1=y, 2=z
-│   ├── dt                  : float64
-│   ├── checkpoint_interval : int32
-│   ├── nsteps              : int32
-│   └── current_step        : int32
+│   ├── source_direction   : string           # "x", "y", or "z"
+│   └── ngll                : int32           # N+1
 ├── local_element_ids       : int64[n_elem_local]    ← 1-based global element IDs
-├── strain                  : {precision}[n_checkpoints, n_elem_local, NGLL, NGLL, NGLL, 6]
+├── strain                  : {precision}[n_snapshots, n_elem_local, NGLL, NGLL, NGLL, 6]
 │                                                       └── εxx,εyy,εzz,εxy,εxz,εyz
 └── /restart/               ← (u,v,a) state, used only for resume
     ├── displacement        : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
@@ -147,7 +144,7 @@ wavefields/{direction}/record_{r}.h5
     └── acceleration        : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
 ```
 
-Postprocess combines all rank files: maps `local_element_ids` → global element IDs, merges strain into a unified `[n_checkpoints, n_cell, NGLL, NGLL, NGLL, 6]` view indexed by global element ID.
+Postprocess combines all rank files: maps `local_element_ids` → global element IDs, merges strain into a unified `[n_snapshots, n_cell, NGLL, NGLL, NGLL, 6]` view indexed by global element ID.
 
 ### Spatial Tiling
 
@@ -157,7 +154,7 @@ Spatial tiling is performed entirely by the postprocessor — the forward solver
 
 Three modes:
 1. **Small domain** (< available RAM): merge all record files, interpolate all receivers, write one tile
-2. **Tiled domain** (TB-scale): partition domain into XY blocks, process one block at a time — each block reads relevant checkpoint slices, interpolates receivers in that block, writes block_gf_{xmin}_{ymin}.h5
+2. **Tiled domain** (TB-scale): partition domain into XY blocks, process one block at a time — each block reads relevant snapshot slices, interpolates receivers in that block, writes block_gf_{xmin}_{ymin}.h5
 3. **Single receiver**: only load strain from the elements needed for that receiver — skip full domain merge and tiling entirely
 
 ### Receiver Input
@@ -239,7 +236,7 @@ postprocess/
 │   ├── writer.py           — Strain GF output HDF5 writer
 │   └── cli.py              — CLI entry point
 └── tests/
-    ├── conftest.py         — Synthetic checkpoint fixtures
+    ├── conftest.py         — Synthetic snapshot fixtures
     ├── test_reader.py, test_geometry.py, test_index.py, test_search.py
     ├── test_interpolate.py, test_assembly.py, test_writer.py, test_cli.py
 ```

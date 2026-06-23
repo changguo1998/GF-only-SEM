@@ -24,8 +24,9 @@ config.py (script, importable) ─┤
                           ├── compute C-PML damping profiles, stretched-coordinate functions,
                           │   convolution coefficients (layer-based, face/edge/corner classification)
                           ├── compute cfl_dt = cfl_safety × h_min / vp_max (minimum GLL node spacing)
-                          ├── validate output_dt ≤ cfl_dt × cfl_threshold
-                          ├── pre-flight validation (mesh, material, CFL, boundary, source, STF, storage)
+                          ├── derive solver_dt + snapshot_stride from output_dt_s and CFL
+                          ├── derive nsteps = ceil(total_duration_s / solver_dt)
+                          ├── pre-flight validation (mesh, material, CFL-derived stride, boundary, source, STF, storage)
                           ├── partition (METIS) + GLL node global numbering + exchange patterns
                           ├── evaluate STF over time range
                           ├── locate source elements (free surface only), compute Lagrange interpolation weights
@@ -52,7 +53,7 @@ preprocess/
 ├── config_loader.py     — importlib load config.py, validate
 ├── topology_reader.py   — read mesh.h5 /topology/
 ├── gll_geometry.py      — compute GLL node coords, jacobian, dξ/dx per element
-├── material.py          — evaluate config vp(x,y,z), vs(x,y,z), density(x,y,z) at GLL nodes
+├── material.py          — evaluate config vp_m_s(x_m,y_m,z_m), vs_m_s(x_m,y_m,z_m), density_kg_m3(x_m,y_m,z_m) at GLL nodes
 ├── mass.py              — compute lumped mass (requires ρ from material step)
 ├── boundary_detector.py — auto boundary tagging (surface level), set is_pml flags
 ├── cpml.py              — C-PML: element type classification (face/edge/corner), damping profiles,
@@ -60,7 +61,7 @@ preprocess/
 ├── partition.py          — METIS partitioning + GLL node global numbering + exchange pattern precomputation
 ├── stf_evaluator.py     — evaluate stf_func() → time series array
 ├── source_locator.py    — locate source elements, compute natural coords + Lagrange interpolation weights
-├── cfl_validator.py      — compute cfl_dt, validate output_dt against threshold
+├── cfl_validator.py      — compute cfl_dt, derive solver_dt and snapshot_stride
 ├── preflight.py          — comprehensive pre-flight validation
 ├── partition_writer.py   — write partition_{r}.h5
 └── config_writer.py     — write single configs/config.h5 (rank-invariant, no direction)
@@ -98,31 +99,33 @@ The user writes an importable Python module. The preprocessor imports it and ext
 # Example config.py — imported by preprocessor
 title = "test_run"
 polynomial_order = 5       # N (GLL order)
-output_dt = 0.001            # user-specified time step (s)
-nsteps = 10000
-cfl_safety = 0.5             # CFL safety factor (0 < cfl_safety < 1)
-cfl_threshold = 1.0          # max output_dt / cfl_dt ratio before abort
-checkpoint_interval = 100
-checkpoint_precision = "float32"  # "float32" or "float64"
-storage_limit_gb = 100       # abort if estimated storage exceeds this
+
+# Time
+output_dt_s = 0.001        # user-specified snapshot interval (s)
+total_duration_s = 10.0    # simulation duration (s)
+cfl_safety = 0.5           # CFL safety factor (0 < cfl_safety < 1)
+
+# Storage
+snapshot_precision = "float32"  # "float32" or "float64"
+storage_limit_gb = 100           # abort if estimated storage exceeds this
 strict_validation = True
 
 # Material — callable functions evaluated at each GLL node
-def vp(x, y, z):
+def vp_m_s(x_m, y_m, z_m):
     return 3000.0
 
-def vs(x, y, z):
+def vs_m_s(x_m, y_m, z_m):
     return 1500.0
 
-def density(x, y, z):
+def density_kg_m3(x_m, y_m, z_m):
     return 2500.0
 
 # PML thickness per face (zmin=0 because z_min is free surface)
 pml_thickness = {"xmin": 3, "xmax": 3, "ymin": 3, "ymax": 3, "zmin": 0, "zmax": 3}
 
 # Source position (z is auto-placed on free surface at z ≈ z_min)
-source_x = 500.0
-source_y = 500.0
+source_x_m = 500.0
+source_y_m = 500.0
 # source_z auto-placed on top free surface (z ≈ z_min) by preprocessor
 
 # Source direction is NOT in config.py — preprocessor generates one config.h5.
@@ -131,12 +134,13 @@ source_y = 500.0
 # Output
 n_ranks = 4                   # MPI ranks for partition
 
-def stf_func(t):
-    """Source time function. t in seconds, returns amplitude."""
+def stf_func(t_s):
+    """Source time function. t_s in seconds, returns amplitude."""
     import numpy as np
-    f0 = 5.0
-    t0 = 0.3
-    return (1 - 2 * (np.pi * f0 * (t - t0))**2) * np.exp(-(np.pi * f0 * (t - t0))**2)
+    f0_hz = 5.0
+    t0_s = 0.3
+    a = np.pi * f0_hz * (t_s - t0_s)
+    return (1 - 2 * a**2) * np.exp(-a**2)
 ```
 
 ### Config Validation
@@ -144,15 +148,14 @@ def stf_func(t):
 | Check | Rule |
 |-------|------|
 | polynomial_order | ≥ 1, integer |
-| output_dt | > 0 |
-| nsteps | > 0 |
+| output_dt_s | > 0 |
+| total_duration_s | > 0 |
 | cfl_safety | 0 < cfl_safety < 1 |
-| cfl_threshold | > 0 |
-| checkpoint_precision | "float32" or "float64" |
+| snapshot_precision | "float32" or "float64" |
 | storage_limit_gb | > 0 |
-| source position | source_x and source_y within xy domain bounds (auto-detected from mesh), z auto-placed on free surface |
-| stf_func | callable, signature `(float) -> float`, returns finite non-NaN values for t ∈ [0, nsteps×output_dt] |
-| vp, vs, density | callable, each signature `(float, float, float) -> float`, returns positive values |
+| source position | source_x_m and source_y_m within xy domain bounds (auto-detected from mesh), z auto-placed on free surface |
+| stf_func | callable, signature `(float) -> float`, returns finite non-NaN values for t ∈ [0, nsteps×solver_dt] |
+| vp_m_s, vs_m_s, density_kg_m3 | callable, each signature `(float, float, float) -> float`, returns positive values |
 | n_ranks | ≥ 1, integer |
 | pml_thickness | dict with keys xmin, xmax, ymin, ymax, zmin, zmax; values ≥ 0 integers |
 | strict_validation | bool, default True |
@@ -168,11 +171,12 @@ Before writing output files, the preprocessor runs comprehensive validation:
 | Mesh | det(J) > 0 at all GLL nodes | Inverted/tangled element → abort |
 | Material | vp > 0, vs ≥ 0, density > 0 at all GLL nodes | Invalid material → abort |
 | CFL | cfl_dt = cfl_safety × h_min / vp_max (h_min = minimum GLL node spacing) | — |
-| CFL | output_dt / cfl_dt ≤ cfl_threshold | dt too large → abort with suggestion |
+| CFL | Find smallest stride where output_dt_s / stride ≤ cfl_dt; set solver_dt and snapshot_stride | No stride ≤ MAX_STRIDE → abort with suggestion |
+| Time | nsteps = ceil(total_duration_s / solver_dt); nsteps % snapshot_stride == 0 | Invalid derived stride → abort |
 | Boundary | Free surface detected at z ≈ z_min | No free surface → abort |
 | Boundary | PML has ≥ 2 elements per absorbing face | Too thin PML → warn |
-| Source | source_x, source_y within domain bounds | Outside domain → abort |
-| STF | stf_func(t) returns finite, non-NaN for t ∈ [0, nsteps×output_dt] | Bad STF → abort |
+| Source | source_x_m, source_y_m within domain bounds | Outside domain → abort |
+| STF | stf_func(t_s) returns finite, non-NaN for t_s ∈ [0, nsteps×solver_dt] | Bad STF → abort |
 | Storage | Estimated disk usage ≤ storage_limit_gb | Exceeds limit → abort |
 | Partition | All ranks have ≥ 1 element | Empty rank → abort |
 
@@ -199,9 +203,9 @@ Note: lumped mass is computed after material interpolation (step 3) because it r
 ### 3. Evaluate Material at GLL Nodes
 
 Call the user-defined functions from config.py at each GLL node position (computed in step 2):
-- `vp(x, y, z)` → compressional wave speed
-- `vs(x, y, z)` → shear wave speed  
-- `density(x, y, z)` → mass density
+- `vp_m_s(x_m, y_m, z_m)` → compressional wave speed
+- `vs_m_s(x_m, y_m, z_m)` → shear wave speed
+- `density_kg_m3(x_m, y_m, z_m)` → mass density
 
 Output: `/field/element/vp`, `/field/element/vs`, `/field/element/density`.
 
@@ -214,16 +218,17 @@ Output: `/field/element/mass`.
 
 ### 5. CFL Validation
 
-After GLL geometry and material are known, validate the user's `output_dt` against the CFL limit:
+After GLL geometry and material are known, derive the solver timestep from the user-facing snapshot interval:
 
 1. Compute minimum GLL node spacing `h_min` across all elements (minimum Euclidean distance between adjacent GLL nodes in physical space)
 2. Compute `vp_max = max(vp)` across all GLL nodes
 3. Compute `cfl_dt = cfl_safety × h_min / vp_max`
-4. Validate `output_dt / cfl_dt ≤ cfl_threshold`
-5. If ratio exceeds threshold, abort with error message suggesting a smaller `output_dt`
-6. Print computed `cfl_dt` and ratio to stdout
+4. Search `stride = 1..MAX_STRIDE` for the first value where `output_dt_s / stride ≤ cfl_dt`
+5. Set `solver_dt = output_dt_s / stride` and `snapshot_stride = stride`
+6. Compute `nsteps = ceil(total_duration_s / solver_dt)` and adjust effective duration to `nsteps × solver_dt` if needed
+7. Print computed `cfl_dt`, `solver_dt`, `snapshot_stride`, and `nsteps` to stdout
 
-`output_dt` and `nsteps` from config.py are stored in config.h5 `/simulation/`. The CFL-computed `cfl_dt` is used for validation only — the forward solver uses `output_dt`.
+`solver_dt`, `output_dt_s`, derived `snapshot_stride`, and derived `nsteps` are stored in config.h5 `/simulation/`. The forward solver uses `solver_dt` for Newmark integration and writes snapshots every `snapshot_stride` solver steps.
 
 ### 6. Auto-Detect Boundary Tags
 
@@ -261,14 +266,14 @@ Comprehensive validation before partition and writing. Runs as a checklist; with
 
 1. **Material**: `vp > 0`, `vs ≥ 0`, `density > 0` at all GLL nodes; `λ = ρ(vp² - 2vs²) > 0` (elastic stability); warn if `vs ≡ 0` anywhere
 2. **Mesh quality**: `det(J) > 0` at all GLL nodes (no inverted elements); warn on extreme aspect ratios
-3. **CFL**: validate `output_dt / cfl_dt ≤ cfl_threshold`; abort with suggested max dt if exceeded; log cfl_dt value
+3. **CFL/time**: validate derived `solver_dt ≤ cfl_dt`; validate integer `snapshot_stride` and `nsteps % snapshot_stride == 0`; log cfl_dt, solver_dt, snapshot_stride
 4. **Boundary**: at least one surface tagged free surface (1); at least one tagged absorbing (2); verify `pml_thickness` values ≤ actual element layers from each boundary; PML thickness ≥ 2 elements per absorbing face (warn if thinner)
 5. **Source**: within xy domain bounds; Newton iteration found at least one containing element on free surface; sum of normalized Lagrange weights ≈ 1
 6. **STF**: all values finite (no NaN/Inf); warn if non-zero DC component
 7. **Partition**: `n_ranks ≤ n_cell` (pre-check before calling METIS)
-8. **Storage estimation**: compute total estimated disk usage (partition files + expected checkpoint files). Abort if > `storage_limit_gb`:
-   - `checkpoints_per_run = ceil(nsteps / checkpoint_interval) + 1`
-   - `strain_per_run_GB = checkpoints_per_run × n_cell × NGLL³ × 6 × bytes_per_float / 1e9`
+8. **Storage estimation**: compute total estimated disk usage (partition files + expected snapshot files). Abort if > `storage_limit_gb`:
+   - `snapshots_per_run = nsteps / snapshot_stride`
+   - `strain_per_run_GB = snapshots_per_run × n_cell × NGLL³ × 6 × bytes_per_float / 1e9`
    - `restart_GB = n_cell × NGLL³ × 3 × 3 × 8 / 1e9`
    - `total_GB = strain_per_run_GB × 3 + restart_GB × 3 + partition_GB`
    - Print storage estimate to stdout
@@ -292,15 +297,15 @@ Output: one `partition_{r}.h5` per MPI rank, containing the local subset of all 
 
 ### 10. Evaluate STF
 
-Call `config.stf_func(t)` at `t = 0, output_dt, 2*output_dt, ..., (nsteps-1)*output_dt`.
+Call `config.stf_func(t_s)` at `t_s = 0, solver_dt, 2*solver_dt, ..., (nsteps-1)*solver_dt`.
 
 Output: `stf[nsteps]` time series array → written to config.h5 `/source/`.
 
 ### 11. Locate Source Elements + Precompute Interpolation Weights
 
-Source z = z_min (auto-placed on top free surface). Source is only specified by `source_x` and `source_y` in config.py.
+Source z = z_min (auto-placed on top free surface). Source is only specified by `source_x_m` and `source_y_m` in config.py.
 
-1. Search only free-surface elements (those with a face on boundary_tag = 1) to locate all elements containing the source (source_x, source_y) projected onto z_min.
+1. Search only free-surface elements (those with a face on boundary_tag = 1) to locate all elements containing the source (source_x_m, source_y_m) projected onto z_min.
    The source may lie on a shared face, edge, or vertex of adjacent elements.
 2. For each containing element, map source (x_s, y_s, z_s) to natural coordinates (ξ_s, η_s, ζ_s)
    via Newton iteration using precomputed dξ/dx.
@@ -347,12 +352,12 @@ configs/config.h5
 ├── /simulation/
 │   ├── title                  : string
 │   ├── polynomial_order       : int32            — N (GLL order)
-│   ├── dt                     : float64          — user-specified output time step
-│   ├── nsteps                 : int32
+│   ├── solver_dt              : float64          — auto-computed CFL timestep (Newmark loop)
+│   ├── output_dt_s            : float64          — user-specified snapshot interval
+│   ├── snapshot_stride        : int32            — solver steps per snapshot
+│   ├── nsteps                 : int32            — derived total solver steps
 │   ├── cfl_safety             : float64
-│   ├── cfl_threshold          : float64          — max dt/cfl_dt ratio before abort
-│   ├── checkpoint_interval    : int32
-│   ├── checkpoint_precision   : string           — "float32" or "float64"
+│   ├── snapshot_precision     : string           — "float32" or "float64"
 │   └── storage_limit_gb       : int32            — abort if estimated storage exceeds this
 │
 ├── /domain/
@@ -363,7 +368,7 @@ configs/config.h5
 │
 └── /source/
     ├── x, y                   : float64          — source position (z auto-placed on top free surface)
-    ├── stf                     : float64[nsteps]  — precomputed STF time series (amplitude at t = n·dt)
+    ├── stf                     : float64[nsteps]  — precomputed STF time series (amplitude at t = n·solver_dt)
     ├── n_src_elements         : attr int32        — number of containing elements
     └── /elements/
         ├── element_ids        : int64[n_src_elements]         — global element IDs (1-based)
@@ -376,7 +381,7 @@ Note: no `direction` attribute. Force direction is specified via `--direction` C
 
 ## No Receivers
 
-Receivers are NOT configured in the preprocessor. Postprocess extracts receiver time series from checkpoint files using mesh.h5 geometry.
+Receivers are NOT configured in the preprocessor. Postprocess extracts receiver time series from snapshot files using mesh.h5 geometry.
 
 ## No Per-Cell Material Tags
 

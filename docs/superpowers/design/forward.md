@@ -22,7 +22,7 @@ partitions/partition_{r}.h5 (local subset per rank: topology + field/element + c
     │       global residual r[NDIM, n_global_nodes]    — CG-SEM assembly target
     │       C-PML memory variables (see CPML section for exact layout)
     ├── Newmark time loop
-    │   ├── NEWMARK PREDICT: ũ = u + dt·v + (dt²/2)·(1-2β)·a
+    │   ├── NEWMARK PREDICT: ũ = u + solver_dt·v + (solver_dt²/2)·(1-2β)·a
     │   ├── Zero global residual: r[:, :] = 0
     │   ├── Element residual (matrix-free, accumulate into r via gll_to_global)
     │   ├── C-PML memory variable update + acceleration correction
@@ -112,7 +112,7 @@ Read from [`preprocess.md`](preprocess.md):
 
 | Group | Used By Forward |
 |-------|----------------|
-| `/simulation/` | dt, nsteps, cfl_safety, checkpoint_interval, checkpoint_precision |
+| `/simulation/` | solver_dt, output_dt_s, snapshot_stride, nsteps, cfl_safety, snapshot_precision |
 | `/domain/` | Bounds, pml_thickness per face |
 | `/source/` | Position (x,y,z), stf[nsteps] (precomputed time series), precomputed element list + Lagrange weights |
 
@@ -129,8 +129,8 @@ No `/attenuation/` — elastic-only, attenuation deferred. No `direction` — pa
 | **newmark** | NewmarkPredictor, NewmarkCorrector (2nd order explicit, β=0, γ=½) |
 | **source** | Reads precomputed element list + Lagrange weights from config.h5. Distributes STF(t) × w_ijk to global residual |
 | **exchange** | MPI halo exchange using precomputed face-pair lists from /partition/rank_{r}/exchange/ |
-| **checkpoint** | L2 strain smoothing (global projection, C⁰ continuous ε_smooth) + writer: append to extendible HDF5 dataset. Restart state (u,v,a) overwritten each checkpoint |
-| **solver** | `run_forward()` main time loop; checkpoint/resume deferred to future milestone |
+| **record/snapshot** | L2 strain smoothing (global projection, C⁰ continuous ε_smooth) + writer: append to extendible HDF5 dataset at snapshot steps. Restart state (u,v,a) overwritten each snapshot |
+| **solver** | `run_forward()` main time loop; snapshot output + restart/resume |
 
 ## Core Types
 
@@ -176,7 +176,7 @@ Single point force source on the free surface (z = z_min, top of domain). Precom
 - Element list + natural coordinates (ξ_s, η_s, ζ_s) + Lagrange weights w_ijk stored in config.h5 `/source/elements/`
 - Forward solver reads these at startup — no runtime Newton iteration or element search
 - At each timestep, source injects into the global residual: `r(iglob) += STF(t) × w_ijk × direction_vector`
-  where `direction_vector` = (1,0,0), (0,1,0), or (0,0,1) depending on config.h5 `/source/direction`
+  where `direction_vector` = (1,0,0), (0,1,0), or (0,0,1) depending on the `--direction` CLI flag
 
 If the source lies on a shared face/edge/vertex on the free surface, all sharing elements are included
 in the precomputed element list — the preprocessor handles this during source location.
@@ -389,8 +389,8 @@ time levels for the convolution update.
 ```
 for step in 0..nsteps-1:
     1. Newmark predict:
-       ũ = u + dt·v + (dt²/2)·(1-2β)·a   (β=0 for explicit central difference)
-       ṽ = v + dt·(1-γ)·a                  (γ=½)
+       ũ = u + solver_dt·v + (solver_dt²/2)·(1-2β)·a   (β=0 for explicit central difference)
+       ṽ = v + solver_dt·(1-γ)·a                  (γ=½)
 
     2. Zero global residual:
        r[1..NDIM, 1..n_global_nodes] = 0
@@ -427,10 +427,10 @@ for step in 0..nsteps-1:
 
     7. Newmark correct:
        a_new = M⁻¹·r              (lumped mass, pointwise division per GLL node)
-       v = ṽ + dt·γ·a_new
-       u = ũ + dt²·β·a_new
+       v = ṽ + solver_dt·γ·a_new
+       u = ũ + solver_dt²·β·a_new
 
-    8. L2 strain smoothing (checkpoint timesteps only):
+    8. L2 strain smoothing (snapshot timesteps only):
        Compute ∇u from corrected u (element pass):
          For each local element e, for each GLL node (i,j,k):
            ∇u = GLL derivatives[e] × dxi_dx[e][i][j][k]
@@ -478,27 +478,28 @@ for step in 0..nsteps-1:
        ensures ε_smooth is continuous across the entire mesh, not just
        within a rank.
 
-    9. Strain checkpoint (checkpoint timesteps only):
+    9. Strain snapshot (when `step % snapshot_stride == 0`):
        Use ε_smooth from the L2 projection (not raw ε_elem).
        Append ε_smooth to extendible dataset in wavefields/{direction}/record_{r}.h5
        (6 components: εxx, εyy, εzz, εxy, εxz, εyz)
        Overwrite /restart/ with (u, v, a) for resume capability
 ```
 
-## Checkpoint Output
+## Snapshot Output
 
-One file per MPI rank for the entire run. Extendible strain dataset + restart state:
+One file per MPI rank for the entire run. Extendible strain dataset + restart state. Strain appends only at snapshot steps (`step % snapshot_stride == 0`):
 
 ```
 record_r{rank}.h5
 ├── attrs:
 │   ├── rank               : int32
-│   ├── dt                  : float64
-│   ├── checkpoint_interval : int32
+│   ├── solver_dt           : float64          — auto-computed CFL timestep
+│   ├── output_dt_s         : float64          — user-specified snapshot interval
+│   ├── snapshot_stride     : int32            — solver steps per snapshot
 │   ├── nsteps              : int32
 │   └── current_step        : int32          ← last saved step (for resume)
 ├── local_element_ids       : int64[n_elem_local]    ← 1-based global element IDs
-├── strain                  : float32[n_checkpoints, n_elem_local, NGLL, NGLL, NGLL, 6]
+├── strain                  : float32[n_snapshots, n_elem_local, NGLL, NGLL, NGLL, 6]
 │                                                       └── εxx,εyy,εzz,εxy,εxz,εyz
 └── /restart/
     ├── displacement        : float64[n_elem_local, NGLL, NGLL, NGLL, 3]   — u
@@ -506,8 +507,8 @@ record_r{rank}.h5
     └── acceleration        : float64[n_elem_local, NGLL, NGLL, NGLL, 3]   — a
 ```
 
-Strain at GLL nodes in Voigt notation (L2-smoothed, global projection, C⁰ continuous). The time axis is extendible: each checkpoint appends a slice along dim 0.
-Restart state is overwritten each checkpoint — only the latest state is kept (not extendible).
+Strain at GLL nodes in Voigt notation (L2-smoothed, global projection, C⁰ continuous). The time axis is extendible: each snapshot appends a slice along dim 0.
+Restart state is overwritten each snapshot — only the latest state is kept (not extendible).
 
 On `--resume`, gf_solver reads the restart group, sets initial (u, v, a) from the saved state, and continues from `current_step + 1`.
 
@@ -517,11 +518,11 @@ On `--resume`, gf_solver reads the restart group, sets initial (u, v, a) from th
 - NGLL = N+1 = 4 (test) / 6 (prod)
 - Time integration: Newmark explicit (β=0, γ=½ — central difference)
 - CFL: conditional stability, standard SEM constraint
-- dt: auto-computed by preprocessor from `time_length` and the CFL constraint. Read from config.h5 `/simulation/dt`
+- solver_dt: auto-computed by preprocessor from CFL and the user snapshot interval. Read from config.h5 `/simulation/solver_dt`; snapshots use `/simulation/snapshot_stride` and `/simulation/output_dt_s`
 
 ## Run Config (3 Simulations per Source)
 
-For Green's function extraction: 3 orthogonal force directions (x, y, z) = 3 independent forward runs per source location. Each run is a separate invocation of gf_solver with a different source direction in config.h5. Each run produces 6 strain components (symmetric tensor: εxx, εyy, εzz, εxy, εxz, εyz).
+For Green's function extraction: 3 orthogonal force directions (x, y, z) = 3 independent forward runs per source location. Each run is a separate invocation of gf_solver with a different `--direction {x,y,z}` CLI value. Each run produces 6 strain components (symmetric tensor: εxx, εyy, εzz, εxy, εxz, εyz).
 
 ## Namespace
 
@@ -541,18 +542,18 @@ forward/
 │   ├── newmark.hpp            — NewmarkPredictor, NewmarkCorrector
 │   ├── source.hpp             — PointForceSource (Lagrange interpolation)
 │   ├── exchange.hpp           — MPI halo exchange (precomputed face lists)
-│   ├── checkpoint.hpp         — extendible HDF5 strain + restart state writer
+│   ├── record.hpp             — extendible HDF5 strain snapshots + restart state writer
 │   ├── io.hpp                 — partition_{r}.h5 + config.h5 reader
 │   └── solver.hpp             — run_forward() loop, --resume support
 ├── src/
 │   ├── element.cpp, assembly.cpp
 │   ├── pml.cpp, newmark.cpp, source.cpp
-│   ├── exchange.cpp, checkpoint.cpp, io.cpp
+│   ├── exchange.cpp, record.cpp, io.cpp
 │   ├── solver.cpp
 │   └── main.cpp               — gf_solver entry point
 └── tests/
     ├── CMakeLists.txt
     ├── test_gll.cpp, test_element.cpp, test_assembly.cpp
     ├── test_pml.cpp, test_newmark.cpp
-    ├── test_source.cpp, test_checkpoint.cpp, test_integration.cpp
+    ├── test_source.cpp, test_record.cpp, test_integration.cpp
 ```
