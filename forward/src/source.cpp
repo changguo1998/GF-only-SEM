@@ -79,6 +79,31 @@ bool PointForceSource::locate(
         }
 
         if (std::abs(xi) <= 1.0+1e-8 && std::abs(eta) <= 1.0+1e-8 && std::abs(zeta) <= 1.0+1e-8) {
+            std::vector<double> lx = lagrange_basis(xi,   nodes);
+            std::vector<double> ly = lagrange_basis(eta,  nodes);
+            std::vector<double> lz = lagrange_basis(zeta, nodes);
+
+            double xv=0, yv=0, zv=0;
+            for (int i = 0; i < ngll; ++i) {
+                double wxi = lx[i];
+                for (int j = 0; j < ngll; ++j) {
+                    double wxy = wxi * ly[j];
+                    for (int k = 0; k < ngll; ++k) {
+                        double w = wxy * lz[k];
+                        int n = idx3(i, j, k, ngll) * 3;
+                        xv += w * coords[base3 + n + 0];
+                        yv += w * coords[base3 + n + 1];
+                        zv += w * coords[base3 + n + 2];
+                    }
+                }
+            }
+            const double rx = xv - src_x;
+            const double ry = yv - src_y;
+            const double rz = zv - src_z;
+            if (std::sqrt(rx*rx + ry*ry + rz*rz) >= 1.0e-8) {
+                continue;
+            }
+
             double md = std::numeric_limits<double>::max();
             for (int i = 0; i < ngll; ++i) {
                 for (int j = 0; j < ngll; ++j) {
@@ -92,13 +117,9 @@ bool PointForceSource::locate(
             }
 
             element_id = e + 1;
-
-            std::vector<double> lx = lagrange_basis(xi,   nodes);
-            std::vector<double> ly = lagrange_basis(eta,  nodes);
-            std::vector<double> lz = lagrange_basis(zeta, nodes);
-            wx = lx[gll_i];
-            wy = ly[gll_j];
-            wz = lz[gll_k];
+            wx = lx[gll_i] * ly[gll_j] * lz[gll_k];
+            wy = 0.0;
+            wz = 0.0;
             return true;
         }
     }
@@ -120,9 +141,10 @@ void PointForceSource::apply(
     if (elem_idx < 0) return;
 
     int dof_base = elem_idx * n_node * 3 + (gll_i * ngll + gll_j) * ngll + gll_k;
-    rhs[dof_base * 3 + 0] += force_x;
-    rhs[dof_base * 3 + 1] += force_y;
-    rhs[dof_base * 3 + 2] += force_z;
+    const double weight = (wy == 0.0 && wz == 0.0) ? wx : (wx * wy * wz);
+    rhs[dof_base * 3 + 0] += weight * force_x;
+    rhs[dof_base * 3 + 1] += weight * force_y;
+    rhs[dof_base * 3 + 2] += weight * force_z;
 }
 
 } // namespace gf

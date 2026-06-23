@@ -1,5 +1,6 @@
 #include "gf/element.hpp"
 #include "gf/gll.hpp"
+#include <cmath>
 
 namespace gf {
 
@@ -76,6 +77,9 @@ void compute_element_residual(
                 for (int l = 0; l < 3; ++l) {
                     for (int m = 0; m < 3; ++m) {
                         eps[l][m] = 0.5 * (du_dx[l][m] + du_dx[m][l]);
+                        if (std::abs(eps[l][m]) < 1.0e-14) {
+                            eps[l][m] = 0.0;
+                        }
                     }
                 }
 

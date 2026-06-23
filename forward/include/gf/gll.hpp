@@ -56,14 +56,13 @@ inline std::vector<double> gll_nodes(int N) {
         // Newton iteration to find root of P'_N(x) = 0
         for (int iter = 0; iter < max_iter; ++iter) {
             double f  = detail::legendre_p_prime(N, xi);
-            double df = (N * (N + 1.0) * detail::legendre_p(N, xi)
-                         - 2.0 * xi * f) / (1.0 - xi * xi);
-            // alternative: df = (N*(N+1)*P_N(xi) - 2*xi*P'_N(xi)) / (1-xi^2)
-            // We use numerical derivative fallback if needed
+            // Legendre ODE: (1-x²)P''_N - 2xP'_N + N(N+1)P_N = 0
+            // so P''_N = (2xP'_N - N(N+1)P_N)/(1-x²).
+            double df = (2.0 * xi * f
+                         - N * (N + 1.0) * detail::legendre_p(N, xi))
+                        / (1.0 - xi * xi);
             if (std::abs(df) < 1.0e-14) {
-                // fallback: second derivative formula
-                df = (N * (N + 1.0) * detail::legendre_p(N, xi)
-                      - 2.0 * xi * f) / (1.0 - xi * xi);
+                throw std::runtime_error("GLL Newton iteration encountered near-zero derivative");
             }
             double dx = -f / df;
             xi += dx;

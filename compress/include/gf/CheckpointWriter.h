@@ -5,6 +5,7 @@
 #include "PrecisionPolicy.h"
 
 #include <hdf5.h>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -47,9 +48,23 @@ inline hid_t write_checkpoint(
     hid_t elem_dset = H5Dcreate2(file_id, "local_element_ids",
                                   H5T_NATIVE_INT64, elem_space,
                                   H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-    H5Dwrite(elem_dset, H5T_NATIVE_INT64, H5S_ALL, H5S_ALL, H5P_DEFAULT, element_ids);
+    if (elem_dset < 0) {
+        H5Sclose(elem_space);
+        throw std::runtime_error("H5Dcreate2 failed for local_element_ids");
+    }
+    std::vector<int64_t> zero_ids;
+    const int64_t* ids_to_write = element_ids;
+    if (ids_to_write == nullptr) {
+        zero_ids.assign(static_cast<size_t>(n_elem_local), 0);
+        ids_to_write = zero_ids.data();
+    }
+    herr_t elem_status = H5Dwrite(elem_dset, H5T_NATIVE_INT64, H5S_ALL, H5S_ALL,
+                                  H5P_DEFAULT, ids_to_write);
     H5Dclose(elem_dset);
     H5Sclose(elem_space);
+    if (elem_status < 0) {
+        throw std::runtime_error("H5Dwrite failed for local_element_ids");
+    }
 
     // --- strain dataset (extendible) ---
     // Shape: [n_checkpoints, n_elem_local, NGLL, NGLL, NGLL, 6]
