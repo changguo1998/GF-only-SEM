@@ -161,9 +161,12 @@ void RecordWriter::write_step(int step, const double* strain) {
         throw std::runtime_error("RecordWriter: file not open");
     }
 
-    // Extend the dataset along time dimension (dim 0) by 1
-    hsize_t new_dims[6];
-    herr_t status = H5Dset_extent(strain_dset_, &current_step_);
+    // Extend the dataset along time dimension (dim 0) to current_step_.
+    hsize_t new_dims[6] = {current_step_, n_elem_local_,
+                           static_cast<hsize_t>(ngll_),
+                           static_cast<hsize_t>(ngll_),
+                           static_cast<hsize_t>(ngll_), 6};
+    herr_t status = H5Dset_extent(strain_dset_, new_dims);
     if (status < 0) {
         throw std::runtime_error("H5Dset_extent failed at step " + std::to_string(current_step_));
     }

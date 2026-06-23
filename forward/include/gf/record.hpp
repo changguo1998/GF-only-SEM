@@ -10,7 +10,7 @@ namespace gf {
 /// Writes strain records to per-rank HDF5 files with extendible time dimension.
 ///
 /// File layout: wavefields/{direction}/record_{rank}.h5
-///   /strain [n_checkpoints, n_elem_local, NGLL, NGLL, NGLL, 6]  extendible (float32 or float64)
+///   /strain [n_snapshots, n_elem_local, NGLL, NGLL, NGLL, 6]  extendible (float32 or float64)
 ///   /local_element_ids [n_elem_local] int64
 ///   Attributes: source_direction, ngll
 ///

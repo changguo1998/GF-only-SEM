@@ -105,10 +105,10 @@ int run_forward(const std::string& partition_dir,
         // === Initialize record writer ===
         CompressionConfig comp_cfg;
         comp_cfg.method = CompressionMethod::None;
-        if (cfg.checkpoint_precision == "lzf") comp_cfg.method = CompressionMethod::LZF;
-        else if (cfg.checkpoint_precision == "zlib") comp_cfg.method = CompressionMethod::Zlib;
+        if (cfg.snapshot_precision == "lzf") comp_cfg.method = CompressionMethod::LZF;
+        else if (cfg.snapshot_precision == "zlib") comp_cfg.method = CompressionMethod::Zlib;
 
-        bool use_float32 = false;
+        bool use_float32 = (cfg.snapshot_precision == "float32");
         RecordWriter record(output_dir, direction, rank,
                             n_local, part.local_element_ids.data(),
                             ngll, comp_cfg, use_float32);
@@ -121,7 +121,7 @@ int run_forward(const std::string& partition_dir,
         // === Newmark parameters ===
         double beta  = 0.0;   // explicit central difference
         double gamma = 0.5;
-        double dt    = cfg.dt;
+        double dt    = cfg.solver_dt;
 
         // === Main time loop ===
         for (int step = 0; step < cfg.nsteps; ++step) {
@@ -172,8 +172,8 @@ int run_forward(const std::string& partition_dir,
             // --- Newmark correct ---
             newmark_correct(dt, beta, gamma, part.mass, u, v, a, r);
 
-            // --- Write record (every checkpoint_interval) ---
-            if (cfg.checkpoint_interval > 0 && step % cfg.checkpoint_interval == 0) {
+            // --- Write snapshot (every snapshot_stride solver steps) ---
+            if (cfg.snapshot_stride > 0 && step % cfg.snapshot_stride == 0) {
                 // Compute strain at all GLL nodes (Voigt order: εxx, εyy, εzz, εxy, εxz, εyz)
                 std::vector<double> strain(n_local * n_node * 6, 0.0);
 

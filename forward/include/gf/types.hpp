@@ -66,11 +66,12 @@ struct NewmarkParams {
 struct ConfigData {
     std::string title;
     int polynomial_order = 0;
-    double dt = 0.0;
-    int nsteps = 0;
+    double solver_dt = 0.0;        // Solver timestep for Newmark loop
+    double output_dt_s = 0.0;      // User-specified snapshot interval
+    int snapshot_stride = 1;       // Solver steps per snapshot
+    int nsteps = 0;                // Total solver steps
     double cfl_safety = 1.0;
-    int checkpoint_interval = 0;
-    std::string checkpoint_precision = "float64";
+    std::string snapshot_precision = "float64";  // "float32" or "float64"
 
     // Domain bounds
     double xmin = 0.0, xmax = 0.0;

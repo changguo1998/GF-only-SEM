@@ -9,11 +9,20 @@ namespace gf {
 
 namespace {
 
-// Helper: open an HDF5 file for reading, close via RAII
+// Helper: close HDF5 identifiers via RAII.
 struct H5FileGuard {
     hid_t id;
     explicit H5FileGuard(hid_t i) : id(i) {}
-    ~H5FileGuard() { if (id >= 0) H5Fclose(id); }
+    ~H5FileGuard() {
+        if (id < 0) return;
+        H5I_type_t type = H5Iget_type(id);
+        if (type == H5I_FILE) H5Fclose(id);
+        else if (type == H5I_GROUP) H5Gclose(id);
+        else if (type == H5I_DATASET) H5Dclose(id);
+        else if (type == H5I_DATASPACE) H5Sclose(id);
+        else if (type == H5I_ATTR) H5Aclose(id);
+        else if (type == H5I_DATATYPE) H5Tclose(id);
+    }
     hid_t get() const { return id; }
 };
 
@@ -79,17 +88,45 @@ std::vector<T> try_read_dataset(hid_t file_id, const std::string& name) {
     return {};
 }
 
-// Read int32 attribute
 bool read_attr_int(hid_t loc_id, const std::string& name, int& out) {
-    if (H5Aexists(loc_id, name.c_str()) > 0) {
-        hid_t attr = H5Aopen(loc_id, name.c_str(), H5P_DEFAULT);
-        H5FileGuard attr_guard(attr);
-        if (attr >= 0) {
-            H5Aread(attr, H5T_NATIVE_INT, &out);
-            return true;
-        }
+    if (H5Aexists(loc_id, name.c_str()) <= 0) return false;
+    hid_t attr = H5Aopen(loc_id, name.c_str(), H5P_DEFAULT);
+    if (attr < 0) return false;
+    H5FileGuard attr_guard(attr);
+    return H5Aread(attr, H5T_NATIVE_INT, &out) >= 0;
+}
+
+bool read_attr_double(hid_t loc_id, const std::string& name, double& out) {
+    if (H5Aexists(loc_id, name.c_str()) <= 0) return false;
+    hid_t attr = H5Aopen(loc_id, name.c_str(), H5P_DEFAULT);
+    if (attr < 0) return false;
+    H5FileGuard attr_guard(attr);
+    return H5Aread(attr, H5T_NATIVE_DOUBLE, &out) >= 0;
+}
+
+bool read_attr_string(hid_t loc_id, const std::string& name, std::string& out) {
+    if (H5Aexists(loc_id, name.c_str()) <= 0) return false;
+    hid_t attr = H5Aopen(loc_id, name.c_str(), H5P_DEFAULT);
+    if (attr < 0) return false;
+    H5FileGuard attr_guard(attr);
+
+    hid_t type = H5Aget_type(attr);
+    if (type < 0) return false;
+    H5FileGuard type_guard(type);
+
+    if (H5Tis_variable_str(type) > 0) {
+        char* value = nullptr;
+        if (H5Aread(attr, type, &value) < 0) return false;
+        out = value ? std::string(value) : std::string();
+        if (value) H5free_memory(value);
+        return true;
     }
-    return false;
+
+    size_t len = H5Tget_size(type);
+    std::vector<char> buf(len + 1, '\0');
+    if (H5Aread(attr, type, buf.data()) < 0) return false;
+    out = std::string(buf.data());
+    return true;
 }
 
 } // anonymous namespace
@@ -209,53 +246,101 @@ ConfigData read_config(const std::string& path) {
     H5FileGuard guard(fid);
 
     ConfigData cfg;
-
     cfg.title = "untitled";
 
-    auto poly_order = try_read_dataset<double>(fid, "polynomial_order");
-    cfg.polynomial_order = poly_order.empty() ? 3 : static_cast<int>(poly_order[0]);
+    // New config.h5 schema: values are attributes under /simulation.
+    hid_t sim_grp = H5Gopen2(fid, "/simulation", H5P_DEFAULT);
+    if (sim_grp >= 0) {
+        H5FileGuard sim_guard(sim_grp);
 
-    auto dt = try_read_dataset<double>(fid, "dt");
-    cfg.dt = dt.empty() ? 0.005 : dt[0];
+        read_attr_string(sim_grp, "title", cfg.title);
 
-    auto nsteps = try_read_dataset<double>(fid, "nsteps");
-    cfg.nsteps = nsteps.empty() ? 1000 : static_cast<int>(nsteps[0]);
+        int poly_order = 0;
+        if (read_attr_int(sim_grp, "polynomial_order", poly_order) && poly_order > 0) {
+            cfg.polynomial_order = poly_order;
+        } else {
+            cfg.polynomial_order = 3;
+        }
 
-    auto cfl = try_read_dataset<double>(fid, "cfl_safety");
-    cfg.cfl_safety = cfl.empty() ? 1.0 : cfl[0];
+        if (!read_attr_double(sim_grp, "solver_dt", cfg.solver_dt)) {
+            throw std::runtime_error("Missing required /simulation attribute: solver_dt");
+        }
+        if (!read_attr_double(sim_grp, "output_dt_s", cfg.output_dt_s)) {
+            cfg.output_dt_s = cfg.solver_dt;
+        }
+        if (!read_attr_int(sim_grp, "snapshot_stride", cfg.snapshot_stride)) {
+            cfg.snapshot_stride = 1;
+        }
+        if (!read_attr_int(sim_grp, "nsteps", cfg.nsteps)) {
+            throw std::runtime_error("Missing required /simulation attribute: nsteps");
+        }
+        read_attr_double(sim_grp, "cfl_safety", cfg.cfl_safety);
+        read_attr_string(sim_grp, "snapshot_precision", cfg.snapshot_precision);
+    } else {
+        // Legacy flat-dataset fallback for old C++ tests/files.
+        auto poly_order = try_read_dataset<double>(fid, "polynomial_order");
+        cfg.polynomial_order = poly_order.empty() ? 3 : static_cast<int>(poly_order[0]);
 
-    auto ckpt_int = try_read_dataset<double>(fid, "checkpoint_interval");
-    cfg.checkpoint_interval = ckpt_int.empty() ? 10 : static_cast<int>(ckpt_int[0]);
+        auto dt = try_read_dataset<double>(fid, "dt");
+        cfg.solver_dt = dt.empty() ? 0.005 : dt[0];
+        cfg.output_dt_s = cfg.solver_dt;
 
-    cfg.checkpoint_precision = "float64";
-    auto use_f32 = try_read_dataset<int64_t>(fid, "use_float32");
-    if (!use_f32.empty() && use_f32[0] == 1) {
-        cfg.checkpoint_precision = "float32";
+        auto nsteps = try_read_dataset<double>(fid, "nsteps");
+        cfg.nsteps = nsteps.empty() ? 1000 : static_cast<int>(nsteps[0]);
+
+        auto cfl = try_read_dataset<double>(fid, "cfl_safety");
+        cfg.cfl_safety = cfl.empty() ? 1.0 : cfl[0];
+
+        cfg.snapshot_stride = 1;
+        cfg.snapshot_precision = "float64";
+        auto use_f32 = try_read_dataset<int64_t>(fid, "use_float32");
+        if (!use_f32.empty() && use_f32[0] == 1) cfg.snapshot_precision = "float32";
     }
 
-    // Domain bounds
-    auto xmin = try_read_dataset<double>(fid, "xmin");
-    auto xmax = try_read_dataset<double>(fid, "xmax");
-    auto ymin = try_read_dataset<double>(fid, "ymin");
-    auto ymax = try_read_dataset<double>(fid, "ymax");
-    auto zmin = try_read_dataset<double>(fid, "zmin");
-    auto zmax = try_read_dataset<double>(fid, "zmax");
-    if (!xmin.empty()) cfg.xmin = xmin[0];
-    if (!xmax.empty()) cfg.xmax = xmax[0];
-    if (!ymin.empty()) cfg.ymin = ymin[0];
-    if (!ymax.empty()) cfg.ymax = ymax[0];
-    if (!zmin.empty()) cfg.zmin = zmin[0];
-    if (!zmax.empty()) cfg.zmax = zmax[0];
+    // Domain bounds: new schema stores attributes under /domain; keep legacy fallback.
+    hid_t domain_grp = H5Gopen2(fid, "/domain", H5P_DEFAULT);
+    if (domain_grp >= 0) {
+        H5FileGuard domain_guard(domain_grp);
+        read_attr_double(domain_grp, "xmin", cfg.xmin);
+        read_attr_double(domain_grp, "xmax", cfg.xmax);
+        read_attr_double(domain_grp, "ymin", cfg.ymin);
+        read_attr_double(domain_grp, "ymax", cfg.ymax);
+        read_attr_double(domain_grp, "zmin", cfg.zmin);
+        read_attr_double(domain_grp, "zmax", cfg.zmax);
+    } else {
+        auto xmin = try_read_dataset<double>(fid, "xmin");
+        auto xmax = try_read_dataset<double>(fid, "xmax");
+        auto ymin = try_read_dataset<double>(fid, "ymin");
+        auto ymax = try_read_dataset<double>(fid, "ymax");
+        auto zmin = try_read_dataset<double>(fid, "zmin");
+        auto zmax = try_read_dataset<double>(fid, "zmax");
+        if (!xmin.empty()) cfg.xmin = xmin[0];
+        if (!xmax.empty()) cfg.xmax = xmax[0];
+        if (!ymin.empty()) cfg.ymin = ymin[0];
+        if (!ymax.empty()) cfg.ymax = ymax[0];
+        if (!zmin.empty()) cfg.zmin = zmin[0];
+        if (!zmax.empty()) cfg.zmax = zmax[0];
+    }
 
-    // Source data
-    cfg.stf_t      = try_read_dataset<double>(fid, "stf_t");
-    cfg.stf_values = try_read_dataset<double>(fid, "stf_values");
-    auto src_x = try_read_dataset<double>(fid, "source_x");
-    auto src_y = try_read_dataset<double>(fid, "source_y");
-    auto src_z = try_read_dataset<double>(fid, "source_z");
-    if (!src_x.empty()) cfg.source_x = src_x[0];
-    if (!src_y.empty()) cfg.source_y = src_y[0];
-    if (!src_z.empty()) cfg.source_z = src_z[0];
+    // Source data: new schema stores datasets/attrs under /source; keep legacy fallback.
+    hid_t source_grp = H5Gopen2(fid, "/source", H5P_DEFAULT);
+    if (source_grp >= 0) {
+        H5FileGuard source_guard(source_grp);
+        cfg.stf_t      = try_read_dataset<double>(fid, "/source/stf_t");
+        cfg.stf_values = try_read_dataset<double>(fid, "/source/stf_values");
+        read_attr_double(source_grp, "x", cfg.source_x);
+        read_attr_double(source_grp, "y", cfg.source_y);
+        read_attr_double(source_grp, "z", cfg.source_z);
+    } else {
+        cfg.stf_t      = try_read_dataset<double>(fid, "stf_t");
+        cfg.stf_values = try_read_dataset<double>(fid, "stf_values");
+        auto src_x = try_read_dataset<double>(fid, "source_x");
+        auto src_y = try_read_dataset<double>(fid, "source_y");
+        auto src_z = try_read_dataset<double>(fid, "source_z");
+        if (!src_x.empty()) cfg.source_x = src_x[0];
+        if (!src_y.empty()) cfg.source_y = src_y[0];
+        if (!src_z.empty()) cfg.source_z = src_z[0];
+    }
 
     return cfg;
 }

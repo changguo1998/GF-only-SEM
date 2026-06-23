@@ -23,8 +23,8 @@ RankData read_partition(const std::string& path, int rank);
 /// Read config.h5 (rank-invariant simulation configuration).
 ///
 /// Reads all simulation parameters from the config file:
-///   - Title, polynomial_order, dt, nsteps, cfl_safety
-///   - Checkpoint settings (interval, precision)
+///   - Title, polynomial_order, solver_dt, output_dt_s, snapshot_stride, nsteps, cfl_safety
+///   - Snapshot settings (stride, precision)
 ///   - Domain bounds, source STF
 ConfigData read_config(const std::string& path);
 
