@@ -29,16 +29,16 @@ class TestLoadConfig:
                 lines.append(f'{key} = {val}\n')
         lines.append("def stf_func(t):\n")
         lines.append("    return (1 - 2 * (np.pi * 5.0 * (t - 0.3))**2) * np.exp(-(np.pi * 5.0 * (t - 0.3))**2)\n")
-        lines.append("def vp(x, y, z): return 3000.0\n")
-        lines.append("def vs(x, y, z): return 1500.0\n")
-        lines.append("def density(x, y, z): return 2500.0\n")
+        lines.append("def vp_m_s(x, y, z): return 3000.0\n")
+        lines.append("def vs_m_s(x, y, z): return 1500.0\n")
+        lines.append("def density_kg_m3(x, y, z): return 2500.0\n")
         config_path.write_text("".join(lines))
 
         mod = load_config(str(config_path), validate=False)
         assert mod.title == "test_run"
         assert mod.polynomial_order == 3
         assert mod.stf_func(0.3) == pytest.approx(1.0)
-        assert mod.vp(0, 0, 0) == 3000.0
+        assert mod.vp_m_s(0, 0, 0) == 3000.0
 
     def test_missing_required_field_raises(self, tmp_dir):
         """Missing required field should raise ConfigValidationError."""
@@ -52,21 +52,19 @@ class TestLoadConfig:
         config_path = tmp_dir / "bad_n.py"
         config_path.write_text("""title = "test"
 polynomial_order = 0
-output_dt = 0.001
-nsteps = 100
+output_dt_s = 0.001
+total_duration_s = 0.5
 cfl_safety = 0.5
-cfl_threshold = 1.0
-checkpoint_interval = 10
-checkpoint_precision = "float32"
+snapshot_precision = "float32"
 storage_limit_gb = 100
 n_ranks = 4
 pml_thickness = {"xmin": 3, "xmax": 3, "ymin": 3, "ymax": 3, "zmin": 0, "zmax": 3}
-source_x = 500.0
-source_y = 500.0
+source_x_m = 500.0
+source_y_m = 500.0
 def stf_func(t): return 1.0
-def vp(x, y, z): return 3000.0
-def vs(x, y, z): return 1500.0
-def density(x, y, z): return 2500.0
+def vp_m_s(x, y, z): return 3000.0
+def vs_m_s(x, y, z): return 1500.0
+def density_kg_m3(x, y, z): return 2500.0
 """)
         with pytest.raises(ConfigValidationError, match="polynomial_order"):
             load_config(str(config_path))
@@ -76,68 +74,62 @@ def density(x, y, z): return 2500.0
         config_path = tmp_dir / "no_stf.py"
         config_path.write_text("""title = "test"
 polynomial_order = 3
-output_dt = 0.001
-nsteps = 100
+output_dt_s = 0.001
+total_duration_s = 0.5
 cfl_safety = 0.5
-cfl_threshold = 1.0
-checkpoint_interval = 10
-checkpoint_precision = "float32"
+snapshot_precision = "float32"
 storage_limit_gb = 100
 n_ranks = 4
 pml_thickness = {"xmin": 3, "xmax": 3, "ymin": 3, "ymax": 3, "zmin": 0, "zmax": 3}
-source_x = 500.0
-source_y = 500.0
-def vp(x, y, z): return 3000.0
-def vs(x, y, z): return 1500.0
-def density(x, y, z): return 2500.0
+source_x_m = 500.0
+source_y_m = 500.0
+def vp_m_s(x, y, z): return 3000.0
+def vs_m_s(x, y, z): return 1500.0
+def density_kg_m3(x, y, z): return 2500.0
 """)
         with pytest.raises(ConfigValidationError, match="stf_func"):
             load_config(str(config_path))
 
-    def test_invalid_checkpoint_precision_raises(self, tmp_dir):
-        """Invalid checkpoint_precision should raise ConfigValidationError."""
+    def test_invalid_snapshot_precision_raises(self, tmp_dir):
+        """Invalid snapshot_precision should raise ConfigValidationError."""
         config_path = tmp_dir / "bad_precision.py"
         config_path.write_text("""title = "test"
 polynomial_order = 3
-output_dt = 0.001
-nsteps = 100
+output_dt_s = 0.001
+total_duration_s = 0.5
 cfl_safety = 0.5
-cfl_threshold = 1.0
-checkpoint_interval = 10
-checkpoint_precision = "int8"
+snapshot_precision = "int8"
 storage_limit_gb = 100
 n_ranks = 4
 pml_thickness = {"xmin": 3, "xmax": 3, "ymin": 3, "ymax": 3, "zmin": 0, "zmax": 3}
-source_x = 500.0
-source_y = 500.0
+source_x_m = 500.0
+source_y_m = 500.0
 def stf_func(t): return 1.0
-def vp(x, y, z): return 3000.0
-def vs(x, y, z): return 1500.0
-def density(x, y, z): return 2500.0
+def vp_m_s(x, y, z): return 3000.0
+def vs_m_s(x, y, z): return 1500.0
+def density_kg_m3(x, y, z): return 2500.0
 """)
-        with pytest.raises(ConfigValidationError, match="checkpoint_precision"):
+        with pytest.raises(ConfigValidationError, match="snapshot_precision"):
             load_config(str(config_path))
 
     def test_negative_output_dt_raises(self, tmp_dir):
-        """Negative output_dt should raise ConfigValidationError."""
+        """Negative output_dt_s should raise ConfigValidationError."""
         config_path = tmp_dir / "neg_dt.py"
         config_path.write_text("""title = "test"
 polynomial_order = 3
-output_dt = -0.001
-nsteps = 100
+output_dt_s = -0.001
+total_duration_s = 0.5
 cfl_safety = 0.5
-cfl_threshold = 1.0
-checkpoint_interval = 10
-checkpoint_precision = "float32"
+snapshot_precision = "float32"
 storage_limit_gb = 100
 n_ranks = 4
 pml_thickness = {"xmin": 3, "xmax": 3, "ymin": 3, "ymax": 3, "zmin": 0, "zmax": 3}
-source_x = 500.0
-source_y = 500.0
+source_x_m = 500.0
+source_y_m = 500.0
 def stf_func(t): return 1.0
-def vp(x, y, z): return 3000.0
-def vs(x, y, z): return 1500.0
-def density(x, y, z): return 2500.0
+def vp_m_s(x, y, z): return 3000.0
+def vs_m_s(x, y, z): return 1500.0
+def density_kg_m3(x, y, z): return 2500.0
 """)
-        with pytest.raises(ConfigValidationError, match="output_dt"):
+        with pytest.raises(ConfigValidationError, match="output_dt_s"):
             load_config(str(config_path))

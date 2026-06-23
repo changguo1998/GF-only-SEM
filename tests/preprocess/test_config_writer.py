@@ -13,17 +13,15 @@ from preprocess.config_writer import write_config
 
 
 def _make_mock_config():
-    """Create a mock config module."""
+    """Create a mock config module with new field names and unit suffixes."""
     from types import ModuleType
     mod = ModuleType("mock_config")
     mod.title = "test_simulation"
     mod.polynomial_order = 3
-    mod.output_dt = 0.001
+    mod.output_dt_s = 0.001
     mod.nsteps = 100
     mod.cfl_safety = 0.5
-    mod.cfl_threshold = 1.0
-    mod.checkpoint_interval = 10
-    mod.checkpoint_precision = "float32"
+    mod.snapshot_precision = "float32"
     mod.storage_limit_gb = 100.0
     return mod
 
@@ -46,12 +44,14 @@ class TestConfigWriter:
                 sim = f["simulation"]
                 assert sim.attrs["title"] == "test_simulation"
                 assert sim.attrs["polynomial_order"] == 3
-                assert sim.attrs["dt"] == 0.001
+                # solver_dt falls back to config_module.output_dt_s
+                assert sim.attrs["solver_dt"] == 0.001
+                assert sim.attrs["output_dt_s"] == 0.001
+                # snapshot_stride defaults to 1 when not passed
+                assert sim.attrs["snapshot_stride"] == 1
                 assert sim.attrs["nsteps"] == 100
                 assert sim.attrs["cfl_safety"] == 0.5
-                assert sim.attrs["cfl_threshold"] == 1.0
-                assert sim.attrs["checkpoint_interval"] == 10
-                assert sim.attrs["checkpoint_precision"] == "float32"
+                assert sim.attrs["snapshot_precision"] == "float32"
                 assert sim.attrs["storage_limit_gb"] == 100.0
 
     def test_writes_domain_group(self):
