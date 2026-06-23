@@ -9,20 +9,18 @@ from types import ModuleType
 REQUIRED_KEYS = {
     "title": (str,),
     "polynomial_order": (int,),
-    "output_dt": (int, float),
-    "nsteps": (int,),
+    "output_dt_s": (int, float),
+    "total_duration_s": (int, float),
     "cfl_safety": (int, float),
-    "cfl_threshold": (int, float),
-    "checkpoint_interval": (int,),
-    "checkpoint_precision": (str,),
+    "snapshot_precision": (str,),
     "storage_limit_gb": (int, float),
     "n_ranks": (int,),
     "pml_thickness": (dict,),
-    "source_x": (int, float),
-    "source_y": (int, float),
+    "source_x_m": (int, float),
+    "source_y_m": (int, float),
 }
 
-REQUIRED_CALLABLES = ["stf_func", "vp", "vs", "density"]
+REQUIRED_CALLABLES = ["stf_func", "vp_m_s", "vs_m_s", "density_kg_m3"]
 
 
 class ConfigValidationError(Exception):
@@ -109,7 +107,7 @@ def validate_config(mod: ModuleType) -> None:
     # Validate ranges
     _validate_range(mod)
     _validate_pml_thickness(mod.pml_thickness)
-    _validate_checkpoint_precision(mod.checkpoint_precision)
+    _validate_snapshot_precision(mod.snapshot_precision)
 
 
 def _validate_range(mod: ModuleType) -> None:
@@ -119,17 +117,14 @@ def _validate_range(mod: ModuleType) -> None:
     if mod.polynomial_order < 1:
         errors.append(f"polynomial_order must be >= 1, got {mod.polynomial_order}")
 
-    if mod.output_dt <= 0:
-        errors.append(f"output_dt must be > 0, got {mod.output_dt}")
+    if mod.output_dt_s <= 0:
+        errors.append(f"output_dt_s must be > 0, got {mod.output_dt_s}")
 
-    if mod.nsteps < 1:
-        errors.append(f"nsteps must be > 0, got {mod.nsteps}")
+    if mod.total_duration_s <= 0:
+        errors.append(f"total_duration_s must be > 0, got {mod.total_duration_s}")
 
     if not (0 < mod.cfl_safety < 1):
         errors.append(f"cfl_safety must be between 0 and 1, got {mod.cfl_safety}")
-
-    if mod.cfl_threshold <= 0:
-        errors.append(f"cfl_threshold must be > 0, got {mod.cfl_threshold}")
 
     if mod.storage_limit_gb <= 0:
         errors.append(f"storage_limit_gb must be > 0, got {mod.storage_limit_gb}")
@@ -155,9 +150,9 @@ def _validate_pml_thickness(pml: dict) -> None:
             )
 
 
-def _validate_checkpoint_precision(precision: str) -> None:
-    """Validate checkpoint_precision."""
+def _validate_snapshot_precision(precision: str) -> None:
+    """Validate snapshot_precision."""
     if precision not in ("float32", "float64"):
         raise ConfigValidationError(
-            f"checkpoint_precision must be 'float32' or 'float64', got '{precision}'"
+            f"snapshot_precision must be 'float32' or 'float64', got '{precision}'"
         )

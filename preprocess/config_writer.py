@@ -13,6 +13,11 @@ def write_config(
     stf_t: npt.NDArray[np.float64],
     stf_values: npt.NDArray[np.float64],
     source_xyz: npt.NDArray[np.float64] | None = None,
+    source_loc_result: dict | None = None,
+    *,
+    solver_dt: float | None = None,
+    snapshot_stride: int | None = None,
+    nsteps: int | None = None,
 ) -> None:
     """Write configs/config.h5 with simulation, domain, and source data.
 
@@ -23,27 +28,39 @@ def write_config(
         stf_t: Time array [nsteps] float64.
         stf_values: STF amplitude array [nsteps] float64.
         source_xyz: Optional source position [x, y, z] float64.
+        source_loc_result: Optional dict from locate_source() with
+            element_ids, xi, eta, zeta, weights, n_src_elem.
+        solver_dt: Auto-computed CFL timestep. Falls back to config_module.output_dt_s.
+        snapshot_stride: Solver steps per snapshot. Falls back to 1.
+        nsteps: Total solver steps. Falls back to config_module.nsteps.
     """
+    if solver_dt is None:
+        solver_dt = float(config_module.output_dt_s)
+    if snapshot_stride is None:
+        snapshot_stride = 1
+    if nsteps is None:
+        nsteps = int(config_module.nsteps)
+
     parent_dir = os.path.dirname(os.path.abspath(config_path))
     os.makedirs(parent_dir, exist_ok=True)
 
     with h5py.File(config_path, "w") as f:
-        _write_simulation(f, config_module)
+        _write_simulation(f, config_module, solver_dt, snapshot_stride, nsteps)
         _write_domain(f, domain_bounds)
-        _write_source(f, stf_t, stf_values, source_xyz)
+        _write_source(f, stf_t, stf_values, source_xyz, source_loc_result)
 
 
-def _write_simulation(f: h5py.File, config_module) -> None:
+def _write_simulation(f: h5py.File, config_module, solver_dt: float, snapshot_stride: int, nsteps: int) -> None:
     grp = f.create_group("simulation")
     grp.attrs["title"] = config_module.title
 
     grp.attrs["polynomial_order"] = int(config_module.polynomial_order)
-    grp.attrs["dt"] = float(config_module.output_dt)
-    grp.attrs["nsteps"] = int(config_module.nsteps)
+    grp.attrs["solver_dt"] = solver_dt
+    grp.attrs["output_dt_s"] = float(config_module.output_dt_s)
+    grp.attrs["snapshot_stride"] = snapshot_stride
+    grp.attrs["nsteps"] = nsteps
     grp.attrs["cfl_safety"] = float(config_module.cfl_safety)
-    grp.attrs["cfl_threshold"] = float(config_module.cfl_threshold)
-    grp.attrs["checkpoint_interval"] = int(config_module.checkpoint_interval)
-    grp.attrs["checkpoint_precision"] = config_module.checkpoint_precision
+    grp.attrs["snapshot_precision"] = config_module.snapshot_precision
     grp.attrs["storage_limit_gb"] = float(config_module.storage_limit_gb)
 
 
@@ -61,6 +78,7 @@ def _write_source(
     stf_t: npt.NDArray[np.float64],
     stf_values: npt.NDArray[np.float64],
     source_xyz: npt.NDArray[np.float64] | None,
+    source_loc_result: dict | None = None,
 ) -> None:
     grp = f.create_group("source")
 
@@ -71,3 +89,25 @@ def _write_source(
         grp.attrs["x"] = float(source_xyz[0])
         grp.attrs["y"] = float(source_xyz[1])
         grp.attrs["z"] = float(source_xyz[2])
+
+    # Write precomputed source element list + Lagrange weights
+    if source_loc_result is not None:
+        n_src = source_loc_result.get("n_src_elem", 0)
+        grp.attrs["n_src_elements"] = n_src
+        if n_src > 0:
+            elem_grp = grp.create_group("elements")
+            elem_grp.create_dataset("element_ids",
+                                    data=source_loc_result["element_ids"],
+                                    dtype="int64")
+            elem_grp.create_dataset("xi",
+                                    data=source_loc_result["xi"],
+                                    dtype="float64")
+            elem_grp.create_dataset("eta",
+                                    data=source_loc_result["eta"],
+                                    dtype="float64")
+            elem_grp.create_dataset("zeta",
+                                    data=source_loc_result["zeta"],
+                                    dtype="float64")
+            elem_grp.create_dataset("weights",
+                                    data=source_loc_result["weights"],
+                                    dtype="float64")

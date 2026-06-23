@@ -22,3 +22,6 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "slow: production-scale tests skipped by default",
+]
