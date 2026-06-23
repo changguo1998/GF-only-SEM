@@ -1,4 +1,4 @@
-# AGENTS.md - Green's Function Calculation
+# gf-calculation — Root AGENTS.md
 
 ## Project Purpose
 
@@ -6,7 +6,17 @@
 Python pre/post + C++17 kernel + HDF5 I/O + METIS partitioning.
 
 Full design decisions: [`docs/design-decisions.md`](docs/design-decisions.md)
-Module-level designs: [`docs/superpowers/design/`](docs/superpowers/design/)
+
+## Modules
+
+| Module | Language | Purpose | AGENTS.md |
+|--------|----------|---------|-----------|
+| `preprocess/` | Python | GLL geometry, material interpolation, PML, partition, config | [`preprocess/AGENTS.md`](preprocess/AGENTS.md) |
+| `forward/` | C++17 | Elastic SEM solver (libgf) + MPI executable | [`forward/AGENTS.md`](forward/AGENTS.md) |
+| `compress/` | C++17 | HDF5 compression utilities (header-only) | [`compress/AGENTS.md`](compress/AGENTS.md) |
+| `postprocess/` | Python | Strain Green's function extraction | [`postprocess/AGENTS.md`](postprocess/AGENTS.md) |
+| `tools/` | Python | GMSH mesh → mesh.h5 converter | [`tools/AGENTS.md`](tools/AGENTS.md) |
+| `tests/` | Python + C++ | Shared test infrastructure (pytest + Catch2) | [`tests/AGENTS.md`](tests/AGENTS.md) |
 
 ## Tech Stack
 
@@ -20,28 +30,22 @@ Module-level designs: [`docs/superpowers/design/`](docs/superpowers/design/)
 | External reference | `external_reference_codes/` (read-only, untracked by git) |
 | Design docs | `docs/design-decisions.md`, `docs/superpowers/design/` |
 
-## External Reference Codes
-
-`external_reference_codes/` contains upstream SPECFEM implementations
-(SPECFEM3D Cartesian and SPECFEM3D Globe) as read-only reference.
-They are untracked by git (`*.gitignore`), never built or edited —
-used only to study SEM implementation patterns.
-
 ## Project State
 
-Implementation complete — all 5 modules have source code and passing tests (126 tests across Python + C++). Elastic-only forward solver (SLS/attenuation deferred).
+Implementation complete — 5 modules + tests (145 tests: 97 Python, 48 C++).
+Elastic-only forward solver (SLS/attenuation deferred).
 
-Key design docs:
-- `docs/design-decisions.md` — system-level decisions (CG-SEM, hexahedra, Newmark, etc.)
-- `docs/superpowers/design/mesh.md` — mesh.h5 topology format, model.h5 schema
-- `docs/superpowers/design/preprocess.md` — GLL geometry, 3D model interpolation, SLS, partition
-- `docs/superpowers/design/forward.md` — libgf physics + MPI solver
-- `docs/superpowers/design/compress.md` — checkpoint compression utilities
-- `docs/superpowers/design/postprocess.md` — strain Green's function extraction
+See each module's `AGENTS.md` for details.
 
-When adding code to this repo:
-- Match SPECFEM3D conventions for computational code
-- 1-based indexing with signed direction for topology (X2Y naming)
-- Python config scripts (importable `.py`) instead of YAML/TOML
-- model.h5 = Green's function database (all mesh-dependent data precomputed)
-- config.h5 = simulation configuration separate from model data
+## Cross-Cutting Conventions
+
+- **Naming**: X2Y for topology relations, 1-based with signed direction
+- **Config**: Python importable scripts (no YAML/TOML)
+- **Data model**: `model.h5` = mesh-dependent precomputed data; `config.h5` = simulation params
+- **SI-unit suffixes** on config fields (`_m`, `_s`, `_m_s`, `_kg_m3`)
+- **Timestep split**: `solver_dt` (auto from CFL) + `output_dt_s` (user snapshot interval), `snapshot_stride = output_dt_s / solver_dt`
+
+## External Reference Codes
+
+`external_reference_codes/` has SPECFEM3D Cartesian and Globe implementations
+(read-only, untracked by git) — study SEM patterns only.
