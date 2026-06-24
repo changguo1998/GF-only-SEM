@@ -126,7 +126,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         from preprocess.pml import compute_pml_damping
         damping = compute_pml_damping(topology, coords, config.pml_thickness,
-                                       domain_bounds)
+                                       domain_bounds, is_pml)
     except ImportError:
         damping = np.zeros((n_cell, n_gll, n_gll, n_gll), dtype=np.float64)
         print(f"[preprocess]   pml.py not available — damping = 0")

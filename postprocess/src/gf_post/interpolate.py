@@ -1,4 +1,4 @@
-"""GLL interpolation of strain at arbitrary receiver positions."""
+"""GLL interpolation of strain at arbitrary spatial positions."""
 
 import numpy as np
 import numpy.typing as npt

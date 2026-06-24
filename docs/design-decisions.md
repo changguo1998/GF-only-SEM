@@ -56,7 +56,7 @@ It is a working reference for development, kept under `docs/`.
   preprocess/      — Python: GLL geometry, material interpolation, partition, config
   forward/         — C++: core physics library (libgf) + MPI solver executable (elastic only)
   compress/        — C++: header-only checkpoint compression utilities
-  postprocess/     — Python: strain GF extraction at receiver positions, spatial tiling
+  postprocess/     — Python: strain GF extraction at GLL nodes, spatial tiling
   tests/
   external_reference_codes/
   ```
@@ -104,7 +104,7 @@ GMSH .msh → converter → mesh.h5 (topology only)
 | configs/config.h5 | preprocessor | forward | Simulation params, domain bounds, source position + precomputed STF + weights. No direction — passed via CLI `--direction`. |
 | wavefields/{direction}/record_{r}.h5 | forward | postprocess | L2-smoothed strain at GLL nodes + (u,v,a) restart state, extendible time axis |
 | mesh_auxiliary.h5 | preprocessor (optional) | validation | CSR adjacency relations |
-| greenfun/tile_{i}.h5 | postprocess | user | Strain Green's functions at receiver positions, spatially tiled by lat/lon |
+| greenfun/tile_{i}.h5 | postprocess | user | Strain Green's functions at GLL nodes, tiled by element range |
 
 ### Design Rules
 
@@ -226,7 +226,7 @@ greenfun/
 └── ...
 ```
 
-Each tile contains the strain Green's functions for all receivers within its spatial extent.
+Each tile contains the strain Green's functions for all elements within its spatial range.
 
 ## 7. Preprocessor Decisions
 
@@ -250,7 +250,7 @@ Each tile contains the strain Green's functions for all receivers within its spa
 - **Partitioning**: METIS k-way partition + GLL node global numbering (ibool equivalent) + precomputed exchange patterns. Each rank gets its own partition_{r}.h5 with local subset.
 - **Geometric precompute**: GLL coords, Jacobian, dξ/dx, lumped mass, C-PML arrays — all at GLL nodes. Written to partition_{r}.h5 `/field/element/`.
 - **Source precompute**: Source z auto-placed on top free surface (z ≈ z_min). Element list, natural coordinates (ξ_s, η_s, ζ_s), Lagrange interpolation weights w_ijk for source injection. Weights normalized across sharing surface elements (Σ w_ijk = 1).
-- **No receivers**: Postprocess extracts receiver positions from snapshots.
+- **No receivers**: Postprocess operates on GLL-node strain directly — no receiver CSV, no receiver search, no position interpolation.
 - **No inline STF**: User-defined function, evaluated over full time range.
 - **DRY metric**: N/NGLL embedded in array shapes — no separate config attribute.
 - **Elastic only**: SLS attenuation deferred to future work.
@@ -305,5 +305,5 @@ Both are untracked (`*.gitignore`). Changes to them do not affect the repo.
 - **Single source location**: One source position per GF computation. Multiple source locations require separate preprocessor + 3×N forward runs.
 - **Postprocess alignment**: Postprocess validates solver_dt, nsteps, n_cell alignment across the 3 force-direction runs before extracting Green's functions.
 - **PML exclusion**: PML elements excluded from the Green's function library — only physical-domain elements contribute.
-- **Spatial tiling**: Green's function library is spatially tiled by lat/lon bounding boxes. Each `greenfun/tile_{i}.h5` stores all receivers within its spatial extent, with attributes `minlat, maxlat, minlon, maxlon`.
+- **Spatial tiling**: Green's function library is spatially tiled by element range. Each `greenfun/tile_{i}.h5` stores the full GLL-node Green's tensor for a contiguous block of elements.
 - **Reciprocity**: Numerical source placed at top free surface. Strain recorded everywhere in the physical domain, enabling reciprocity-based interpretation.

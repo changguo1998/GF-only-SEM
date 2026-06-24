@@ -63,7 +63,7 @@ def stf_func(t):
 | n_ranks | ≥ 1, integer |
 | pml_thickness | dict with keys xmin, xmax, ymin, ymax, zmin, zmax; values ≥ 0 integers |
 
-**No receivers in config.** Receivers are handled by postprocess from checkpoint files.
+**No receivers in config.** Postprocess assembles Green's functions at all GLL nodes from checkpoint files.
 **No explicit domain bounds in config.** Domain bounds are auto-detected from `mesh.h5` topology.
 **No STF type enum.** STF is user-defined `stf_func(t)` in the config script.
 **No inline material.** Material comes from 3D model binary, interpolated to GLL nodes.

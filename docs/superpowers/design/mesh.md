@@ -88,7 +88,7 @@ mesh.h5  (preprocessor extensions)
 
 These are the only `/field/` groups added by the preprocessor to `mesh.h5`. All other field data (material, mass, C-PML, partition metadata) lives in `partition_{r}.h5`.
 
-**`is_pml` flag**: set by the preprocessor during boundary detection. Elements within the absorbing boundary layer are marked as PML. Postprocess uses this to exclude PML elements from receiver search.
+**`is_pml` flag**: set by the preprocessor during boundary detection. Elements within the absorbing boundary layer are marked as PML. Postprocess uses this to exclude PML elements from Green's function output.
 
 ### Design Rules (shared by mesh.h5 and partition_{r}.h5)
 
@@ -214,7 +214,7 @@ Boundary detection is auto, by geometry. No GMSH physical groups needed. One fre
 
 - **mesh.h5** serves the `postprocess` module (geometry: GLL coords and dxi_dx for Newton iteration / point-in-hexahedron search). Its `/topology/` is written by the converter; `/field/element/coords` and `/field/element/dxi_dx` are added by the preprocessor.
 - **partition_{r}.h5** serves the forward solver (all field data, C-PML, partition metadata per rank).
-- `dxi_dx` in `mesh.h5` enables postprocess to run Newton iteration for locating receivers inside hexahedra without needing the partition files.
+- `dxi_dx` in `mesh.h5` enables postprocess to access geometric derivatives for tensor assembly without needing the partition files.
 
 ## File Layout
 

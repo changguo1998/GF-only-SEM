@@ -44,6 +44,7 @@ See each module's `AGENTS.md` for details.
 - **Data model**: `model.h5` = mesh-dependent precomputed data; `config.h5` = simulation params
 - **SI-unit suffixes** on config fields (`_m`, `_s`, `_m_s`, `_kg_m3`)
 - **Timestep split**: `solver_dt` (auto from CFL) + `output_dt_s` (user snapshot interval), `snapshot_stride = output_dt_s / solver_dt`
+- **No receivers**: Postprocess does NOT use receiver locations. Green's functions are extracted at all GLL nodes. No receivers.csv, no receiver positions, no receiver search in postprocess. This is a design constraint — see `docs/design-decisions.md` line 253.
 
 ## External Reference Codes
 

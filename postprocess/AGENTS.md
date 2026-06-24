@@ -3,8 +3,10 @@
 ## Purpose
 
 Reads strain snapshots from 3 forward runs (fx, fy, fz) + mesh.h5 geometry.
-Locates receivers in mesh elements, interpolates strain via GLL basis,
-assembles full 3×6 strain Green's tensor, outputs spatially tiled HDF5.
+Assembles the full 3×6 strain Green's tensor at every GLL node,
+outputs spatially tiled HDF5.
+
+No receiver positions — output is the full GLL-node field.
 
 ## Files
 
@@ -14,7 +16,7 @@ assembles full 3×6 strain Green's tensor, outputs spatially tiled HDF5.
 | `geometry.py` | GLL nodes, weights, Lagrange basis (1D + 3D tensor product) |
 | `index.py` | KD-tree spatial index over non-PML element centroids |
 | `search.py` | Point-in-hexahedron Newton iteration using dξ/dx |
-| `interpolate.py` | GLL basis interpolation of strain at receiver position |
+| `interpolate.py` | GLL basis interpolation of strain at arbitrary points |
 | `assembly.py` | Green's tensor assembly from 3 force directions × 6 strain components |
 | `writer.py` | HDF5 Green's function tile writer (`greenfun/tile_{i}.h5`) |
 | `cli.py` | CLI entry point |
@@ -24,30 +26,25 @@ assembles full 3×6 strain Green's tensor, outputs spatially tiled HDF5.
 ```
 mesh.h5 (GLL coords, dξ/dx, is_pml) ──┐
 wavefields/{x,y,z}/record_{r}.h5 ─────┤  (3 direction sets, N rank files each)
-receivers.csv ────────────────────────┤
                                       ↓
     CheckpointReader (merge per-rank by global element ID)
     → Time alignment validation across 3 direction runs
-    → KD-tree spatial index (non-PML centroids)
-    → Point-in-hexahedron search (Newton, dξ/dx)
-    → GLL strain interpolation at receiver
-    → Green's tensor assembly (3×6)
-    → GFWriter (spatially tiled HDF5)
+    → Green's tensor assembly (3×6) at all GLL nodes
+    → GFWriter (spatially tiled by element range)
 ```
 
 ## CLI
 
 ```bash
-python -m postprocess mesh.h5 \
+gf-postprocess mesh.h5 \
     --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ \
-    receivers.csv -o greenfun/
+    -o greenfun/
 ```
 
 ## Modes
 
-1. **Small domain** (< RAM): merge all records, interpolate all receivers, one tile
-2. **Tiled** (TB-scale): XY blocks, one block at a time, per-block GF file
-3. **Single receiver**: load only needed elements, skip merge
+1. **Small domain** (< RAM): merge all records, assemble at all GLL nodes, one tile
+2. **Tiled** (TB-scale): tile by element range, one tile file per block
 
 ## Tests
 

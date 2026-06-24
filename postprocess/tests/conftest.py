@@ -201,25 +201,3 @@ def synthetic_multirank_records(tmp_path, synthetic_mesh_path):
 
     return paths
 
-
-# ---------------------------------------------------------------------------
-# Fixtures: receivers.csv
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def receivers_csv(tmp_path):
-    """Create a receivers.csv with 2 receivers."""
-    data = "name,x,y,z\nR001,0.25,0.25,0.25\nR002,0.75,0.75,0.75\n"
-    path = tmp_path / "receivers.csv"
-    path.write_text(data)
-    return path
-
-
-@pytest.fixture
-def receivers_csv_2elem(tmp_path):
-    """Receivers for the 2-element mesh."""
-    data = "name,x,y,z\nR001,0.5,0.5,0.5\nR002,1.5,0.5,0.5\n"
-    path = tmp_path / "receivers_2elem.csv"
-    path.write_text(data)
-    return path

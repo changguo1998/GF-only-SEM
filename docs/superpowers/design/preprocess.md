@@ -319,7 +319,7 @@ residual — no runtime Newton iteration or element search needed.
 
 ### 12. Write Output Files
 
-- **mesh.h5 (extended in-place)** — GLL geometry (`/field/element/coords`, `/field/element/dxi_dx`, `/field/element/jacobian`), PML flags (`/field/element/is_pml`), and boundary tags (`/field/surface/boundary_tag`) written back to input mesh.h5. This data is needed by the postprocess module for Newton iteration at receiver positions and PML exclusion.
+- **mesh.h5 (extended in-place)** — GLL geometry (`/field/element/coords`, `/field/element/dxi_dx`, `/field/element/jacobian`), PML flags (`/field/element/is_pml`), and boundary tags (`/field/surface/boundary_tag`) written back to input mesh.h5.
 - **partition_{r}.h5** — one per MPI rank, containing the local subset of element data (own + ghost), GLL global numbering, exchange patterns, and partition metadata
 - **configs/config.h5** — simulation config, domain bounds, source (position + elements + weights), STF. No direction — direction is passed via CLI `--direction {x,y,z}` to the forward solver.
 - **mesh_auxiliary.h5** (optional) — CSR adjacency relations
@@ -329,7 +329,7 @@ residual — no runtime Newton iteration or element search needed.
 ### mesh.h5 (extended)
 
 The preprocessor reads topology from `mesh.h5` and writes back:
-- `/field/element/coords`, `/field/element/dxi_dx`, `/field/element/jacobian` — GLL node positions and geometric derivatives needed by postprocess for receiver interpolation
+- `/field/element/coords`, `/field/element/dxi_dx`, `/field/element/jacobian` — GLL node positions and geometric derivatives needed by postprocess for Green's function assembly
 - `/field/element/is_pml` — int8 flag per element (1=PML, 0=ordinary) for postprocess PML exclusion
 - `/field/surface/boundary_tag` — surface boundary tags (0=interior, 1=free surface, 2=absorbing)
 
@@ -381,7 +381,7 @@ Note: no `direction` attribute. Force direction is specified via `--direction` C
 
 ## No Receivers
 
-Receivers are NOT configured in the preprocessor. Postprocess extracts receiver time series from snapshot files using mesh.h5 geometry.
+The preprocessor does NOT configure any observation points. Postprocess assembles the Green's function at all GLL nodes directly from snapshot files.
 
 ## No Per-Cell Material Tags
 
