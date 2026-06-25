@@ -6,6 +6,7 @@
 Python pre/post + C++17 kernel + HDF5 I/O + METIS partitioning.
 
 Full design decisions: [`docs/design-decisions.md`](docs/design-decisions.md)
+Full math formulation: [`docs/math.md`](docs/math.md)
 
 ## Modules
 
@@ -28,7 +29,7 @@ Full design decisions: [`docs/design-decisions.md`](docs/design-decisions.md)
 | Mesh partitioning | METIS (called from preprocessor) |
 | Pre/post | Python |
 | External reference | `external_reference_codes/` (read-only, untracked by git) |
-| Design docs | `docs/design-decisions.md`, `docs/superpowers/design/` |
+| Design docs | `docs/design-decisions.md`, `docs/math.md`, `docs/superpowers/design/` |
 
 ## Project State
 

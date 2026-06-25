@@ -3,6 +3,8 @@
 This document records the architectural decisions made during the `/grill-me` session.
 It is a working reference for development, kept under `docs/`.
 
+Mathematical formulation for all methods below: [`docs/math.md`](math.md)
+
 ## 1. Physical Model
 
 - **Method**: Continuous Galerkin Spectral Element Method (CG-SEM)
