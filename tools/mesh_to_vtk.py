@@ -119,12 +119,12 @@ def read_partition_fields(partition_dir, n_cell):
 
     for pf in part_files:
         with h5py.File(os.path.join(partition_dir, pf), "r") as f:
-            local_ids = f["partition/local_element_ids"][:]  # global 1-based
+            local_ids = f["partition/local_element_ids"][:]  # 0-based
             for name in field_names:
                 data = f[f"field/element/{name}"][:]  # (n_local, NGLL, NGLL, NGLL)
                 avg = np.mean(data, axis=(1, 2, 3))  # per-element average
                 for li, gid in enumerate(local_ids):
-                    fields[name][gid - 1] = avg[li]
+                    fields[name][gid] = avg[li]
 
     return fields
 
