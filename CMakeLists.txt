@@ -9,8 +9,7 @@ include(FetchContent)
 FetchContent_Declare(
     Catch2
     GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-    GIT_TAG v3.5.4
-)
+    GIT_TAG v3.5.4)
 FetchContent_MakeAvailable(Catch2)
 
 add_subdirectory(compress)
@@ -24,7 +23,14 @@ find_package(Eigen3 REQUIRED)
 add_subdirectory(tests)
 
 # Alias target for convenience
-add_custom_target(test_all
+add_custom_target(
+    test_all
     COMMAND ctest --output-on-failure -V
-    DEPENDS test_compress test_gll test_element test_newmark test_pml test_source test_io test_record
-)
+    DEPENDS test_compress
+            test_gll
+            test_element
+            test_newmark
+            test_pml
+            test_source
+            test_io
+            test_record)

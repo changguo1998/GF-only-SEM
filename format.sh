@@ -26,6 +26,8 @@ fmt() {
     *.py) ruff format "$p" >/dev/null ;;
     *.md) mdformat "$p" >/dev/null ;;
     *.c | *.cpp | *.h | *.hpp | *.cu) clang-format -i -style=file "$p" ;;
+    CMakeLists.txt | *.cmake) cmake-format -i "$p" >/dev/null ;;
+    *) ;;
     esac
 }
 export -f fmt

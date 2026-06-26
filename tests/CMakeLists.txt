@@ -15,19 +15,11 @@ include(Catch)
 # Helper: test target that links libgf without MPI for single-rank testing
 function(add_gf_test name source)
     add_executable(${name} ${source})
-    target_include_directories(${name} PRIVATE
-        ${CMAKE_SOURCE_DIR}/forward/include
-        ${CMAKE_SOURCE_DIR}/compress/include
-        ${EIGEN3_INCLUDE_DIR}
-        ${HDF5_INCLUDE_DIRS}
-    )
-    target_link_libraries(${name} PRIVATE
-        libgf
-        Catch2::Catch2WithMain
-        MPI::MPI_CXX
-        Eigen3::Eigen
-        ${HDF5_C_LIBRARIES}
-    )
+    target_include_directories(
+        ${name} PRIVATE ${CMAKE_SOURCE_DIR}/forward/include ${CMAKE_SOURCE_DIR}/compress/include
+                        ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
+    target_link_libraries(${name} PRIVATE libgf Catch2::Catch2WithMain MPI::MPI_CXX Eigen3::Eigen
+                                          ${HDF5_C_LIBRARIES})
     target_compile_features(${name} PRIVATE cxx_std_17)
     catch_discover_tests(${name})
 endfunction()
@@ -58,33 +50,21 @@ add_gf_test(test_assembly test_assembly.cpp)
 
 # Exchange tests (MPI, requires mpirun -np 2 for multi-rank cases)
 add_executable(test_exchange test_exchange.cpp)
-target_include_directories(test_exchange PRIVATE
-    ${CMAKE_SOURCE_DIR}/forward/include
-    ${CMAKE_SOURCE_DIR}/compress/include
-    ${EIGEN3_INCLUDE_DIR}
-    ${HDF5_INCLUDE_DIRS}
-)
-target_link_libraries(test_exchange PRIVATE
-    libgf
-    Catch2::Catch2
-    MPI::MPI_CXX
-    Eigen3::Eigen
-    ${HDF5_C_LIBRARIES}
-)
+target_include_directories(
+    test_exchange PRIVATE ${CMAKE_SOURCE_DIR}/forward/include ${CMAKE_SOURCE_DIR}/compress/include
+                          ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
+target_link_libraries(test_exchange PRIVATE libgf Catch2::Catch2 MPI::MPI_CXX Eigen3::Eigen
+                                            ${HDF5_C_LIBRARIES})
 target_compile_features(test_exchange PRIVATE cxx_std_17)
 
-add_test(
-    NAME "Exchange halo transfers data between two ranks"
-    COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 $<TARGET_FILE:test_exchange> "Exchange halo transfers data between two ranks"
-)
-add_test(
-    NAME "Exchange accumulate adds received data (CG-SEM assembly)"
-    COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 $<TARGET_FILE:test_exchange> "Exchange accumulate adds received data (CG-SEM assembly)"
-)
-add_test(
-    NAME "Exchange with empty patterns is no-op"
-    COMMAND $<TARGET_FILE:test_exchange> "Exchange with empty patterns is no-op"
-)
+add_test(NAME "Exchange halo transfers data between two ranks"
+         COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 $<TARGET_FILE:test_exchange>
+                 "Exchange halo transfers data between two ranks")
+add_test(NAME "Exchange accumulate adds received data (CG-SEM assembly)"
+         COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 $<TARGET_FILE:test_exchange>
+                 "Exchange accumulate adds received data (CG-SEM assembly)")
+add_test(NAME "Exchange with empty patterns is no-op"
+         COMMAND $<TARGET_FILE:test_exchange> "Exchange with empty patterns is no-op")
 
 # Integration tests (single-element end-to-end)
 add_gf_test(test_integration test_integration.cpp)
@@ -93,9 +73,6 @@ add_gf_test(test_integration test_integration.cpp)
 # Compress module tests
 # ---------------------------------------------------------------
 add_executable(test_compress test_compress.cpp)
-target_link_libraries(test_compress PRIVATE
-    gf_compress
-    Catch2::Catch2WithMain
-)
+target_link_libraries(test_compress PRIVATE gf_compress Catch2::Catch2WithMain)
 target_compile_features(test_compress PRIVATE cxx_std_17)
 catch_discover_tests(test_compress)

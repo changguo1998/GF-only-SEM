@@ -19,14 +19,13 @@ dev = [
     "meshio>=5.0",
     "ruff>=0.15.20",
     "mdformat>=1.0.0",
-    ]
+    "cmake-format>=0.6.13",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-markers = [
-    "slow: production-scale tests skipped by default",
-]
+markers = ["slow: production-scale tests skipped by default"]
 
 [tool.ruff]
 target-version = "py310"
