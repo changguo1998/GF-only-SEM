@@ -60,7 +60,7 @@ int run_forward(const std::string& direction) {
     // All paths relative to CWD
     std::string config_path    = "config.h5";
     std::string partition_dir  = "partitions";
-    std::string output_dir     = ".";
+    std::string output_dir     = "wavefields";
     int rank, nprocs;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);

@@ -60,8 +60,8 @@ RecordWriter::RecordWriter(const std::string& output_dir,
     , use_float32_(use_float32)
     , source_direction_(source_direction)
 {
-    // Build file path: wavefields/{direction}/record_{rank}.h5
-    std::string wavefields_dir = output_dir + "/wavefields/" + source_direction;
+    // Build file path: {output_dir}/{direction}/record_{rank}.h5
+    std::string wavefields_dir = output_dir + "/" + source_direction;
     filepath_ = wavefields_dir + "/record_" + std::to_string(rank) + ".h5";
 
     // Create or open HDF5 file
