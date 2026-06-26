@@ -278,6 +278,7 @@ int run_forward(const std::string& direction) {
                          << (std::to_string(step + 1) + "/" + std::to_string(cfg.nsteps))
                          << " elapsed=" << std::fixed << std::setprecision(1) << elapsed
                          << "s eta=" << eta << "s";
+                    logger.raw(prog.str());
                 }
             }
         }

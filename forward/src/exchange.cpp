@@ -31,9 +31,9 @@ void exchange_halo(const std::vector<RankData::ExchangePattern>& patterns,
     std::vector<double> send_buf(total_send);
     std::vector<double> recv_buf(total_recv);
 
-    // MPI request arrays
+    // MPI request arrays (init to MPI_REQUEST_NULL so skipped patterns are safe)
     size_t n_patterns = patterns.size();
-    std::vector<MPI_Request> requests(n_patterns * 2);
+    std::vector<MPI_Request> requests(n_patterns * 2, MPI_REQUEST_NULL);
 
     // --- Pack and post non-blocking operations ---
     size_t send_offset = 0;
@@ -53,12 +53,13 @@ void exchange_halo(const std::vector<RankData::ExchangePattern>& patterns,
         }
 
         // Post non-blocking send
+        constexpr int EXCHANGE_TAG = 42;
         MPI_Isend(send_buf.data() + send_offset, n_send, MPI_DOUBLE, pat.neighbor_rank,
-                  static_cast<int>(i), MPI_COMM_WORLD, &requests[2 * i]);
+                  EXCHANGE_TAG, MPI_COMM_WORLD, &requests[2 * i]);
 
         // Post non-blocking receive
         MPI_Irecv(recv_buf.data() + recv_offset, n_recv, MPI_DOUBLE, pat.neighbor_rank,
-                  static_cast<int>(i), MPI_COMM_WORLD, &requests[2 * i + 1]);
+                  EXCHANGE_TAG, MPI_COMM_WORLD, &requests[2 * i + 1]);
 
         send_offset += n_send;
         recv_offset += n_recv;
