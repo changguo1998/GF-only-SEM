@@ -1,21 +1,13 @@
 #!/usr/bin/env python3
-"""Convert mesh.h5 (+ partition files) to VTK Unstructured Grid (.vtu).
+"""Convert mesh.h5 (+ partitions/) in CWD to mesh.vtk.
 
-Reads the mesh topology and material fields (Vp, Vs, density, mass, PML damping)
-from mesh.h5 and partition_{r}.h5 files, resolves hexahedral cell connectivity,
-and writes a VTK Unstructured Grid file viewable in ParaView / VisIt.
-
-Cell-averaged values are stored as VTK cell data arrays.
-
-Usage:
-    python tools/mesh_to_vtk.py mesh.h5                              → mesh.vtu
-    python tools/mesh_to_vtk.py mesh.h5 output.vtu
-    python tools/mesh_to_vtk.py mesh.h5 -p path/to/partitions/
+Reads mesh.h5 topology and partition material fields from the current
+working directory, resolves hexahedral cell connectivity, and writes
+mesh.vtk with cell-averaged Vp, Vs, density, mass, PML damping.
+Viewable in ParaView / VisIt.
 """
 
-import argparse
 import os
-import sys
 
 import h5py
 import numpy as np
@@ -175,40 +167,15 @@ def write_vtu(path, vertex_coords, connectivity, cell_fields):
 # ── Main ───────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Convert mesh.h5 (+ partition files) to VTK Unstructured Grid"
-    )
-    parser.add_argument("mesh_h5", help="Path to mesh.h5")
-    parser.add_argument("output", nargs="?", default=None,
-                        help="Output .vtk file (default: <mesh>.vtk)")
-    parser.add_argument("-p", "--partitions", default=None,
-                        help="Path to partitions/ directory "
-                             "(default: same dir as mesh.h5 /partitions/)")
-    args = parser.parse_args()
+    cwd = os.getcwd()
+    mesh_path = os.path.join(cwd, "mesh.h5")
+    out_path = os.path.join(cwd, "mesh.vtk")
+    part_dir = os.path.join(cwd, "partitions")
 
-    mesh_path = os.path.abspath(args.mesh_h5)
-    mesh_dir = os.path.dirname(mesh_path)
-
-    out_path = args.output
-    if out_path is None:
-        base = os.path.splitext(os.path.basename(mesh_path))[0]
-        out_path = os.path.join(mesh_dir, base + ".vtk")
-
-    part_dir = args.partitions
-    if part_dir is None:
-        part_dir = os.path.join(mesh_dir, "partitions")
-    part_dir = os.path.abspath(part_dir)
-
-    if not os.path.isdir(part_dir):
-        print(f"[mesh_to_vtk] Partition directory not found: {part_dir}")
-        print("  Output will contain mesh geometry only (no material fields).")
-        print("  Use -p <path> to specify partition directory.")
-        has_partitions = False
-    else:
-        has_partitions = True
+    has_partitions = os.path.isdir(part_dir)
 
     # ── Read topology ──
-    print(f"[mesh_to_vtk] Reading topology from {mesh_path}")
+    print(f"[mesh_to_vtk] Reading {mesh_path}")
     with h5py.File(mesh_path, "r") as f:
         topo = f["topology"]
         vertex_to_coord = topo["vertex_to_coord"][:]
@@ -216,7 +183,6 @@ def main():
         surface_to_edge = topo["surface_to_edge"][:]
         cell_to_surface = topo["cell_to_surface"][:]
 
-        # Optional: read field/element data if stored in mesh.h5
         is_pml = np.zeros(cell_to_surface.shape[0], dtype=np.int8)
         if "field/element/is_pml" in f:
             is_pml[:] = f["field/element/is_pml"][:]
@@ -230,12 +196,11 @@ def main():
     connectivity = build_cell_connectivity(
         cell_to_surface, surface_to_edge, edge_to_vertex
     )
-    print("  Done.")
 
     # ── Read partition fields ──
     cell_fields = {}
     if has_partitions:
-        print(f"[mesh_to_vtk] Reading partition fields from {part_dir}")
+        print(f"[mesh_to_vtk] Reading partitions/...")
         fields = read_partition_fields(part_dir, n_cell)
         cell_fields["Vp_m_s"] = fields["vp"]
         cell_fields["Vs_m_s"] = fields["vs"]
@@ -246,7 +211,7 @@ def main():
         print("  Fields: " + ", ".join(cell_fields.keys()))
     else:
         cell_fields["PML_flag"] = is_pml.astype(np.float64)
-        print("  Fields: PML_flag (geometry only)")
+        print("  Fields: PML_flag only (no partitions/)")
 
     # ── Write VTK ──
     print(f"[mesh_to_vtk] Writing {out_path}")
