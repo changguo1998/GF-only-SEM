@@ -5,27 +5,11 @@
 #include "gf/ChunkingStrategy.h"
 #include <hdf5.h>
 #include <stdexcept>
-#include <sstream>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <vector>
 
 namespace gf {
 
 namespace {
-// Create directory if it doesn't exist (POSIX)
-void ensure_dir(const std::string& path) {
-    std::string dir;
-    for (size_t i = 0; i < path.size(); ++i) {
-        if (path[i] == '/') {
-            dir = path.substr(0, i);
-            if (!dir.empty()) {
-                mkdir(dir.c_str(), 0755);
-            }
-        }
-    }
-    mkdir(path.c_str(), 0755);
-}
 
 // Helper: write scalar attribute
 void write_scalar_attr(hid_t loc_id, const std::string& name, hid_t type_id, const void* value) {
@@ -78,7 +62,6 @@ RecordWriter::RecordWriter(const std::string& output_dir,
 {
     // Build file path: wavefields/{direction}/record_{rank}.h5
     std::string wavefields_dir = output_dir + "/wavefields/" + source_direction;
-    ensure_dir(wavefields_dir);
     filepath_ = wavefields_dir + "/record_" + std::to_string(rank) + ".h5";
 
     // Create or open HDF5 file
