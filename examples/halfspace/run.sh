@@ -17,6 +17,12 @@ echo ""
 
 # ── Clean work dir ───
 cd "${WORK_DIR}"
+if [ -d "${WORK_DIR}/partitions" ]; then
+    rm -rf "${WORK_DIR}/partitions"
+fi
+if [ -d "${WORK_DIR}/wavefields" ]; then
+    rm -rf "${WORK_DIR}/wavefields"
+fi
 
 # ── Step 1: Generate mesh ───
 echo ""
@@ -40,11 +46,9 @@ for DIR in x y z; do
     echo ""
     echo "=== Step 3: Forward solver (direction=${DIR}) ==="
     mkdir -p "${WORK_DIR}/wavefields/${DIR}"
-    ${MPIRUN} -n ${N_RANKS} "${SOLVER}" \
-        "${WORK_DIR}/partitions/" \
-        "${WORK_DIR}/config.h5" \
-        "${WORK_DIR}/wavefields/${DIR}/" \
-        --direction "${DIR}"
+    cd "${WORK_DIR}"
+    ${MPIRUN} -n ${N_RANKS} "${SOLVER}" --direction "${DIR}"
+    cd "${SCRIPT_DIR}"
 done
 
 echo ""
