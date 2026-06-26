@@ -7,7 +7,7 @@ This config defines a homogeneous elastic half-space:
 
 Domain: 10 km × 10 km × 5 km (x, y, z)
 Material: Vp=5000 m/s, Vs=3000 m/s, density=2700 kg/m³ (granite-like)
-Mesh: regular hexahedral, configured in mesh_gen.py (default 500 elements)
+Mesh: regular hexahedral, 10×10×5 = 500 elements (read by mesh_gen.py via import)
 
 Run with:
     python -m preprocess mesh.h5 examples/halfspace/config.py
@@ -17,6 +17,14 @@ import numpy as np
 
 # ── Simulation identity ──────────────────────────────────────────────
 title = "halfspace_example"
+
+# ── Mesh dimensions ────────────────────────────────────────────────────
+nx_elements = 10   # Elements in x
+ny_elements = 10   # Elements in y
+nz_elements = 5    # Elements in z
+lx = 10000.0       # Domain length x [m]
+ly = 10000.0       # Domain length y [m]
+lz = 5000.0        # Domain length z [m]
 
 # ── SEM discretization ───────────────────────────────────────────────
 polynomial_order = 4  # GLL quadrature order (N=4 → 5 GLL nodes/axis)

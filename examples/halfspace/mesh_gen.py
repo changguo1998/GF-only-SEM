@@ -4,15 +4,16 @@
 Creates a rectilinear grid of hex elements and writes the standard
 mesh.h5 topology format used by the preprocessor.
 
+Mesh dimensions (nx_elements, ny_elements, nz_elements, lx, ly, lz) are read
+from config.py in the same directory.
+
 Usage:
-    python examples/halfspace/mesh_gen.py -o mesh.h5 [--aux mesh_auxiliary.h5]
+    python examples/halfspace/mesh_gen.py
 """
 
-import argparse
 import os
 import sys
 
-import h5py
 import meshio
 import numpy as np
 
@@ -23,7 +24,13 @@ _project_root = os.path.abspath(
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from tools.gmsh_to_hdf5 import extract_topology, write_topology, write_auxiliary
+from tools.gmsh_to_hdf5 import extract_topology, write_topology
+
+# Import mesh parameters from config.py
+_example_dir = os.path.dirname(os.path.abspath(__file__))
+if _example_dir not in sys.path:
+    sys.path.insert(0, _example_dir)
+import config  # type: ignore[import]
 
 
 def create_regular_hex_mesh(nx: int, ny: int, nz: int,
@@ -83,41 +90,21 @@ def create_regular_hex_mesh(nx: int, ny: int, nz: int,
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Generate regular hex mesh for half-space example"
-    )
-    parser.add_argument("-o", "--output", default="mesh.h5",
-                        help="Output mesh.h5 path")
-    parser.add_argument("--aux", help="Optional auxiliary CSR file")
-    parser.add_argument("--nx", type=int, default=10,
-                        help="Elements in x (default: 10)")
-    parser.add_argument("--ny", type=int, default=10,
-                        help="Elements in y (default: 10)")
-    parser.add_argument("--nz", type=int, default=5,
-                        help="Elements in z (default: 5)")
-    parser.add_argument("--lx", type=float, default=10000.0,
-                        help="Domain length x [m] (default: 10000)")
-    parser.add_argument("--ly", type=float, default=10000.0,
-                        help="Domain length y [m] (default: 10000)")
-    parser.add_argument("--lz", type=float, default=5000.0,
-                        help="Domain length z [m] (default: 5000)")
-    args = parser.parse_args()
+    nx = config.nx_elements
+    ny = config.ny_elements
+    nz = config.nz_elements
+    lx = config.lx
+    ly = config.ly
+    lz = config.lz
 
-    os.makedirs(os.path.dirname(os.path.abspath(args.output)) or ".", exist_ok=True)
-
-    mesh = create_regular_hex_mesh(args.nx, args.ny, args.nz,
-                                   args.lx, args.ly, args.lz)
+    mesh = create_regular_hex_mesh(nx, ny, nz, lx, ly, lz)
     topology = extract_topology(mesh)
-    write_topology(args.output, topology)
-    print(f"[mesh_gen] Wrote mesh.h5: {args.output}")
-    print(f"            Elements: {args.nx * args.ny * args.nz} "
-          f"({args.nx}×{args.ny}×{args.nz})")
+    write_topology("mesh.h5", topology)
+    print(f"[mesh_gen] Wrote mesh.h5")
+    print(f"            Elements: {nx * ny * nz} "
+          f"({nx}×{ny}×{nz})")
     print(f"            Vertices: {topology['vertex_to_coord'].shape[0]}")
-    print(f"            Domain:   {args.lx}×{args.ly}×{args.lz} m")
-
-    if args.aux:
-        write_auxiliary(args.aux, topology)
-        print(f"[mesh_gen] Wrote auxiliary: {args.aux}")
+    print(f"            Domain:   {lx}×{ly}×{lz} m")
 
 
 if __name__ == "__main__":
