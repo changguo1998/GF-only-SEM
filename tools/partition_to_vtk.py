@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Convert mesh.h5 (+ partitions/) in CWD to mesh.vtk.
+"""Convert partitioned mesh (partitions/partition_{r}.h5) to per-rank VTK files.
 
-Reads mesh.h5 topology and partition material fields from the current
-working directory, resolves hexahedral cell connectivity, and writes
-mesh.vtk with cell-averaged Vp, Vs, density, mass, PML damping.
-Viewable in ParaView / VisIt.
+Reads mesh.h5 topology and each partition file from the partitions/ directory
+in CWD, resolves hexahedral cell connectivity for local elements, and writes
+partition_{r}.vtk per rank with cell-averaged Vp, Vs, density, mass, damping,
+PML flag, and rank assignment.
+
+Useful for visually inspecting METIS partition quality and per-rank element
+distribution in ParaView / VisIt.
 """
 
 import os
+import re
 
 import h5py
 import numpy as np
@@ -24,9 +28,6 @@ _HEX_FACES = [
     [0, 4, 7, 3],  # -x (left)
     [1, 2, 6, 5],  # +x (right)
 ]
-
-
-# ── Topology resolution ────────────────────────────────────────────────
 
 
 def resolve_cell_vertices(cell_to_surface, surface_to_edge, edge_to_vertex, cell_idx):
@@ -80,53 +81,14 @@ def resolve_cell_vertices(cell_to_surface, surface_to_edge, edge_to_vertex, cell
     return [local_to_global[lv] for lv in range(8)]
 
 
-def build_cell_connectivity(cell_to_surface, surface_to_edge, edge_to_vertex):
-    """Build full [n_cell, 8] connectivity array (0-based vertex indices)."""
-    n_cell = cell_to_surface.shape[0]
-    connectivity = np.zeros((n_cell, 8), dtype=np.int64)
-    for ci in range(n_cell):
-        conn = resolve_cell_vertices(cell_to_surface, surface_to_edge, edge_to_vertex, ci)
-        connectivity[ci] = conn
+def build_local_connectivity(local_element_ids, cell_to_surface, surface_to_edge, edge_to_vertex):
+    """Build [n_local, 8] connectivity for local elements (0-based vertex indices)."""
+    n_local = len(local_element_ids)
+    connectivity = np.zeros((n_local, 8), dtype=np.int64)
+    for li, gid in enumerate(local_element_ids):
+        conn = resolve_cell_vertices(cell_to_surface, surface_to_edge, edge_to_vertex, gid)
+        connectivity[li] = conn
     return connectivity
-
-
-# ── Field assembly from partition files ────────────────────────────────
-
-
-def read_partition_fields(partition_dir, n_cell):
-    """Aggregate element fields from all partition_{r}.h5 files.
-
-    Returns dict with keys:
-      vp, vs, density, mass, damping
-    Each value has shape (n_cell,) containing the element-averaged value.
-    is_pml has shape (n_cell,) int8 (from cell-level field, not averaged).
-    """
-    # Find all partition files
-    part_files = sorted(
-        f for f in os.listdir(partition_dir) if f.startswith("partition_") and f.endswith(".h5")
-    )
-    if not part_files:
-        raise FileNotFoundError(f"No partition_*.h5 files found in {partition_dir}")
-
-    # Read element_to_rank from first partition file
-    with h5py.File(os.path.join(partition_dir, part_files[0]), "r") as f:
-        elem_to_rank = f["partition/element_to_rank"][:]  # (n_cell,)
-
-    # Aggregate fields: vp, vs, density, mass, damping
-    # Each stored per-element with shape (n_local, NGLL, NGLL, NGLL)
-    field_names = ["vp", "vs", "density", "mass", "damping"]
-    fields = {name: np.zeros(n_cell, dtype=np.float64) for name in field_names}
-
-    for pf in part_files:
-        with h5py.File(os.path.join(partition_dir, pf), "r") as f:
-            local_ids = f["partition/local_element_ids"][:]  # global 1-based
-            for name in field_names:
-                data = f[f"field/element/{name}"][:]  # (n_local, NGLL, NGLL, NGLL)
-                avg = np.mean(data, axis=(1, 2, 3))  # per-element average
-                for li, gid in enumerate(local_ids):
-                    fields[name][gid - 1] = avg[li]
-
-    return fields
 
 
 # ── VTK writer (legacy ASCII) ──────────────────────────────────────────
@@ -145,7 +107,7 @@ def write_vtu(path, vertex_coords, connectivity, cell_fields):
 
     with open(path, "w") as f:
         f.write("# vtk DataFile Version 3.0\n")
-        f.write("mesh.h5 converted to VTK\n")
+        f.write("partition file converted to VTK\n")
         f.write("ASCII\n")
         f.write("DATASET UNSTRUCTURED_GRID\n")
 
@@ -179,13 +141,14 @@ def write_vtu(path, vertex_coords, connectivity, cell_fields):
 def main():
     cwd = os.getcwd()
     mesh_path = os.path.join(cwd, "mesh.h5")
-    out_path = os.path.join(cwd, "mesh.vtk")
     part_dir = os.path.join(cwd, "partitions")
 
-    has_partitions = os.path.isdir(part_dir)
+    if not os.path.isdir(part_dir):
+        print("[partition_to_vtk] Error: no partitions/ directory found in CWD")
+        return 1
 
-    # ── Read topology ──
-    print(f"[mesh_to_vtk] Reading {mesh_path}")
+    # ── Read topology from mesh.h5 ──
+    print(f"[partition_to_vtk] Reading {mesh_path}")
     with h5py.File(mesh_path, "r") as f:
         topo = f["topology"]
         vertex_to_coord = topo["vertex_to_coord"][:]
@@ -193,39 +156,74 @@ def main():
         surface_to_edge = topo["surface_to_edge"][:]
         cell_to_surface = topo["cell_to_surface"][:]
 
-        is_pml = np.zeros(cell_to_surface.shape[0], dtype=np.int8)
+        is_pml_global = np.zeros(cell_to_surface.shape[0], dtype=np.int8)
         if "field/element/is_pml" in f:
-            is_pml[:] = f["field/element/is_pml"][:]
+            is_pml_global[:] = f["field/element/is_pml"][:]
 
     n_cell = cell_to_surface.shape[0]
     n_vert = vertex_to_coord.shape[0]
-    print(f"  Cells: {n_cell}, Vertices: {n_vert}")
+    print(f"  Global cells: {n_cell}, vertices: {n_vert}")
 
-    # ── Resolve connectivity ──
-    print("[mesh_to_vtk] Resolving hexahedral connectivity...")
-    connectivity = build_cell_connectivity(cell_to_surface, surface_to_edge, edge_to_vertex)
+    # ── Find all partition files ──
+    part_files = sorted(
+        f for f in os.listdir(part_dir) if f.startswith("partition_") and f.endswith(".h5")
+    )
+    if not part_files:
+        print("[partition_to_vtk] Error: no partition_*.h5 files in partitions/")
+        return 1
 
-    # ── Read partition fields ──
-    cell_fields = {}
-    if has_partitions:
-        print("[mesh_to_vtk] Reading partitions/...")
-        fields = read_partition_fields(part_dir, n_cell)
-        cell_fields["Vp_m_s"] = fields["vp"]
-        cell_fields["Vs_m_s"] = fields["vs"]
-        cell_fields["Density_kg_m3"] = fields["density"]
-        cell_fields["Mass"] = fields["mass"]
-        cell_fields["PML_Damping"] = fields["damping"]
-        cell_fields["PML_flag"] = is_pml.astype(np.float64)
-        print("  Fields: " + ", ".join(cell_fields.keys()))
-    else:
-        cell_fields["PML_flag"] = is_pml.astype(np.float64)
-        print("  Fields: PML_flag only (no partitions/)")
+    print(f"[partition_to_vtk] Found {len(part_files)} partition files")
 
-    # ── Write VTK ──
-    print(f"[mesh_to_vtk] Writing {out_path}")
-    write_vtu(out_path, vertex_to_coord, connectivity, cell_fields)
-    print("  Done.")
+    # ── Process each partition ──
+    for pf in part_files:
+        # Extract rank from filename
+        m = re.match(r"partition_(\d+)\.h5$", pf)
+        if not m:
+            continue
+        rank = int(m.group(1))
+        part_path = os.path.join(part_dir, pf)
+        out_path = os.path.join(cwd, f"partition_{rank}.vtk")
+
+        with h5py.File(part_path, "r") as f:
+            local_zero = f["partition/local_element_ids"][:]  # 0-based
+            n_local = len(local_zero)
+
+            # Build connectivity for local elements
+            connectivity = build_local_connectivity(
+                local_zero, cell_to_surface, surface_to_edge, edge_to_vertex
+            )
+
+            # Read field data: cell-average GLL-node fields
+            field_names = ["vp", "vs", "density", "mass", "damping"]
+            cell_fields = {}
+            for name in field_names:
+                data = f[f"field/element/{name}"][:]  # (n_local, NGLL, NGLL, NGLL)
+                cell_fields[name] = np.mean(data, axis=(1, 2, 3))
+
+            # PML flag from global (subset to local elements)
+            cell_fields["PML_flag"] = is_pml_global[local_zero].astype(np.float64)
+
+            # Rank field (for coloring by partition)
+            cell_fields["Rank"] = np.full(n_local, float(rank))
+
+        # ── Write VTK ──
+        # Rename for display
+        vtk_fields = {
+            "Vp_m_s": cell_fields["vp"],
+            "Vs_m_s": cell_fields["vs"],
+            "Density_kg_m3": cell_fields["density"],
+            "Mass": cell_fields["mass"],
+            "PML_Damping": cell_fields["damping"],
+            "PML_flag": cell_fields["PML_flag"],
+            "Rank": cell_fields["Rank"],
+        }
+
+        print(f"  [{pf}] {n_local} cells → {out_path}")
+        write_vtu(out_path, vertex_to_coord, connectivity, vtk_fields)
+
+    print("[partition_to_vtk] Done.")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
