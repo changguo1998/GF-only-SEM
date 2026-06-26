@@ -18,8 +18,8 @@ dependencies = [
 ]
 
 [project.scripts]
-mesh_to_vtk = "tools.mesh_to_vtk:main"
-partition_to_vtk = "tools.partition_to_vtk:main"
+mesh2vtk = "tools.mesh2vtk:main"
+partition2vtk = "tools.partition2vtk:main"
 
 [tool.setuptools.packages.find]
 where = [".."]
