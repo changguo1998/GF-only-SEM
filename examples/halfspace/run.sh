@@ -5,27 +5,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
-EXAMPLE_DIR="${PROJECT_DIR}/examples/halfspace"
-WORK_DIR="${PROJECT_DIR}/examples/halfspace/output"
+WORK_DIR="${SCRIPT_DIR}/output"
 
-# Source Spack/MPI environment (optional — skip if MPI already in PATH)
-if [ -f "${PROJECT_DIR}/scripts/env_setup.sh" ]; then
-    echo "=== Sourcing environment ==="
-    source "${PROJECT_DIR}/scripts/env_setup.sh" 2>/dev/null || true
-fi
-
-# MPI settings — read n_ranks from config.py
-N_RANKS=$(python -c "import sys; sys.path.insert(0, '${EXAMPLE_DIR}'); import config; print(config.n_ranks)")
-MPIRUN="${MPIRUN:-mpirun}"
-
-# Check gf_solver
-SOLVER="${PROJECT_DIR}/build/forward/gf_solver"
-if [ ! -x "${SOLVER}" ]; then
-    echo "ERROR: gf_solver not found at ${SOLVER}"
-    echo "       Build with: cd ${PROJECT_DIR}/build && make gf_solver"
-    exit 1
-fi
+source "${SCRIPT_DIR}/setenv.sh"
 
 echo "=== Halfspace Forward Solver Pipeline ==="
 echo "Project dir: ${PROJECT_DIR}"
