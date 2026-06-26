@@ -33,7 +33,7 @@ python -m preprocess mesh.h5 "${EXAMPLE_DIR}/config.py"
 echo ""
 echo "=== Preprocess outputs ==="
 echo "mesh.h5:      $(du -sh mesh.h5 | cut -f1)"
-echo "config.h5:    $(du -sh configs/config.h5 | cut -f1)"
+echo "config.h5:    $(du -sh config.h5 | cut -f1)"
 ls -la partitions/
 
 # ── Step 3: Forward solver (3 directions) ───
@@ -46,7 +46,7 @@ for DIR in x y z; do
     else
         ${MPIRUN} -n ${N_RANKS} "${SOLVER}" \
             "${WORK_DIR}/partitions/" \
-            "${WORK_DIR}/configs/config.h5" \
+            "${WORK_DIR}/config.h5" \
             "${WORK_DIR}/wavefields/${DIR}/" \
             --direction "${DIR}"
     fi
@@ -67,7 +67,7 @@ echo "========================================"
 echo ""
 echo "Output files:"
 echo "  mesh.h5                       Extended mesh with GLL geometry + PML flags"
-echo "  configs/config.h5             Simulation parameters + STF"
+echo "  config.h5                     Simulation parameters + STF"
 echo "  partitions/partition_*.h5     Per-rank partition + exchange patterns"
 echo "  wavefields/{x,y,z}/record_*.h5  Strain snapshots (3 force directions)"
 echo ""
@@ -76,4 +76,4 @@ echo "(no receiver positions required). See postprocess/AGENTS.md."
 echo ""
 echo "To inspect:"
 echo "  h5dump -n mesh.h5"
-echo "  h5dump -n configs/config.h5"
+echo "  h5dump -n config.h5"

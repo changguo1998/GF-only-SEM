@@ -21,7 +21,7 @@ from preprocess.model_loader import load_and_interpolate
 def main(argv: list[str] | None = None) -> None:
     """Run the full preprocessor pipeline."""
     parser = argparse.ArgumentParser(
-        description="Preprocess mesh.h5 + config.py → mesh.h5 + partitions/*.h5 + configs/config.h5"
+        description="Preprocess mesh.h5 + config.py → mesh.h5 + partitions/*.h5 + config.h5"
     )
     parser.add_argument("mesh", help="Path to mesh.h5 (converter output)")
     parser.add_argument("config", help="Path to config.py (Python config script)")
@@ -159,7 +159,7 @@ def main(argv: list[str] | None = None) -> None:
     write_model(mesh_path, topology, fields, boundary_tag, domain_bounds,
                 partition_result)
 
-    config_h5 = os.path.join(os.path.dirname(mesh_path), "configs", "config.h5")
+    config_h5 = os.path.join(os.path.dirname(mesh_path), "config.h5")
     print(f"[preprocess] Writing config to: {config_h5}")
     from preprocess.config_writer import write_config
     write_config(

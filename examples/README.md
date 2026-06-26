@@ -52,9 +52,7 @@ source env_setup.sh
 ```
 examples/halfspace/output/
 ├── mesh.h5                  # Extended mesh (topology + GLL + materials + PML)
-├── mesh_auxiliary.h5        # Auxiliary CSR adjacency relations
-├── configs/
-│   └── config.h5            # Simulation parameters + STF
+├── config.h5                # Simulation parameters + STF
 ├── partitions/
 │   ├── partition_0.h5       # Rank 0: local elements + exchange patterns
 │   └── partition_1.h5       # Rank 1

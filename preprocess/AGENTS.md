@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Reads `mesh.h5` + `config.py` → produces extended `mesh.h5`, per-rank `partition_{r}.h5`, and `configs/config.h5`.
+Reads `mesh.h5` + `config.py` → produces extended `mesh.h5`, per-rank `partition_{r}.h5`, and `config.h5`.
 
 ## Files
 
@@ -19,7 +19,7 @@ Reads `mesh.h5` + `config.py` → produces extended `mesh.h5`, per-rank `partiti
 | `preflight.py` | Comprehensive validation (mesh quality, material, CFL, boundary, source, STF, storage) |
 | `partition.py` | METIS k-way partition + GLL global numbering + MPI exchange patterns |
 | `config_loader.py` | `load_config()` — importable Python config validation |
-| `config_writer.py` | Write `configs/config.h5` with `/simulation/`, `/domain/`, `/source/` groups |
+| `config_writer.py` | Write `config.h5` with `/simulation/`, `/domain/`, `/source/` groups |
 | `model_writer.py` | Write extended mesh.h5 fields + per-rank partition_{r}.h5 files |
 | `cli.py` | CLI entry point: orchestrates full pipeline |
 
@@ -35,7 +35,7 @@ mesh.h5 ───┤
                                                           ↓
     pml (damping) → partition (METIS) → model_writer → config_writer
                                                           ↓
-    mesh.h5 (extended) + partitions/partition_{r}.h5 + configs/config.h5
+    mesh.h5 (extended) + partitions/partition_{r}.h5 + config.h5
 ```
 
 ## Config Schema (config.h5 /simulation/)

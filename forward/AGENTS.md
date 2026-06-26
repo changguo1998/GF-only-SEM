@@ -30,7 +30,7 @@ Reads partition files + config.h5, writes strain snapshots to record files.
 mpirun -n N gf_solver wavefields/x/ --direction x --resume (optional)
 ```
 
-Reads partition files from `partitions/partition_{r}.h5` and config from `configs/config.h5`.
+Reads partition files from `partitions/partition_{r}.h5` and config from `config.h5`.
 
 ### Time Loop (per step)
 

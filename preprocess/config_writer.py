@@ -1,4 +1,4 @@
-"""Config writer — write configs/config.h5."""
+"""Config writer — write config.h5."""
 
 import os
 import h5py
@@ -19,7 +19,7 @@ def write_config(
     snapshot_stride: int | None = None,
     nsteps: int | None = None,
 ) -> None:
-    """Write configs/config.h5 with simulation, domain, and source data.
+    """Write config.h5 with simulation, domain, and source data.
 
     Args:
         config_path: Path to the target file (parent dir created if needed).
