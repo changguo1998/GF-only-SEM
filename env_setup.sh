@@ -1,20 +1,30 @@
 #!/bin/bash
-#=============================================================================
-# Environment initialization script for gf-calculation
-# Loads Spack-managed packages: CUDA-enabled OpenMPI, Eigen, HDF5
+# ==============
+# env_setup.sh
+# ==============
+# Environment initialization: Python venv + Spack packages (MPI, Eigen, HDF5).
 #
 # Usage:
-#   source scripts/env_setup.sh
-#=============================================================================
+#   source env_setup.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="${SCRIPT_DIR}"
 
 echo "=== gf-calculation environment initialization ==="
 echo "Project root: ${PROJECT_DIR}"
 echo ""
 
-# ---- 1. Source spack ----
+# ---- 1. Activate Python venv ----
+VENV="${PROJECT_DIR}/.venv/bin/activate"
+if [ ! -f "${VENV}" ]; then
+    echo "[FAIL] Python venv not found at ${VENV}"
+    echo "       Create with: uv sync"
+    return 1 2>/dev/null || exit 1
+fi
+source "${VENV}"
+echo "[OK] Python venv activated: $(which python)"
+
+# ---- 2. Source spack ----
 SPACK_SETUP="${HOME}/.spack/share/spack/setup-env.sh"
 if [ -f "${SPACK_SETUP}" ]; then
     source "${SPACK_SETUP}"
@@ -24,9 +34,7 @@ else
     return 1 2>/dev/null || exit 1
 fi
 
-# ---- 2. Load packages ----
-# Use hash to resolve duplicate openmpi: we want the CUDA-enabled build
-# /jncd4ux is openmpi@5.0.10+cuda cuda_arch=120
+# ---- 3. Load packages ----
 OPENMPI_HASH="/jncd4ux"
 
 echo "Loading spack packages..."

@@ -38,7 +38,7 @@ uv sync --group dev
 cd build && cmake .. && make gf_solver
 
 # MPI environment (if using Spack)
-source scripts/env_setup.sh
+source env_setup.sh
 ```
 
 **What it does:**

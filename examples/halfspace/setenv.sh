@@ -3,7 +3,7 @@
 # halfspace/setenv.sh
 # ==============
 # Source this file before manual pipeline steps.
-# Sets up PROJECT_DIR, EXAMPLE_DIR, Python venv, MPI env, N_RANKS, MPIRUN, SOLVER.
+# Sets up PROJECT_DIR, EXAMPLE_DIR, MPI env, N_RANKS, MPIRUN, SOLVER.
 #
 # Usage:
 #   source examples/halfspace/setenv.sh
@@ -12,17 +12,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 EXAMPLE_DIR="${PROJECT_DIR}/examples/halfspace"
 
-# Activate Python venv
-if [ -f "${PROJECT_DIR}/.venv/bin/activate" ]; then
-    source "${PROJECT_DIR}/.venv/bin/activate"
-    echo "Python venv activated: $(which python)"
-fi
-
-# Source Spack/MPI environment (optional)
-if [ -f "${PROJECT_DIR}/scripts/env_setup.sh" ]; then
-    echo "=== Sourcing environment ==="
-    source "${PROJECT_DIR}/scripts/env_setup.sh" 2>/dev/null || true
-fi
+# Source project env (Python venv + Spack MPI/Eigen/HDF5)
+source "${PROJECT_DIR}/env_setup.sh"
 
 # MPI settings — read n_ranks from config.py
 N_RANKS=$(python -c "import sys; sys.path.insert(0, '${EXAMPLE_DIR}'); import config; print(config.n_ranks)")
