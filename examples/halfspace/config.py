@@ -23,15 +23,15 @@ import numpy as np
 title = "halfspace_example"
 
 # ── Mesh dimensions ───────
-nx_elements = 10   # Elements in x
-ny_elements = 10   # Elements in y
-nz_elements = 5    # Elements in z
-lx = 10000.0       # Domain length x [m]
-ly = 10000.0       # Domain length y [m]
-lz = 5000.0        # Domain length z [m]
+nx_elements = 10  # Elements in x
+ny_elements = 10  # Elements in y
+nz_elements = 5  # Elements in z
+lx = 10000.0  # Domain length x [m]
+ly = 10000.0  # Domain length y [m]
+lz = 5000.0  # Domain length z [m]
 
 # ── SEM discretization ───
-polynomial_order = 4  # GLL quadrature order (N=4 → 5 GLL nodes/axis)
+polynomial_order = 3  # GLL quadrature order (N=4 → 5 GLL nodes/axis)
 
 # ── Time stepping ───────
 output_dt_s = 0.01  # Desired snapshot interval [s]
@@ -88,4 +88,3 @@ def vs_m_s(x_m, y_m, z_m):
 def density_kg_m3(x_m, y_m, z_m):
     """Density [kg/m³]."""
     return 2700.0
-

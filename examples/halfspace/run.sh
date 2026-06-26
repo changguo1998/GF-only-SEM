@@ -5,7 +5,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORK_DIR="${SCRIPT_DIR}/output"
+WORK_DIR="${SCRIPT_DIR}"
 
 source "${SCRIPT_DIR}/setenv.sh"
 
@@ -16,8 +16,6 @@ echo "Work dir:    ${WORK_DIR}"
 echo ""
 
 # ── Clean work dir ───
-rm -rf "${WORK_DIR}"
-mkdir -p "${WORK_DIR}"
 cd "${WORK_DIR}"
 
 # ── Step 1: Generate mesh ───
@@ -27,7 +25,6 @@ python "${EXAMPLE_DIR}/mesh_gen.py"
 
 # ── Step 2: Copy config to work dir and preprocess ───
 # (preprocess reads mesh.h5 + config.py from CWD)
-cp "${EXAMPLE_DIR}/config.py" "${WORK_DIR}/config.py"
 echo ""
 echo "=== Step 2: Preprocess ==="
 python -m preprocess
@@ -36,22 +33,18 @@ echo ""
 echo "=== Preprocess outputs ==="
 echo "mesh.h5:      $(du -sh mesh.h5 | cut -f1)"
 echo "config.h5:    $(du -sh config.h5 | cut -f1)"
-ls -hal partitions/
+ls -hal "$WORK_DIR/partitions/"
 
 # ── Step 3: Forward solver (3 directions) ───
 for DIR in x y z; do
     echo ""
-    echo "=== Step 3${DIR}: Forward solver (direction=${DIR}) ==="
-    OUTFILE="${WORK_DIR}/wavefields/${DIR}/record_0.h5"
-    if [ -f "${OUTFILE}" ]; then
-        echo "  Already complete, skipping."
-    else
-        ${MPIRUN} -n ${N_RANKS} "${SOLVER}" \
-            "${WORK_DIR}/partitions/" \
-            "${WORK_DIR}/config.h5" \
-            "${WORK_DIR}/wavefields/${DIR}/" \
-            --direction "${DIR}"
-    fi
+    echo "=== Step 3: Forward solver (direction=${DIR}) ==="
+    mkdir -p "${WORK_DIR}/wavefields/${DIR}"
+    ${MPIRUN} -n ${N_RANKS} "${SOLVER}" \
+        "${WORK_DIR}/partitions/" \
+        "${WORK_DIR}/config.h5" \
+        "${WORK_DIR}/wavefields/${DIR}/" \
+        --direction "${DIR}"
 done
 
 echo ""
@@ -60,8 +53,6 @@ for DIR in x y z; do
     echo "wavefields/${DIR}/:"
     ls -lh "${WORK_DIR}/wavefields/${DIR}/" 2>/dev/null || echo "  (not found)"
 done
-
-exit 0
 
 # ── Summary ───
 echo ""
