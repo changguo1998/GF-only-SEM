@@ -16,6 +16,7 @@
 #include <cstring>
 #include <iostream>
 #include <iomanip>
+#include <sstream>
 #include <stdexcept>
 #include <chrono>
 #include <ctime>
@@ -129,12 +130,16 @@ int run_forward(const std::string& direction) {
 
         // === Timing (rank 0 only) ===
         auto t_start = std::chrono::steady_clock::now();
-        double total_time_s = cfg.nsteps * cfg.solver_dt;
 
         if (rank == 0) {
-            std::cout << "  total simulation time: " << total_time_s << " s\n"
-                      << "  solver steps: " << cfg.nsteps
-                      << ", snapshot stride: " << cfg.snapshot_stride << "\n";
+            std::cout << "  snapshots: " << (cfg.nsteps / cfg.snapshot_stride)
+                      << " (stride=" << cfg.snapshot_stride << ")"
+                      << "  total sim time: " << (cfg.nsteps * cfg.solver_dt) << " s\n"
+                      << "  " << std::setw(12) << std::left << "iter/total"
+                      << std::setw(10) << "clock"
+                      << std::setw(14) << "elapsed"
+                      << std::setw(16) << "eta"
+                      << "finish\n";
         }
 
         // === Main time loop ===
@@ -245,24 +250,33 @@ int run_forward(const std::string& direction) {
                 if (rank == 0) {
                     auto t_now = std::chrono::steady_clock::now();
                     double elapsed = std::chrono::duration<double>(t_now - t_start).count();
-                    double sim_time = (step + 1) * cfg.solver_dt;
-                    double pct = 100.0 * (step + 1) / cfg.nsteps;
                     double eta = (step + 1 < cfg.nsteps)
                         ? elapsed * (cfg.nsteps - step - 1) / (step + 1)
                         : 0.0;
 
-                    std::time_t finish_t = std::time(nullptr) + static_cast<std::time_t>(eta);
-                    char time_buf[32];
-                    std::strftime(time_buf, sizeof(time_buf), "%H:%M:%S",
-                                  std::localtime(&finish_t));
+                    auto fmt_dur = [](double s) -> std::string {
+                        int h = static_cast<int>(s) / 3600;
+                        int m = (static_cast<int>(s) % 3600) / 60;
+                        int sec = static_cast<int>(s) % 60;
+                        std::ostringstream os;
+                        os << std::setw(2) << std::setfill('0') << h << ":"
+                           << std::setw(2) << std::setfill('0') << m << ":"
+                           << std::setw(2) << std::setfill('0') << sec;
+                        return os.str();
+                    };
 
-                    std::cout << "  snapshot: t=" << std::fixed << std::setprecision(3)
-                              << sim_time << " / " << total_time_s << " s"
-                              << "  run=" << std::setprecision(1) << elapsed << " s"
-                              << "  " << (step + 1) << "/" << cfg.nsteps
-                              << " (" << std::setprecision(1) << pct << "%)"
-                              << "  eta=" << std::setprecision(1) << eta << " s"
-                              << "  finish~" << time_buf << std::endl;
+                    std::time_t now_t = std::time(nullptr);
+                    std::time_t finish_t = now_t + static_cast<std::time_t>(eta);
+                    char now_buf[20], fin_buf[20];
+                    std::strftime(now_buf, sizeof(now_buf), "%H:%M:%S", std::localtime(&now_t));
+                    std::strftime(fin_buf, sizeof(fin_buf), "%H:%M:%S", std::localtime(&finish_t));
+
+                    std::cout << "  " << std::setw(12) << std::left
+                              << (std::to_string(step + 1) + "/" + std::to_string(cfg.nsteps))
+                              << std::setw(10) << now_buf
+                              << std::setw(14) << fmt_dur(elapsed)
+                              << std::setw(16) << fmt_dur(eta)
+                              << fin_buf << std::endl;
                 }
             }
         }
