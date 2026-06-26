@@ -142,6 +142,7 @@ def main():
     cwd = os.getcwd()
     mesh_path = os.path.join(cwd, "mesh.h5")
     part_dir = os.path.join(cwd, "partitions")
+    vtk_dir = os.path.join(cwd, "vtk")
 
     if not os.path.isdir(part_dir):
         print("[partition_to_vtk] Error: no partitions/ directory found in CWD")
@@ -174,6 +175,8 @@ def main():
 
     print(f"[partition_to_vtk] Found {len(part_files)} partition files")
 
+    os.makedirs(vtk_dir, exist_ok=True)
+
     # ── Process each partition ──
     for pf in part_files:
         # Extract rank from filename
@@ -182,7 +185,7 @@ def main():
             continue
         rank = int(m.group(1))
         part_path = os.path.join(part_dir, pf)
-        out_path = os.path.join(cwd, f"partition_{rank}.vtk")
+        out_path = os.path.join(vtk_dir, f"partition_{rank}.vtk")
 
         with h5py.File(part_path, "r") as f:
             local_zero = f["partition/local_element_ids"][:]  # 0-based

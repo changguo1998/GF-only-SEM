@@ -179,7 +179,8 @@ def write_vtu(path, vertex_coords, connectivity, cell_fields):
 def main():
     cwd = os.getcwd()
     mesh_path = os.path.join(cwd, "mesh.h5")
-    out_path = os.path.join(cwd, "mesh.vtk")
+    vtk_dir = os.path.join(cwd, "vtk")
+    out_path = os.path.join(vtk_dir, "mesh.vtk")
     part_dir = os.path.join(cwd, "partitions")
 
     has_partitions = os.path.isdir(part_dir)
@@ -222,6 +223,7 @@ def main():
         print("  Fields: PML_flag only (no partitions/)")
 
     # ── Write VTK ──
+    os.makedirs(vtk_dir, exist_ok=True)
     print(f"[mesh_to_vtk] Writing {out_path}")
     write_vtu(out_path, vertex_to_coord, connectivity, cell_fields)
     print("  Done.")
