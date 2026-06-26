@@ -50,7 +50,7 @@ source env_setup.sh
 **Output layout:**
 
 ```
-examples/halfspace/output/
+examples/halfspace/
 ├── mesh.h5                  # Extended mesh (topology + GLL + materials + PML)
 ├── config.h5                # Simulation parameters + STF
 ├── partitions/
