@@ -1,8 +1,10 @@
 #pragma once
 
 #include <hdf5.h>
-#include <string>
+
 #include <cstdint>
+#include <string>
+
 #include "gf/CompressionFilter.h"
 
 namespace gf {
@@ -27,14 +29,9 @@ public:
     /// \param ngll             Number of GLL points per axis (N+1)
     /// \param compression      Compression configuration
     /// \param use_float32      If true, store strain as 32-bit float
-    RecordWriter(const std::string& output_dir,
-                 const std::string& source_direction,
-                 int rank,
-                 int n_local_elem,
-                 const int64_t* element_ids,
-                 int ngll,
-                 CompressionConfig compression,
-                 bool use_float32 = false);
+    RecordWriter(const std::string& output_dir, const std::string& source_direction, int rank,
+                 int n_local_elem, const int64_t* element_ids, int ngll,
+                 CompressionConfig compression, bool use_float32 = false);
 
     ~RecordWriter();
 
@@ -64,4 +61,4 @@ private:
     std::string source_direction_;
 };
 
-} // namespace gf
+}  // namespace gf

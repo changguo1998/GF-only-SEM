@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <vector>
+
 #include "gf/source.hpp"
 #include "gf/types.hpp"
 
@@ -36,7 +37,7 @@ TEST_CASE("Source location at GLL node", "[source]") {
     PointForceSource src;
     bool found = src.locate(0.5, 0.5, 0.5, coords, dxi_dx, n_local, ngll);
     // The locate might fail with zero coords, but the call should complete
-    REQUIRE(found == false); // Expected: zero coords, no element containing point
+    REQUIRE(found == false);  // Expected: zero coords, no element containing point
 }
 
 TEST_CASE("Source apply preserves force magnitude", "[source]") {
@@ -87,7 +88,7 @@ TEST_CASE("Source conservation across multiple elements", "[source]") {
     src2.wx = 0.4;
 
     src1.apply(1.0, 0.0, 0.0, rd, rhs);
-    src2.apply(0.0, 0.0, 0.0, rd, rhs); // second element doesn't contribute
+    src2.apply(0.0, 0.0, 0.0, rd, rhs);  // second element doesn't contribute
 
     double sum_rhs = 0.0;
     for (int i = 0; i < n_dof; ++i) {

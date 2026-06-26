@@ -1,9 +1,11 @@
 #pragma once
 
 #include <hdf5.h>
+
+#include <cstdint>
 #include <string>
 #include <vector>
-#include <cstdint>
+
 #include "gf/types.hpp"
 
 namespace gf {
@@ -37,4 +39,4 @@ std::vector<int64_t> read_dataset_int64(hid_t file_id, const std::string& name);
 /// Helper: read an int32_t dataset from an open HDF5 file.
 std::vector<int32_t> read_dataset_int32(hid_t file_id, const std::string& name);
 
-} // namespace gf
+}  // namespace gf

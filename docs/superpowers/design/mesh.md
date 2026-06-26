@@ -90,14 +90,13 @@ These are the only `/field/` groups added by the preprocessor to `mesh.h5`. All 
 
 **`is_pml` flag**: set by the preprocessor during boundary detection. Elements within the absorbing boundary layer are marked as PML. Postprocess uses this to exclude PML elements from Green's function output.
 
-### Design Rules (shared by mesh.h5 and partition_{r}.h5)
+### Design Rules (shared by mesh.h5 and partition\_{r}.h5)
 
 | Rule | Example |
 |------|---------|
 | `X2Y` naming for relations | `edge_to_vertex`, `cell_to_surface` |
 | 1-based indexing, 0 = null | `surface_to_cell` → `(0, 5)` means boundary |
 | Sign = direction (signed int) | `+edge_id` = positive traversal, `-edge_id` = reverse |
-
 **Note**: Edge and surface topology exists primarily for boundary condition tagging (free surface, absorbing boundary detection) and diagnostics. The forward solver operates on elements and GLL nodes directly — it does not use edge/surface topology at runtime. The CG-SEM matrix-free assembly uses GLL nodes and element-local indexing, not face/edge connectivity.
 
 ### Schema — converter phase
@@ -194,7 +193,7 @@ partition_{r}.h5
             └── ghost_face   : int8[n_faces]
 ```
 
-### Design Notes — partition_{r}.h5
+### Design Notes — partition\_{r}.h5
 
 - **NGLL** = N+1, embedded in array shapes — no separate attribute needed. Polynomial order N is known to all components via array shapes.
 - All element-level fields use element-first layout: `[n_elem_total, NGLL, NGLL, NGLL, …]`
@@ -213,7 +212,7 @@ Boundary detection is auto, by geometry. No GMSH physical groups needed. One fre
 ## Design Notes
 
 - **mesh.h5** serves the `postprocess` module (geometry: GLL coords and dxi_dx for Newton iteration / point-in-hexahedron search). Its `/topology/` is written by the converter; `/field/element/coords` and `/field/element/dxi_dx` are added by the preprocessor.
-- **partition_{r}.h5** serves the forward solver (all field data, C-PML, partition metadata per rank).
+- **partition\_{r}.h5** serves the forward solver (all field data, C-PML, partition metadata per rank).
 - `dxi_dx` in `mesh.h5` enables postprocess to access geometric derivatives for tensor assembly without needing the partition files.
 
 ## File Layout

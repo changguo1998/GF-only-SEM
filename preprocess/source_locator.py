@@ -15,22 +15,31 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
-from preprocess.topology_reader import TopologyData
 from preprocess.gll_geometry import gll_quadrature_points
+from preprocess.topology_reader import TopologyData
 
 # ---------------------------------------------------------------------------
 # Newton iteration for point-in-hexahedron
 # ---------------------------------------------------------------------------
 
 # Linear shape functions for 8-node hex (same as gll_geometry._linear_shape_derivs)
-HEX_REF_CORNERS_LOC = np.array([
-    [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
-    [-1, -1,  1], [1, -1,  1], [1, 1,  1], [-1, 1,  1],
-], dtype=np.float64)
+HEX_REF_CORNERS_LOC = np.array(
+    [
+        [-1, -1, -1],
+        [1, -1, -1],
+        [1, 1, -1],
+        [-1, 1, -1],
+        [-1, -1, 1],
+        [1, -1, 1],
+        [1, 1, 1],
+        [-1, 1, 1],
+    ],
+    dtype=np.float64,
+)
 
 
 def _linear_shape_derivs_loc(
-    xi: float, eta: float, zeta: float,
+    xi: float, eta: float, zeta: float
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """Linear hex shape functions and their derivs at (xi, eta, zeta).
 
@@ -71,8 +80,8 @@ def _newton_find_xi(
 
     for _ in range(max_iter):
         _N, dN = _linear_shape_derivs_loc(xi[0], xi[1], xi[2])
-        x_current = _N @ corners                         # [3] current physical estimate
-        J = dN.T @ corners                               # [3, 3] dx/dξ
+        x_current = _N @ corners  # [3] current physical estimate
+        J = dN.T @ corners  # [3, 3] dx/dξ
 
         residual = x_target - x_current
         try:
@@ -100,9 +109,7 @@ def _newton_find_xi(
 # ---------------------------------------------------------------------------
 
 
-def _lagrange_basis_at(
-    xi_eval: float, nodes: npt.NDArray[np.float64],
-) -> npt.NDArray[np.float64]:
+def _lagrange_basis_at(xi_eval: float, nodes: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """Evaluate 1-D Lagrange basis on given nodal points at xi_eval.
 
     Args:
@@ -122,8 +129,7 @@ def _lagrange_basis_at(
 
 
 def compute_source_weights(
-    xi_vec: npt.NDArray[np.float64],
-    gll_pts: npt.NDArray[np.float64],
+    xi_vec: npt.NDArray[np.float64], gll_pts: npt.NDArray[np.float64]
 ) -> npt.NDArray[np.float64]:
     """Compute 3-D Lagrange interpolation weights at natural coords.
 
@@ -140,7 +146,11 @@ def compute_source_weights(
     lx = _lagrange_basis_at(xi_vec[0], gll_pts)
     ly = _lagrange_basis_at(xi_vec[1], gll_pts)
     lz = _lagrange_basis_at(xi_vec[2], gll_pts)
-    return lx[:, np.newaxis, np.newaxis] * ly[np.newaxis, :, np.newaxis] * lz[np.newaxis, np.newaxis, :]
+    return (
+        lx[:, np.newaxis, np.newaxis]
+        * ly[np.newaxis, :, np.newaxis]
+        * lz[np.newaxis, np.newaxis, :]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -202,14 +212,14 @@ def locate_source(
     # The 8 corners of an element are at GLL indices (0,0,0), (NGLL-1,0,0), ...
     # GMSH ordering from gmsh_to_hdf5 + _get_cell_vertex_ids:
     corner_indices = [
-        (0, 0, 0),                                           # v0: -1,-1,-1
-        (NGLL - 1, 0, 0),                                    # v1: +1,-1,-1
-        (NGLL - 1, NGLL - 1, 0),                             # v2: +1,+1,-1
-        (0, NGLL - 1, 0),                                    # v3: -1,+1,-1
-        (0, 0, NGLL - 1),                                    # v4: -1,-1,+1
-        (NGLL - 1, 0, NGLL - 1),                             # v5: +1,-1,+1
-        (NGLL - 1, NGLL - 1, NGLL - 1),                      # v6: +1,+1,+1
-        (0, NGLL - 1, NGLL - 1),                             # v7: -1,+1,+1
+        (0, 0, 0),  # v0: -1,-1,-1
+        (NGLL - 1, 0, 0),  # v1: +1,-1,-1
+        (NGLL - 1, NGLL - 1, 0),  # v2: +1,+1,-1
+        (0, NGLL - 1, 0),  # v3: -1,+1,-1
+        (0, 0, NGLL - 1),  # v4: -1,-1,+1
+        (NGLL - 1, 0, NGLL - 1),  # v5: +1,-1,+1
+        (NGLL - 1, NGLL - 1, NGLL - 1),  # v6: +1,+1,+1
+        (0, NGLL - 1, NGLL - 1),  # v7: -1,+1,+1
     ]
 
     element_ids: list[int] = []
@@ -219,9 +229,7 @@ def locate_source(
     weights_list: list[npt.NDArray[np.float64]] = []
 
     for e in free_surface_cells:
-        corners = np.array([
-            gll_coords[e, ci[0], ci[1], ci[2]] for ci in corner_indices
-        ])
+        corners = np.array([gll_coords[e, ci[0], ci[1], ci[2]] for ci in corner_indices])
 
         xi_vec = _newton_find_xi(source_xyz, corners)
         if xi_vec is None:
@@ -234,7 +242,7 @@ def locate_source(
         if w_sum < 1e-12:
             continue
 
-        element_ids.append(e + 1)   # 1-based global element ID
+        element_ids.append(e + 1)  # 1-based global element ID
         xi_list.append(float(xi_vec[0]))
         eta_list.append(float(xi_vec[1]))
         zeta_list.append(float(xi_vec[2]))

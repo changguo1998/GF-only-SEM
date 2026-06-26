@@ -12,8 +12,8 @@ import time
 import click
 import numpy as np
 
-from gf_post.reader import RecordReader, GeometryReader, merge_records
 from gf_post.assembly import assemble_greens_tensor
+from gf_post.reader import GeometryReader, merge_records
 from gf_post.writer import GFWriter
 
 
@@ -28,16 +28,32 @@ def _discover_record_files(record_dir: str) -> list[str]:
 
 @click.command()
 @click.argument("mesh", type=click.Path(exists=True))
-@click.option("--fx", required=True, type=click.Path(exists=True),
-              help="Directory with fx-direction record files")
-@click.option("--fy", required=True, type=click.Path(exists=True),
-              help="Directory with fy-direction record files")
-@click.option("--fz", required=True, type=click.Path(exists=True),
-              help="Directory with fz-direction record files")
-@click.option("-o", "--output-dir", type=click.Path(), default="greenfun",
-              help="Output directory for Green's function tile files")
-@click.option("--tile-elems", type=int, default=100,
-              help="Maximum elements per spatial tile")
+@click.option(
+    "--fx",
+    required=True,
+    type=click.Path(exists=True),
+    help="Directory with fx-direction record files",
+)
+@click.option(
+    "--fy",
+    required=True,
+    type=click.Path(exists=True),
+    help="Directory with fy-direction record files",
+)
+@click.option(
+    "--fz",
+    required=True,
+    type=click.Path(exists=True),
+    help="Directory with fz-direction record files",
+)
+@click.option(
+    "-o",
+    "--output-dir",
+    type=click.Path(),
+    default="greenfun",
+    help="Output directory for Green's function tile files",
+)
+@click.option("--tile-elems", type=int, default=100, help="Maximum elements per spatial tile")
 def main(mesh, fx, fy, fz, output_dir, tile_elems):
     """Extract strain Green's functions from SEM checkpoint files.
 
@@ -48,7 +64,7 @@ def main(mesh, fx, fy, fz, output_dir, tile_elems):
     No receiver positions needed — output is the full GLL-node field.
     """
     start = time.time()
-    print(f"[postprocess] Starting...", file=sys.stderr)
+    print("[postprocess] Starting...", file=sys.stderr)
 
     # Load mesh geometry
     print(f"[postprocess] Reading mesh geometry from {mesh}", file=sys.stderr)
@@ -61,8 +77,11 @@ def main(mesh, fx, fy, fz, output_dir, tile_elems):
     fx_files = _discover_record_files(fx)
     fy_files = _discover_record_files(fy)
     fz_files = _discover_record_files(fz)
-    print(f"[postprocess] Found {len(fx_files)} fx, {len(fy_files)} fy, "
-          f"{len(fz_files)} fz record files", file=sys.stderr)
+    print(
+        f"[postprocess] Found {len(fx_files)} fx, {len(fy_files)} fy, "
+        f"{len(fz_files)} fz record files",
+        file=sys.stderr,
+    )
 
     # Merge records from each direction
     print("[postprocess] Merging fx records...", file=sys.stderr)
@@ -90,23 +109,19 @@ def main(mesh, fx, fy, fz, output_dir, tile_elems):
     # Assemble Green's tensor at all GLL nodes
     # strain_fx shape: [nt, n_cell, NGLL, NGLL, NGLL, 6]
     # greens_tensor shape: [nt, n_cell, NGLL, NGLL, NGLL, 6, 3]
-    print("[postprocess] Assembling Green's tensor at all GLL nodes...",
-          file=sys.stderr)
-    greens = assemble_greens_tensor(
-        {"fx": strain_fx, "fy": strain_fy, "fz": strain_fz}
-    )
+    print("[postprocess] Assembling Green's tensor at all GLL nodes...", file=sys.stderr)
+    greens = assemble_greens_tensor({"fx": strain_fx, "fy": strain_fy, "fz": strain_fz})
 
     # Write output — tiled by element range
-    print(f"[postprocess] Writing Green's function tiles to {output_dir}...",
-          file=sys.stderr)
-    tiles = GFWriter.write(
-        output_dir, gll_coords, time_arr, dt, greens, tile_elems
-    )
+    print(f"[postprocess] Writing Green's function tiles to {output_dir}...", file=sys.stderr)
+    tiles = GFWriter.write(output_dir, gll_coords, time_arr, dt, greens, tile_elems)
 
     elapsed = time.time() - start
     n_tiles = len(tiles)
-    print(f"[postprocess] Done in {elapsed:.1f}s — "
-          f"{n_tiles} tile(s), {n_cell} element(s)", file=sys.stderr)
+    print(
+        f"[postprocess] Done in {elapsed:.1f}s — {n_tiles} tile(s), {n_cell} element(s)",
+        file=sys.stderr,
+    )
 
 
 if __name__ == "__main__":

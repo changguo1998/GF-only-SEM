@@ -102,11 +102,11 @@ GMSH .msh → converter → mesh.h5 (topology only)
 | File | Producer | Consumer | Content |
 |------|----------|----------|---------|
 | mesh.h5 | converter → extended by preprocessor | preprocessor, postprocess | Topology + GLL coords + dxi_dx + jacobian + is_pml (geometry only, no material) |
-| partition_{r}.h5 | preprocessor | forward | Per-rank local subset of all element data (coords, dxi_dx, jacobian, mass, vp, vs, density, cpml/*) + partition metadata (gll_to_global, exchange) |
+| partition\_{r}.h5 | preprocessor | forward | Per-rank local subset of all element data (coords, dxi_dx, jacobian, mass, vp, vs, density, cpml/\*) + partition metadata (gll_to_global, exchange) |
 | config.h5 | preprocessor | forward | Simulation params, domain bounds, source position + precomputed STF + weights. No direction — passed via CLI `--direction`. |
-| wavefields/{direction}/record_{r}.h5 | forward | postprocess | L2-smoothed strain at GLL nodes + (u,v,a) restart state, extendible time axis |
+| wavefields/{direction}/record\_{r}.h5 | forward | postprocess | L2-smoothed strain at GLL nodes + (u,v,a) restart state, extendible time axis |
 | mesh_auxiliary.h5 | preprocessor (optional) | validation | CSR adjacency relations |
-| greenfun/tile_{i}.h5 | postprocess | user | Strain Green's functions at GLL nodes, tiled by element range |
+| greenfun/tile\_{i}.h5 | postprocess | user | Strain Green's functions at GLL nodes, tiled by element range |
 
 ### Design Rules
 
@@ -118,7 +118,7 @@ GMSH .msh → converter → mesh.h5 (topology only)
 | Element-first layout | `[n_cell, NGLL, NGLL, NGLL, ...]` |
 | NGLL = N+1 embedded in shapes | Derived from array dims, not a separate attribute |
 | Python configs as importable scripts | No YAML/TOML — `config.py` imported by preprocessor |
-| Model and config in separate files | partition_{r}.h5 = mesh data per rank; config.h5 = simulation parameters |
+| Model and config in separate files | partition\_{r}.h5 = mesh data per rank; config.h5 = simulation parameters |
 
 ### Topology Hierarchy
 
@@ -146,7 +146,7 @@ mesh.h5
     └── dxi_dx                  : float64[..., 3,3]  — ∂ξ_i/∂x_j
 ```
 
-### partition_{r}.h5 Schema (Per-Rank)
+### partition\_{r}.h5 Schema (Per-Rank)
 
 Each partition file holds a local subset of all element data needed by one MPI rank:
 
@@ -234,7 +234,7 @@ Each tile contains the strain Green's functions for all elements within its spat
 
 - **Config format**: Importable Python script (not YAML/TOML). Config file IS the configuration. All dimensional fields carry SI-unit suffixes (`_m`, `_s`, `_m_s`, `_kg_m3`).
 - **Material functions**: Callable Python functions with SI-unit suffixes `vp_m_s(x_m, y_m, z_m)`, `vs_m_s(x_m, y_m, z_m)`, `density_kg_m3(x_m, y_m, z_m)` in config.py — no separate binary model file.
-- **Output**: partition_{r}.h5 (per-rank subset of element data) + single config.h5 (rank-invariant simulation + domain + source data).
+- **Output**: partition\_{r}.h5 (per-rank subset of element data) + single config.h5 (rank-invariant simulation + domain + source data).
 - **Source direction**: NOT in config.py or config.h5. Preprocessor auto-generates one config.h5. Forward solver takes force direction via CLI `--direction {x,y,z}`.
 - **Timestep split**: User specifies `output_dt_s` (snapshot interval) and `total_duration_s` in config.py. Preprocessor computes `cfl_dt = cfl_safety × h_min / vp_max` from minimum GLL node spacing and maximum vp, then derives `solver_dt` by searching for an integer stride such that `output_dt_s / stride ≤ cfl_dt`. The `snapshot_stride = output_dt_s / solver_dt` (integer). `nsteps = ceil(total_duration_s / solver_dt)`. Forward solver uses `solver_dt` in the Newmark loop and writes snapshots when `step % snapshot_stride == 0`.
 - **Validation**: Comprehensive checks at preprocess time:
@@ -245,12 +245,12 @@ Each tile contains the strain Green's functions for all elements within its spat
   - Source: x_m, y_m within domain bounds; stf_func returns finite non-NaN values over [0, nsteps×solver_dt]
   - Storage: estimated disk usage ≤ storage_limit_gb, abort if exceeded
   - Snapshot stride: nsteps % snapshot_stride == 0
-- **Mesh output format**: Extended HDF5 — preprocessor writes GLL geometry (`coords`, `dxi_dx`, `jacobian`, `is_pml`) back to mesh.h5; all rank-local data to partition_{r}.h5.
+- **Mesh output format**: Extended HDF5 — preprocessor writes GLL geometry (`coords`, `dxi_dx`, `jacobian`, `is_pml`) back to mesh.h5; all rank-local data to partition\_{r}.h5.
 - **STF precomputation**: stf_func(t_s) evaluated over full time range at solver_dt spacing, written as time series array to config.h5. Forward solver reads array — no runtime STF evaluation.
 - **Mass computation**: After material interpolation (ρ needed for lumped mass).
-- **CPML precomputation**: Layer-based — trace element connectivity from boundary faces inward. Classify each CPML element as face/edge/corner type. Precompute all C-PML arrays: damping profiles d_x, d_y, d_z per GLL node; stretched-coordinate functions K, α; convolution coefficients; element type tags. Written to partition_{r}.h5 `/field/element/cpml/`.
-- **Partitioning**: METIS k-way partition + GLL node global numbering (ibool equivalent) + precomputed exchange patterns. Each rank gets its own partition_{r}.h5 with local subset.
-- **Geometric precompute**: GLL coords, Jacobian, dξ/dx, lumped mass, C-PML arrays — all at GLL nodes. Written to partition_{r}.h5 `/field/element/`.
+- **CPML precomputation**: Layer-based — trace element connectivity from boundary faces inward. Classify each CPML element as face/edge/corner type. Precompute all C-PML arrays: damping profiles d_x, d_y, d_z per GLL node; stretched-coordinate functions K, α; convolution coefficients; element type tags. Written to partition\_{r}.h5 `/field/element/cpml/`.
+- **Partitioning**: METIS k-way partition + GLL node global numbering (ibool equivalent) + precomputed exchange patterns. Each rank gets its own partition\_{r}.h5 with local subset.
+- **Geometric precompute**: GLL coords, Jacobian, dξ/dx, lumped mass, C-PML arrays — all at GLL nodes. Written to partition\_{r}.h5 `/field/element/`.
 - **Source precompute**: Source z auto-placed on top free surface (z ≈ z_min). Element list, natural coordinates (ξ_s, η_s, ζ_s), Lagrange interpolation weights w_ijk for source injection. Weights normalized across sharing surface elements (Σ w_ijk = 1).
 - **No receivers**: Postprocess operates on GLL-node strain directly — no receiver CSV, no receiver search, no position interpolation.
 - **No inline STF**: User-defined function, evaluated over full time range.
@@ -262,11 +262,11 @@ Each tile contains the strain Green's functions for all elements within its spat
 - **Elastic only**: No SLS memory variables. Attenuation deferred to future work.
 - **Matrix-free assembly**: No global system matrix. K·u computed element-by-element.
 - **Global residual array**: Single `r[NDIM, NGLOB_AB]` indexed by global GLL node ID (ibrk). Assembly via `iglob(i,j,k,ispec)` mapping (grown) — element contributions accumulated additively, shared nodes implicitly summed.
-- **Precomputed data**: All mesh-dependent quantities read from partition_{r}.h5 — no init phase.
-- **Material**: Read at GLL nodes from partition_{r}.h5 — no runtime interpolation.
+- **Precomputed data**: All mesh-dependent quantities read from partition\_{r}.h5 — no init phase.
+- **Material**: Read at GLL nodes from partition\_{r}.h5 — no runtime interpolation.
 - **Source injection**: Precomputed Lagrange weights and element list from config.h5 — forward solver distributes STF amplitude to GLL nodes via stored weights. No runtime Newton iteration.
-- **C-PML memory**: 21 rmemory arrays = 39 scalar values per GLL node per CPML element. Second-order recursive convolution (Wang et al. 2006, eq. 21, θ=1/8). Read from partition_{r}.h5.
-- **C-PML**: Read all precomputed convolution coefficients from partition_{r}.h5. Apply C-PML memory variable update and acceleration correction per element — no runtime damping computation.
+- **C-PML memory**: 21 rmemory arrays = 39 scalar values per GLL node per CPML element. Second-order recursive convolution (Wang et al. 2006, eq. 21, θ=1/8). Read from partition\_{r}.h5.
+- **C-PML**: Read all precomputed convolution coefficients from partition\_{r}.h5. Apply C-PML memory variable update and acceleration correction per element — no runtime damping computation.
 - **Shared node assembly**: Within-rank: implicit via global array accumulation. Cross-rank: MPI halo exchange using precomputed face-pair patterns — pack/unpack per face, assemble shared nodes.
 - **Runtime loop**: Newmark predict → element residual (matrix-free K·u) → C-PML → source → MPI exchange → Newmark correct → strain compute (separate pass on corrected u) → snapshot write.
 - **Strain computation**: Separate element pass after Newmark correct — computes ε = ½(∇u_new + ∇u_newᵀ) from corrected displacement field.
@@ -275,7 +275,7 @@ Each tile contains the strain Green's functions for all elements within its spat
 - **3 runs per source**: 3 orthogonal force directions (x, y, z), independent gf_solver invocations managed by SLURM. Single config.h5 shared across all 3 runs; force direction passed via CLI `--direction {x,y,z}`. Each run writes snapshots to its own directory `wavefields/{direction}/`.
 - **Restart/resume**: Snapshots save corrected (u, v, a) state alongside strain. `--resume` flag restores state and continues the time loop — the `a` in snapshot is the corrected M⁻¹·r, directly usable for Newmark prediction.
 - **Parallelism**: Pure MPI (one rank per core). Architecture leaves GPU/DCU kernel swap-in path for future acceleration — see [`design/gpu.md`](superpowers/design/gpu.md) for the device-abstraction design.
-- **ibool/GLL node numbering**: Per-rank global GLL node IDs stored in partition_{r}.h5 `/partition/gll_to_global`, 1-based with 0=null. Interface node lists precomputed for MPI exchange.
+- **ibool/GLL node numbering**: Per-rank global GLL node IDs stored in partition\_{r}.h5 `/partition/gll_to_global`, 1-based with 0=null. Interface node lists precomputed for MPI exchange.
 
 ## 9. Testing & Validation
 

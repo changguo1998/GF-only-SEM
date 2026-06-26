@@ -1,9 +1,12 @@
 // forward/src/io.cpp
 #include "gf/io.hpp"
-#include "gf/types.hpp"
+
 #include <hdf5.h>
-#include <stdexcept>
+
 #include <iostream>
+#include <stdexcept>
+
+#include "gf/types.hpp"
 
 namespace gf {
 
@@ -14,14 +17,21 @@ struct H5FileGuard {
     hid_t id;
     explicit H5FileGuard(hid_t i) : id(i) {}
     ~H5FileGuard() {
-        if (id < 0) return;
+        if (id < 0)
+            return;
         H5I_type_t type = H5Iget_type(id);
-        if (type == H5I_FILE) H5Fclose(id);
-        else if (type == H5I_GROUP) H5Gclose(id);
-        else if (type == H5I_DATASET) H5Dclose(id);
-        else if (type == H5I_DATASPACE) H5Sclose(id);
-        else if (type == H5I_ATTR) H5Aclose(id);
-        else if (type == H5I_DATATYPE) H5Tclose(id);
+        if (type == H5I_FILE)
+            H5Fclose(id);
+        else if (type == H5I_GROUP)
+            H5Gclose(id);
+        else if (type == H5I_DATASET)
+            H5Dclose(id);
+        else if (type == H5I_DATASPACE)
+            H5Sclose(id);
+        else if (type == H5I_ATTR)
+            H5Aclose(id);
+        else if (type == H5I_DATATYPE)
+            H5Tclose(id);
     }
     hid_t get() const { return id; }
 };
@@ -58,7 +68,8 @@ std::vector<T> read_dataset_impl(hid_t file_id, const std::string& name) {
     hsize_t dims[8];
     H5Sget_simple_extent_dims(dspace, dims, nullptr);
     size_t total = 1;
-    for (int i = 0; i < ndims; ++i) total *= dims[i];
+    for (int i = 0; i < ndims; ++i)
+        total *= dims[i];
 
     std::vector<T> data(total);
     hid_t nat_type;
@@ -89,47 +100,57 @@ std::vector<T> try_read_dataset(hid_t file_id, const std::string& name) {
 }
 
 bool read_attr_int(hid_t loc_id, const std::string& name, int& out) {
-    if (H5Aexists(loc_id, name.c_str()) <= 0) return false;
+    if (H5Aexists(loc_id, name.c_str()) <= 0)
+        return false;
     hid_t attr = H5Aopen(loc_id, name.c_str(), H5P_DEFAULT);
-    if (attr < 0) return false;
+    if (attr < 0)
+        return false;
     H5FileGuard attr_guard(attr);
     return H5Aread(attr, H5T_NATIVE_INT, &out) >= 0;
 }
 
 bool read_attr_double(hid_t loc_id, const std::string& name, double& out) {
-    if (H5Aexists(loc_id, name.c_str()) <= 0) return false;
+    if (H5Aexists(loc_id, name.c_str()) <= 0)
+        return false;
     hid_t attr = H5Aopen(loc_id, name.c_str(), H5P_DEFAULT);
-    if (attr < 0) return false;
+    if (attr < 0)
+        return false;
     H5FileGuard attr_guard(attr);
     return H5Aread(attr, H5T_NATIVE_DOUBLE, &out) >= 0;
 }
 
 bool read_attr_string(hid_t loc_id, const std::string& name, std::string& out) {
-    if (H5Aexists(loc_id, name.c_str()) <= 0) return false;
+    if (H5Aexists(loc_id, name.c_str()) <= 0)
+        return false;
     hid_t attr = H5Aopen(loc_id, name.c_str(), H5P_DEFAULT);
-    if (attr < 0) return false;
+    if (attr < 0)
+        return false;
     H5FileGuard attr_guard(attr);
 
     hid_t type = H5Aget_type(attr);
-    if (type < 0) return false;
+    if (type < 0)
+        return false;
     H5FileGuard type_guard(type);
 
     if (H5Tis_variable_str(type) > 0) {
         char* value = nullptr;
-        if (H5Aread(attr, type, &value) < 0) return false;
+        if (H5Aread(attr, type, &value) < 0)
+            return false;
         out = value ? std::string(value) : std::string();
-        if (value) H5free_memory(value);
+        if (value)
+            H5free_memory(value);
         return true;
     }
 
     size_t len = H5Tget_size(type);
     std::vector<char> buf(len + 1, '\0');
-    if (H5Aread(attr, type, buf.data()) < 0) return false;
+    if (H5Aread(attr, type, buf.data()) < 0)
+        return false;
     out = std::string(buf.data());
     return true;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 // --- Public API implementations ---
 
@@ -183,13 +204,13 @@ RankData read_partition(const std::string& path, int /*rank*/) {
 
     // --- Read geometry and material fields ---
     // All stored under /field/element/ with shape [n_local_elem, NGLL, NGLL, NGLL, ...]
-    data.coords    = try_read_dataset<double>(fid, "/field/element/coords");
-    data.jacobian  = try_read_dataset<double>(fid, "/field/element/jacobian");
-    data.dxi_dx    = try_read_dataset<double>(fid, "/field/element/dxi_dx");
-    data.mass      = try_read_dataset<double>(fid, "/field/element/mass");
-    data.vp        = try_read_dataset<double>(fid, "/field/element/vp");
-    data.vs        = try_read_dataset<double>(fid, "/field/element/vs");
-    data.density   = try_read_dataset<double>(fid, "/field/element/density");
+    data.coords = try_read_dataset<double>(fid, "/field/element/coords");
+    data.jacobian = try_read_dataset<double>(fid, "/field/element/jacobian");
+    data.dxi_dx = try_read_dataset<double>(fid, "/field/element/dxi_dx");
+    data.mass = try_read_dataset<double>(fid, "/field/element/mass");
+    data.vp = try_read_dataset<double>(fid, "/field/element/vp");
+    data.vs = try_read_dataset<double>(fid, "/field/element/vs");
+    data.density = try_read_dataset<double>(fid, "/field/element/density");
     data.pml_damping = try_read_dataset<double>(fid, "/field/element/damping");
 
     // --- Read exchange patterns ---
@@ -206,23 +227,25 @@ RankData read_partition(const std::string& path, int /*rank*/) {
 
         for (hsize_t i = 0; i < num_neighbors; ++i) {
             char link_name[256];
-            ssize_t name_len = H5Lget_name_by_idx(
-                exch_grp, ".", H5_INDEX_NAME, H5_ITER_NATIVE,
-                i, link_name, sizeof(link_name), H5P_DEFAULT);
+            ssize_t name_len = H5Lget_name_by_idx(exch_grp, ".", H5_INDEX_NAME, H5_ITER_NATIVE, i,
+                                                  link_name, sizeof(link_name), H5P_DEFAULT);
 
-            if (name_len <= 0) continue;
+            if (name_len <= 0)
+                continue;
 
             std::string neighbor_name(link_name, name_len);
             // neighbor_name is like "neighbor_1"
             // Extract rank number after underscore
             size_t underscore = neighbor_name.find('_');
-            if (underscore == std::string::npos) continue;
+            if (underscore == std::string::npos)
+                continue;
 
             std::string rank_str = neighbor_name.substr(underscore + 1);
             int neighbor_rank = std::stoi(rank_str);
 
             hid_t ng = H5Gopen2(exch_grp, neighbor_name.c_str(), H5P_DEFAULT);
-            if (ng < 0) continue;
+            if (ng < 0)
+                continue;
             H5FileGuard ng_guard(ng);
 
             auto send_dof = try_read_dataset<int32_t>(ng, "send_dof");
@@ -294,7 +317,8 @@ ConfigData read_config(const std::string& path) {
         cfg.snapshot_stride = 1;
         cfg.snapshot_precision = "float64";
         auto use_f32 = try_read_dataset<int64_t>(fid, "use_float32");
-        if (!use_f32.empty() && use_f32[0] == 1) cfg.snapshot_precision = "float32";
+        if (!use_f32.empty() && use_f32[0] == 1)
+            cfg.snapshot_precision = "float32";
     }
 
     // Domain bounds: new schema stores attributes under /domain; keep legacy fallback.
@@ -314,35 +338,44 @@ ConfigData read_config(const std::string& path) {
         auto ymax = try_read_dataset<double>(fid, "ymax");
         auto zmin = try_read_dataset<double>(fid, "zmin");
         auto zmax = try_read_dataset<double>(fid, "zmax");
-        if (!xmin.empty()) cfg.xmin = xmin[0];
-        if (!xmax.empty()) cfg.xmax = xmax[0];
-        if (!ymin.empty()) cfg.ymin = ymin[0];
-        if (!ymax.empty()) cfg.ymax = ymax[0];
-        if (!zmin.empty()) cfg.zmin = zmin[0];
-        if (!zmax.empty()) cfg.zmax = zmax[0];
+        if (!xmin.empty())
+            cfg.xmin = xmin[0];
+        if (!xmax.empty())
+            cfg.xmax = xmax[0];
+        if (!ymin.empty())
+            cfg.ymin = ymin[0];
+        if (!ymax.empty())
+            cfg.ymax = ymax[0];
+        if (!zmin.empty())
+            cfg.zmin = zmin[0];
+        if (!zmax.empty())
+            cfg.zmax = zmax[0];
     }
 
     // Source data: new schema stores datasets/attrs under /source; keep legacy fallback.
     hid_t source_grp = H5Gopen2(fid, "/source", H5P_DEFAULT);
     if (source_grp >= 0) {
         H5FileGuard source_guard(source_grp);
-        cfg.stf_t      = try_read_dataset<double>(fid, "/source/stf_t");
+        cfg.stf_t = try_read_dataset<double>(fid, "/source/stf_t");
         cfg.stf_values = try_read_dataset<double>(fid, "/source/stf_values");
         read_attr_double(source_grp, "x", cfg.source_x);
         read_attr_double(source_grp, "y", cfg.source_y);
         read_attr_double(source_grp, "z", cfg.source_z);
     } else {
-        cfg.stf_t      = try_read_dataset<double>(fid, "stf_t");
+        cfg.stf_t = try_read_dataset<double>(fid, "stf_t");
         cfg.stf_values = try_read_dataset<double>(fid, "stf_values");
         auto src_x = try_read_dataset<double>(fid, "source_x");
         auto src_y = try_read_dataset<double>(fid, "source_y");
         auto src_z = try_read_dataset<double>(fid, "source_z");
-        if (!src_x.empty()) cfg.source_x = src_x[0];
-        if (!src_y.empty()) cfg.source_y = src_y[0];
-        if (!src_z.empty()) cfg.source_z = src_z[0];
+        if (!src_x.empty())
+            cfg.source_x = src_x[0];
+        if (!src_y.empty())
+            cfg.source_y = src_y[0];
+        if (!src_z.empty())
+            cfg.source_z = src_z[0];
     }
 
     return cfg;
 }
 
-} // namespace gf
+}  // namespace gf

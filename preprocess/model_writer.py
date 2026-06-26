@@ -1,6 +1,7 @@
 """Model writer — extend mesh.h5 and write partition_{r}.h5 files."""
 
 import os
+
 import h5py
 import numpy as np
 import numpy.typing as npt
@@ -39,8 +40,7 @@ def write_model(
     _extend_mesh_h5(mesh_path, fields, boundary_tag, domain_bounds)
 
     if partition_result is not None:
-        _write_partition_files(mesh_path, topology, fields, boundary_tag,
-                               partition_result)
+        _write_partition_files(mesh_path, topology, fields, boundary_tag, partition_result)
 
 
 def _extend_mesh_h5(
@@ -87,8 +87,7 @@ def _write_partition_files(
     if element_to_rank is None:
         element_to_rank = np.zeros(topology.n_cell, dtype=np.int32)
 
-    field_keys = ["coords", "dxi_dx", "jacobian", "mass", "vp", "vs",
-                   "density", "damping"]
+    field_keys = ["coords", "dxi_dx", "jacobian", "mass", "vp", "vs", "density", "damping"]
 
     for r in range(n_ranks):
         rk = per_rank.get(r, {})

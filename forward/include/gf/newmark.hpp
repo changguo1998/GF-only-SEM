@@ -1,7 +1,8 @@
 #pragma once
 
-#include <vector>
 #include <cstddef>
+#include <vector>
+
 #include "gf/types.hpp"
 
 namespace gf {
@@ -18,14 +19,9 @@ namespace gf {
 /// @param[in]  a         acceleration at t_n [n_dof]
 /// @param[out] u_tilde   predicted displacement at t_{n+1} [n_dof]
 /// @param[out] v_tilde   predicted velocity at t_{n+1} [n_dof]
-void newmark_predictor(
-    const NewmarkParams& params,
-    const std::vector<double>& u,
-    const std::vector<double>& v,
-    const std::vector<double>& a,
-    std::vector<double>& u_tilde,
-    std::vector<double>& v_tilde
-);
+void newmark_predictor(const NewmarkParams& params, const std::vector<double>& u,
+                       const std::vector<double>& v, const std::vector<double>& a,
+                       std::vector<double>& u_tilde, std::vector<double>& v_tilde);
 
 /// Newmark explicit corrector step (beta=0, gamma=0.5).
 ///
@@ -40,13 +36,8 @@ void newmark_predictor(
 /// @param[in,out] u     displacement (unchanged when beta=0)
 /// @param[in,out] v     velocity, updated to v_{n+1}
 /// @param[out] a        acceleration, computed as r/mass
-void newmark_corrector(
-    const NewmarkParams& params,
-    const std::vector<double>& mass,
-    const std::vector<double>& residual,
-    std::vector<double>& u,
-    std::vector<double>& v,
-    std::vector<double>& a
-);
+void newmark_corrector(const NewmarkParams& params, const std::vector<double>& mass,
+                       const std::vector<double>& residual, std::vector<double>& u,
+                       std::vector<double>& v, std::vector<double>& a);
 
-} // namespace gf
+}  // namespace gf

@@ -11,11 +11,12 @@ __version__ = "0.2.0"
 
 from gf_post.geometry import (
     gll_nodes_1d,
-    gll_weights_1d,
     gll_nodes_3d,
+    gll_weights_1d,
     lagrange_basis_1d,
     lagrange_basis_3d,
 )
+
 __all__ = [
     "__version__",
     "gll_nodes_1d",

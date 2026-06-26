@@ -1,13 +1,14 @@
 // compress/include/gf/CheckpointWriter.h
 #pragma once
-#include "CompressionFilter.h"
-#include "ChunkingStrategy.h"
-#include "PrecisionPolicy.h"
-
 #include <hdf5.h>
+
 #include <cstdint>
 #include <string>
 #include <vector>
+
+#include "ChunkingStrategy.h"
+#include "CompressionFilter.h"
+#include "PrecisionPolicy.h"
 
 namespace gf {
 
@@ -34,20 +35,15 @@ struct CheckpointConfig {
 /// \param config        Compression, precision, and chunking settings
 ///
 /// \return The strain dataset ID (caller should H5Dclose it)
-inline hid_t write_checkpoint(
-    hid_t file_id,
-    hsize_t n_elem_local,
-    const int64_t* element_ids,
-    const CheckpointConfig& config)
-{
+inline hid_t write_checkpoint(hid_t file_id, hsize_t n_elem_local, const int64_t* element_ids,
+                              const CheckpointConfig& config) {
     constexpr int ncomps = 6;
 
     // --- local_element_ids dataset (fixed) ---
     hsize_t elem_dims[1] = {n_elem_local};
     hid_t elem_space = H5Screate_simple(1, elem_dims, nullptr);
-    hid_t elem_dset = H5Dcreate2(file_id, "local_element_ids",
-                                  H5T_NATIVE_INT64, elem_space,
-                                  H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    hid_t elem_dset = H5Dcreate2(file_id, "local_element_ids", H5T_NATIVE_INT64, elem_space,
+                                 H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
     if (elem_dset < 0) {
         H5Sclose(elem_space);
         throw std::runtime_error("H5Dcreate2 failed for local_element_ids");
@@ -58,8 +54,8 @@ inline hid_t write_checkpoint(
         zero_ids.assign(static_cast<size_t>(n_elem_local), 0);
         ids_to_write = zero_ids.data();
     }
-    herr_t elem_status = H5Dwrite(elem_dset, H5T_NATIVE_INT64, H5S_ALL, H5S_ALL,
-                                  H5P_DEFAULT, ids_to_write);
+    herr_t elem_status =
+        H5Dwrite(elem_dset, H5T_NATIVE_INT64, H5S_ALL, H5S_ALL, H5P_DEFAULT, ids_to_write);
     H5Dclose(elem_dset);
     H5Sclose(elem_space);
     if (elem_status < 0) {
@@ -69,12 +65,14 @@ inline hid_t write_checkpoint(
     // --- strain dataset (extendible) ---
     // Shape: [n_checkpoints, n_elem_local, NGLL, NGLL, NGLL, 6]
     // Dim 0 (time) unlimited, others fixed
-    hsize_t strain_dims[6] = {1, n_elem_local,
+    hsize_t strain_dims[6] = {1,
+                              n_elem_local,
                               static_cast<hsize_t>(config.ngll),
                               static_cast<hsize_t>(config.ngll),
                               static_cast<hsize_t>(config.ngll),
                               ncomps};
-    hsize_t max_dims[6] = {H5S_UNLIMITED, n_elem_local,
+    hsize_t max_dims[6] = {H5S_UNLIMITED,
+                           n_elem_local,
                            static_cast<hsize_t>(config.ngll),
                            static_cast<hsize_t>(config.ngll),
                            static_cast<hsize_t>(config.ngll),
@@ -101,14 +99,8 @@ inline hid_t write_checkpoint(
     hid_t write_type = select_precision_type(config.use_float32);
 
     // Create the dataset
-    hid_t dset_id = H5Dcreate2(
-        file_id, "strain",
-        write_type,
-        strain_space,
-        H5P_DEFAULT,
-        plist_id,
-        H5P_DEFAULT
-    );
+    hid_t dset_id = H5Dcreate2(file_id, "strain", write_type, strain_space, H5P_DEFAULT, plist_id,
+                               H5P_DEFAULT);
     if (dset_id < 0) {
         H5Pclose(plist_id);
         H5Sclose(strain_space);

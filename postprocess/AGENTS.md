@@ -44,7 +44,7 @@ gf-postprocess mesh.h5 \
 ## Modes
 
 1. **Small domain** (< RAM): merge all records, assemble at all GLL nodes, one tile
-2. **Tiled** (TB-scale): tile by element range, one tile file per block
+1. **Tiled** (TB-scale): tile by element range, one tile file per block
 
 ## Tests
 

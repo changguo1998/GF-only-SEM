@@ -1,4 +1,4 @@
-# Task 2: Fix _get_cell_vertex_ids Sorting Bug — Result
+# Task 2: Fix \_get_cell_vertex_ids Sorting Bug — Result
 
 ## Summary
 
@@ -17,6 +17,7 @@ The old implementation used `sorted(all_verts)` to order the 8 corner vertices. 
 **New approach**: Face-membership identification. Each of the 8 hex corners belongs to exactly 3 faces. The 6 faces are ordered [-z, +z, -y, +y, -x, +x] (indices 0..5). By checking which 3 faces each vertex appears on, the 8 GMSH corners are uniquely identified regardless of vertex ID numbering.
 
 The GMSH corner → face membership mapping:
+
 ```
 v0(-z,-y,-x) → {0, 2, 4}
 v1(-z,-y,+x) → {0, 2, 5}
@@ -37,6 +38,7 @@ Fixed to match `test_boundary_detector.py`'s already-corrected topology.
 ### 3. `tests/preprocess/test_gll_geometry.py` — multi-element test
 
 Added `TestMultiElementGLLGeometry` class with 4 tests using a 2x1x1 element mesh:
+
 - `test_element0_corners_correct_order` — verifies all 8 corners of element 0 map to correct physical coordinates
 - `test_element1_corners_correct_order` — verifies all 8 corners of element 1
 - `test_jacobian_consistent_across_elements` — both elements (identical unit cubes) have equal Jacobians
@@ -47,6 +49,7 @@ For element 0, GMSH vertex order is `[1, 2, 5, 4, 7, 8, 11, 10]` but sorted woul
 ## Validation
 
 All 85 tests pass (62 preprocess + 22 tools + 1 workflow):
+
 - Existing unit cube tests: pass (GMSH order = sorted order for unit cube with vertex IDs 1-8)
 - New multi-element tests: pass (GMSH order ≠ sorted order — would fail with old code)
 - PML tests: pass (fixed topology)

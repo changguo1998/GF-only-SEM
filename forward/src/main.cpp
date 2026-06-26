@@ -5,16 +5,17 @@
 //   Input:  config.h5, partitions/partition_{r}.h5
 //   Output: wavefields/{direction}/record_{r}.h5
 
-#include "gf/solver.hpp"
 #include <mpi.h>
-#include <iostream>
-#include <string>
+
 #include <cstring>
+#include <iostream>
 #include <stdexcept>
+#include <string>
+
+#include "gf/solver.hpp"
 
 void print_usage(const char* prog) {
-    std::cerr << "Usage: " << prog
-              << " --direction {x,y,z}\n"
+    std::cerr << "Usage: " << prog << " --direction {x,y,z}\n"
               << "  All I/O paths are frozen relative to CWD:\n"
               << "    Input:  config.h5, partitions/partition_{r}.h5\n"
               << "    Output: wavefields/{direction}/record_{r}.h5\n";
@@ -37,8 +38,7 @@ int main(int argc, char** argv) {
 
         if (direction != "x" && direction != "y" && direction != "z") {
             if (rank == 0) {
-                std::cerr << "Error: --direction must be x, y, or z, got '"
-                          << direction << "'\n";
+                std::cerr << "Error: --direction must be x, y, or z, got '" << direction << "'\n";
                 print_usage(argv[0]);
             }
             MPI_Finalize();

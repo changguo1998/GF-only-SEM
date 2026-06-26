@@ -66,11 +66,11 @@ def gll_nodes_3d(N: int) -> npt.NDArray[np.float64]:
     nodes_1d = gll_nodes_1d(N)
     ngll = len(nodes_1d)
     # Build 3D grid: k (z/ζ), j (y/η), i (x/ξ)
-    X, Y, Z = np.meshgrid(nodes_1d, nodes_1d, nodes_1d, indexing='ij')
+    X, Y, Z = np.meshgrid(nodes_1d, nodes_1d, nodes_1d, indexing="ij")
     # Result: [k,j,i,3] but meshgrid gives [i,j,k] — transpose to [k,j,i]
-    return np.stack([X.transpose(2, 1, 0),
-                     Y.transpose(2, 1, 0),
-                     Z.transpose(2, 1, 0)], axis=-1).transpose(2, 1, 0, 3)
+    return np.stack(
+        [X.transpose(2, 1, 0), Y.transpose(2, 1, 0), Z.transpose(2, 1, 0)], axis=-1
+    ).transpose(2, 1, 0, 3)
 
 
 def lagrange_basis_1d(xi: float, nodes: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
@@ -97,8 +97,7 @@ def lagrange_basis_1d(xi: float, nodes: npt.NDArray[np.float64]) -> npt.NDArray[
 
 
 def lagrange_basis_3d(
-    point: tuple[float, float, float],
-    nodes_1d: npt.NDArray[np.float64],
+    point: tuple[float, float, float], nodes_1d: npt.NDArray[np.float64]
 ) -> npt.NDArray[np.float64]:
     """Evaluate 3D tensor-product Lagrange basis at a point.
 
@@ -113,7 +112,7 @@ def lagrange_basis_3d(
         Indexing: basis[k, j, i] = L_i(xi)·L_j(eta)·L_k(zeta).
     """
     xi, eta, zeta = point
-    l_xi = lagrange_basis_1d(xi, nodes_1d)   # shape (ngll,)
+    l_xi = lagrange_basis_1d(xi, nodes_1d)  # shape (ngll,)
     l_eta = lagrange_basis_1d(eta, nodes_1d)  # shape (ngll,)
     l_zeta = lagrange_basis_1d(zeta, nodes_1d)  # shape (ngll,)
     # Tensor product: [k,j,i] = l_zeta[k] * l_eta[j] * l_xi[i]

@@ -17,9 +17,7 @@ STFOutput = Union[float, np.floating[np.float64]]
 
 
 def evaluate_stf(
-    stf_func: Callable[[float], STFOutput],
-    dt: float,
-    nsteps: int,
+    stf_func: Callable[[float], STFOutput], dt: float, nsteps: int
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """Evaluate source time function at each time step.
 

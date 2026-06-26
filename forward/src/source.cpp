@@ -1,9 +1,11 @@
 // forward/src/source.cpp
 #include "gf/source.hpp"
-#include "gf/gll.hpp"
-#include <cmath>
+
 #include <algorithm>
+#include <cmath>
 #include <limits>
+
+#include "gf/gll.hpp"
 
 namespace gf {
 
@@ -11,19 +13,16 @@ static inline int idx3(int i, int j, int k, int ngll) {
     return (i * ngll + j) * ngll + k;
 }
 
-bool PointForceSource::locate(
-    double src_x, double src_y, double src_z,
-    const std::vector<double>& coords,
-    const std::vector<double>& dxi_dx,
-    int n_local_elem, int ngll
-) {
-    const int n_node   = ngll * ngll * ngll;
-    const int stride3  = n_node * 3;
-    const int stride9  = n_node * 9;
+bool PointForceSource::locate(double src_x, double src_y, double src_z,
+                              const std::vector<double>& coords, const std::vector<double>& dxi_dx,
+                              int n_local_elem, int ngll) {
+    const int n_node = ngll * ngll * ngll;
+    const int stride3 = n_node * 3;
+    const int stride9 = n_node * 9;
     const std::vector<double>& nodes = gll_nodes(ngll - 1);
 
-    const int    max_iter = 20;
-    const double tol      = 1.0e-10;
+    const int max_iter = 20;
+    const double tol = 1.0e-10;
 
     for (int e = 0; e < n_local_elem; ++e) {
         int base3 = e * stride3;
@@ -32,11 +31,11 @@ bool PointForceSource::locate(
         double xi = 0.0, eta = 0.0, zeta = 0.0;
 
         for (int iter = 0; iter < max_iter; ++iter) {
-            std::vector<double> lx = lagrange_basis(xi,   nodes);
-            std::vector<double> ly = lagrange_basis(eta,  nodes);
+            std::vector<double> lx = lagrange_basis(xi, nodes);
+            std::vector<double> ly = lagrange_basis(eta, nodes);
             std::vector<double> lz = lagrange_basis(zeta, nodes);
 
-            double xv=0, yv=0, zv=0;
+            double xv = 0, yv = 0, zv = 0;
             for (int i = 0; i < ngll; ++i) {
                 double wxi = lx[i];
                 for (int j = 0; j < ngll; ++j) {
@@ -52,7 +51,8 @@ bool PointForceSource::locate(
             }
 
             double rx = xv - src_x, ry = yv - src_y, rz = zv - src_z;
-            if (std::sqrt(rx*rx + ry*ry + rz*rz) < tol) break;
+            if (std::sqrt(rx * rx + ry * ry + rz * rz) < tol)
+                break;
 
             double Ji[9] = {0};
             for (int i = 0; i < ngll; ++i) {
@@ -69,21 +69,22 @@ bool PointForceSource::locate(
                 }
             }
 
-            xi   += -(Ji[0]*rx + Ji[1]*ry + Ji[2]*rz);
-            eta  += -(Ji[3]*rx + Ji[4]*ry + Ji[5]*rz);
-            zeta += -(Ji[6]*rx + Ji[7]*ry + Ji[8]*rz);
+            xi += -(Ji[0] * rx + Ji[1] * ry + Ji[2] * rz);
+            eta += -(Ji[3] * rx + Ji[4] * ry + Ji[5] * rz);
+            zeta += -(Ji[6] * rx + Ji[7] * ry + Ji[8] * rz);
 
-            xi   = std::max(-1.0, std::min(1.0, xi));
-            eta  = std::max(-1.0, std::min(1.0, eta));
+            xi = std::max(-1.0, std::min(1.0, xi));
+            eta = std::max(-1.0, std::min(1.0, eta));
             zeta = std::max(-1.0, std::min(1.0, zeta));
         }
 
-        if (std::abs(xi) <= 1.0+1e-8 && std::abs(eta) <= 1.0+1e-8 && std::abs(zeta) <= 1.0+1e-8) {
-            std::vector<double> lx = lagrange_basis(xi,   nodes);
-            std::vector<double> ly = lagrange_basis(eta,  nodes);
+        if (std::abs(xi) <= 1.0 + 1e-8 && std::abs(eta) <= 1.0 + 1e-8 &&
+            std::abs(zeta) <= 1.0 + 1e-8) {
+            std::vector<double> lx = lagrange_basis(xi, nodes);
+            std::vector<double> ly = lagrange_basis(eta, nodes);
             std::vector<double> lz = lagrange_basis(zeta, nodes);
 
-            double xv=0, yv=0, zv=0;
+            double xv = 0, yv = 0, zv = 0;
             for (int i = 0; i < ngll; ++i) {
                 double wxi = lx[i];
                 for (int j = 0; j < ngll; ++j) {
@@ -100,7 +101,7 @@ bool PointForceSource::locate(
             const double rx = xv - src_x;
             const double ry = yv - src_y;
             const double rz = zv - src_z;
-            if (std::sqrt(rx*rx + ry*ry + rz*rz) >= 1.0e-8) {
+            if (std::sqrt(rx * rx + ry * ry + rz * rz) >= 1.0e-8) {
                 continue;
             }
 
@@ -108,10 +109,15 @@ bool PointForceSource::locate(
             for (int i = 0; i < ngll; ++i) {
                 for (int j = 0; j < ngll; ++j) {
                     for (int k = 0; k < ngll; ++k) {
-                        double d = (xi-nodes[i])*(xi-nodes[i])
-                                 + (eta-nodes[j])*(eta-nodes[j])
-                                 + (zeta-nodes[k])*(zeta-nodes[k]);
-                        if (d < md) { md = d; gll_i = i; gll_j = j; gll_k = k; }
+                        double d = (xi - nodes[i]) * (xi - nodes[i]) +
+                                   (eta - nodes[j]) * (eta - nodes[j]) +
+                                   (zeta - nodes[k]) * (zeta - nodes[k]);
+                        if (d < md) {
+                            md = d;
+                            gll_i = i;
+                            gll_j = j;
+                            gll_k = k;
+                        }
                     }
                 }
             }
@@ -126,19 +132,20 @@ bool PointForceSource::locate(
     return false;
 }
 
-void PointForceSource::apply(
-    double force_x, double force_y, double force_z,
-    const RankData& rank_data,
-    std::vector<double>& rhs
-) const {
-    int ngll   = rank_data.ngll;
+void PointForceSource::apply(double force_x, double force_y, double force_z,
+                             const RankData& rank_data, std::vector<double>& rhs) const {
+    int ngll = rank_data.ngll;
     int n_node = ngll * ngll * ngll;
 
     int elem_idx = -1;
     for (int e = 0; e < rank_data.n_local_elem; ++e) {
-        if (rank_data.local_element_ids[e] == element_id) { elem_idx = e; break; }
+        if (rank_data.local_element_ids[e] == element_id) {
+            elem_idx = e;
+            break;
+        }
     }
-    if (elem_idx < 0) return;
+    if (elem_idx < 0)
+        return;
 
     int dof_base = elem_idx * n_node * 3 + (gll_i * ngll + gll_j) * ngll + gll_k;
     const double weight = (wy == 0.0 && wz == 0.0) ? wx : (wx * wy * wz);
@@ -147,4 +154,4 @@ void PointForceSource::apply(
     rhs[dof_base * 3 + 2] += weight * force_z;
 }
 
-} // namespace gf
+}  // namespace gf

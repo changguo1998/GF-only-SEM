@@ -1,7 +1,8 @@
 #pragma once
 
-#include <vector>
 #include <cstddef>
+#include <vector>
+
 #include "gf/types.hpp"
 
 namespace gf {
@@ -15,11 +16,8 @@ namespace gf {
 /// @param[in] elem_residual    [n_local_elem * ngll^3 * 3] element contributions, elem-major
 /// @param[in] rank_data         per-rank metadata (ngll, element counts)
 /// @param[in,out] global_residual [n_total_elem * ngll^3 * 3] global array, accumulated into
-void assemble_residual(
-    const std::vector<double>& elem_residual,
-    const RankData& rank_data,
-    std::vector<double>& global_residual
-);
+void assemble_residual(const std::vector<double>& elem_residual, const RankData& rank_data,
+                       std::vector<double>& global_residual);
 
 /// Add a point source force at a specific GLL node within an element to the RHS.
 ///
@@ -33,11 +31,7 @@ void assemble_residual(
 /// @param[in] fx,fy,fz  force components
 /// @param[in] rank_data per-rank metadata
 /// @param[in,out] rhs   global RHS vector, accumulated into
-void add_source_to_rhs(
-    int elem_idx, int gll_i, int gll_j, int gll_k,
-    double fx, double fy, double fz,
-    const RankData& rank_data,
-    std::vector<double>& rhs
-);
+void add_source_to_rhs(int elem_idx, int gll_i, int gll_j, int gll_k, double fx, double fy,
+                       double fz, const RankData& rank_data, std::vector<double>& rhs);
 
-} // namespace gf
+}  // namespace gf

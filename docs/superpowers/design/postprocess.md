@@ -89,7 +89,6 @@ Geometry comes from mesh.h5, which the converter creates (topology) and the prep
 | /field/element/dxi_dx | float64[n_cell, NGLL, NGLL, NGLL, 3,3] | Newton iteration for point-in-hex |
 | /field/element/is_pml | int8[n_cell] | 1 = PML element, 0 = ordinary |
 | /partition/n_ranks | attr int32 | Number of snapshot files to expect |
-
 NGLL = N+1 is extracted from shape[1] of any element dataset.
 
 ### PML Exclusion
@@ -102,11 +101,13 @@ Elements with all surface boundaries tagged as absorbing (tag=2 in `/field/surfa
 
 Before processing, postprocess validates that all 3 snapshot sets (fx, fy, fz) have identical run metadata. The NGLL and local_element_ids count from rank 0 of each set are compared. Run metadata (solver_dt, nsteps, snapshot_stride, n_cell) is read from config.h5 and validated across the three direction runs. If any mismatch is found, postprocess aborts with an error message listing the mismatched values, for example:
 
-    Time alignment mismatch:
-      fx: dt=0.01 nsteps=1000 n_cell=512
-      fy: dt=0.01 nsteps=1000 n_cell=512
-      fz: dt=0.02 nsteps=500  n_cell=512
-    ERROR: fz differs in dt, nsteps
+```
+Time alignment mismatch:
+  fx: dt=0.01 nsteps=1000 n_cell=512
+  fy: dt=0.01 nsteps=1000 n_cell=512
+  fz: dt=0.02 nsteps=500  n_cell=512
+ERROR: fz differs in dt, nsteps
+```
 
 ### Strain: Smoothed
 
@@ -140,8 +141,9 @@ For production runs, the full Green's tensor may not fit in memory (TB-scale). T
 Tiling is by contiguous element index ranges — each tile covers a batch of elements with their full GLL-node tensor data.
 
 Two modes:
+
 1. **Small domain** (< available RAM): assemble at all elements, write one tile
-2. **Tiled domain**: partition by element range, process one batch at a time
+1. **Tiled domain**: partition by element range, process one batch at a time
 
 ### Green's Function Output
 

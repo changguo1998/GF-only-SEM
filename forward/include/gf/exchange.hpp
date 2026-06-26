@@ -1,7 +1,8 @@
 #pragma once
 
-#include <vector>
 #include <cstddef>
+#include <vector>
+
 #include "gf/types.hpp"
 
 namespace gf {
@@ -21,10 +22,7 @@ namespace gf {
 /// \param patterns  Precomputed exchange patterns from RankData
 /// \param field     Current field values [n_dof], modified in place (accumulate)
 /// \param n_dof_per_node  DOF per GLL node (3 for displacement/velocity)
-void exchange_halo(
-    const std::vector<RankData::ExchangePattern>& patterns,
-    std::vector<double>& field,
-    int n_dof_per_node = 3
-);
+void exchange_halo(const std::vector<RankData::ExchangePattern>& patterns,
+                   std::vector<double>& field, int n_dof_per_node = 3);
 
-} // namespace gf
+}  // namespace gf

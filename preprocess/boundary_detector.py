@@ -16,8 +16,7 @@ _BOUND_TOL = 1e-6
 
 
 def detect_boundaries(
-    topology: TopologyData,
-    domain_bounds: dict[str, float],
+    topology: TopologyData, domain_bounds: dict[str, float]
 ) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.bool_]]:
     """Detect boundary types for each surface.
 
@@ -62,11 +61,13 @@ def detect_boundaries(
             continue
 
         # Check other domain bounds → absorbing
-        if (np.isclose(center[0], domain_bounds["xmin"], atol=tol) or
-                np.isclose(center[0], domain_bounds["xmax"], atol=tol) or
-                np.isclose(center[1], domain_bounds["ymin"], atol=tol) or
-                np.isclose(center[1], domain_bounds["ymax"], atol=tol) or
-                np.isclose(center[2], domain_bounds["zmax"], atol=tol)):
+        if (
+            np.isclose(center[0], domain_bounds["xmin"], atol=tol)
+            or np.isclose(center[0], domain_bounds["xmax"], atol=tol)
+            or np.isclose(center[1], domain_bounds["ymin"], atol=tol)
+            or np.isclose(center[1], domain_bounds["ymax"], atol=tol)
+            or np.isclose(center[2], domain_bounds["zmax"], atol=tol)
+        ):
             boundary_tag[surf_idx] = 2
             continue
 

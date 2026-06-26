@@ -1,6 +1,7 @@
 """Topology reader — read mesh.h5 /topology/ datasets."""
 
 from dataclasses import dataclass
+
 import h5py
 import numpy as np
 import numpy.typing as npt

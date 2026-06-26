@@ -1,8 +1,9 @@
 // tests/test_element.cpp — matrix-free element residual tests
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
-#include <vector>
 #include <cmath>
+#include <vector>
+
 #include "gf/element.hpp"
 #include "gf/gll.hpp"
 #include "gf/types.hpp"
@@ -21,11 +22,11 @@ struct UnitCubeElement {
     std::vector<double> vp;
     std::vector<double> vs;
     std::vector<double> density;
-    std::vector<double> D;  // 1D derivative matrix
-    std::vector<double> w;  // 1D GLL weights
-    std::vector<double> nodes; // 1D GLL nodes
+    std::vector<double> D;      // 1D derivative matrix
+    std::vector<double> w;      // 1D GLL weights
+    std::vector<double> nodes;  // 1D GLL nodes
 
-    UnitCubeElement(int N) : ngll(N+1), n_node((N+1)*(N+1)*(N+1)) {
+    UnitCubeElement(int N) : ngll(N + 1), n_node((N + 1) * (N + 1) * (N + 1)) {
         nodes = gll_nodes(N);
         w = gll_weights(N, nodes);
         D = gll_derivative_matrix(N, nodes);
@@ -56,7 +57,7 @@ struct UnitCubeElement {
                     dxi_dx[idx * 9 + 6] = 0.0;  // dxi/dz
                     dxi_dx[idx * 9 + 7] = 0.0;  // deta/dz
                     dxi_dx[idx * 9 + 8] = 2.0;  // dzeta/dz
-                    jacobian[idx] = 0.125;       // det(J) = 1/8
+                    jacobian[idx] = 0.125;      // det(J) = 1/8
                 }
             }
         }
@@ -77,12 +78,9 @@ TEST_CASE("Rigid-body translation gives zero residual", "[element]") {
 
     std::vector<double> r(elem.n_node * 3, 0.0);
 
-    compute_element_residual(
-        elem.dxi_dx.data(), elem.jacobian.data(),
-        elem.vp.data(), elem.vs.data(), elem.density.data(),
-        elem.D.data(), elem.w.data(), elem.ngll,
-        u.data(), r.data()
-    );
+    compute_element_residual(elem.dxi_dx.data(), elem.jacobian.data(), elem.vp.data(),
+                             elem.vs.data(), elem.density.data(), elem.D.data(), elem.w.data(),
+                             elem.ngll, u.data(), r.data());
 
     // Residual should be zero for rigid body translation (no strain, no stress)
     for (size_t i = 0; i < r.size(); ++i) {
@@ -105,12 +103,9 @@ TEST_CASE("Rigid-body rotation gives near-zero residual", "[element]") {
     }
 
     std::vector<double> r(elem.n_node * 3, 0.0);
-    compute_element_residual(
-        elem.dxi_dx.data(), elem.jacobian.data(),
-        elem.vp.data(), elem.vs.data(), elem.density.data(),
-        elem.D.data(), elem.w.data(), elem.ngll,
-        u.data(), r.data()
-    );
+    compute_element_residual(elem.dxi_dx.data(), elem.jacobian.data(), elem.vp.data(),
+                             elem.vs.data(), elem.density.data(), elem.D.data(), elem.w.data(),
+                             elem.ngll, u.data(), r.data());
 
     // Residual should be near zero for rigid rotation (only antisymmetric strain gradient)
     for (size_t i = 0; i < r.size(); ++i) {
@@ -131,12 +126,9 @@ TEST_CASE("Uniform uniaxial strain produces correct residual", "[element]") {
     }
 
     std::vector<double> r(elem.n_node * 3, 0.0);
-    compute_element_residual(
-        elem.dxi_dx.data(), elem.jacobian.data(),
-        elem.vp.data(), elem.vs.data(), elem.density.data(),
-        elem.D.data(), elem.w.data(), elem.ngll,
-        u.data(), r.data()
-    );
+    compute_element_residual(elem.dxi_dx.data(), elem.jacobian.data(), elem.vp.data(),
+                             elem.vs.data(), elem.density.data(), elem.D.data(), elem.w.data(),
+                             elem.ngll, u.data(), r.data());
 
     // For uniform ε_xx, stress is σ_xx = (λ+2μ)*ε, σ_yy = σ_zz = λ*ε
     // The residual is the internal force: r = -∫B^T σ dΩ

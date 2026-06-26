@@ -23,8 +23,9 @@
 - Round `total_duration_s / solver_dt` up for `nsteps`; warn if adjusted
 - All storage estimates use `nsteps / snapshot_stride` snapshots (not `ceil(nsteps/interval)+1`)
 
----
-```
+______________________________________________________________________
+
+````
 
 I'll now write the full implementation plan with all tasks, exact code, and test expectations. The plan will be comprehensive — covering the 8 Python file changes, all test updates, and the C++ forward solver modifications needed.</think>This is a large plan (14 tasks across Python, C++, and docs). Let me write it efficiently.
 
@@ -310,4 +311,5 @@ I'll now write the full implementation plan with all tasks, exact code, and test
 - [ ] Run config_writer tests — pass
 - [ ] Run full test suite — pass
 
----
+---```
+````

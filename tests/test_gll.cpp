@@ -1,8 +1,9 @@
 // tests/test_gll.cpp — GLL quadrature unit tests
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
-#include "gf/gll.hpp"
 #include <cmath>
+
+#include "gf/gll.hpp"
 
 using namespace gf;
 using Catch::Matchers::WithinAbs;
@@ -11,15 +12,15 @@ TEST_CASE("GLL nodes: N=1 returns endpoints", "[gll]") {
     auto nodes = gll_nodes(1);
     REQUIRE(nodes.size() == 2);
     REQUIRE_THAT(nodes[0], WithinAbs(-1.0, 1e-15));
-    REQUIRE_THAT(nodes[1], WithinAbs( 1.0, 1e-15));
+    REQUIRE_THAT(nodes[1], WithinAbs(1.0, 1e-15));
 }
 
 TEST_CASE("GLL nodes: N=2 includes zero", "[gll]") {
     auto nodes = gll_nodes(2);
     REQUIRE(nodes.size() == 3);
     REQUIRE_THAT(nodes[0], WithinAbs(-1.0, 1e-15));
-    REQUIRE_THAT(nodes[1], WithinAbs( 0.0, 1e-15));
-    REQUIRE_THAT(nodes[2], WithinAbs( 1.0, 1e-15));
+    REQUIRE_THAT(nodes[1], WithinAbs(0.0, 1e-15));
+    REQUIRE_THAT(nodes[2], WithinAbs(1.0, 1e-15));
 }
 
 TEST_CASE("GLL nodes: N=3 are symmetric", "[gll]") {
@@ -39,7 +40,7 @@ TEST_CASE("GLL nodes: N=5 known values", "[gll]") {
     REQUIRE(nodes.size() == 6);
     // Endpoints
     REQUIRE_THAT(nodes[0], WithinAbs(-1.0, 1e-15));
-    REQUIRE_THAT(nodes[5], WithinAbs( 1.0, 1e-15));
+    REQUIRE_THAT(nodes[5], WithinAbs(1.0, 1e-15));
     // Symmetry
     for (int i = 0; i < 3; ++i) {
         REQUIRE_THAT(nodes[i] + nodes[5 - i], WithinAbs(0.0, 1e-14));
@@ -51,9 +52,9 @@ TEST_CASE("GLL weights: N=2 are correct", "[gll]") {
     auto w = gll_weights(2, nodes);
     REQUIRE(w.size() == 3);
     // Weights for N=2: w[0]=w[2]=1/3, w[1]=4/3
-    REQUIRE_THAT(w[0], WithinAbs(1.0/3.0, 1e-15));
-    REQUIRE_THAT(w[1], WithinAbs(4.0/3.0, 1e-15));
-    REQUIRE_THAT(w[2], WithinAbs(1.0/3.0, 1e-15));
+    REQUIRE_THAT(w[0], WithinAbs(1.0 / 3.0, 1e-15));
+    REQUIRE_THAT(w[1], WithinAbs(4.0 / 3.0, 1e-15));
+    REQUIRE_THAT(w[2], WithinAbs(1.0 / 3.0, 1e-15));
 }
 
 TEST_CASE("GLL weights: sum to 2", "[gll]") {
@@ -61,7 +62,8 @@ TEST_CASE("GLL weights: sum to 2", "[gll]") {
         auto nodes = gll_nodes(N);
         auto w = gll_weights(N, nodes);
         double sum = 0.0;
-        for (double wi : w) sum += wi;
+        for (double wi : w)
+            sum += wi;
         REQUIRE_THAT(sum, WithinAbs(2.0, 1e-14));
     }
 }
@@ -106,10 +108,11 @@ TEST_CASE("Lagrange basis: partition of unity", "[gll]") {
     for (int N : {2, 3}) {
         auto nodes = gll_nodes(N);
         for (int k = 0; k < 10; ++k) {
-            double xi = -1.0 + 2.0 * k / 9.0; // sample points in [-1, 1]
+            double xi = -1.0 + 2.0 * k / 9.0;  // sample points in [-1, 1]
             auto ell = lagrange_basis(xi, nodes);
             double sum = 0.0;
-            for (double l : ell) sum += l;
+            for (double l : ell)
+                sum += l;
             REQUIRE_THAT(sum, WithinAbs(1.0, 1e-14));
         }
     }
@@ -141,6 +144,7 @@ TEST_CASE("make_gll_quad: consistent GLLQuad", "[gll]") {
     REQUIRE(q.derivatives.size() == 16);
     // Weights sum to 2
     double wsum = 0.0;
-    for (double w : q.weights) wsum += w;
+    for (double w : q.weights)
+        wsum += w;
     REQUIRE_THAT(wsum, WithinAbs(2.0, 1e-14));
 }

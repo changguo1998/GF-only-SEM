@@ -1,12 +1,14 @@
 // tests/test_record.cpp — RecordWriter tests
+#include <hdf5.h>
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
-#include <hdf5.h>
-#include <vector>
-#include <string>
 #include <cstdlib>
-#include "gf/record.hpp"
+#include <string>
+#include <vector>
+
 #include "gf/CompressionFilter.h"
+#include "gf/record.hpp"
 
 using namespace gf;
 using Catch::Matchers::WithinAbs;

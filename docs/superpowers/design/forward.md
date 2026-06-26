@@ -43,13 +43,13 @@ mpirun -np N gf_solver --direction {x,y,z}
 ```
 
 All I/O paths are frozen relative to CWD:
-- Input:  `config.h5`, `partitions/partition_{r}.h5`
+
+- Input: `config.h5`, `partitions/partition_{r}.h5`
 - Output: `wavefields/{direction}/record_{r}.h5`
 
 | Arg | Description |
 |-----|-------------|
 | `--direction {x,y,z}` | force direction (x, y, or z) |
-
 Directory creation is the caller's responsibility.
 
 ## Architecture
@@ -62,7 +62,7 @@ All mesh-dependent quantities (GLL coords, Jacobian, dξ/dx, lumped mass, materi
 
 **Source injection**: precomputed Lagrange weights and element list read from config.h5. Forward solver reads STF[n] at time step n, multiplies by w_ijk, and distributes to GLL nodes — no runtime element search or interpolation.
 
-**C-PML**: all damping profiles, stretched-coordinate functions, and convolution coefficients precomputed per GLL node in partition_{r}.h5. Forward solver maintains the full set of CPML memory variables (see CPML section for exact layout). Convolution update and acceleration correction follow the second-order recursive convolution scheme of Wang et al. (2006) with θ=1/8.
+**C-PML**: all damping profiles, stretched-coordinate functions, and convolution coefficients precomputed per GLL node in partition\_{r}.h5. Forward solver maintains the full set of CPML memory variables (see CPML section for exact layout). Convolution update and acceleration correction follow the second-order recursive convolution scheme of Wang et al. (2006) with θ=1/8.
 
 **Partition discovery**: implicit by MPI rank. Each rank opens `partitions/partition_{R}.h5` where `R = MPI_Comm_rank()`. All ranks also read `config.h5` (identical content, rank-invariant).
 
@@ -75,12 +75,12 @@ All mesh-dependent quantities (GLL coords, Jacobian, dξ/dx, lumped mass, materi
 - C++17, CMake
 - MPI (OpenMPI/MPICH)
 - Eigen3 — small matrices (3×3 for vectors, up to NGLL×NGLL for derivative matrices)
-- HDF5 (C API) — read partition_{r}.h5 + config.h5, write record files
+- HDF5 (C API) — read partition\_{r}.h5 + config.h5, write record files
 - Catch2 — testing
 
 ## Input Files
 
-### partition_{r}.h5
+### partition\_{r}.h5
 
 Per-rank partition file written by the preprocessor (one per MPI rank). Each rank reads only `partition_{r}.h5` — no global model file at runtime. Contains the local subset of all element data plus partition metadata for the owning rank.
 
@@ -96,7 +96,6 @@ Per-rank partition file written by the preprocessor (one per MPI rank). Each ran
 | `/field/element/vp, vs, density` | Elastic constants per GLL node |
 | `/field/element/cpml/*` | All C-PML arrays: cpml_type, d_x/y/z, K_x/y/z, alpha_x/y/z, convolution coefficients (conv_coef_alpha, beta, abar), element type tags (face/edge/corner) |
 | `/field/surface/boundary_tag` | 0=interior, 1=free surface, 2=absorbing |
-
 **Partition metadata** (`/partition/`):
 
 | Group | Content |
@@ -108,7 +107,6 @@ Per-rank partition file written by the preprocessor (one per MPI rank). Each ran
 | `/partition/ghost_owners` | int32[n_ghost_elem] — source rank for each ghost element |
 | `/partition/gll_to_global` | int64[n_elem_local, NGLL, NGLL, NGLL] — global GLL node ID per local element (1-based, 0=null) |
 | `/partition/rank_{r}/exchange/` | Per-rank exchange patterns (precomputed face-pair lists for MPI halo) |
-
 Note: forward solver reads from `partition_{r}.h5`, not a global model file. Each MPI rank opens and reads only its own `partition_{r}.h5` at startup. The preprocessor generates these per-rank files from the global mesh.
 
 ### config.h5
@@ -120,7 +118,6 @@ Read from [`preprocess.md`](preprocess.md):
 | `/simulation/` | solver_dt, output_dt_s, snapshot_stride, nsteps, cfl_safety, snapshot_precision |
 | `/domain/` | Bounds, pml_thickness per face |
 | `/source/` | Position (x,y,z), stf[nsteps] (precomputed time series), precomputed element list + Lagrange weights |
-
 No `/attenuation/` — elastic-only, attenuation deferred. No `direction` — passed via CLI `--direction` flag.
 
 ## Physics Components
@@ -133,7 +130,7 @@ No `/attenuation/` — elastic-only, attenuation deferred. No `direction` — pa
 | **cpml** | C-PML memory variable update + acceleration correction. Second-order recursive convolution (Wang et al. 2006, θ=1/8). 39 scalar memory values per GLL node per CPML element (see CPML Memory Variables) |
 | **newmark** | NewmarkPredictor, NewmarkCorrector (2nd order explicit, β=0, γ=½) |
 | **source** | Reads precomputed element list + Lagrange weights from config.h5. Distributes STF(t) × w_ijk to global residual |
-| **exchange** | MPI halo exchange using precomputed face-pair lists from /partition/rank_{r}/exchange/ |
+| **exchange** | MPI halo exchange using precomputed face-pair lists from /partition/rank\_{r}/exchange/ |
 | **record/snapshot** | L2 strain smoothing (global projection, C⁰ continuous ε_smooth) + writer: append to extendible HDF5 dataset at snapshot steps. Restart state (u,v,a) overwritten each snapshot |
 | **solver** | `run_forward()` main time loop; snapshot output + restart/resume |
 
@@ -172,7 +169,7 @@ struct RankData {
 
 ## Material at GLL Nodes
 
-Material is stored directly at GLL nodes in partition_{r}.h5 — no runtime interpolation needed. Forward reads `[n_elem, NGLL, NGLL, NGLL]` arrays for vp, vs, density, etc. directly.
+Material is stored directly at GLL nodes in partition\_{r}.h5 — no runtime interpolation needed. Forward reads `[n_elem, NGLL, NGLL, NGLL]` arrays for vp, vs, density, etc. directly.
 
 ## Source Injection
 
@@ -197,18 +194,22 @@ Three damping-related quantities are computed per GLL node per CPML element,
 precomputed by the preprocessor and stored in `partition_{r}.h5`.
 
 **Normalized distance** (for a GLL node in the x-direction PML layer):
+
 ```
 abscissa_in_PML = |x_node - x_interface|    (distance from PML/interior interface)
 dist = abscissa_in_PML / CPML_width_x       (normalized to [0, 1])
 ```
+
 where `x_interface` is the boundary between interior and PML region
 (not the domain boundary). `CPML_width_x` is the maximum physical PML
 thickness across all MPI ranks.
 
 **Damping profile** `d_x` (from SPECFEM3D `pml_damping_profile_l`):
+
 ```
 d_x = -((NPOWER + 1) · vp_max · log(CPML_Rcoef) / (2 · CPML_width_x)) · dist^(1.2 · NPOWER)
 ```
+
 where `NPOWER = 1`, `CPML_Rcoef = 0.001`. The P-wave speed `vp_max` is the
 maximum vp across all CPML elements (constant for all nodes). The same formula
 applies for `d_y` and `d_z` with their respective widths.
@@ -217,18 +218,22 @@ Reference: INRIA research report RR-3471 section 6.1,
 <http://hal.inria.fr/docs/00/07/32/19/PDF/RR-3471.pdf>
 
 **Stretched-coordinate factor** `K_x`:
+
 ```
 K_x = K_MIN_PML + (K_MAX_PML - K_MIN_PML) · dist
 ```
+
 with `K_MIN_PML = K_MAX_PML = 1` (constant K = 1 everywhere — no stretching).
 
 **Shifted frequency-domain pole** `α_x`:
+
 ```
 α_x = ALPHA_MAX_PML_x · (1 - dist)
 ALPHA_MAX_PML_x = π · f0_FOR_PML · 0.9
 ALPHA_MAX_PML_y = π · f0_FOR_PML · 1.0
 ALPHA_MAX_PML_z = π · f0_FOR_PML · 1.1
 ```
+
 where `f0_FOR_PML` is the dominant source frequency
 (derived from the STF's central frequency). The asymmetry
 `α_x < α_y < α_z` helps avoid singularities in the PML parameter
@@ -240,6 +245,7 @@ The second-order recursive convolution scheme (Xie et al. 2014, eq. 60, D6a-D6b)
 requires precomputed coefficients. Three sets are precomputed per GLL node:
 
 **β (auxiliary decay rate)** per direction:
+
 ```
 β_x = α_x + d_x / K_x
 β_y = α_y + d_y / K_y
@@ -247,6 +253,7 @@ requires precomputed coefficients. Three sets are precomputed per GLL node:
 ```
 
 **Recursive convolution coefficients** `compute_convolution_coef(b) → (coef0, coef1, coef2)`:
+
 ```
 temp = exp(-½ · b · Δt)
 
@@ -274,7 +281,7 @@ Permuted for 3 index orderings (123, 132, 231), yielding 12 coefficients
 The 18 slots: indices 1-4 = ordering 231, 5-8 = ordering 132, 9-12 = ordering 123,
 13-14 = s_x, 15 = s_y, 16-17 = s_z, 18 = η (see SPECFEM3D `prepare_timerun.F90`).
 
-### Precomputed CPML Arrays in partition_{r}.h5
+### Precomputed CPML Arrays in partition\_{r}.h5
 
 | Array | Shape | Description |
 |-------|-------|-------------|
@@ -286,7 +293,6 @@ The 18 slots: indices 1-4 = ordering 231, 5-8 = ordering 132, 9-12 = ordering 12
 | conv_coef_beta | float64[9, n_elem_local, NGLL, NGLL, NGLL] | coef0,1,2 for β_x, β_y, β_z |
 | conv_coef_abar | float64[5, n_elem_local, NGLL, NGLL, NGLL] | Ā₁…Ā₅ for accel update |
 | conv_coef_strain | float64[18, n_elem_local, NGLL, NGLL, NGLL] | A₆…A₁₇ for strain update |
-
 **Memory variable layout:** 21 rmemory arrays total per CPML element,
 organized as 3 PML directions (x, y, z) × 7 arrays:
 
@@ -295,7 +301,6 @@ organized as 3 PML directions (x, y, z) × 7 arrays:
 | x | 7 | Memory variables for ∂/∂x displacement gradient |
 | y | 7 | Memory variables for ∂/∂y displacement gradient |
 | z | 7 | Memory variables for ∂/∂z displacement gradient |
-
 **Time-level storage:** 9 of the 21 arrays require 3 time levels
 (second-order convolution requires the previous two timesteps),
 while the remaining 12 arrays require only 1 time level.
@@ -303,7 +308,7 @@ while the remaining 12 arrays require only 1 time level.
 **Effective storage:** 39 scalar values per GLL node per CPML element:
 
 - 9 arrays × 3 time levels = 27 scalars
-- 12 arrays × 1 time level  = 12 scalars
+- 12 arrays × 1 time level = 12 scalars
 - Total = 39 scalars
 
 **Implementation recommendation:** flatten all rmemory data into a single
@@ -329,7 +334,6 @@ These are the arrays where the derivative's primary direction matches the PML di
 | 18 | rmemory_duz_dxl | z | 0=n-1, 1=n, 2=n+1 |
 | 21 | rmemory_duz_dyl | z | 0=n-1, 1=n, 2=n+1 |
 | 24 | rmemory_duz_dzl | z | 0=n-1, 1=n, 2=n+1 |
-
 Access pattern: `rmemory[e][i][j][k][base + t]` where `t ∈ {0,1,2}`.
 
 **Indices 27–38: arrays requiring 1 time level** (12 arrays × 1 = 12 scalars):
@@ -348,7 +352,6 @@ Access pattern: `rmemory[e][i][j][k][base + t]` where `t ∈ {0,1,2}`.
 | 36 | rmemory_dux_dzl | z |
 | 37 | rmemory_duy_dyl | z |
 | 38 | rmemory_duy_dzl | z |
-
 **Active directions per element type:**
 
 | cpml_type | Active PML directions | Active memory variables |
@@ -356,7 +359,6 @@ Access pattern: `rmemory[e][i][j][k][base + t]` where `t ∈ {0,1,2}`.
 | 1 (face) | 1 direction | 7 arrays × (3 or 1 levels) for that direction only |
 | 2 (edge) | 2 directions | 14 arrays across 2 directions (face count × 2) |
 | 3 (corner) | 3 directions | All 21 arrays (full 39 scalars) |
-
 For face/edge elements, the inactive direction's memory variables are simply
 never updated (remain zero), using `cpml_type` to skip computation per element.
 
@@ -377,7 +379,7 @@ PML_displ_new[NDIM, NGLL, NGLL, NGLL, NSPEC_CPML]
 These hold displacement fields specific to PML elements at the old and new
 time levels for the convolution update.
 
-**Precomputed coefficients in partition_{r}.h5 (`/field/element/cpml/`):**
+**Precomputed coefficients in partition\_{r}.h5 (`/field/element/cpml/`):**
 
 | Array | Description |
 |-------|-------------|
@@ -391,7 +393,7 @@ time levels for the convolution update.
 
 ## Runtime Loop
 
-```
+````
 for step in 0..nsteps-1:
     1. Newmark predict:
        ũ = u + solver_dt·v + (solver_dt²/2)·(1-2β)·a   (β=0 for explicit central difference)
@@ -488,7 +490,7 @@ for step in 0..nsteps-1:
        Append ε_smooth to extendible dataset in wavefields/{direction}/record_{r}.h5
        (6 components: εxx, εyy, εzz, εxy, εxz, εyz)
        Overwrite /restart/ with (u, v, a) for resume capability
-```
+````
 
 ## Snapshot Output
 

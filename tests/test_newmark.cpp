@@ -1,8 +1,9 @@
 // tests/test_newmark.cpp — Newmark explicit predictor-corrector tests
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
-#include <vector>
 #include <cmath>
+#include <vector>
+
 #include "gf/newmark.hpp"
 #include "gf/types.hpp"
 
@@ -84,10 +85,10 @@ TEST_CASE("Newmark predictor-corrector energy conservation", "[newmark]") {
     params.beta = 0.0;
     params.gamma = 0.5;
 
-    std::vector<double> u = {1.0};   // initial displacement
-    std::vector<double> v = {0.0};   // initial velocity
+    std::vector<double> u = {1.0};  // initial displacement
+    std::vector<double> v = {0.0};  // initial velocity
     std::vector<double> a = {0.0};
-    std::vector<double> mass = {1.0}; // unit mass
+    std::vector<double> mass = {1.0};  // unit mass
 
     double k_spring = 10.0;  // spring stiffness
 

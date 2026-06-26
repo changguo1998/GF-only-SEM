@@ -5,11 +5,13 @@
 //
 // Single-rank runs skip the multi-rank tests gracefully.
 #define CATCH_CONFIG_RUNNER
+#include <mpi.h>
+
 #include <catch2/catch_session.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
-#include <mpi.h>
 #include <vector>
+
 #include "gf/exchange.hpp"
 #include "gf/types.hpp"
 
@@ -25,11 +27,11 @@ int main(int argc, char* argv[]) {
 
 // Helper: build patterns for two-rank exchange
 // Rank 0 sends DOFs 0-5 to rank 1; rank 1 receives into DOFs 0-5.
-static std::vector<RankData::ExchangePattern>
-make_pairwise_patterns(int rank, int nprocs) {
+static std::vector<RankData::ExchangePattern> make_pairwise_patterns(int rank, int nprocs) {
     std::vector<RankData::ExchangePattern> patterns;
 
-    if (nprocs < 2) return patterns;
+    if (nprocs < 2)
+        return patterns;
 
     RankData::ExchangePattern pat;
     if (rank == 0) {
@@ -67,9 +69,11 @@ TEST_CASE("Exchange halo transfers data between two ranks", "[exchange][mpi]") {
     // Rank 0 fills DOFs 0..5 with [10, 11, 12, 13, 14, 15]
     // Rank 1 fills DOFs 0..5 with [20, 21, 22, 23, 24, 25]
     if (rank == 0) {
-        for (int i = 0; i < 6; ++i) field[i] = 10.0 + i;
+        for (int i = 0; i < 6; ++i)
+            field[i] = 10.0 + i;
     } else {
-        for (int i = 0; i < 6; ++i) field[i] = 20.0 + i;
+        for (int i = 0; i < 6; ++i)
+            field[i] = 20.0 + i;
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
@@ -122,7 +126,8 @@ TEST_CASE("Exchange accumulate adds received data (CG-SEM assembly)", "[exchange
 
     // Each rank has field = [1.0, 2.0, 3.0, ...]
     std::vector<double> field(6, 0.0);
-    for (int i = 0; i < 6; ++i) field[i] = rank * 10.0 + i + 1.0;
+    for (int i = 0; i < 6; ++i)
+        field[i] = rank * 10.0 + i + 1.0;
 
     MPI_Barrier(MPI_COMM_WORLD);
     exchange_halo(patterns, field, 1);

@@ -1,7 +1,7 @@
 """Tests for cfl_validator module."""
 
-import sys
 import os
+import sys
 
 import numpy as np
 import pytest

@@ -1,6 +1,7 @@
 // compress/include/gf/PrecisionPolicy.h
 #pragma once
 #include <hdf5.h>
+
 #include <type_traits>
 
 namespace gf {

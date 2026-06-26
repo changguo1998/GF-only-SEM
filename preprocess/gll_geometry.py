@@ -11,10 +11,19 @@ from scipy.special import legendre
 from preprocess.topology_reader import TopologyData
 
 # GMSH hex reference corners in [-1,1]^3 (unit cube mapping)
-HEX_REF_CORNERS = np.array([
-    [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
-    [-1, -1,  1], [1, -1,  1], [1, 1,  1], [-1, 1,  1],
-], dtype=np.float64)
+HEX_REF_CORNERS = np.array(
+    [
+        [-1, -1, -1],
+        [1, -1, -1],
+        [1, 1, -1],
+        [-1, 1, -1],
+        [-1, -1, 1],
+        [1, -1, 1],
+        [1, 1, 1],
+        [-1, 1, 1],
+    ],
+    dtype=np.float64,
+)
 
 
 def gll_quadrature_points(N: int) -> npt.NDArray[np.float64]:
@@ -59,10 +68,7 @@ def _linear_shape_derivs(xi: float, eta: float, zeta: float) -> tuple[np.ndarray
 
 
 def _get_cell_vertex_ids(
-    e: int,
-    c2s: npt.NDArray[np.int64],
-    s2e: npt.NDArray[np.int64],
-    e2v: npt.NDArray[np.int64],
+    e: int, c2s: npt.NDArray[np.int64], s2e: npt.NDArray[np.int64], e2v: npt.NDArray[np.int64]
 ) -> npt.NDArray[np.int64]:
     """Extract the 8 vertex IDs (1-based, GMSH hex order) for cell e.
 
@@ -126,8 +132,10 @@ def _get_cell_vertex_ids(
 def compute_gll_geometry(
     topology: TopologyData, N: int
 ) -> tuple[
-    npt.NDArray[np.float64], npt.NDArray[np.float64],
-    npt.NDArray[np.float64], npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
 ]:
     """Compute GLL geometry for all elements.
 
@@ -162,7 +170,7 @@ def compute_gll_geometry(
 
                     S, dS = _linear_shape_derivs(xi, eta, zeta)
                     x_phys = S @ cv  # (3,)
-                    J = dS.T @ cv    # (3,3), J[m,n] = dx_m/dξ_n
+                    J = dS.T @ cv  # (3,3), J[m,n] = dx_m/dξ_n
 
                     coords[e, i, j, k] = x_phys
                     detJ = np.linalg.det(J)

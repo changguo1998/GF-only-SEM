@@ -2,17 +2,19 @@
 //
 // Tests the complete solver loop for a single-element configuration
 // with no MPI exchange needed (single rank).
+#include <hdf5.h>
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
-#include <hdf5.h>
-#include <cstdlib>
 #include <cmath>
-#include <vector>
+#include <cstdlib>
 #include <string>
-#include "gf/gll.hpp"
-#include "gf/element.hpp"
-#include "gf/newmark.hpp"
+#include <vector>
+
 #include "gf/assembly.hpp"
+#include "gf/element.hpp"
+#include "gf/gll.hpp"
+#include "gf/newmark.hpp"
 #include "gf/pml.hpp"
 #include "gf/source.hpp"
 #include "gf/types.hpp"
@@ -57,9 +59,15 @@ RankData build_single_element(int ngll) {
 
                 // Unit cube: dxi/dx = diag(2,2,2), det(J) = 1/8
                 int base = 9 * idx;
-                rd.dxi_dx[base + 0] = 2.0; rd.dxi_dx[base + 1] = 0.0; rd.dxi_dx[base + 2] = 0.0;
-                rd.dxi_dx[base + 3] = 0.0; rd.dxi_dx[base + 4] = 2.0; rd.dxi_dx[base + 5] = 0.0;
-                rd.dxi_dx[base + 6] = 0.0; rd.dxi_dx[base + 7] = 0.0; rd.dxi_dx[base + 8] = 2.0;
+                rd.dxi_dx[base + 0] = 2.0;
+                rd.dxi_dx[base + 1] = 0.0;
+                rd.dxi_dx[base + 2] = 0.0;
+                rd.dxi_dx[base + 3] = 0.0;
+                rd.dxi_dx[base + 4] = 2.0;
+                rd.dxi_dx[base + 5] = 0.0;
+                rd.dxi_dx[base + 6] = 0.0;
+                rd.dxi_dx[base + 7] = 0.0;
+                rd.dxi_dx[base + 8] = 2.0;
                 rd.jacobian[idx] = 0.125;
 
                 // Material: Vp=3000, Vs=1500, density=2500
@@ -68,7 +76,7 @@ RankData build_single_element(int ngll) {
                 rd.density[idx] = 2500.0;
 
                 // Lumped mass (approximate for unit cube)
-                rd.mass[idx] = 2500.0 * 0.125 * 64.0 / (n_node); // rough estimate
+                rd.mass[idx] = 2500.0 * 0.125 * 64.0 / (n_node);  // rough estimate
             }
         }
     }
@@ -79,7 +87,7 @@ RankData build_single_element(int ngll) {
     return rd;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 TEST_CASE("Single-element forward steps complete without crash", "[integration]") {
     int N = 3;  // polynomial order
@@ -112,7 +120,7 @@ TEST_CASE("Single-element forward steps complete without crash", "[integration]"
     int mid_gll = ngll / 2;
     int mid_idx = (mid_gll * ngll + mid_gll) * ngll + mid_gll;
     int mid_dof = mid_idx * 3;
-    u[mid_dof] = 1e-8; // small perturbation in x
+    u[mid_dof] = 1e-8;  // small perturbation in x
 
     for (int step = 0; step < nsteps; ++step) {
         // --- Predictor ---
@@ -122,12 +130,9 @@ TEST_CASE("Single-element forward steps complete without crash", "[integration]"
 
         // --- Element residual ---
         std::fill(elem_r.begin(), elem_r.end(), 0.0);
-        compute_element_residual(
-            rd.dxi_dx.data(), rd.jacobian.data(),
-            rd.vp.data(), rd.vs.data(), rd.density.data(),
-            D.data(), wts.data(), ngll,
-            u_tilde.data(), elem_r.data()
-        );
+        compute_element_residual(rd.dxi_dx.data(), rd.jacobian.data(), rd.vp.data(), rd.vs.data(),
+                                 rd.density.data(), D.data(), wts.data(), ngll, u_tilde.data(),
+                                 elem_r.data());
 
         // --- Assembly ---
         assemble_residual(elem_r, rd, r);
@@ -185,12 +190,8 @@ TEST_CASE("Rigid-body initial condition produces zero residual", "[integration]"
     }
 
     std::vector<double> r(n_dof, 0.0);
-    compute_element_residual(
-        rd.dxi_dx.data(), rd.jacobian.data(),
-        rd.vp.data(), rd.vs.data(), rd.density.data(),
-        D.data(), wts.data(), ngll,
-        u.data(), r.data()
-    );
+    compute_element_residual(rd.dxi_dx.data(), rd.jacobian.data(), rd.vp.data(), rd.vs.data(),
+                             rd.density.data(), D.data(), wts.data(), ngll, u.data(), r.data());
 
     // Rigid-body translation → zero residual
     for (int i = 0; i < n_dof; ++i) {

@@ -1,9 +1,9 @@
 """Shared fixtures for preprocess tests."""
 
-import pytest
-import sys
-from types import ModuleType
 from pathlib import Path
+from types import ModuleType
+
+import pytest
 
 
 @pytest.fixture
@@ -33,7 +33,8 @@ def mock_config_module(config_dict):
 
     def stf_func(t):
         import numpy as np
-        return (1 - 2 * (np.pi * 5.0 * (t - 0.3))**2) * np.exp(-(np.pi * 5.0 * (t - 0.3))**2)
+
+        return (1 - 2 * (np.pi * 5.0 * (t - 0.3)) ** 2) * np.exp(-((np.pi * 5.0 * (t - 0.3)) ** 2))
 
     def vp_m_s(x, y, z):
         return 3000.0
@@ -55,5 +56,6 @@ def mock_config_module(config_dict):
 def tmp_dir():
     """Temporary directory that auto-cleans after test."""
     import tempfile
+
     with tempfile.TemporaryDirectory() as d:
         yield Path(d)

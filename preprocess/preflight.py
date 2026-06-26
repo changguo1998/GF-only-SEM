@@ -21,16 +21,19 @@ Validation categories:
 
 from __future__ import annotations
 
+from types import ModuleType
+
 import numpy as np
 import numpy.typing as npt
-from types import ModuleType
 
 # ---------------------------------------------------------------------------
 # Validation result helpers
 # ---------------------------------------------------------------------------
 
+
 class PreflightError(Exception):
     """Raised when a pre-flight validation check fails."""
+
     pass
 
 
@@ -54,7 +57,9 @@ class PreflightResult:
 
     def report(self) -> str:
         """Human-readable summary."""
-        lines: list[str] = [f"Pre-flight validation: {len(self.warnings)} warning(s), {len(self.errors)} error(s)"]
+        lines: list[str] = [
+            f"Pre-flight validation: {len(self.warnings)} warning(s), {len(self.errors)} error(s)"
+        ]
         for w in self.warnings:
             lines.append(f"  WARN: {w}")
         for e in self.errors:
@@ -69,10 +74,7 @@ class PreflightResult:
 # ---------------------------------------------------------------------------
 
 
-def _check_mesh_quality(
-    jacobian: npt.NDArray[np.float64],
-    result: PreflightResult,
-) -> None:
+def _check_mesh_quality(jacobian: npt.NDArray[np.float64], result: PreflightResult) -> None:
     """Check that all Jacobian determinants are positive."""
     if not np.all(jacobian > 0):
         inverted_count = int(np.sum(jacobian <= 0))
@@ -134,9 +136,7 @@ def _check_material(
         lam = density_array * (vp_array**2 - 2 * vs_array**2)
         if not np.all(lam > 0):
             count = int(np.sum(lam <= 0))
-            result.add_error(
-                f"Material: {count} GLL node(s) have λ ≤ 0 (elastic instability)."
-            )
+            result.add_error(f"Material: {count} GLL node(s) have λ ≤ 0 (elastic instability).")
         else:
             result.stats["lam_min"] = f"{float(np.min(lam)):.4e}"
 
@@ -144,10 +144,7 @@ def _check_material(
         result.add_warning("Material: vs = 0 at some nodes (acoustic region).")
 
 
-def _check_boundary(
-    boundary_tag: npt.NDArray[np.int64],
-    result: PreflightResult,
-) -> None:
+def _check_boundary(boundary_tag: npt.NDArray[np.int64], result: PreflightResult) -> None:
     """Check boundary tags for required free surface and absorbing boundaries."""
     n_free = int(np.count_nonzero(boundary_tag == 1))
     n_absorbing = int(np.count_nonzero(boundary_tag == 2))
@@ -187,15 +184,11 @@ def _check_source(
         )
     if not z_on_surface:
         result.add_warning(
-            f"Source: z = {source_z} is not on free surface "
-            f"(z_min = {domain_bounds['zmin']})."
+            f"Source: z = {source_z} is not on free surface (z_min = {domain_bounds['zmin']})."
         )
 
 
-def _check_stf(
-    stf_values: npt.NDArray[np.float64],
-    result: PreflightResult,
-) -> None:
+def _check_stf(stf_values: npt.NDArray[np.float64], result: PreflightResult) -> None:
     """Check STF values are finite and non-NaN."""
     nan_count = int(np.sum(np.isnan(stf_values)))
     inf_count = int(np.sum(np.isinf(stf_values)))
@@ -218,11 +211,7 @@ def _check_stf(
             )
 
 
-def _check_partition(
-    n_cell: int,
-    n_ranks: int,
-    result: PreflightResult,
-) -> None:
+def _check_partition(n_cell: int, n_ranks: int, result: PreflightResult) -> None:
     """Pre-check partition feasibility before calling METIS."""
     if n_ranks < 1:
         result.add_error(f"Partition: n_ranks = {n_ranks} must be ≥ 1.")
@@ -267,9 +256,8 @@ def _check_storage(
     partition_estimate_bytes = n_cell * n_gll_per_elem * 10 * 8  # rough estimate
 
     total_gb = (
-        (strain_one_run_bytes * 3 + restart_one_run_bytes * 3 + partition_estimate_bytes)
-        / 1e9
-    )
+        strain_one_run_bytes * 3 + restart_one_run_bytes * 3 + partition_estimate_bytes
+    ) / 1e9
 
     result.stats["estimated_storage_gb"] = f"{total_gb:.2f}"
     result.stats["snapshot_precision"] = snapshot_precision
@@ -289,7 +277,7 @@ def _check_storage(
 
 
 def run_preflight(
-    topology,                         # TopologyData
+    topology,  # TopologyData
     gll_coords: npt.NDArray[np.float64],
     jacobian: npt.NDArray[np.float64],
     vp_array: npt.NDArray[np.float64],
@@ -365,14 +353,12 @@ def run_preflight(
     snapshot_prec = str(getattr(config_module, "snapshot_precision", "float32"))
     storage_limit_gb = float(getattr(config_module, "storage_limit_gb", 100.0))
     _check_storage(
-        topology.n_cell, NGLL, nsteps, snapshot_str,
-        snapshot_prec, storage_limit_gb, result,
+        topology.n_cell, NGLL, nsteps, snapshot_str, snapshot_prec, storage_limit_gb, result
     )
 
     if result.has_errors and strict:
         raise PreflightError(
-            f"Pre-flight validation failed with {len(result.errors)} error(s):\n"
-            + result.report()
+            f"Pre-flight validation failed with {len(result.errors)} error(s):\n" + result.report()
         )
 
     return result

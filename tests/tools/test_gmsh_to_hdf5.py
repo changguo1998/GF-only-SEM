@@ -1,21 +1,16 @@
 """Unit tests for gmsh_to_hdf5 topology extraction, HDF5 I/O, and auxiliary."""
 
+import os
 import sys
 import tempfile
-import os
-import numpy as np
-import meshio
+
 import h5py
-import pytest
+import meshio
+import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from tools.gmsh_to_hdf5 import (
-    extract_topology,
-    write_topology,
-    write_auxiliary,
-    _same_orientation,
-)
+from tools.gmsh_to_hdf5 import _same_orientation, extract_topology, write_auxiliary, write_topology
 
 
 def make_mesh(hex_cells, points=None):
@@ -53,10 +48,19 @@ class TestEdgeDeduplication:
 
     def test_edge_canonical_orientation(self):
         """Edge stores (v_low, v_high) with v_low < v_high."""
-        vertices = np.array([
-            [0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0],
-            [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1],
-        ], dtype=float)
+        vertices = np.array(
+            [
+                [0, 0, 0],
+                [1, 0, 0],
+                [1, 1, 0],
+                [0, 1, 0],
+                [0, 0, 1],
+                [1, 0, 1],
+                [1, 1, 1],
+                [0, 1, 1],
+            ],
+            dtype=float,
+        )
         mesh = make_mesh([[0, 1, 2, 3, 4, 5, 6, 7]], points=vertices)
         topo = extract_topology(mesh)
         e2v = topo["edge_to_vertex"]

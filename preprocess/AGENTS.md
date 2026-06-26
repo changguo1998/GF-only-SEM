@@ -20,8 +20,8 @@ Reads `mesh.h5` + `config.py` → produces extended `mesh.h5`, per-rank `partiti
 | `partition.py` | METIS k-way partition + GLL global numbering + MPI exchange patterns |
 | `config_loader.py` | `load_config()` — importable Python config validation |
 | `config_writer.py` | Write `config.h5` with `/simulation/`, `/domain/`, `/source/` groups |
-| `model_writer.py` | Write extended mesh.h5 fields + per-rank partition_{r}.h5 files |
-|| `cli.py` | CLI entry point: reads `mesh.h5` + `config.py` from CWD, orchestrates full pipeline |
+| `model_writer.py` | Write extended mesh.h5 fields + per-rank partition\_{r}.h5 files |
+| | `cli.py` | CLI entry point: reads `mesh.h5` + `config.py` from CWD, orchestrates full pipeline |
 
 ## Data Pipeline
 
@@ -50,7 +50,6 @@ mesh.h5 ───┤
 | `snapshot_precision` | string | User config ("float32" or "float64") |
 | `storage_limit_gb` | int/float | User config |
 | `polynomial_order` | int32 | User config |
-
 Removed fields: `dt`, `nsteps` (user), `cfl_threshold`, `checkpoint_interval`, `checkpoint_precision`
 
 ## Tests

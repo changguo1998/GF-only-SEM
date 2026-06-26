@@ -1,12 +1,10 @@
 """Tests for gf_post.geometry — GLL nodes, weights, and Lagrange basis."""
 
 import numpy as np
-import pytest
-
 from gf_post.geometry import (
     gll_nodes_1d,
-    gll_weights_1d,
     gll_nodes_3d,
+    gll_weights_1d,
     lagrange_basis_1d,
     lagrange_basis_3d,
 )

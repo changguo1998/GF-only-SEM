@@ -19,19 +19,21 @@ basis for deciding next work items.
 Three files authored under `tests/workflows/`:
 
 - **`__init__.py`** — empty package marker.
+
 - **`conftest.py`** — sys.path setup injecting project root and tools
   directory so preprocess modules are importable without editable install.
   Also provides a `tmp_dir` fixture using `tempfile.TemporaryDirectory`.
+
 - **`regular_hex_mesh.py`** — programmatic regular hexahedral mesh generation
   with two main functions:
+
   - `create_regular_hex_mesh(nx, ny, nz, lx, ly, lz)` → returns
     `meshio.Mesh` with a structured grid of `nx x ny x nz` hexahedra.
     Meshio-compatible hex cell connectivity in GMSH ordering (v0..v7
     bottom-top). Vertices created in z-major, y-major, x-minor traversal
     order producing a rank-contiguous structured layout. Can generate
     arbitrary-resolution meshes without GMSH dependency.
-  - `create_halfspace_mesh(output_path, nx=6, ny=6, nz=4, lx=4000, ly=4000,
-    lz=2000)` → writes mesh.h5 to disk via the existing
+  - `create_halfspace_mesh(output_path, nx=6, ny=6, nz=4, lx=4000, ly=4000, lz=2000)` → writes mesh.h5 to disk via the existing
     `extract_topology`/`write_topology` pipeline from `tools/gmsh_to_hdf5.py`.
     Returns domain bounds dict. Handles boundary condition metadata:
     free surface at z=zmin, absorbing elsewhere.
@@ -90,9 +92,9 @@ test exercising the entire preprocessor pipeline. Test will:
 1. Programmatically generate a regular hex mesh via `create_regular_hex_mesh`
    (single element: nx=1, ny=1, nz=1, dimensions 4km x 4km x 2km) to
    work around the `_get_cell_vertex_ids` sorting bug.
-2. Create a `config.py` dynamically.
-3. Execute each preprocess step in sequence.
-4. Validate mesh.h5 extension with model fields, partition files, and
+1. Create a `config.py` dynamically.
+1. Execute each preprocess step in sequence.
+1. Validate mesh.h5 extension with model fields, partition files, and
    config.h5 output.
 
 ### Not Started / Next Steps

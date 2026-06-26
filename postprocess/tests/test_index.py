@@ -1,8 +1,6 @@
 """Tests for gf_post.index — KD-tree spatial index over element centroids."""
 
 import numpy as np
-import pytest
-
 from gf_post.index import ElementIndex
 
 

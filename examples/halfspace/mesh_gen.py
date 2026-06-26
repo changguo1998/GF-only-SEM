@@ -18,9 +18,7 @@ import meshio
 import numpy as np
 
 # Ensure project root is importable
-_project_root = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..")
-)
+_project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
@@ -33,8 +31,9 @@ if _example_dir not in sys.path:
 import config  # type: ignore[import]
 
 
-def create_regular_hex_mesh(nx: int, ny: int, nz: int,
-                            lx: float, ly: float, lz: float) -> meshio.Mesh:
+def create_regular_hex_mesh(
+    nx: int, ny: int, nz: int, lx: float, ly: float, lz: float
+) -> meshio.Mesh:
     """Create a regular hexahedral mesh (rectilinear grid).
 
     Parameters
@@ -80,8 +79,7 @@ def create_regular_hex_mesh(nx: int, ny: int, nz: int,
                 v101 = (ez + 1) * nvert_y * nvert_x + ey * nvert_x + ex + 1
                 v111 = (ez + 1) * nvert_y * nvert_x + (ey + 1) * nvert_x + ex + 1
                 v011 = (ez + 1) * nvert_y * nvert_x + (ey + 1) * nvert_x + ex
-                hex_cells.append([v000, v100, v110, v010,
-                                  v001, v101, v111, v011])
+                hex_cells.append([v000, v100, v110, v010, v001, v101, v111, v011])
 
     hex_cells = np.array(hex_cells, dtype=np.int64)
     cells: list[tuple[str, np.ndarray]] = [("hexahedron", hex_cells)]
@@ -100,9 +98,8 @@ def main() -> None:
     mesh = create_regular_hex_mesh(nx, ny, nz, lx, ly, lz)
     topology = extract_topology(mesh)
     write_topology("mesh.h5", topology)
-    print(f"[mesh_gen] Wrote mesh.h5")
-    print(f"            Elements: {nx * ny * nz} "
-          f"({nx}×{ny}×{nz})")
+    print("[mesh_gen] Wrote mesh.h5")
+    print(f"            Elements: {nx * ny * nz} ({nx}×{ny}×{nz})")
     print(f"            Vertices: {topology['vertex_to_coord'].shape[0]}")
     print(f"            Domain:   {lx}×{ly}×{lz} m")
 

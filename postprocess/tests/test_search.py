@@ -2,7 +2,6 @@
 
 import numpy as np
 import pytest
-
 from gf_post.search import find_containing_element
 
 

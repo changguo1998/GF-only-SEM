@@ -69,8 +69,10 @@ def compute_pml_damping(
             continue
 
         # PML physical width for this face (approximate)
-        domain_extent = domain_bounds[["xmax", "ymax", "zmax"][axis]] - \
-                        domain_bounds[["xmin", "ymin", "zmin"][axis]]
+        domain_extent = (
+            domain_bounds[["xmax", "ymax", "zmax"][axis]]
+            - domain_bounds[["xmin", "ymin", "zmin"][axis]]
+        )
         # Estimate element size along this axis
         n_cells_approx = max(1, int(np.ceil(n_cell ** (1.0 / 3.0))))
         cell_size = domain_extent / n_cells_approx
@@ -84,12 +86,12 @@ def compute_pml_damping(
         is_negative = face_key.endswith("min")
         if is_negative:
             # PML layer extends from xmin to xmin + width
-            pml_start = bound_val + pml_width   # PML entry (interior face)
-            pml_end = bound_val                  # domain boundary
+            pml_start = bound_val + pml_width  # PML entry (interior face)
+            pml_end = bound_val  # domain boundary
         else:
             # PML layer extends from xmax - width to xmax
-            pml_start = bound_val - pml_width   # PML entry (interior face)
-            pml_end = bound_val                  # domain boundary
+            pml_start = bound_val - pml_width  # PML entry (interior face)
+            pml_end = bound_val  # domain boundary
 
         # Extract coordinates along this axis
         coords_axis = gll_coords[:, :, :, :, axis]  # [n_cell, NGLL, NGLL, NGLL]

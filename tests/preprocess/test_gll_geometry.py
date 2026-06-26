@@ -1,9 +1,11 @@
-import os, sys
+import os
+import sys
+
 _project_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 sys.path.insert(0, _project_root)
 
-import pytest
 import numpy as np
+
 from preprocess.gll_geometry import compute_gll_geometry, gll_quadrature_points, gll_weights
 
 
@@ -45,13 +47,24 @@ class TestGLLWeights:
 
 class TestGLLGeometry:
     def _make_unit_cube_topo(self):
-        from preprocess.topology_reader import TopologyData
         import meshio
+
+        from preprocess.topology_reader import TopologyData
         from tools.gmsh_to_hdf5 import extract_topology
-        vertices = np.array([
-            [0,0,0],[1,0,0],[1,1,0],[0,1,0],
-            [0,0,1],[1,0,1],[1,1,1],[0,1,1],
-        ], dtype=np.float64)
+
+        vertices = np.array(
+            [
+                [0, 0, 0],
+                [1, 0, 0],
+                [1, 1, 0],
+                [0, 1, 0],
+                [0, 0, 1],
+                [1, 0, 1],
+                [1, 1, 1],
+                [0, 1, 1],
+            ],
+            dtype=np.float64,
+        )
         hex_cells = np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64)
         cells = [("hexahedron", hex_cells)]
         mesh = meshio.Mesh(vertices, cells)
@@ -70,14 +83,14 @@ class TestGLLGeometry:
     def test_cube_corners_n1(self):
         topo = self._make_unit_cube_topo()
         coords, _, _, _ = compute_gll_geometry(topo, N=1)
-        assert np.isclose(coords[0,0,0,0,0], 0.0)
-        assert np.isclose(coords[0,1,1,1,0], 1.0)
+        assert np.isclose(coords[0, 0, 0, 0, 0], 0.0)
+        assert np.isclose(coords[0, 1, 1, 1, 0], 1.0)
 
     def test_jacobian_det(self):
         topo = self._make_unit_cube_topo()
         _, jac, _, _ = compute_gll_geometry(topo, N=1)
-        assert np.isclose(jac[0,0,0,0], 0.125, atol=1e-10)
-        assert np.isclose(jac[0,1,1,1], 0.125, atol=1e-10)
+        assert np.isclose(jac[0, 0, 0, 0], 0.125, atol=1e-10)
+        assert np.isclose(jac[0, 1, 1, 1], 0.125, atol=1e-10)
 
     def test_mass_sum(self):
         topo = self._make_unit_cube_topo()
@@ -101,22 +114,33 @@ class TestMultiElementGLLGeometry:
         The sorted order swaps vertices 4↔5 and 10↔11, giving wrong
         physical coordinates for the +y face corners.
         """
-        from preprocess.topology_reader import TopologyData
         import meshio
+
+        from preprocess.topology_reader import TopologyData
         from tools.gmsh_to_hdf5 import extract_topology
 
-        vertices = np.array([
-            [0, 0, 0], [1, 0, 0], [2, 0, 0],  # x=0,1,2; y=0; z=0
-            [0, 1, 0], [1, 1, 0], [2, 1, 0],  # x=0,1,2; y=1; z=0
-            [0, 0, 1], [1, 0, 1], [2, 0, 1],  # x=0,1,2; y=0; z=1
-            [0, 1, 1], [1, 1, 1], [2, 1, 1],  # x=0,1,2; y=1; z=1
-        ], dtype=np.float64)
+        vertices = np.array(
+            [
+                [0, 0, 0],
+                [1, 0, 0],
+                [2, 0, 0],  # x=0,1,2; y=0; z=0
+                [0, 1, 0],
+                [1, 1, 0],
+                [2, 1, 0],  # x=0,1,2; y=1; z=0
+                [0, 0, 1],
+                [1, 0, 1],
+                [2, 0, 1],  # x=0,1,2; y=0; z=1
+                [0, 1, 1],
+                [1, 1, 1],
+                [2, 1, 1],  # x=0,1,2; y=1; z=1
+            ],
+            dtype=np.float64,
+        )
         # Element 0: vertices 0,1,4,3,6,7,10,9
         # Element 1: vertices 1,2,5,4,7,8,11,10
-        hex_cells = np.array([
-            [0, 1, 4, 3, 6, 7, 10, 9],
-            [1, 2, 5, 4, 7, 8, 11, 10],
-        ], dtype=np.int64)
+        hex_cells = np.array(
+            [[0, 1, 4, 3, 6, 7, 10, 9], [1, 2, 5, 4, 7, 8, 11, 10]], dtype=np.int64
+        )
         cells = [("hexahedron", hex_cells)]
         mesh = meshio.Mesh(vertices, cells)
         topo_dict = extract_topology(mesh)
@@ -141,29 +165,21 @@ class TestMultiElementGLLGeometry:
         # Verify all 8 corners match expected physical coordinates:
 
         # v0: xi=-1, eta=-1, zeta=-1 → (0,0,0)
-        np.testing.assert_allclose(
-            coords[0, 0, 0, 0], [0.0, 0.0, 0.0], atol=1e-12)
+        np.testing.assert_allclose(coords[0, 0, 0, 0], [0.0, 0.0, 0.0], atol=1e-12)
         # v1: xi=+1, eta=-1, zeta=-1 → (1,0,0)
-        np.testing.assert_allclose(
-            coords[0, 1, 0, 0], [1.0, 0.0, 0.0], atol=1e-12)
+        np.testing.assert_allclose(coords[0, 1, 0, 0], [1.0, 0.0, 0.0], atol=1e-12)
         # v2: xi=+1, eta=+1, zeta=-1 → (1,1,0)
-        np.testing.assert_allclose(
-            coords[0, 1, 1, 0], [1.0, 1.0, 0.0], atol=1e-12)
+        np.testing.assert_allclose(coords[0, 1, 1, 0], [1.0, 1.0, 0.0], atol=1e-12)
         # v3: xi=-1, eta=+1, zeta=-1 → (0,1,0)
-        np.testing.assert_allclose(
-            coords[0, 0, 1, 0], [0.0, 1.0, 0.0], atol=1e-12)
+        np.testing.assert_allclose(coords[0, 0, 1, 0], [0.0, 1.0, 0.0], atol=1e-12)
         # v4: xi=-1, eta=-1, zeta=+1 → (0,0,1)
-        np.testing.assert_allclose(
-            coords[0, 0, 0, 1], [0.0, 0.0, 1.0], atol=1e-12)
+        np.testing.assert_allclose(coords[0, 0, 0, 1], [0.0, 0.0, 1.0], atol=1e-12)
         # v5: xi=+1, eta=-1, zeta=+1 → (1,0,1)
-        np.testing.assert_allclose(
-            coords[0, 1, 0, 1], [1.0, 0.0, 1.0], atol=1e-12)
+        np.testing.assert_allclose(coords[0, 1, 0, 1], [1.0, 0.0, 1.0], atol=1e-12)
         # v6: xi=+1, eta=+1, zeta=+1 → (1,1,1)
-        np.testing.assert_allclose(
-            coords[0, 1, 1, 1], [1.0, 1.0, 1.0], atol=1e-12)
+        np.testing.assert_allclose(coords[0, 1, 1, 1], [1.0, 1.0, 1.0], atol=1e-12)
         # v7: xi=-1, eta=+1, zeta=+1 → (0,1,1)
-        np.testing.assert_allclose(
-            coords[0, 0, 1, 1], [0.0, 1.0, 1.0], atol=1e-12)
+        np.testing.assert_allclose(coords[0, 0, 1, 1], [0.0, 1.0, 1.0], atol=1e-12)
 
     def test_element1_corners_correct_order(self):
         """Element 1 corners must be in GMSH order, not sorted."""
@@ -171,22 +187,14 @@ class TestMultiElementGLLGeometry:
         coords, _, _, _ = compute_gll_geometry(topo, N=1)
 
         # Element 1: x∈[1,2]
-        np.testing.assert_allclose(
-            coords[1, 0, 0, 0], [1.0, 0.0, 0.0], atol=1e-12)  # v0
-        np.testing.assert_allclose(
-            coords[1, 1, 0, 0], [2.0, 0.0, 0.0], atol=1e-12)  # v1
-        np.testing.assert_allclose(
-            coords[1, 1, 1, 0], [2.0, 1.0, 0.0], atol=1e-12)  # v2
-        np.testing.assert_allclose(
-            coords[1, 0, 1, 0], [1.0, 1.0, 0.0], atol=1e-12)  # v3
-        np.testing.assert_allclose(
-            coords[1, 0, 0, 1], [1.0, 0.0, 1.0], atol=1e-12)  # v4
-        np.testing.assert_allclose(
-            coords[1, 1, 0, 1], [2.0, 0.0, 1.0], atol=1e-12)  # v5
-        np.testing.assert_allclose(
-            coords[1, 1, 1, 1], [2.0, 1.0, 1.0], atol=1e-12)  # v6
-        np.testing.assert_allclose(
-            coords[1, 0, 1, 1], [1.0, 1.0, 1.0], atol=1e-12)  # v7
+        np.testing.assert_allclose(coords[1, 0, 0, 0], [1.0, 0.0, 0.0], atol=1e-12)  # v0
+        np.testing.assert_allclose(coords[1, 1, 0, 0], [2.0, 0.0, 0.0], atol=1e-12)  # v1
+        np.testing.assert_allclose(coords[1, 1, 1, 0], [2.0, 1.0, 0.0], atol=1e-12)  # v2
+        np.testing.assert_allclose(coords[1, 0, 1, 0], [1.0, 1.0, 0.0], atol=1e-12)  # v3
+        np.testing.assert_allclose(coords[1, 0, 0, 1], [1.0, 0.0, 1.0], atol=1e-12)  # v4
+        np.testing.assert_allclose(coords[1, 1, 0, 1], [2.0, 0.0, 1.0], atol=1e-12)  # v5
+        np.testing.assert_allclose(coords[1, 1, 1, 1], [2.0, 1.0, 1.0], atol=1e-12)  # v6
+        np.testing.assert_allclose(coords[1, 0, 1, 1], [1.0, 1.0, 1.0], atol=1e-12)  # v7
 
     def test_jacobian_consistent_across_elements(self):
         """Both elements should have same Jacobian (identical unit cubes)."""

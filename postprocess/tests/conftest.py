@@ -1,13 +1,8 @@
 """Shared fixtures and synthetic data helpers for gf_post tests."""
 
-import io
-import csv
-from pathlib import Path
-
-import numpy as np
 import h5py
+import numpy as np
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Fixtures: synthetic mesh.h5
@@ -24,16 +19,22 @@ def synthetic_mesh_path(tmp_path):
     with h5py.File(path, "w") as f:
         # Topology
         topo = f.create_group("topology")
-        topo.create_dataset("vertex_to_coord", data=np.array([
-            [0.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [1.0, 1.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-            [1.0, 0.0, 1.0],
-            [1.0, 1.0, 1.0],
-            [0.0, 1.0, 1.0],
-        ], dtype=np.float64))
+        topo.create_dataset(
+            "vertex_to_coord",
+            data=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [1.0, 1.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    [1.0, 0.0, 1.0],
+                    [1.0, 1.0, 1.0],
+                    [0.0, 1.0, 1.0],
+                ],
+                dtype=np.float64,
+            ),
+        )
         topo.create_dataset("cell_to_surface", data=np.array([[1, 2, 3, 4, 5, 6]], dtype=np.int64))
 
         # /field/element
@@ -85,28 +86,34 @@ def synthetic_mesh_2elem_path(tmp_path):
     with h5py.File(path, "w") as f:
         # Topology (2 cubes)
         topo = f.create_group("topology")
-        topo.create_dataset("vertex_to_coord", data=np.array([
-            [0.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [1.0, 1.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-            [1.0, 0.0, 1.0],
-            [1.0, 1.0, 1.0],
-            [0.0, 1.0, 1.0],
-            [1.0, 0.0, 0.0],
-            [2.0, 0.0, 0.0],
-            [2.0, 1.0, 0.0],
-            [1.0, 1.0, 0.0],
-            [1.0, 0.0, 1.0],
-            [2.0, 0.0, 1.0],
-            [2.0, 1.0, 1.0],
-            [1.0, 1.0, 1.0],
-        ], dtype=np.float64))
-        topo.create_dataset("cell_to_surface", data=np.array([
-            [1, 2, 3, 4, 5, 6],
-            [7, 8, 9, 10, 11, 12],
-        ], dtype=np.int64))
+        topo.create_dataset(
+            "vertex_to_coord",
+            data=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [1.0, 1.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    [1.0, 0.0, 1.0],
+                    [1.0, 1.0, 1.0],
+                    [0.0, 1.0, 1.0],
+                    [1.0, 0.0, 0.0],
+                    [2.0, 0.0, 0.0],
+                    [2.0, 1.0, 0.0],
+                    [1.0, 1.0, 0.0],
+                    [1.0, 0.0, 1.0],
+                    [2.0, 0.0, 1.0],
+                    [2.0, 1.0, 1.0],
+                    [1.0, 1.0, 1.0],
+                ],
+                dtype=np.float64,
+            ),
+        )
+        topo.create_dataset(
+            "cell_to_surface",
+            data=np.array([[1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12]], dtype=np.int64),
+        )
 
         elem = f.create_group("field/element")
         xi_1d = np.array([-1.0, 0.0, 1.0], dtype=np.float64)
@@ -160,8 +167,7 @@ def synthetic_record_path(tmp_path):
 
         f.create_dataset("local_element_ids", data=np.array([1], dtype=np.int64))
 
-        strain = np.zeros((n_checkpoints, n_elem_local, ngll, ngll, ngll, 6),
-                          dtype=np.float64)
+        strain = np.zeros((n_checkpoints, n_elem_local, ngll, ngll, ngll, 6), dtype=np.float64)
         for t in range(n_checkpoints):
             strain[t, 0, :, :, :, 0] = float(t) + 1.0  # xx
             strain[t, 0, :, :, :, 1] = 2.0 * (float(t) + 1.0)  # yy
@@ -200,4 +206,3 @@ def synthetic_multirank_records(tmp_path, synthetic_mesh_path):
         paths.append(path)
 
     return paths
-

@@ -1,12 +1,14 @@
 // tests/test_io.cpp — I/O round-trip tests for partition/config readers
+#include <hdf5.h>
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
-#include <hdf5.h>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
-#include <vector>
 #include <string>
-#include <cmath>
+#include <vector>
+
 #include "gf/io.hpp"
 #include "gf/types.hpp"
 
@@ -14,7 +16,8 @@ using namespace gf;
 using Catch::Matchers::WithinAbs;
 
 // Helper: create synthetic partition file
-static std::string create_synth_partition(const std::string& path, int rank, int ngll, int n_local) {
+static std::string create_synth_partition(const std::string& path, int rank, int ngll,
+                                          int n_local) {
     // Use default file access for testing (no MPI I/O)
     hid_t file = H5Fcreate(path.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
     REQUIRE(file >= 0);
@@ -29,8 +32,8 @@ static std::string create_synth_partition(const std::string& path, int rank, int
     hsize_t dims5[5] = {(hsize_t)n_local, (hsize_t)ngll, (hsize_t)ngll, (hsize_t)ngll, 3};
     hid_t space5 = H5Screate_simple(5, dims5, nullptr);
     std::vector<double> coords(n_local * ngll * ngll * ngll * 3, 0.0);
-    hid_t dset = H5Dcreate2(elem_grp, "coords", H5T_NATIVE_DOUBLE, space5,
-                            H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    hid_t dset = H5Dcreate2(elem_grp, "coords", H5T_NATIVE_DOUBLE, space5, H5P_DEFAULT,
+                            H5P_DEFAULT, H5P_DEFAULT);
     H5Dwrite(dset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, coords.data());
     H5Dclose(dset);
     H5Sclose(space5);
@@ -39,8 +42,8 @@ static std::string create_synth_partition(const std::string& path, int rank, int
     hsize_t dims4[4] = {(hsize_t)n_local, (hsize_t)ngll, (hsize_t)ngll, (hsize_t)ngll};
     hid_t space4 = H5Screate_simple(4, dims4, nullptr);
     std::vector<double> jac(n_node, 1.0);
-    dset = H5Dcreate2(elem_grp, "jacobian", H5T_NATIVE_DOUBLE, space4,
-                      H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    dset = H5Dcreate2(elem_grp, "jacobian", H5T_NATIVE_DOUBLE, space4, H5P_DEFAULT, H5P_DEFAULT,
+                      H5P_DEFAULT);
     H5Dwrite(dset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, jac.data());
     H5Dclose(dset);
     H5Sclose(space4);
@@ -50,8 +53,8 @@ static std::string create_synth_partition(const std::string& path, int rank, int
     for (auto name : {"dxi_dx", "mass", "vp", "vs", "density", "damping"}) {
         hid_t s = H5Screate_simple(4, dims4, nullptr);
         std::vector<double> data(n_node, 1.0);
-        hid_t d = H5Dcreate2(elem_grp, name, H5T_NATIVE_DOUBLE, s,
-                             H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        hid_t d = H5Dcreate2(elem_grp, name, H5T_NATIVE_DOUBLE, s, H5P_DEFAULT, H5P_DEFAULT,
+                             H5P_DEFAULT);
         H5Dwrite(d, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, data.data());
         H5Dclose(d);
         H5Sclose(s);
@@ -67,9 +70,10 @@ static std::string create_synth_partition(const std::string& path, int rank, int
     hsize_t dims1[1] = {(hsize_t)n_local};
     hid_t s1 = H5Screate_simple(1, dims1, nullptr);
     std::vector<int64_t> local_ids(n_local);
-    for (int i = 0; i < n_local; ++i) local_ids[i] = rank * n_local + i + 1;
-    dset = H5Dcreate2(part_grp, "local_element_ids", H5T_NATIVE_INT64, s1,
-                      H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    for (int i = 0; i < n_local; ++i)
+        local_ids[i] = rank * n_local + i + 1;
+    dset = H5Dcreate2(part_grp, "local_element_ids", H5T_NATIVE_INT64, s1, H5P_DEFAULT,
+                      H5P_DEFAULT, H5P_DEFAULT);
     H5Dwrite(dset, H5T_NATIVE_INT64, H5S_ALL, H5S_ALL, H5P_DEFAULT, local_ids.data());
     H5Dclose(dset);
     H5Sclose(s1);
@@ -77,14 +81,14 @@ static std::string create_synth_partition(const std::string& path, int rank, int
     // Empty ghost ids
     hsize_t dims0[1] = {0};
     hid_t s0 = H5Screate_simple(1, dims0, nullptr);
-    dset = H5Dcreate2(part_grp, "ghost_element_ids", H5T_NATIVE_INT64, s0,
-                      H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    dset = H5Dcreate2(part_grp, "ghost_element_ids", H5T_NATIVE_INT64, s0, H5P_DEFAULT,
+                      H5P_DEFAULT, H5P_DEFAULT);
     H5Dclose(dset);
     H5Sclose(s0);
 
     s0 = H5Screate_simple(1, dims0, nullptr);
-    dset = H5Dcreate2(part_grp, "ghost_owners", H5T_NATIVE_INT32, s0,
-                      H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    dset = H5Dcreate2(part_grp, "ghost_owners", H5T_NATIVE_INT32, s0, H5P_DEFAULT, H5P_DEFAULT,
+                      H5P_DEFAULT);
     H5Dclose(dset);
     H5Sclose(s0);
 
@@ -178,7 +182,8 @@ TEST_CASE("Read config data round-trip", "[io]") {
     std::vector<double> stf(10, 1.0);
     hsize_t dims10[1] = {10};
     hid_t st = H5Screate_simple(1, dims10, nullptr);
-    hid_t ds = H5Dcreate2(source, "stf_values", H5T_NATIVE_DOUBLE, st, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    hid_t ds = H5Dcreate2(source, "stf_values", H5T_NATIVE_DOUBLE, st, H5P_DEFAULT, H5P_DEFAULT,
+                          H5P_DEFAULT);
     H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, stf.data());
     H5Dclose(ds);
     ds = H5Dcreate2(source, "stf_t", H5T_NATIVE_DOUBLE, st, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);

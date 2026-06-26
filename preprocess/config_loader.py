@@ -25,6 +25,7 @@ REQUIRED_CALLABLES = ["stf_func", "vp_m_s", "vs_m_s", "density_kg_m3"]
 
 class ConfigValidationError(Exception):
     """Raised when config validation fails."""
+
     pass
 
 
@@ -82,27 +83,20 @@ def validate_config(mod: ModuleType) -> None:
     # Check required scalar attributes
     for key, expected_types in REQUIRED_KEYS.items():
         if not hasattr(mod, key):
-            raise ConfigValidationError(
-                f"Missing required config field: '{key}'"
-            )
+            raise ConfigValidationError(f"Missing required config field: '{key}'")
         val = getattr(mod, key)
         if not isinstance(val, expected_types):
             raise ConfigValidationError(
-                f"Config field '{key}' has wrong type. "
-                f"Expected {expected_types}, got {type(val)}"
+                f"Config field '{key}' has wrong type. Expected {expected_types}, got {type(val)}"
             )
 
     # Check required callables
     for name in REQUIRED_CALLABLES:
         if not hasattr(mod, name):
-            raise ConfigValidationError(
-                f"Missing required config callable: '{name}'"
-            )
+            raise ConfigValidationError(f"Missing required config callable: '{name}'")
         fn = getattr(mod, name)
         if not callable(fn):
-            raise ConfigValidationError(
-                f"Config field '{name}' must be callable, got {type(fn)}"
-            )
+            raise ConfigValidationError(f"Config field '{name}' must be callable, got {type(fn)}")
 
     # Validate ranges
     _validate_range(mod)
@@ -145,9 +139,7 @@ def _validate_pml_thickness(pml: dict) -> None:
         )
     for key, val in pml.items():
         if not isinstance(val, int) or val < 0:
-            raise ConfigValidationError(
-                f"pml_thickness['{key}'] must be >= 0 integer, got {val}"
-            )
+            raise ConfigValidationError(f"pml_thickness['{key}'] must be >= 0 integer, got {val}")
 
 
 def _validate_snapshot_precision(precision: str) -> None:

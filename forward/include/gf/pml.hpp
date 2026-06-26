@@ -1,7 +1,8 @@
 #pragma once
 
-#include <vector>
 #include <cstddef>
+#include <vector>
+
 #include "gf/types.hpp"
 
 namespace gf {
@@ -19,11 +20,7 @@ namespace gf {
 /// @param[in] u                displacement field [n_dof]
 /// @param[in,out] v            velocity field [n_dof], modified in place
 /// @param[in] n_dof            total DOF count (= n_elem * NGLL^3 * 3)
-void apply_pml_damping(
-    const std::vector<double>& damping_profile,
-    const std::vector<double>& u,
-    std::vector<double>& v,
-    int n_dof
-);
+void apply_pml_damping(const std::vector<double>& damping_profile, const std::vector<double>& u,
+                       std::vector<double>& v, int n_dof);
 
-} // namespace gf
+}  // namespace gf

@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <vector>
+
 #include "gf/assembly.hpp"
 #include "gf/types.hpp"
 
@@ -45,7 +46,7 @@ TEST_CASE("assemble_residual copies element blocks to global", "[assembly]") {
 TEST_CASE("assemble_residual does not touch elements beyond n_local", "[assembly]") {
     int ngll = 3;
     int n_local = 2;
-    int n_extra = 1; // extra slot in global that should remain untouched
+    int n_extra = 1;  // extra slot in global that should remain untouched
     int n_node = ngll * ngll * ngll;
     int n_dof_per_elem = n_node * 3;
     auto rd = make_rank(n_local, ngll);

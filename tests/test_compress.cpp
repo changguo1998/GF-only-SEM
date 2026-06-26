@@ -1,30 +1,28 @@
 // tests/test_compress.cpp — HDF5 compression round-trip tests
+#include <hdf5.h>
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
-#include <hdf5.h>
 #include <cmath>
 #include <cstdio>
 #include <vector>
 
+#include "gf/CheckpointWriter.h"
+#include "gf/ChunkingStrategy.h"
 #include "gf/CompressionFilter.h"
 #include "gf/PrecisionPolicy.h"
-#include "gf/ChunkingStrategy.h"
-#include "gf/CheckpointWriter.h"
 
 using namespace gf;
 using Catch::Matchers::WithinAbs;
 
-static bool lzf_available()
-{
+static bool lzf_available() {
     constexpr H5Z_filter_t H5Z_FILTER_LZF_ID = 32000;
     return H5Zfilter_avail(H5Z_FILTER_LZF_ID) > 0;
 }
 
 // Helper: write a checkpoint file and read it back, comparing values
-static void roundtrip_test(const CompressionConfig& comp, bool use_float32,
-                           double abs_tol)
-{
-    constexpr int ngll = 4;        // N=3
+static void roundtrip_test(const CompressionConfig& comp, bool use_float32, double abs_tol) {
+    constexpr int ngll = 4;  // N=3
     constexpr hsize_t num_elems = 8;
     constexpr hsize_t n_node = ngll * ngll * ngll;
     constexpr hsize_t total = 6 * n_node * num_elems;
@@ -39,8 +37,7 @@ static void roundtrip_test(const CompressionConfig& comp, bool use_float32,
     std::remove(filename.c_str());
 
     // Create file
-    hid_t file_id = H5Fcreate(filename.c_str(), H5F_ACC_TRUNC,
-                              H5P_DEFAULT, H5P_DEFAULT);
+    hid_t file_id = H5Fcreate(filename.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
     REQUIRE(file_id >= 0);
 
     // Write checkpoint
@@ -49,23 +46,26 @@ static void roundtrip_test(const CompressionConfig& comp, bool use_float32,
     cfg.use_float32 = use_float32;
     cfg.ngll = ngll;
 
-    hid_t dset_id = write_checkpoint(file_id, num_elems,
-                                     nullptr, cfg);
+    hid_t dset_id = write_checkpoint(file_id, num_elems, nullptr, cfg);
     REQUIRE(dset_id >= 0);
 
     // Extend and write data at step 0
-    hsize_t size[6] = {1, num_elems,
+    hsize_t size[6] = {1,
+                       num_elems,
                        static_cast<hsize_t>(ngll),
                        static_cast<hsize_t>(ngll),
-                       static_cast<hsize_t>(ngll), 6};
+                       static_cast<hsize_t>(ngll),
+                       6};
     H5Dextend(dset_id, size);
 
     hid_t filespace = H5Dget_space(dset_id);
     hsize_t start[6] = {0, 0, 0, 0, 0, 0};
-    hsize_t count[6] = {1, num_elems,
+    hsize_t count[6] = {1,
+                        num_elems,
                         static_cast<hsize_t>(ngll),
                         static_cast<hsize_t>(ngll),
-                        static_cast<hsize_t>(ngll), 6};
+                        static_cast<hsize_t>(ngll),
+                        6};
     H5Sselect_hyperslab(filespace, H5S_SELECT_SET, start, nullptr, count, nullptr);
 
     hid_t memspace = H5Screate_simple(6, size, nullptr);
@@ -75,11 +75,11 @@ static void roundtrip_test(const CompressionConfig& comp, bool use_float32,
         for (hsize_t i = 0; i < total; ++i) {
             write_buffer[i] = static_cast<float>(original[i]);
         }
-        write_status = H5Dwrite(dset_id, H5T_NATIVE_FLOAT, memspace, filespace,
-                                 H5P_DEFAULT, write_buffer.data());
+        write_status = H5Dwrite(dset_id, H5T_NATIVE_FLOAT, memspace, filespace, H5P_DEFAULT,
+                                write_buffer.data());
     } else {
-        write_status = H5Dwrite(dset_id, H5T_NATIVE_DOUBLE, memspace, filespace,
-                                 H5P_DEFAULT, original.data());
+        write_status = H5Dwrite(dset_id, H5T_NATIVE_DOUBLE, memspace, filespace, H5P_DEFAULT,
+                                original.data());
     }
     REQUIRE(write_status >= 0);
 
@@ -97,8 +97,8 @@ static void roundtrip_test(const CompressionConfig& comp, bool use_float32,
 
     // Read back as float64
     std::vector<double> roundtrip(total);
-    herr_t status = H5Dread(dset_id, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL,
-                            H5P_DEFAULT, roundtrip.data());
+    herr_t status =
+        H5Dread(dset_id, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, roundtrip.data());
     REQUIRE(status >= 0);
 
     H5Dclose(dset_id);
@@ -106,8 +106,7 @@ static void roundtrip_test(const CompressionConfig& comp, bool use_float32,
 
     // Compare
     for (hsize_t i = 0; i < total; ++i) {
-        REQUIRE_THAT(roundtrip[i],
-                     Catch::Matchers::WithinAbs(original[i], abs_tol));
+        REQUIRE_THAT(roundtrip[i], Catch::Matchers::WithinAbs(original[i], abs_tol));
     }
 
     // Cleanup

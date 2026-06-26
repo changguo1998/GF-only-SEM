@@ -1,20 +1,16 @@
 """End-to-end integration tests: GMSH .msh → mesh.h5 → verify HDF5 schema."""
 
+import os
 import sys
 import tempfile
-import os
-import numpy as np
-import meshio
+
 import h5py
-import pytest
+import meshio
+import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from tools.gmsh_to_hdf5 import (
-    extract_topology,
-    write_topology,
-    write_auxiliary,
-)
+from tools.gmsh_to_hdf5 import extract_topology, write_auxiliary, write_topology
 
 
 def make_2x2x1_mesh():
@@ -35,23 +31,47 @@ def make_2x2x1_mesh():
     cells = [
         # Cell 0: bottom-left (0,0)-(1,1)
         [
-            grid[(0, 0, 0)], grid[(1, 0, 0)], grid[(1, 1, 0)], grid[(0, 1, 0)],
-            grid[(0, 0, 1)], grid[(1, 0, 1)], grid[(1, 1, 1)], grid[(0, 1, 1)],
+            grid[(0, 0, 0)],
+            grid[(1, 0, 0)],
+            grid[(1, 1, 0)],
+            grid[(0, 1, 0)],
+            grid[(0, 0, 1)],
+            grid[(1, 0, 1)],
+            grid[(1, 1, 1)],
+            grid[(0, 1, 1)],
         ],
         # Cell 1: bottom-right (1,0)-(2,1)
         [
-            grid[(1, 0, 0)], grid[(2, 0, 0)], grid[(2, 1, 0)], grid[(1, 1, 0)],
-            grid[(1, 0, 1)], grid[(2, 0, 1)], grid[(2, 1, 1)], grid[(1, 1, 1)],
+            grid[(1, 0, 0)],
+            grid[(2, 0, 0)],
+            grid[(2, 1, 0)],
+            grid[(1, 1, 0)],
+            grid[(1, 0, 1)],
+            grid[(2, 0, 1)],
+            grid[(2, 1, 1)],
+            grid[(1, 1, 1)],
         ],
         # Cell 2: top-left (0,1)-(1,2)
         [
-            grid[(0, 1, 0)], grid[(1, 1, 0)], grid[(1, 2, 0)], grid[(0, 2, 0)],
-            grid[(0, 1, 1)], grid[(1, 1, 1)], grid[(1, 2, 1)], grid[(0, 2, 1)],
+            grid[(0, 1, 0)],
+            grid[(1, 1, 0)],
+            grid[(1, 2, 0)],
+            grid[(0, 2, 0)],
+            grid[(0, 1, 1)],
+            grid[(1, 1, 1)],
+            grid[(1, 2, 1)],
+            grid[(0, 2, 1)],
         ],
         # Cell 3: top-right (1,1)-(2,2)
         [
-            grid[(1, 1, 0)], grid[(2, 1, 0)], grid[(2, 2, 0)], grid[(1, 2, 0)],
-            grid[(1, 1, 1)], grid[(2, 1, 1)], grid[(2, 2, 1)], grid[(1, 2, 1)],
+            grid[(1, 1, 0)],
+            grid[(2, 1, 0)],
+            grid[(2, 2, 0)],
+            grid[(1, 2, 0)],
+            grid[(1, 1, 1)],
+            grid[(2, 1, 1)],
+            grid[(2, 2, 1)],
+            grid[(1, 2, 1)],
         ],
     ]
 
@@ -112,15 +132,15 @@ class TestFullPipeline:
             p, n = positive_count[sid], negative_count[sid]
             total = p + n
             assert total == 1 or total == 2, (
-                f"Surface {sid+1}: expected 1 or 2 references, got {total}"
+                f"Surface {sid + 1}: expected 1 or 2 references, got {total}"
             )
             if total == 2:
                 assert p == 1 and n == 1, (
-                    f"Interior surface {sid+1}: expected +1/-1, got +{p}/-{n}"
+                    f"Interior surface {sid + 1}: expected +1/-1, got +{p}/-{n}"
                 )
             else:
                 assert p == 1 and n == 0, (
-                    f"Boundary surface {sid+1}: expected +1/-0, got +{p}/-{n}"
+                    f"Boundary surface {sid + 1}: expected +1/-0, got +{p}/-{n}"
                 )
 
     def test_auxiliary_file(self):
@@ -142,8 +162,13 @@ class TestFullPipeline:
                 assert s2c.shape == (n_surface, 2)
 
                 # CSR groups
-                for name in ["vertex_to_edge", "vertex_to_surface",
-                             "vertex_to_cell", "edge_to_surface", "edge_to_cell"]:
+                for name in [
+                    "vertex_to_edge",
+                    "vertex_to_surface",
+                    "vertex_to_cell",
+                    "edge_to_surface",
+                    "edge_to_cell",
+                ]:
                     assert name in a, f"Missing {name}"
                     g = a[name]
                     assert "indptr" in g

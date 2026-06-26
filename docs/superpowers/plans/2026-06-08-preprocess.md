@@ -6,7 +6,7 @@
 
 > **Design**: Technical decisions (data flow, domain objects, HDF5 output schema, validation rules, SLS parameter computation) are documented in [`docs/superpowers/design/preprocess.md`](../design/preprocess.md). This file contains only the implementation plan.
 
----
+______________________________________________________________________
 
 ## Python Config Script (`config.py`)
 
@@ -62,13 +62,12 @@ def stf_func(t):
 | vp, vs, density | callable, each signature `(float, float, float) -> float` |
 | n_ranks | ≥ 1, integer |
 | pml_thickness | dict with keys xmin, xmax, ymin, ymax, zmin, zmax; values ≥ 0 integers |
-
 **No receivers in config.** Postprocess assembles Green's functions at all GLL nodes from checkpoint files.
 **No explicit domain bounds in config.** Domain bounds are auto-detected from `mesh.h5` topology.
 **No STF type enum.** STF is user-defined `stf_func(t)` in the config script.
 **No inline material.** Material comes from 3D model binary, interpolated to GLL nodes.
 
----
+______________________________________________________________________
 
 ## SLS Relaxation Parameter Fitting (τ-method) — DEFERRED
 
@@ -79,25 +78,30 @@ For each GLL node with per-node (q_kappa, q_mu) and global (f_min, f_max, n_sls)
 The approach follows Blanch et al. (1995) / SPECFEM conventions:
 
 1. Compute logarithmic spacing of relaxation frequencies: ω_l = 2π * f_max * (f_min/f_max)^(l/(n_sls-1)) for l = 0..n_sls-1
-2. Set τ_σ_l = 1/ω_l (stress relaxation times)
-3. Solve for weights via least-squares fit across the band
-4. Derive τ_ε_l from τ_σ_l and Q at each GLL node
+1. Set τ_σ_l = 1/ω_l (stress relaxation times)
+1. Solve for weights via least-squares fit across the band
+1. Derive τ_ε_l from τ_σ_l and Q at each GLL node
 
 Since the 3D model interpolation to GLL nodes provides per-node Q values, the τ-method operates at GLL-node granularity — not per-element or per-material-tag.
 
 Output: `/field/element/tau_sigma` and `/field/element/tau_epsilon`, shape `[n_cell, NGLL, NGLL, NGLL, n_sls]`.
 
----
+______________________________________________________________________
 
 ## Task Breakdown
 
 ### Task 1: Project scaffolding and test infrastructure
 
 **Files:**
+
 - Create: `preprocess/__init__.py`
+
 - Create: `preprocess/cli.py`
+
 - Create: `preprocess/config_loader.py`
+
 - Create: `tests/preprocess/__init__.py`
+
 - Create: `tests/preprocess/conftest.py`
 
 - [x] **Step 1: Create package init and test init**
@@ -164,11 +168,12 @@ def tmp_dir():
 
 - [x] **Step 3: Commit**
 
----
+______________________________________________________________________
 
 ### Task 2: Config Loader
 
 **Files:**
+
 - Create: `preprocess/config_loader.py`
 - Create: `tests/preprocess/test_config_loader.py`
 
@@ -180,11 +185,12 @@ Use `importlib` to load a Python config script, validate all required fields.
 - [x] **Step 4: Implement `load_config(path) -> ModuleType`** — import via importlib, validate all required fields per table above
 - [x] **Step 5: Commit**
 
----
+______________________________________________________________________
 
 ### Task 3: Topology Reader
 
 **Files:**
+
 - Create: `preprocess/topology_reader.py`
 - Create: `tests/preprocess/test_topology_reader.py`
 
@@ -195,11 +201,12 @@ Read `/topology/` datasets from mesh.h5 into memory. X2Y naming, 1-based indexin
 - [x] **Step 3: Implement `read_topology(path) -> TopologyData`** — read all `/topology/` datasets
 - [x] **Step 4: Commit**
 
----
+______________________________________________________________________
 
 ### Task 4: GLL Geometry
 
 **Files:**
+
 - Create: `preprocess/gll_geometry.py`
 - Create: `tests/preprocess/test_gll_geometry.py`
 
@@ -210,11 +217,12 @@ For each element with 8 corner vertices and polynomial order N, compute (N+1)³ 
 - [x] **Step 3: Implement `compute_gll_geometry(topology, N)`** — returns coords, jacobian, dxi_dx, mass arrays
 - [x] **Step 4: Commit**
 
----
+______________________________________________________________________
 
 ### Task 5: 3D Model Loader
 
 **Files:**
+
 - Create: `preprocess/model_loader.py`
 - Create: `tests/preprocess/test_model_loader.py`
 
@@ -224,11 +232,12 @@ Load binary 3D model (format TBD — placeholder for now). Interpolate Vp, Vs, d
 - [x] **Step 2: Implement `load_and_interpolate(model_path, gll_coords)`** — returns vp, vs, density, q_kappa, q_mu arrays (element-first, shape `[n_cell, NGLL, NGLL, NGLL]`)
 - [x] **Step 3: Commit** — noted as placeholder until 3D model format is finalized (STILL PLACEHOLDER -- model_loader.py returns constant values, no real 3D model format support)
 
----
+______________________________________________________________________
 
 ### Task 6: Boundary Detector
 
 **Files:**
+
 - Create: `preprocess/boundary_detector.py`
 - Create: `tests/preprocess/test_boundary_detector.py`
 
@@ -238,13 +247,14 @@ Auto-detect boundary tags from surface face center geometry. No GMSH physical gr
 - [x] **Step 2: Implement `detect_boundaries(topology, domain_bounds)`** — returns `boundary_tag[n_surface]` (0=interior, 1=free surface, 2=absorbing)
 - [x] **Step 3: Commit**
 
----
+______________________________________________________________________
 
 ### Task 7: SLS Parameter Computation — DEFERRED
 
 Viscoelastic attenuation (SLS τ-method) is deferred to future work. Skip this task.
 
 **Files:**
+
 - Create: `preprocess/sls.py`
 - Create: `tests/preprocess/test_sls.py`
 
@@ -255,11 +265,12 @@ Viscoelastic attenuation (SLS τ-method) is deferred to future work. Skip this t
 - [ ] **Step 3: Implement compute_sls_parameters(q, f_min, f_max, n_sls)** -- returns tau_sigma[n_sls], tau_epsilon[n_sls] per GLL node (DEFERRED -- SLS not implemented)
 - [ ] **Step 4: Commit** (DEFERRED -- SLS parameter computation not implemented, no sls.py file exists)
 
----
+______________________________________________________________________
 
 ### Task 8: PML Damping Profiles
 
 **Files:**
+
 - Create: `preprocess/pml.py`
 - Create: `tests/preprocess/test_pml.py`
 
@@ -269,11 +280,12 @@ Compute damping coefficient profile across GLL nodes within PML elements, based 
 - [x] **Step 2: Implement `compute_pml_damping(topology, gll_coords, pml_thickness, domain_bounds)`** — returns damping array (element-first, `[n_cell, NGLL, NGLL, NGLL]`)
 - [x] **Step 3: Commit**
 
----
+______________________________________________________________________
 
 ### Task 9: Partition (METIS)
 
 **Files:**
+
 - Create: `preprocess/partition.py`
 - Create: `tests/preprocess/test_partition.py`
 
@@ -285,43 +297,46 @@ Build dual graph (elements as nodes, shared faces as edges), call METIS k-way, c
 - [x] **Step 4: Implement `partition(topology, gll_coords, n_ranks)`** — returns element_to_rank, per-rank data (local IDs, ghost IDs, ghost owners, exchange patterns)
 - [x] **Step 5: Commit**
 
----
+______________________________________________________________________
 
 ### Task 10: STF Evaluator
 
 **Files:**
+
 - Create: `preprocess/stf_evaluator.py`
 - Create: `tests/preprocess/test_stf_evaluator.py`
 
-Evaluate `config.stf_func(t)` at t = 0, dt, 2*dt, ..., (nsteps-1)*dt.
+Evaluate `config.stf_func(t)` at t = 0, dt, 2\*dt, ..., (nsteps-1)\*dt.
 
 - [x] **Step 1: Write test** — evaluate mock stf_func, verify output shape matches nsteps
 - [x] **Step 2: Implement `evaluate_stf(stf_func, dt, nsteps)`** — returns `stf_t[nsteps]`, `stf_values[nsteps]`
 - [x] **Step 3: Commit**
 
----
+______________________________________________________________________
 
 ### Task 11: Model & Config Writers
 
 **Files:**
+
 - Create: `preprocess/model_writer.py`
 - Create: `preprocess/config_writer.py`
 - Create: `tests/preprocess/test_model_writer.py`
 - Create: `tests/preprocess/test_config_writer.py`
 
-Write all computed data to mesh.h5 (extended in-place), partition_{r}.h5, and config.h5.
+Write all computed data to mesh.h5 (extended in-place), partition\_{r}.h5, and config.h5.
 
-- [x] **Step 1: Write test** — verify mesh.h5 contains topology + field/element + field/surface groups, verify partition_{r}.h5 files contain field/element + partition metadata
+- [x] **Step 1: Write test** — verify mesh.h5 contains topology + field/element + field/surface groups, verify partition\_{r}.h5 files contain field/element + partition metadata
 - [x] **Step 2: Write test** — verify config.h5 contains simulation + domain + source groups
 - [x] **Step 3: Implement `write_model(path, topology, fields, partition)`** — schema per design
 - [x] **Step 4: Implement `write_config(path, config, domain_bounds, stf_t, stf_values)`** — schema per design
 - [x] **Step 5: Commit**
 
----
+______________________________________________________________________
 
 ### Task 12: CLI Entry Point
 
 **Files:**
+
 - Modify: `preprocess/cli.py`
 
 CLI: `python -m preprocess` (reads `mesh.h5` + `config.py` from CWD, no args)
@@ -329,7 +344,7 @@ CLI: `python -m preprocess` (reads `mesh.h5` + `config.py` from CWD, no args)
 - [x] **Step 1: Implement `main()`** — parse args, orchestrates all 9 processing steps
 - [x] **Step 2: Commit**
 
----
+______________________________________________________________________
 
 ## File Layout (Final)
 

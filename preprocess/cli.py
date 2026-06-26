@@ -3,18 +3,17 @@
 Reads mesh.h5 + config.py from the current working directory.
 """
 
+import math
 import os
 import sys
 import time
-import math
 
 import numpy as np
 
-from preprocess.config_loader import load_config, ConfigValidationError
-from preprocess.topology_reader import read_topology
+from preprocess.config_loader import load_config
 from preprocess.gll_geometry import compute_gll_geometry
 from preprocess.model_loader import load_and_interpolate
-
+from preprocess.topology_reader import read_topology
 
 
 def main() -> None:
@@ -53,32 +52,39 @@ def main() -> None:
 
     # Step: load/interpolate material
     model_path = getattr(config, "model_path", None)
-    print(f"[preprocess] Loading material model...")
+    print("[preprocess] Loading material model...")
     vp_gll, vs_gll, density_gll = load_and_interpolate(model_path, coords, config=config)
 
     # Step: boundary detection
-    print(f"[preprocess] Detecting boundaries...")
+    print("[preprocess] Detecting boundaries...")
     from preprocess.boundary_detector import detect_boundaries
+
     boundary_tag, is_pml = detect_boundaries(topology, domain_bounds)
 
     # Step: CFL validation — compute solver_dt and snapshot_stride
-    print(f"[preprocess] Running CFL validation...")
+    print("[preprocess] Running CFL validation...")
     from preprocess.cfl_validator import compute_cfl_dt, compute_solver_dt
+
     cfl_dt = compute_cfl_dt(coords, vp_gll, config.cfl_safety)
 
     # Derive solver timestep and snapshot stride from output_dt_s
     solver_dt, snapshot_stride = compute_solver_dt(config.output_dt_s, cfl_dt)
-    print(f"[preprocess]   cfl_dt={cfl_dt:.6e}, solver_dt={solver_dt:.6e}, snapshot_stride={snapshot_stride}")
+    print(
+        f"[preprocess]   cfl_dt={cfl_dt:.6e}, solver_dt={solver_dt:.6e}, snapshot_stride={snapshot_stride}"
+    )
 
     # Derive nsteps from total_duration_s
     nsteps = math.ceil(config.total_duration_s / solver_dt)
     total_duration_actual = nsteps * solver_dt
     if abs(total_duration_actual - config.total_duration_s) > 1e-12:
-        print(f"[preprocess]   Adjusted total_duration_s from {config.total_duration_s} to {total_duration_actual}")
+        print(
+            f"[preprocess]   Adjusted total_duration_s from {config.total_duration_s} to {total_duration_actual}"
+        )
 
     # Step: source location
-    print(f"[preprocess] Locating source on free surface...")
+    print("[preprocess] Locating source on free surface...")
     from preprocess.source_locator import locate_source
+
     source_z = float(domain_bounds["zmin"])
     source_x_m = float(config.source_x_m)
     source_y_m = float(config.source_y_m)
@@ -87,25 +93,37 @@ def main() -> None:
     print(f"[preprocess]   Source in {src_result['n_src_elem']} element(s)")
 
     # Step: STF evaluation (uses solver_dt, not output_dt_s)
-    print(f"[preprocess] Evaluating STF...")
+    print("[preprocess] Evaluating STF...")
     try:
         from preprocess.stf_evaluator import evaluate_stf
-        stf_t, stf_values = evaluate_stf(config.stf_func,
-                                          solver_dt,
-                                          nsteps)
+
+        stf_t, stf_values = evaluate_stf(config.stf_func, solver_dt, nsteps)
     except ImportError:
         stf_t = np.arange(nsteps) * solver_dt
         stf_values = np.array([config.stf_func(t) for t in stf_t])
 
     # Step: pre-flight validation
-    print(f"[preprocess] Running pre-flight validation...")
-    from preprocess.preflight import run_preflight, PreflightError
+    print("[preprocess] Running pre-flight validation...")
+    from preprocess.preflight import PreflightError, run_preflight
+
     try:
         strict = getattr(config, "strict_validation", True)
         preflight_result = run_preflight(
-            topology, coords, jacobian, vp_gll, vs_gll, density_gll,
-            boundary_tag, domain_bounds, config, source_xyz_arr,
-            stf_values, cfl_dt, nsteps, snapshot_stride, n_gll,
+            topology,
+            coords,
+            jacobian,
+            vp_gll,
+            vs_gll,
+            density_gll,
+            boundary_tag,
+            domain_bounds,
+            config,
+            source_xyz_arr,
+            stf_values,
+            cfl_dt,
+            nsteps,
+            snapshot_stride,
+            n_gll,
             strict=strict,
         )
         print(f"[preprocess]   {preflight_result.report()}")
@@ -114,24 +132,27 @@ def main() -> None:
         sys.exit(1)
 
     # Step: PML damping
-    print(f"[preprocess] Computing PML damping profiles...")
+    print("[preprocess] Computing PML damping profiles...")
     try:
         from preprocess.pml import compute_pml_damping
-        damping = compute_pml_damping(topology, coords, config.pml_thickness,
-                                       domain_bounds, is_pml)
+
+        damping = compute_pml_damping(
+            topology, coords, config.pml_thickness, domain_bounds, is_pml
+        )
     except ImportError:
         damping = np.zeros((n_cell, n_gll, n_gll, n_gll), dtype=np.float64)
-        print(f"[preprocess]   pml.py not available — damping = 0")
+        print("[preprocess]   pml.py not available — damping = 0")
 
     # Step: partition
     n_ranks = int(config.n_ranks)
     print(f"[preprocess] Partitioning into {n_ranks} ranks...")
     try:
         from preprocess.partition import partition
+
         partition_result = partition(topology, coords, n_ranks)
     except ImportError:
         partition_result = None
-        print(f"[preprocess]   partition.py not available — skipping")
+        print("[preprocess]   partition.py not available — skipping")
 
     # Step: write outputs
     fields = {
@@ -148,15 +169,21 @@ def main() -> None:
 
     print(f"[preprocess] Writing model to: {mesh_path}")
     from preprocess.model_writer import write_model
-    write_model(mesh_path, topology, fields, boundary_tag, domain_bounds,
-                partition_result)
+
+    write_model(mesh_path, topology, fields, boundary_tag, domain_bounds, partition_result)
 
     config_h5 = os.path.join(os.path.dirname(mesh_path), "config.h5")
     print(f"[preprocess] Writing config to: {config_h5}")
     from preprocess.config_writer import write_config
+
     write_config(
-        config_h5, config, domain_bounds, stf_t, stf_values,
-        source_xyz_arr, source_loc_result=src_result,
+        config_h5,
+        config,
+        domain_bounds,
+        stf_t,
+        stf_values,
+        source_xyz_arr,
+        source_loc_result=src_result,
         solver_dt=solver_dt,
         snapshot_stride=snapshot_stride,
         nsteps=nsteps,

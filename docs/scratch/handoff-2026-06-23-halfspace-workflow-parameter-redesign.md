@@ -10,6 +10,7 @@
 `docs/superpowers/specs/2026-06-23-halfspace-workflow-parameter-redesign-design.md`
 
 Covers:
+
 - Timestep split: `solver_dt` (auto from CFL) + `output_dt_s` (snapshot interval), `output_dt_s = N × solver_dt`
 - SI-unit suffixes on all config fields (`_m`, `_s`, `_m_s`, `_kg_m3`, `_hz`)
 - Checkpoint → snapshot naming unification
@@ -81,9 +82,10 @@ Refer to the spec file for full details. Task structure (14 tasks):
 ## Suggested Skills
 
 The next agent should invoke:
+
 1. **writing-plans** — to finish the implementation plan (or continue from the partial plan file, adding tasks 1-14 with exact code)
-2. **brainstorming** — if any parameter decisions still need clarification
-3. After plan: **subagent-driven-development** or **executing-plans** for implementation
+1. **brainstorming** — if any parameter decisions still need clarification
+1. After plan: **subagent-driven-development** or **executing-plans** for implementation
 
 ## Related Artifacts
 

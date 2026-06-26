@@ -1,6 +1,7 @@
 // compress/include/gf/CompressionFilter.h
 #pragma once
 #include <hdf5.h>
+
 #include <stdexcept>
 #include <string>
 
@@ -8,9 +9,9 @@ namespace gf {
 
 /// Compression algorithm selection for HDF5 checkpoint datasets.
 enum class CompressionMethod {
-    None,        ///< No compression
-    LZF,         ///< HDF5 LZF filter (fast, modest ratio)
-    Zlib,        ///< HDF5 zlib/gzip filter (slower, better ratio)
+    None,  ///< No compression
+    LZF,   ///< HDF5 LZF filter (fast, modest ratio)
+    Zlib,  ///< HDF5 zlib/gzip filter (slower, better ratio)
 };
 
 /// Parameters for zlib compression.
@@ -41,8 +42,10 @@ hid_t apply_compression(hid_t plist, const CompressionConfig& config);
 
 inline std::string CompressionConfig::label() const {
     switch (method) {
-        case CompressionMethod::None: return "none";
-        case CompressionMethod::LZF:  return "lzf";
+        case CompressionMethod::None:
+            return "none";
+        case CompressionMethod::LZF:
+            return "lzf";
         case CompressionMethod::Zlib:
             return "zlib:" + std::to_string(zlib.level);
     }
@@ -58,8 +61,8 @@ inline hid_t apply_compression(hid_t plist, const CompressionConfig& config) {
         // H5Z_FILTER_DEFLATE is built-in
         herr_t status = H5Pset_deflate(plist, config.zlib.level);
         if (status < 0) {
-            throw std::runtime_error("H5Pset_deflate failed (level=" +
-                                     std::to_string(config.zlib.level) + ")");
+            throw std::runtime_error(
+                "H5Pset_deflate failed (level=" + std::to_string(config.zlib.level) + ")");
         }
     }
 
@@ -72,8 +75,9 @@ inline hid_t apply_compression(hid_t plist, const CompressionConfig& config) {
         unsigned int cd_values[1] = {0};
         herr_t status = H5Pset_filter(plist, filter_id, flags, cd_nelmts, cd_values);
         if (status < 0) {
-            throw std::runtime_error("H5Pset_filter(LZF) failed — is LZF "
-                                     "enabled in your HDF5 build?");
+            throw std::runtime_error(
+                "H5Pset_filter(LZF) failed — is LZF "
+                "enabled in your HDF5 build?");
         }
     }
 

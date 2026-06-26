@@ -20,9 +20,9 @@ the entire codebase.
 The abstraction must:
 
 1. **Zero cost** when compiled for a single backend (no virtual dispatch per element)
-2. **Add no new dependencies** to the base build (GPU backends are opt-in via CMake)
-3. **Preserve the existing CPU path** as the default — unchanged behavior, no new headers
-4. **Support gradual adoption** — each backend is a separate `.cu` / `.hip.cpp` file
+1. **Add no new dependencies** to the base build (GPU backends are opt-in via CMake)
+1. **Preserve the existing CPU path** as the default — unchanged behavior, no new headers
+1. **Support gradual adoption** — each backend is a separate `.cu` / `.hip.cpp` file
 
 ## Architecture
 
@@ -105,6 +105,7 @@ forward/src/
 ```
 
 Each file:
+
 - Includes `gf/element.hpp`
 - Provides a template specialization of `compute_element_residual` for its backend
 - GPU backends manage device memory internally (alloc/copy if needed, but see
@@ -217,6 +218,7 @@ __global__ void element_residual_kernel(
 ```
 
 Launch configuration:
+
 ```cuda
 dim3 block(NGLL, NGLL, NGLL);   // e.g., (4,4,4) for N=3, (5,5,5) for N=4
 dim3 grid(n_elem, 1, 1);
@@ -233,8 +235,8 @@ The `compute_element_residual<BackendCUDA>` specialization should:
 
 1. **First call**: allocate device memory and copy all mesh data (dxi_dx, jacobian,
    vp, vs, density, D, weights) to the device — these are read-only throughout the run
-2. **Each timestep**: copy `u` → device, launch kernel, copy `r` → host
-3. **Optimized path**: if the solver can keep `r` on device and only copy when MPI
+1. **Each timestep**: copy `u` → device, launch kernel, copy `r` → host
+1. **Optimized path**: if the solver can keep `r` on device and only copy when MPI
    exchange needs it, the device↔host transfer is reduced to field `u` and ghost values
 
 This persistent allocation can be managed via:
@@ -277,9 +279,9 @@ still modest. Options:
 
 1. **Multiple elements per block**: launch fewer blocks, have each block process
    multiple elements sequentially (increases occupancy)
-2. **Split NGLL loop**: one thread per (i,j) pair, inner k-loop (parallelism along ζ
+1. **Split NGLL loop**: one thread per (i,j) pair, inner k-loop (parallelism along ζ
    only, NGLL threads per block = NGLL², works for NGLL ≤ 8)
-3. **Element batch processing**: combine multiple elements' data into larger tiles
+1. **Element batch processing**: combine multiple elements' data into larger tiles
    (requires strided memory layout)
 
 Deferred to optimization phase — start with simple 1-thread-per-GLL-node for correctness.
@@ -289,9 +291,9 @@ Deferred to optimization phase — start with simple 1-thread-per-GLL-node for c
 ### Adding a New Backend
 
 1. Create a new translation unit `element_<backend>.cpp`
-2. Write `template<> void compute_element_residual<BackendX>(...)`
-3. Add CMake detection for the new compiler/toolchain
-4. Add compiler definition to `target_compile_definitions`
+1. Write `template<> void compute_element_residual<BackendX>(...)`
+1. Add CMake detection for the new compiler/toolchain
+1. Add compiler definition to `target_compile_definitions`
 
 ### Testing
 
@@ -317,13 +319,13 @@ These tests only build when the corresponding backend is enabled.
    processing a subset of elements per launch. This is deferred — for initial
    GPU support, mesh size is bounded by available GPU memory.
 
-2. **Atomic contention**: the residual accumulation uses `atomicAdd` because
+1. **Atomic contention**: the residual accumulation uses `atomicAdd` because
    multiple GLL nodes' stress contributions scatter to the same DOF indices.
    For high-order elements (NGLL ≥ 6, 216+ threads), contention on the residual
    vector may limit throughput. A shared-memory reduction within each block
    (element-local residual, then coalesced atomic adds to global) can mitigate this.
 
-3. **MPI+GPU hybrid**: the MPI exchange currently operates on CPU memory.
+1. **MPI+GPU hybrid**: the MPI exchange currently operates on CPU memory.
    If `r` lives on the GPU, either:
    a. Copy to CPU for exchange (simple, O(n_interface) per timestep)
    b. Use CUDA-aware MPI (requires MPI implementation with GPU support → OpenMPI 4.0+)

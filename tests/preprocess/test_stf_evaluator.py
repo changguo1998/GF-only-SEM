@@ -4,7 +4,6 @@ import os
 import sys
 
 import numpy as np
-import pytest
 
 _project_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 sys.path.insert(0, _project_root)
@@ -16,7 +15,7 @@ def mock_ricker_wavelet(t: float) -> float:
     """Ricker wavelet with f0=5 Hz, peak at t0=0.3 s."""
     f0 = 5.0
     t0 = 0.3
-    return (1 - 2 * (np.pi * f0 * (t - t0))**2) * np.exp(-(np.pi * f0 * (t - t0))**2)
+    return (1 - 2 * (np.pi * f0 * (t - t0)) ** 2) * np.exp(-((np.pi * f0 * (t - t0)) ** 2))
 
 
 def mock_step_function(t: float) -> float:
@@ -80,7 +79,7 @@ class TestEvaluateSTF:
         assert stf_t.shape == (1,)
         assert np.isclose(stf_t[0], 0.0)
         # Ricker at t=0: (1 - 2*(pi*5*(-0.3))^2) * exp(-(pi*5*(-0.3))^2)
-        expected = (1 - 2 * (np.pi * 5 * (-0.3))**2) * np.exp(-(np.pi * 5 * (-0.3))**2)
+        expected = (1 - 2 * (np.pi * 5 * (-0.3)) ** 2) * np.exp(-((np.pi * 5 * (-0.3)) ** 2))
         assert np.isclose(stf_vals[0], expected)
 
     def test_large_nsteps(self):

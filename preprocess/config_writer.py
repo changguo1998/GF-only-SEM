@@ -1,6 +1,7 @@
 """Config writer — write config.h5."""
 
 import os
+
 import h5py
 import numpy as np
 import numpy.typing as npt
@@ -50,7 +51,9 @@ def write_config(
         _write_source(f, stf_t, stf_values, source_xyz, source_loc_result)
 
 
-def _write_simulation(f: h5py.File, config_module, solver_dt: float, snapshot_stride: int, nsteps: int) -> None:
+def _write_simulation(
+    f: h5py.File, config_module, solver_dt: float, snapshot_stride: int, nsteps: int
+) -> None:
     grp = f.create_group("simulation")
     grp.attrs["title"] = config_module.title
 
@@ -96,18 +99,10 @@ def _write_source(
         grp.attrs["n_src_elements"] = n_src
         if n_src > 0:
             elem_grp = grp.create_group("elements")
-            elem_grp.create_dataset("element_ids",
-                                    data=source_loc_result["element_ids"],
-                                    dtype="int64")
-            elem_grp.create_dataset("xi",
-                                    data=source_loc_result["xi"],
-                                    dtype="float64")
-            elem_grp.create_dataset("eta",
-                                    data=source_loc_result["eta"],
-                                    dtype="float64")
-            elem_grp.create_dataset("zeta",
-                                    data=source_loc_result["zeta"],
-                                    dtype="float64")
-            elem_grp.create_dataset("weights",
-                                    data=source_loc_result["weights"],
-                                    dtype="float64")
+            elem_grp.create_dataset(
+                "element_ids", data=source_loc_result["element_ids"], dtype="int64"
+            )
+            elem_grp.create_dataset("xi", data=source_loc_result["xi"], dtype="float64")
+            elem_grp.create_dataset("eta", data=source_loc_result["eta"], dtype="float64")
+            elem_grp.create_dataset("zeta", data=source_loc_result["zeta"], dtype="float64")
+            elem_grp.create_dataset("weights", data=source_loc_result["weights"], dtype="float64")

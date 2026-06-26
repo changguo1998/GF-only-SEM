@@ -87,8 +87,8 @@ No arguments — reads `mesh.h5` and `config.py` from the current working direct
 |------|-------------|
 | `mesh.h5` | Converter output in CWD — read topology, write extended geometry + is_pml back |
 | `config.py` | User's Python config script in CWD |
-
 Output files are placed alongside the inputs:
+
 - `config.h5` — single rank-invariant config
 - `partitions/partition_{r}.h5` — per-rank partition files
 - `mesh.h5` is extended in-place with `/field/element/` geometry and `is_pml`
@@ -194,9 +194,9 @@ For each element with 8 corner vertices and polynomial order N:
 
 1. Compute (N+1)³ GLL node positions via the element's geometric mapping:
    `x(ξ,η,ζ) = Σ l_a(ξ)·l_b(η)·l_c(ζ)·x_abc` where `l_a` are GLL Lagrange basis functions and `x_abc` are corner coordinates.
-2. Compute Jacobian: `dx/dξ` (3×3) via differentiation of the mapping.
-3. `dξ/dx = (dx/dξ)^(-1)` — inverse Jacobian at each GLL node.
-4. `det(J) = det(dx/dξ)` — integration weight factor.
+1. Compute Jacobian: `dx/dξ` (3×3) via differentiation of the mapping.
+1. `dξ/dx = (dx/dξ)^(-1)` — inverse Jacobian at each GLL node.
+1. `det(J) = det(dx/dξ)` — integration weight factor.
 
 Output: `/field/element/coords`, `/field/element/dxi_dx`, `/field/element/jacobian`.
 
@@ -205,6 +205,7 @@ Note: lumped mass is computed after material interpolation (step 3) because it r
 ### 3. Evaluate Material at GLL Nodes
 
 Call the user-defined functions from config.py at each GLL node position (computed in step 2):
+
 - `vp_m_s(x_m, y_m, z_m)` → compressional wave speed
 - `vs_m_s(x_m, y_m, z_m)` → shear wave speed
 - `density_kg_m3(x_m, y_m, z_m)` → mass density
@@ -223,12 +224,12 @@ Output: `/field/element/mass`.
 After GLL geometry and material are known, derive the solver timestep from the user-facing snapshot interval:
 
 1. Compute minimum GLL node spacing `h_min` across all elements (minimum Euclidean distance between adjacent GLL nodes in physical space)
-2. Compute `vp_max = max(vp)` across all GLL nodes
-3. Compute `cfl_dt = cfl_safety × h_min / vp_max`
-4. Search `stride = 1..MAX_STRIDE` for the first value where `output_dt_s / stride ≤ cfl_dt`
-5. Set `solver_dt = output_dt_s / stride` and `snapshot_stride = stride`
-6. Compute `nsteps = ceil(total_duration_s / solver_dt)` and adjust effective duration to `nsteps × solver_dt` if needed
-7. Print computed `cfl_dt`, `solver_dt`, `snapshot_stride`, and `nsteps` to stdout
+1. Compute `vp_max = max(vp)` across all GLL nodes
+1. Compute `cfl_dt = cfl_safety × h_min / vp_max`
+1. Search `stride = 1..MAX_STRIDE` for the first value where `output_dt_s / stride ≤ cfl_dt`
+1. Set `solver_dt = output_dt_s / stride` and `snapshot_stride = stride`
+1. Compute `nsteps = ceil(total_duration_s / solver_dt)` and adjust effective duration to `nsteps × solver_dt` if needed
+1. Print computed `cfl_dt`, `solver_dt`, `snapshot_stride`, and `nsteps` to stdout
 
 `solver_dt`, `output_dt_s`, derived `snapshot_stride`, and derived `nsteps` are stored in config.h5 `/simulation/`. The forward solver uses `solver_dt` for Newmark integration and writes snapshots every `snapshot_stride` solver steps.
 
@@ -253,12 +254,12 @@ Count active directions → 1=face, 2=edge, 3=corner.
 Each direction's damping uses its own distance (can differ between e.g. x and y for a corner element).
 
 1. Start from boundary faces with `boundary_tag = 2` (absorbing).
-2. Walk inward through element connectivity: trace N layers of elements from each absorbing boundary face.
-3. For each element, independently check each direction against its respective boundary distance.
-4. Classify each C-PML element as **face** (damped in 1 direction), **edge** (damped in 2 directions), or **corner** (damped in 3 directions).
-5. Compute directional damping profiles `d_x(ξ)`, `d_y(ξ)`, `d_z(ξ)` per GLL node — each direction's damping depends only on that direction's distance from the boundary.
-6. Compute stretched-coordinate functions `K_x(ξ)`, `α_x(ξ)` (and similarly for y, z) per GLL node.
-7. Precompute convolution coefficients `α_c`, `β_c`, `ā` from the damping profiles (second-order convolution scheme, per Wang et al. 2006).
+1. Walk inward through element connectivity: trace N layers of elements from each absorbing boundary face.
+1. For each element, independently check each direction against its respective boundary distance.
+1. Classify each C-PML element as **face** (damped in 1 direction), **edge** (damped in 2 directions), or **corner** (damped in 3 directions).
+1. Compute directional damping profiles `d_x(ξ)`, `d_y(ξ)`, `d_z(ξ)` per GLL node — each direction's damping depends only on that direction's distance from the boundary.
+1. Compute stretched-coordinate functions `K_x(ξ)`, `α_x(ξ)` (and similarly for y, z) per GLL node.
+1. Precompute convolution coefficients `α_c`, `β_c`, `ā` from the damping profiles (second-order convolution scheme, per Wang et al. 2006).
 
 Output: `/field/element/cpml/{cpml_type, d_x, d_y, d_z, K_x, K_y, K_z, alpha_x, alpha_y, alpha_z, conv_coef_*}`.
 
@@ -267,13 +268,13 @@ Output: `/field/element/cpml/{cpml_type, d_x, d_y, d_z, K_x, K_y, K_z, alpha_x, 
 Comprehensive validation before partition and writing. Runs as a checklist; with `strict_validation=True` errors abort the run, with `strict_validation=False` errors are logged as warnings and processing continues.
 
 1. **Material**: `vp > 0`, `vs ≥ 0`, `density > 0` at all GLL nodes; `λ = ρ(vp² - 2vs²) > 0` (elastic stability); warn if `vs ≡ 0` anywhere
-2. **Mesh quality**: `det(J) > 0` at all GLL nodes (no inverted elements); warn on extreme aspect ratios
-3. **CFL/time**: validate derived `solver_dt ≤ cfl_dt`; validate integer `snapshot_stride` and `nsteps % snapshot_stride == 0`; log cfl_dt, solver_dt, snapshot_stride
-4. **Boundary**: at least one surface tagged free surface (1); at least one tagged absorbing (2); verify `pml_thickness` values ≤ actual element layers from each boundary; PML thickness ≥ 2 elements per absorbing face (warn if thinner)
-5. **Source**: within xy domain bounds; Newton iteration found at least one containing element on free surface; sum of normalized Lagrange weights ≈ 1
-6. **STF**: all values finite (no NaN/Inf); warn if non-zero DC component
-7. **Partition**: `n_ranks ≤ n_cell` (pre-check before calling METIS)
-8. **Storage estimation**: compute total estimated disk usage (partition files + expected snapshot files). Abort if > `storage_limit_gb`:
+1. **Mesh quality**: `det(J) > 0` at all GLL nodes (no inverted elements); warn on extreme aspect ratios
+1. **CFL/time**: validate derived `solver_dt ≤ cfl_dt`; validate integer `snapshot_stride` and `nsteps % snapshot_stride == 0`; log cfl_dt, solver_dt, snapshot_stride
+1. **Boundary**: at least one surface tagged free surface (1); at least one tagged absorbing (2); verify `pml_thickness` values ≤ actual element layers from each boundary; PML thickness ≥ 2 elements per absorbing face (warn if thinner)
+1. **Source**: within xy domain bounds; Newton iteration found at least one containing element on free surface; sum of normalized Lagrange weights ≈ 1
+1. **STF**: all values finite (no NaN/Inf); warn if non-zero DC component
+1. **Partition**: `n_ranks ≤ n_cell` (pre-check before calling METIS)
+1. **Storage estimation**: compute total estimated disk usage (partition files + expected snapshot files). Abort if > `storage_limit_gb`:
    - `snapshots_per_run = nsteps / snapshot_stride`
    - `strain_per_run_GB = snapshots_per_run × n_cell × NGLL³ × 6 × bytes_per_float / 1e9`
    - `restart_GB = n_cell × NGLL³ × 3 × 3 × 8 / 1e9`
@@ -283,15 +284,15 @@ Comprehensive validation before partition and writing. Runs as a checklist; with
 ### 9. Partition (METIS) + GLL Node Global Numbering
 
 1. Build dual graph: elements as nodes, shared faces as edges.
-2. Call METIS `PartGraphKway` with `n_ranks`.
-3. Validate: METIS returned valid partition (all ranks > 0 elements).
-4. Assign `element_to_rank[n_cell]`.
-5. For each rank, identify:
+1. Call METIS `PartGraphKway` with `n_ranks`.
+1. Validate: METIS returned valid partition (all ranks > 0 elements).
+1. Assign `element_to_rank[n_cell]`.
+1. For each rank, identify:
    - `local_element_ids`: owned element global IDs
    - `ghost_element_ids`: elements sharing a face with owned elements but owned by other ranks
    - `ghost_owners`: which rank owns each ghost
-6. **GLL node global numbering**: assign a unique global node ID to every distinct GLL node on this rank (1-based, 0=null). Build `gll_to_global[n_elem_total, NGLL, NGLL, NGLL]` — the core CG-SEM assembly mapping (SPECFEM3D's `ibool` equivalent). Shared GLL nodes (within-rank and cross-rank) are identified by geometric coincidence with tolerance = `1e-6 × min_element_size`.
-7. For each neighbor rank, precompute face-pair exchange lists:
+1. **GLL node global numbering**: assign a unique global node ID to every distinct GLL node on this rank (1-based, 0=null). Build `gll_to_global[n_elem_total, NGLL, NGLL, NGLL]` — the core CG-SEM assembly mapping (SPECFEM3D's `ibool` equivalent). Shared GLL nodes (within-rank and cross-rank) are identified by geometric coincidence with tolerance = `1e-6 × min_element_size`.
+1. For each neighbor rank, precompute face-pair exchange lists:
    - send: (owned_local_idx, face_idx) → (ghost_idx, ghost_face)
    - recv: ghost elements to receive into
 
@@ -309,12 +310,12 @@ Source z = z_min (auto-placed on top free surface). Source is only specified by 
 
 1. Search only free-surface elements (those with a face on boundary_tag = 1) to locate all elements containing the source (source_x_m, source_y_m) projected onto z_min.
    The source may lie on a shared face, edge, or vertex of adjacent elements.
-2. For each containing element, map source (x_s, y_s, z_s) to natural coordinates (ξ_s, η_s, ζ_s)
+1. For each containing element, map source (x_s, y_s, z_s) to natural coordinates (ξ_s, η_s, ζ_s)
    via Newton iteration using precomputed dξ/dx.
-3. Compute Lagrange interpolation weights: `w_ijk = l_i(ξ_s)·l_j(η_s)·l_k(ζ_s)` for each
+1. Compute Lagrange interpolation weights: `w_ijk = l_i(ξ_s)·l_j(η_s)·l_k(ζ_s)` for each
    GLL node (i,j,k) in each containing element.
-4. Normalize Lagrange weights: Σ w_ijk = 1 across all sharing surface elements.
-5. Store element IDs, natural coordinates, and weights in config.h5 `/source/elements/`.
+1. Normalize Lagrange weights: Σ w_ijk = 1 across all sharing surface elements.
+1. Store element IDs, natural coordinates, and weights in config.h5 `/source/elements/`.
 
 The forward solver multiplies these precomputed weights by STF amplitude and adds to the
 residual — no runtime Newton iteration or element search needed.
@@ -322,7 +323,7 @@ residual — no runtime Newton iteration or element search needed.
 ### 12. Write Output Files
 
 - **mesh.h5 (extended in-place)** — GLL geometry (`/field/element/coords`, `/field/element/dxi_dx`, `/field/element/jacobian`), PML flags (`/field/element/is_pml`), and boundary tags (`/field/surface/boundary_tag`) written back to input mesh.h5.
-- **partition_{r}.h5** — one per MPI rank, containing the local subset of element data (own + ghost), GLL global numbering, exchange patterns, and partition metadata
+- **partition\_{r}.h5** — one per MPI rank, containing the local subset of element data (own + ghost), GLL global numbering, exchange patterns, and partition metadata
 - **config.h5** — simulation config, domain bounds, source (position + elements + weights), STF. No direction — direction is passed via CLI `--direction {x,y,z}` to the forward solver.
 - **mesh_auxiliary.h5** (optional) — CSR adjacency relations
 
@@ -331,6 +332,7 @@ residual — no runtime Newton iteration or element search needed.
 ### mesh.h5 (extended)
 
 The preprocessor reads topology from `mesh.h5` and writes back:
+
 - `/field/element/coords`, `/field/element/dxi_dx`, `/field/element/jacobian` — GLL node positions and geometric derivatives needed by postprocess for Green's function assembly
 - `/field/element/is_pml` — int8 flag per element (1=PML, 0=ordinary) for postprocess PML exclusion
 - `/field/surface/boundary_tag` — surface boundary tags (0=interior, 1=free surface, 2=absorbing)
@@ -339,7 +341,7 @@ Full schema for `/field/` groups in [mesh.md](mesh.md).
 
 All other GLL-node data (material, mass, CPML) and partition data are NOT written to mesh.h5. They are distributed across per-rank `partition_{r}.h5` files.
 
-### partition_{r}.h5
+### partition\_{r}.h5
 
 One per MPI rank. Contains the local subset (owned + ghost elements) of all GLL-node fields plus partition metadata. Full schema in [mesh.md](mesh.md).
 

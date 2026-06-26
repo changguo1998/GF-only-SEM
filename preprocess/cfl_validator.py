@@ -19,9 +19,7 @@ MAX_STRIDE = 100
 
 
 def compute_cfl_dt(
-    gll_coords: npt.NDArray[np.float64],
-    vp_array: npt.NDArray[np.float64],
-    cfl_safety: float,
+    gll_coords: npt.NDArray[np.float64], vp_array: npt.NDArray[np.float64], cfl_safety: float
 ) -> float:
     """Compute the CFL-limited time step.
 
@@ -77,9 +75,7 @@ def compute_cfl_dt(
 
 
 def compute_solver_dt(
-    output_dt_s: float,
-    cfl_dt: float,
-    max_stride: int = MAX_STRIDE,
+    output_dt_s: float, cfl_dt: float, max_stride: int = MAX_STRIDE
 ) -> tuple[float, int]:
     """Derive solver timestep and snapshot stride.
 

@@ -2,7 +2,7 @@
 
 CG-SEM forward solver for elastic wave propagation + Green's function extraction.
 
----
+______________________________________________________________________
 
 ## 1. Governing Equation
 
@@ -26,10 +26,11 @@ Isotropic constitutive law (Hooke's law):
 - **v_s**: S-wave velocity (m/s)
 
 Boundary conditions:
+
 - **Free surface**: z = z_min, σ·n̂ = 0 (natural boundary, no explicit enforcement needed in weak form)
 - **Absorbing (PML)**: other domain faces, convolutional PML
 
----
+______________________________________________________________________
 
 ## 2. Weak Form & SEM Discretization
 
@@ -56,10 +57,9 @@ SEM uses Gauss-Lobatto-Legendre (GLL) quadrature with N+1 points per axis. Nodes
 | Polynomial order | N | User-specified (testing: N=3, production: N=5) |
 | GLL points per axis | NGLL = N+1 | 4 (test) / 6 (prod) |
 | GLL nodes per element | NGLL³ | 64 (test) / 216 (prod) |
-| Total GLL points | ξ_i, i=0..N | Roots of P'_N(ξ); endpoints −1, +1 |
+| Total GLL points | ξ_i, i=0..N | Roots of P'\_N(ξ); endpoints −1, +1 |
 | Quadrature weights | w_i | 2/(N(N+1)[P_N(ξ_i)]²) |
-| Derivative matrix | D_ij = ℓ'_j(ξ_i) | Off-diagonal: P_N(ξ_i)/[P_N(ξ_j)(ξ_i−ξ_j)]; Diagonal endpoints: ∓N(N+1)/4; Diagonal interior: 0 |
-
+| Derivative matrix | D_ij = ℓ'\_j(ξ_i) | Off-diagonal: P_N(ξ_i)/[P_N(ξ_j)(ξ_i−ξ_j)]; Diagonal endpoints: ∓N(N+1)/4; Diagonal interior: 0 |
 P_N(x) computed via Bonnet's recurrence:
 
 <center>P₀ = 1, P₁ = x, (k+1)P_{k+1} = (2k+1)xP_k − kP_{k-1}</center>
@@ -82,13 +82,13 @@ After mapping, the global discrete system:
 - **K**: global stiffness matrix (never assembled explicitly — matrix-free)
 - **f**: source force vector
 
----
+______________________________________________________________________
 
 ## 3. Element-Level Computation (Matrix-Free)
 
 ### 3.1 Per-Element Geometry
 
-For each GLL node (i,j,k) of element e, precomputed and stored in partition_{r}.h5:
+For each GLL node (i,j,k) of element e, precomputed and stored in partition\_{r}.h5:
 
 #### Jacobian Matrix
 
@@ -138,7 +138,7 @@ At each quadrature node (i,j,k), the contribution of stress σ to the residual a
 
 <center>r^{e}_{stu,m} += σ_{mn}·∂N_{stu}/∂x_n · det(J) · w_i·w_j·w_k</center>
 
-The gradient of basis function N_{stu} at node (i,j,k) is:
+The gradient of basis function N\_{stu} at node (i,j,k) is:
 
 <center>∂N_{stu}/∂x_n = D^{ξ}_{si}·ℓ_t(η_j)·ℓ_u(ζ_k)·∂ξ/∂x_n + ℓ_s(ξ_i)·D^{η}_{tj}·ℓ_u(ζ_k)·∂η/∂x_n + ℓ_s(ξ_i)·ℓ_t(η_j)·D^{ζ}_{uk}·∂ζ/∂x_n</center>
 
@@ -148,7 +148,7 @@ The summation over all elements assembles the global residual:
 
 <center>r_global = Σ_e r^{e}  (additive assembly at shared GLL nodes)</center>
 
----
+______________________________________________________________________
 
 ## 4. Lumped Mass Matrix
 
@@ -158,7 +158,7 @@ Diagonal mass matrix (GLL spectral element):
 
 One scalar per GLL node — all 3 displacement components at that node share the same lumped mass. No mass matrix inversion needed beyond scalar division.
 
----
+______________________________________________________________________
 
 ## 5. Time Integration: Newmark Explicit (β=0, γ=½)
 
@@ -189,7 +189,7 @@ Explicit central difference scheme. Conditionally stable — CFL constraint:
 
 where h_min is the minimum Euclidean distance between adjacent GLL nodes within any element.
 
----
+______________________________________________________________________
 
 ## 6. C-PML (Convolutional Perfectly Matched Layer)
 
@@ -209,7 +209,7 @@ All 3 DOF components at a node share the same damping coefficient. Non-PML eleme
 
 Note: full C-PML implementation with stretched-coordinate memory variables (21 arrays = 39 scalars per GLL node per PML element) is deferred. When implemented, it will follow the second-order recursive convolution formulation of Wang et al. (2006, eq. 21, θ=1/8), matching SPECFEM3D.
 
----
+______________________________________________________________________
 
 ## 7. Source Injection
 
@@ -235,29 +235,29 @@ Force distributed to GLL nodes via Lagrange interpolation weights:
 
 <center>F_{ijk} = STF[n] · w_{ijk} · ê_dir</center>
 
-where w_{ijk} = ℓ_i(ξ_s)·ℓ_j(η_s)·ℓ_k(ζ_s) are the Lagrange basis values at the source natural coordinates. Weights normalized so Σ w_{ijk} = 1 across all sharing surface elements.
+where w\_{ijk} = ℓ_i(ξ_s)·ℓ_j(η_s)·ℓ_k(ζ_s) are the Lagrange basis values at the source natural coordinates. Weights normalized so Σ w\_{ijk} = 1 across all sharing surface elements.
 
 ### 7.4 Force Direction
 
 Three orthogonal force directions (x, y, z) run independently. Each produces a 3×3 strain Green's tensor column. Direction passed via CLI `--direction {x,y,z}`, not embedded in config file.
 
----
+______________________________________________________________________
 
 ## 8. MPI Halo Exchange
 
 CG-SEM assembly across MPI ranks at shared GLL interface nodes:
 
 1. Precomputed exchange patterns per neighbor: `send_dof_indices` and `recv_dof_indices`
-2. Pack: copy local DOF values to contiguous send buffer
-3. Non-blocking MPI_Isend / MPI_Irecv per neighbor
-4. MPI_Waitall
-5. **Accumulate**: add received values to local field at recv_dof_indices
+1. Pack: copy local DOF values to contiguous send buffer
+1. Non-blocking MPI_Isend / MPI_Irecv per neighbor
+1. MPI_Waitall
+1. **Accumulate**: add received values to local field at recv_dof_indices
 
 <center>field[recv_idx[j]] += recv_buf[j]  (additive, not overwrite)</center>
 
 This ensures contributions from neighbor ranks to shared GLL nodes are summed, implementing the global assembly without constructing the global system matrix.
 
----
+______________________________________________________________________
 
 ## 9. Strain Computation
 
@@ -268,11 +268,12 @@ After each Newmark correct step, element-wise strain computed from the corrected
 Voigt storage order (6 components per GLL node): ε_xx, ε_yy, ε_zz, ε_xy, ε_xz, ε_yz.
 
 L2 strain smoothing (matches SPECFEM3D convention):
+
 <center>ε_smooth = M⁻¹ · Σ_e ∫ N·ε_e dΩ</center>
 
 Smoothed strain written to HDF5 snapshots at stride intervals.
 
----
+______________________________________________________________________
 
 ## 10. Strain Green's Function Extraction
 
@@ -294,7 +295,7 @@ Output tiled by element range (lat/lon bounding boxes). Each `greenfun/tile_{i}.
 
 Green's functions extracted at all GLL nodes. No receiver positions, no receiver search, no position interpolation in postprocess. This is a design constraint — all strain response data is preserved.
 
----
+______________________________________________________________________
 
 ## 11. Timestep Derivation
 
@@ -312,40 +313,16 @@ Search for smallest integer stride such that:
 
 Snapshot written when `step % snapshot_stride == 0`.
 
----
+______________________________________________________________________
 
 ## 12. Validation Constraints
 
 All checked at preprocess time:
 
-| Check | Condition |
-|-------|-----------|
-| Mesh | det(J) > 0 at all GLL nodes |
-| Material | v_p > 0, v_s ≥ 0, ρ > 0 at all GLL nodes |
-| CFL | solver_dt ≤ cfl_dt |
-| Source | x, y within domain; STF finite & non-NaN |
-| Storage | estimated disk usage ≤ storage_limit_gb |
-| PML | ≥ 2 elements per absorbing face (warn if thinner) |
-
----
+## | Check | Condition | | ------- | ----------- | | Mesh | det(J) > 0 at all GLL nodes | | Material | v_p > 0, v_s ≥ 0, ρ > 0 at all GLL nodes | | CFL | solver_dt ≤ cfl_dt | | Source | x, y within domain; STF finite & non-NaN | | Storage | estimated disk usage ≤ storage_limit_gb | | PML | ≥ 2 elements per absorbing face (warn if thinner) |
 
 ## 13. Summary of Key Equations
 
-| # | Equation | Meaning |
-|---|----------|---------|
-| 1 | ρ·ü = ∇·σ + f | Elastic wave equation |
-| 2 | σ = λ·tr(ε)·I + 2μ·ε | Isotropic stress-strain |
-| 3 | ε = ½(∇u + ∇uᵀ) | Infinitesimal strain |
-| 4 | Du/Dξ = D·u | Reference gradient via GLL derivative matrix |
-| 5 | ∂u/∂x = (∂u/∂ξ)·(∂ξ/∂x) | Physical gradient via chain rule |
-| 6 | r = −∫ ∇N·σ dΩ | Matrix-free internal force |
-| 7 | M_{ijk} = ρ·det(J)·w_i·w_j·w_k | Lumped mass |
-| 8 | ũ = u_n + Δt·v_n + ½Δt²·a_n | Newmark predictor |
-| 9 | a_{n+1} = M⁻¹·r(ũ) | Newmark corrector (acceleration) |
-| 10 | v_{n+1} = v_n + ½Δt·a_n + ½Δt·a_{n+1} | Newmark corrector (velocity) |
-| 11 | Δt ≤ h_min / v_p_max | CFL stability |
-| 12 | G_{ij} = ε^{(j)}_i | Strain Green's tensor |
+## | # | Equation | Meaning | | --- | ---------- | --------- | | 1 | ρ·ü = ∇·σ + f | Elastic wave equation | | 2 | σ = λ·tr(ε)·I + 2μ·ε | Isotropic stress-strain | | 3 | ε = ½(∇u + ∇uᵀ) | Infinitesimal strain | | 4 | Du/Dξ = D·u | Reference gradient via GLL derivative matrix | | 5 | ∂u/∂x = (∂u/∂ξ)·(∂ξ/∂x) | Physical gradient via chain rule | | 6 | r = −∫ ∇N·σ dΩ | Matrix-free internal force | | 7 | M\_{ijk} = ρ·det(J)·w_i·w_j·w_k | Lumped mass | | 8 | ũ = u_n + Δt·v_n + ½Δt²·a_n | Newmark predictor | | 9 | a\_{n+1} = M⁻¹·r(ũ) | Newmark corrector (acceleration) | | 10 | v\_{n+1} = v_n + ½Δt·a_n + ½Δt·a\_{n+1} | Newmark corrector (velocity) | | 11 | Δt ≤ h_min / v_p_max | CFL stability | | 12 | G\_{ij} = ε^{(j)}\_i | Strain Green's tensor |
 
----
-
-*Generated from source code: forward/include/gf/*.hpp, forward/src/*.cpp, preprocess/*.py.*
+*Generated from source code: forward/include/gf/*.hpp, forward/src/*.cpp, preprocess/*.py.\*

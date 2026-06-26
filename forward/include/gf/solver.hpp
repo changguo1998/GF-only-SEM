@@ -16,4 +16,4 @@ namespace gf {
 /// \return 0 on success, non-zero on failure
 int run_forward(const std::string& direction);
 
-} // namespace gf
+}  // namespace gf

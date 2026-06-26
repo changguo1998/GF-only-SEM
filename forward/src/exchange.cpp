@@ -1,19 +1,20 @@
 // forward/src/exchange.cpp
 #include "gf/exchange.hpp"
-#include "gf/types.hpp"
+
 #include <mpi.h>
+
 #include <stdexcept>
+
+#include "gf/types.hpp"
 
 namespace gf {
 
-void exchange_halo(
-    const std::vector<RankData::ExchangePattern>& patterns,
-    std::vector<double>& field,
-    int n_dof_per_node
-) {
-    (void)n_dof_per_node; // reserved for validation if needed
+void exchange_halo(const std::vector<RankData::ExchangePattern>& patterns,
+                   std::vector<double>& field, int n_dof_per_node) {
+    (void)n_dof_per_node;  // reserved for validation if needed
 
-    if (patterns.empty()) return;
+    if (patterns.empty())
+        return;
 
     // Count total send/recv sizes for buffer allocation
     size_t total_send = 0;
@@ -23,7 +24,8 @@ void exchange_halo(
         total_recv += p.recv_dof_indices.size();
     }
 
-    if (total_send == 0 || total_recv == 0) return;
+    if (total_send == 0 || total_recv == 0)
+        return;
 
     // Allocate temporary buffers
     std::vector<double> send_buf(total_send);
@@ -42,7 +44,8 @@ void exchange_halo(
         int n_send = static_cast<int>(pat.send_dof_indices.size());
         int n_recv = static_cast<int>(pat.recv_dof_indices.size());
 
-        if (n_send == 0 || n_recv == 0) continue;
+        if (n_send == 0 || n_recv == 0)
+            continue;
 
         // Pack send data
         for (int j = 0; j < n_send; ++j) {
@@ -50,18 +53,12 @@ void exchange_halo(
         }
 
         // Post non-blocking send
-        MPI_Isend(send_buf.data() + send_offset,
-                  n_send, MPI_DOUBLE,
-                  pat.neighbor_rank, static_cast<int>(i),
-                  MPI_COMM_WORLD,
-                  &requests[2 * i]);
+        MPI_Isend(send_buf.data() + send_offset, n_send, MPI_DOUBLE, pat.neighbor_rank,
+                  static_cast<int>(i), MPI_COMM_WORLD, &requests[2 * i]);
 
         // Post non-blocking receive
-        MPI_Irecv(recv_buf.data() + recv_offset,
-                  n_recv, MPI_DOUBLE,
-                  pat.neighbor_rank, static_cast<int>(i),
-                  MPI_COMM_WORLD,
-                  &requests[2 * i + 1]);
+        MPI_Irecv(recv_buf.data() + recv_offset, n_recv, MPI_DOUBLE, pat.neighbor_rank,
+                  static_cast<int>(i), MPI_COMM_WORLD, &requests[2 * i + 1]);
 
         send_offset += n_send;
         recv_offset += n_recv;
@@ -85,4 +82,4 @@ void exchange_halo(
     }
 }
 
-} // namespace gf
+}  // namespace gf

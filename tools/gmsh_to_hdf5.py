@@ -10,6 +10,7 @@ Usage:
 
 import argparse
 from collections import defaultdict
+
 import h5py
 import meshio
 import numpy as np
@@ -67,9 +68,18 @@ def extract_topology(mesh):
     for cell_hex in hex_cells:
         v = cell_hex
         local_edges = [
-            (0, 1), (1, 2), (2, 3), (3, 0),
-            (4, 5), (5, 6), (6, 7), (7, 4),
-            (0, 4), (1, 5), (2, 6), (3, 7),
+            (0, 1),
+            (1, 2),
+            (2, 3),
+            (3, 0),
+            (4, 5),
+            (5, 6),
+            (6, 7),
+            (7, 4),
+            (0, 4),
+            (1, 5),
+            (2, 6),
+            (3, 7),
         ]
         eids = []
         for a, b in local_edges:
@@ -261,8 +271,9 @@ def write_auxiliary(path, topology):
 def main():
     parser = argparse.ArgumentParser(description="GMSH to HDF5 topology converter")
     parser.add_argument("input", help="Input GMSH .msh file (v4.1)")
-    parser.add_argument("-o", "--output", default="mesh.h5",
-                        help="Output mesh.h5 (default: mesh.h5)")
+    parser.add_argument(
+        "-o", "--output", default="mesh.h5", help="Output mesh.h5 (default: mesh.h5)"
+    )
     parser.add_argument("--aux", help="Optional auxiliary CSR file")
     args = parser.parse_args()
 

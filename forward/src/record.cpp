@@ -1,11 +1,14 @@
 // forward/src/record.cpp
 #include "gf/record.hpp"
-#include "gf/CompressionFilter.h"
-#include "gf/PrecisionPolicy.h"
-#include "gf/ChunkingStrategy.h"
+
 #include <hdf5.h>
+
 #include <stdexcept>
 #include <vector>
+
+#include "gf/ChunkingStrategy.h"
+#include "gf/CompressionFilter.h"
+#include "gf/PrecisionPolicy.h"
 
 namespace gf {
 
@@ -14,8 +17,10 @@ namespace {
 // Helper: write scalar attribute
 void write_scalar_attr(hid_t loc_id, const std::string& name, hid_t type_id, const void* value) {
     hid_t attr_space = H5Screate(H5S_SCALAR);
-    if (attr_space < 0) throw std::runtime_error("H5Screate failed for attr: " + name);
-    hid_t attr_id = H5Acreate2(loc_id, name.c_str(), type_id, attr_space, H5P_DEFAULT, H5P_DEFAULT);
+    if (attr_space < 0)
+        throw std::runtime_error("H5Screate failed for attr: " + name);
+    hid_t attr_id =
+        H5Acreate2(loc_id, name.c_str(), type_id, attr_space, H5P_DEFAULT, H5P_DEFAULT);
     if (attr_id < 0) {
         H5Sclose(attr_space);
         throw std::runtime_error("H5Acreate2 failed for attr: " + name);
@@ -30,7 +35,8 @@ void write_string_attr(hid_t loc_id, const std::string& name, const std::string&
     hid_t str_type = H5Tcopy(H5T_C_S1);
     H5Tset_size(str_type, value.size());
     hid_t attr_space = H5Screate(H5S_SCALAR);
-    hid_t attr_id = H5Acreate2(loc_id, name.c_str(), str_type, attr_space, H5P_DEFAULT, H5P_DEFAULT);
+    hid_t attr_id =
+        H5Acreate2(loc_id, name.c_str(), str_type, attr_space, H5P_DEFAULT, H5P_DEFAULT);
     if (attr_id < 0) {
         H5Sclose(attr_space);
         H5Tclose(str_type);
@@ -41,25 +47,19 @@ void write_string_attr(hid_t loc_id, const std::string& name, const std::string&
     H5Sclose(attr_space);
     H5Tclose(str_type);
 }
-} // anonymous namespace
+}  // anonymous namespace
 
-RecordWriter::RecordWriter(const std::string& output_dir,
-                           const std::string& source_direction,
-                           int rank,
-                           int n_local_elem,
-                           const int64_t* element_ids,
-                           int ngll,
-                           CompressionConfig compression,
-                           bool use_float32)
-    : file_id_(-1)
-    , strain_dset_(-1)
-    , strain_space_(-1)
-    , current_step_(0)
-    , n_elem_local_(static_cast<hsize_t>(n_local_elem))
-    , ngll_(ngll)
-    , use_float32_(use_float32)
-    , source_direction_(source_direction)
-{
+RecordWriter::RecordWriter(const std::string& output_dir, const std::string& source_direction,
+                           int rank, int n_local_elem, const int64_t* element_ids, int ngll,
+                           CompressionConfig compression, bool use_float32)
+    : file_id_(-1),
+      strain_dset_(-1),
+      strain_space_(-1),
+      current_step_(0),
+      n_elem_local_(static_cast<hsize_t>(n_local_elem)),
+      ngll_(ngll),
+      use_float32_(use_float32),
+      source_direction_(source_direction) {
     // Build file path: {output_dir}/{direction}/record_{rank}.h5
     std::string wavefields_dir = output_dir + "/" + source_direction;
     filepath_ = wavefields_dir + "/record_" + std::to_string(rank) + ".h5";
@@ -79,10 +79,10 @@ RecordWriter::RecordWriter(const std::string& output_dir,
     // Write local_element_ids dataset
     hsize_t elem_dims[1] = {n_elem_local_};
     hid_t elem_space = H5Screate_simple(1, elem_dims, nullptr);
-    if (elem_space < 0) throw std::runtime_error("H5Screate_simple failed for elem_ids");
-    hid_t elem_dset = H5Dcreate2(file_id_, "local_element_ids",
-                                  H5T_NATIVE_INT64, elem_space,
-                                  H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    if (elem_space < 0)
+        throw std::runtime_error("H5Screate_simple failed for elem_ids");
+    hid_t elem_dset = H5Dcreate2(file_id_, "local_element_ids", H5T_NATIVE_INT64, elem_space,
+                                 H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
     if (elem_dset < 0) {
         H5Sclose(elem_space);
         throw std::runtime_error("H5Dcreate2 failed for local_element_ids");
@@ -93,19 +93,22 @@ RecordWriter::RecordWriter(const std::string& output_dir,
 
     // Create extendible strain dataset: [1, n_elem_local, NGLL, NGLL, NGLL, 6]
     constexpr hsize_t ncomps = 6;
-    hsize_t strain_dims[6] = {1, n_elem_local_,
+    hsize_t strain_dims[6] = {1,
+                              n_elem_local_,
                               static_cast<hsize_t>(ngll_),
                               static_cast<hsize_t>(ngll_),
                               static_cast<hsize_t>(ngll_),
                               ncomps};
-    hsize_t max_dims[6] = {H5S_UNLIMITED, n_elem_local_,
+    hsize_t max_dims[6] = {H5S_UNLIMITED,
+                           n_elem_local_,
                            static_cast<hsize_t>(ngll_),
                            static_cast<hsize_t>(ngll_),
                            static_cast<hsize_t>(ngll_),
                            ncomps};
 
     strain_space_ = H5Screate_simple(6, strain_dims, max_dims);
-    if (strain_space_ < 0) throw std::runtime_error("H5Screate_simple failed for strain");
+    if (strain_space_ < 0)
+        throw std::runtime_error("H5Screate_simple failed for strain");
 
     // Apply chunking and compression
     hid_t plist = H5Pcreate(H5P_DATASET_CREATE);
@@ -118,8 +121,8 @@ RecordWriter::RecordWriter(const std::string& output_dir,
 
     hid_t write_type = select_precision_type(use_float32);
 
-    strain_dset_ = H5Dcreate2(file_id_, "strain", write_type, strain_space_,
-                               H5P_DEFAULT, plist, H5P_DEFAULT);
+    strain_dset_ =
+        H5Dcreate2(file_id_, "strain", write_type, strain_space_, H5P_DEFAULT, plist, H5P_DEFAULT);
     if (strain_dset_ < 0) {
         H5Pclose(plist);
         H5Sclose(strain_space_);
@@ -145,10 +148,12 @@ void RecordWriter::write_step(int step, const double* strain) {
     }
 
     // Extend the dataset along time dimension (dim 0) to current_step_.
-    hsize_t new_dims[6] = {current_step_, n_elem_local_,
+    hsize_t new_dims[6] = {current_step_,
+                           n_elem_local_,
                            static_cast<hsize_t>(ngll_),
                            static_cast<hsize_t>(ngll_),
-                           static_cast<hsize_t>(ngll_), 6};
+                           static_cast<hsize_t>(ngll_),
+                           6};
     herr_t status = H5Dset_extent(strain_dset_, new_dims);
     if (status < 0) {
         throw std::runtime_error("H5Dset_extent failed at step " + std::to_string(current_step_));
@@ -163,10 +168,12 @@ void RecordWriter::write_step(int step, const double* strain) {
 
     // Select hyperslab for the new step
     hsize_t start[6] = {current_step_ - 1, 0, 0, 0, 0, 0};
-    hsize_t count[6] = {1, n_elem_local_,
+    hsize_t count[6] = {1,
+                        n_elem_local_,
                         static_cast<hsize_t>(ngll_),
                         static_cast<hsize_t>(ngll_),
-                        static_cast<hsize_t>(ngll_), 6};
+                        static_cast<hsize_t>(ngll_),
+                        6};
     H5Sselect_hyperslab(filespace, H5S_SELECT_SET, start, nullptr, count, nullptr);
 
     // Create memory dataspace for this slab
@@ -179,9 +186,11 @@ void RecordWriter::write_step(int step, const double* strain) {
     // If float32, convert doubles to floats on the fly
     if (use_float32_) {
         hsize_t total = 1;
-        for (int i = 0; i < 6; ++i) total *= count[i];
+        for (int i = 0; i < 6; ++i)
+            total *= count[i];
         std::vector<float> fbuf(total);
-        for (hsize_t i = 0; i < total; ++i) fbuf[i] = static_cast<float>(strain[i]);
+        for (hsize_t i = 0; i < total; ++i)
+            fbuf[i] = static_cast<float>(strain[i]);
         H5Dwrite(strain_dset_, H5T_NATIVE_FLOAT, memspace, filespace, H5P_DEFAULT, fbuf.data());
     } else {
         H5Dwrite(strain_dset_, H5T_NATIVE_DOUBLE, memspace, filespace, H5P_DEFAULT, strain);
@@ -208,4 +217,4 @@ void RecordWriter::close() {
     }
 }
 
-} // namespace gf
+}  // namespace gf

@@ -1,15 +1,12 @@
 // forward/src/pml.cpp
 #include "gf/pml.hpp"
+
 #include <cassert>
 
 namespace gf {
 
-void apply_pml_damping(
-    const std::vector<double>& damping_profile,
-    const std::vector<double>& /*u*/,
-    std::vector<double>& v,
-    int n_dof
-) {
+void apply_pml_damping(const std::vector<double>& damping_profile,
+                       const std::vector<double>& /*u*/, std::vector<double>& v, int n_dof) {
     // n_node_per_elem = NGLL^3
     // n_dof = n_elem * n_node_per_elem * 3
     // Each node has 3 DOFs sharing the same damping coefficient
@@ -26,4 +23,4 @@ void apply_pml_damping(
     }
 }
 
-} // namespace gf
+}  // namespace gf

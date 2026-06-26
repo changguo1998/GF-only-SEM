@@ -20,7 +20,6 @@ Homogeneous elastic half-space with a point force at the surface.
 | `halfspace/config.py` | Simulation configuration (Python config script) |
 | `halfspace/mesh_gen.py` | Regular hex mesh generator (standalone) |
 | `halfspace/run.sh` | End-to-end pipeline script |
-
 **Quick start:**
 
 ```bash
@@ -44,8 +43,8 @@ source env_setup.sh
 **What it does:**
 
 1. Generates a 10×10×5 regular hex mesh (500 elements, 10km×10km×5km)
-2. Runs preprocessor: GLL geometry, constant material (Vp=5000, Vs=3000, ρ=2700), PML boundaries, 2-rank METIS partition
-3. Runs forward solver in 3 directions (x, y, z) with MPI
+1. Runs preprocessor: GLL geometry, constant material (Vp=5000, Vs=3000, ρ=2700), PML boundaries, 2-rank METIS partition
+1. Runs forward solver in 3 directions (x, y, z) with MPI
 
 **Output layout:**
 
@@ -67,5 +66,5 @@ examples/halfspace/
 1. Create `examples/<name>/` with:
    - `config.py` — Python config (see `preprocess/config_loader.py` for schema)
    - `run.sh` — Pipeline script
-2. Follow the halfspace example as a template
-3. Update this README
+1. Follow the halfspace example as a template
+1. Update this README

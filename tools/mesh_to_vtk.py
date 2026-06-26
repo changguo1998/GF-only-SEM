@@ -28,8 +28,8 @@ _HEX_FACES = [
 
 # ── Topology resolution ────────────────────────────────────────────────
 
-def resolve_cell_vertices(cell_to_surface, surface_to_edge,
-                          edge_to_vertex, cell_idx):
+
+def resolve_cell_vertices(cell_to_surface, surface_to_edge, edge_to_vertex, cell_idx):
     """Resolve the 8 global vertex indices of a hex cell.
 
     Uses the signed surface/edge topology to build a mapping from
@@ -38,16 +38,28 @@ def resolve_cell_vertices(cell_to_surface, surface_to_edge,
     Returns list of 8 global vertex indices in VTK hex order:
         [v0, v1, v2, v3, v4, v5, v6, v7]
     """
-    signed_surfaces = cell_to_surface[cell_idx]   # (6,) 1-based, signed
-    local_to_global = {}                           # lv → gv
+    signed_surfaces = cell_to_surface[cell_idx]  # (6,) 1-based, signed
+    local_to_global = {}  # lv → gv
 
     for fi in range(6):
-        sid = int(abs(signed_surfaces[fi])) - 1    # 0-based surface id
-        signed_edges = surface_to_edge[sid]         # (4,) 1-based, signed
+        sid_signed = signed_surfaces[fi]  # signed surface id (+ or -)
+        sid = int(abs(sid_signed)) - 1  # 0-based surface id
+        canonical_edges = surface_to_edge[sid]  # canonical (4,) 1-based, signed
+
+        # If cell uses reversed orientation, negate and reverse edge order
+        if sid_signed > 0:
+            signed_edges = canonical_edges
+        else:
+            signed_edges = [
+                -canonical_edges[3],
+                -canonical_edges[2],
+                -canonical_edges[1],
+                -canonical_edges[0],
+            ]
 
         for k in range(4):
-            eid = int(abs(signed_edges[k])) - 1     # 0-based edge id
-            gv1, gv2 = edge_to_vertex[eid]          # 1-based, sorted: gv1 < gv2
+            eid = int(abs(signed_edges[k])) - 1  # 0-based edge id
+            gv1, gv2 = edge_to_vertex[eid]  # 1-based, sorted: gv1 < gv2
             gv1 -= 1
             gv2 -= 1
 
@@ -68,19 +80,18 @@ def resolve_cell_vertices(cell_to_surface, surface_to_edge,
     return [local_to_global[lv] for lv in range(8)]
 
 
-def build_cell_connectivity(cell_to_surface, surface_to_edge,
-                            edge_to_vertex):
+def build_cell_connectivity(cell_to_surface, surface_to_edge, edge_to_vertex):
     """Build full [n_cell, 8] connectivity array (0-based vertex indices)."""
     n_cell = cell_to_surface.shape[0]
     connectivity = np.zeros((n_cell, 8), dtype=np.int64)
     for ci in range(n_cell):
-        conn = resolve_cell_vertices(cell_to_surface, surface_to_edge,
-                                     edge_to_vertex, ci)
+        conn = resolve_cell_vertices(cell_to_surface, surface_to_edge, edge_to_vertex, ci)
         connectivity[ci] = conn
     return connectivity
 
 
 # ── Field assembly from partition files ────────────────────────────────
+
 
 def read_partition_fields(partition_dir, n_cell):
     """Aggregate element fields from all partition_{r}.h5 files.
@@ -92,13 +103,10 @@ def read_partition_fields(partition_dir, n_cell):
     """
     # Find all partition files
     part_files = sorted(
-        f for f in os.listdir(partition_dir)
-        if f.startswith("partition_") and f.endswith(".h5")
+        f for f in os.listdir(partition_dir) if f.startswith("partition_") and f.endswith(".h5")
     )
     if not part_files:
-        raise FileNotFoundError(
-            f"No partition_*.h5 files found in {partition_dir}"
-        )
+        raise FileNotFoundError(f"No partition_*.h5 files found in {partition_dir}")
 
     # Read element_to_rank from first partition file
     with h5py.File(os.path.join(partition_dir, part_files[0]), "r") as f:
@@ -113,8 +121,8 @@ def read_partition_fields(partition_dir, n_cell):
         with h5py.File(os.path.join(partition_dir, pf), "r") as f:
             local_ids = f["partition/local_element_ids"][:]  # global 1-based
             for name in field_names:
-                data = f[f"field/element/{name}"][:]   # (n_local, NGLL, NGLL, NGLL)
-                avg = np.mean(data, axis=(1, 2, 3))     # per-element average
+                data = f[f"field/element/{name}"][:]  # (n_local, NGLL, NGLL, NGLL)
+                avg = np.mean(data, axis=(1, 2, 3))  # per-element average
                 for li, gid in enumerate(local_ids):
                     fields[name][gid - 1] = avg[li]
 
@@ -122,6 +130,7 @@ def read_partition_fields(partition_dir, n_cell):
 
 
 # ── VTK writer (legacy ASCII) ──────────────────────────────────────────
+
 
 def write_vtu(path, vertex_coords, connectivity, cell_fields):
     """Write VTK Unstructured Grid (legacy ASCII .vtk format).
@@ -166,6 +175,7 @@ def write_vtu(path, vertex_coords, connectivity, cell_fields):
 
 # ── Main ───────────────────────────────────────────────────────────────
 
+
 def main():
     cwd = os.getcwd()
     mesh_path = os.path.join(cwd, "mesh.h5")
@@ -193,14 +203,12 @@ def main():
 
     # ── Resolve connectivity ──
     print("[mesh_to_vtk] Resolving hexahedral connectivity...")
-    connectivity = build_cell_connectivity(
-        cell_to_surface, surface_to_edge, edge_to_vertex
-    )
+    connectivity = build_cell_connectivity(cell_to_surface, surface_to_edge, edge_to_vertex)
 
     # ── Read partition fields ──
     cell_fields = {}
     if has_partitions:
-        print(f"[mesh_to_vtk] Reading partitions/...")
+        print("[mesh_to_vtk] Reading partitions/...")
         fields = read_partition_fields(part_dir, n_cell)
         cell_fields["Vp_m_s"] = fields["vp"]
         cell_fields["Vs_m_s"] = fields["vs"]

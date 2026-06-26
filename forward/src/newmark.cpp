@@ -3,17 +3,12 @@
 
 namespace gf {
 
-void newmark_predictor(
-    const NewmarkParams& params,
-    const std::vector<double>& u,
-    const std::vector<double>& v,
-    const std::vector<double>& a,
-    std::vector<double>& u_tilde,
-    std::vector<double>& v_tilde
-) {
-    const double dt    = params.dt;
-    const double dt2   = dt * dt;
-    const double half  = 0.5;
+void newmark_predictor(const NewmarkParams& params, const std::vector<double>& u,
+                       const std::vector<double>& v, const std::vector<double>& a,
+                       std::vector<double>& u_tilde, std::vector<double>& v_tilde) {
+    const double dt = params.dt;
+    const double dt2 = dt * dt;
+    const double half = 0.5;
     const size_t n_dof = u.size();
 
     for (size_t i = 0; i < n_dof; ++i) {
@@ -25,16 +20,11 @@ void newmark_predictor(
     }
 }
 
-void newmark_corrector(
-    const NewmarkParams& params,
-    const std::vector<double>& mass,
-    const std::vector<double>& residual,
-    std::vector<double>& u,
-    std::vector<double>& v,
-    std::vector<double>& a
-) {
-    const double dt    = params.dt;
-    const double half  = 0.5;
+void newmark_corrector(const NewmarkParams& params, const std::vector<double>& mass,
+                       const std::vector<double>& residual, std::vector<double>& u,
+                       std::vector<double>& v, std::vector<double>& a) {
+    const double dt = params.dt;
+    const double half = 0.5;
     const size_t n_dof = u.size();
 
     for (size_t i = 0; i < n_dof; ++i) {
@@ -51,4 +41,4 @@ void newmark_corrector(
     }
 }
 
-} // namespace gf
+}  // namespace gf

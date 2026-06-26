@@ -2,14 +2,13 @@
 
 import os
 import sys
+
 import pytest
-from pathlib import Path
-from types import ModuleType
 
 _project_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 sys.path.insert(0, _project_root)
 
-from preprocess.config_loader import load_config, ConfigValidationError
+from preprocess.config_loader import ConfigValidationError, load_config
 
 
 class TestLoadConfig:
@@ -24,11 +23,13 @@ class TestLoadConfig:
             if isinstance(val, str):
                 lines.append(f'{key} = "{val}"\n')
             elif isinstance(val, dict):
-                lines.append(f'{key} = {val!r}\n')
+                lines.append(f"{key} = {val!r}\n")
             else:
-                lines.append(f'{key} = {val}\n')
+                lines.append(f"{key} = {val}\n")
         lines.append("def stf_func(t):\n")
-        lines.append("    return (1 - 2 * (np.pi * 5.0 * (t - 0.3))**2) * np.exp(-(np.pi * 5.0 * (t - 0.3))**2)\n")
+        lines.append(
+            "    return (1 - 2 * (np.pi * 5.0 * (t - 0.3))**2) * np.exp(-(np.pi * 5.0 * (t - 0.3))**2)\n"
+        )
         lines.append("def vp_m_s(x, y, z): return 3000.0\n")
         lines.append("def vs_m_s(x, y, z): return 1500.0\n")
         lines.append("def density_kg_m3(x, y, z): return 2500.0\n")

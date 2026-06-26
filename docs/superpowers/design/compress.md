@@ -35,7 +35,7 @@ Enum + property list builder for HDF5 compression:
 | Method | Description | Zlib Config |
 |--------|------------|-------------|
 | `None` | No compression | — |
-| `LZF`  | HDF5 built-in LZF (fast, modest ratio) | — |
+| `LZF` | HDF5 built-in LZF (fast, modest ratio) | — |
 | `Zlib` | Gzip/deflate (slower, better ratio) | `level` 1–9, default 6 |
 
 ### PrecisionPolicy
@@ -74,14 +74,14 @@ wavefields/{direction}/record_{r}.h5
 ### Write Pattern
 
 1. **First snapshot**: create file, create `local_element_ids` (fixed-size), create `strain` with dim 0 as `H5S_UNLIMITED`, create `/restart/` datasets (fixed-size, overwritten each snapshot). Write initial strain slice + restart state.
-2. **Subsequent snapshots**: extend strain dim 0 by 1, write new slice. Overwrite `/restart/` datasets with latest (u, v, a).
+1. **Subsequent snapshots**: extend strain dim 0 by 1, write new slice. Overwrite `/restart/` datasets with latest (u, v, a).
 
 ### Data Shape
 
 - 6 strain components (full symmetric tensor: εxx, εyy, εzz, εxy, εxz, εyz)
 - Element-first layout: `[n_snapshots, n_elem_local, NGLL, NGLL, NGLL, 6]`
 - NGLL = N+1 (N=3 test: NGLL=4; N=5 prod: NGLL=6)
-- `local_element_ids` maps local index to global element ID (1-based, from partition_{r}.h5)
+- `local_element_ids` maps local index to global element ID (1-based, from partition\_{r}.h5)
 - Strain precision is configurable: float32 (default, for production) or float64 (for validation). Set via config.py `snapshot_precision`. Restart state (u,v,a) is always float64.
 
 ## Chunking

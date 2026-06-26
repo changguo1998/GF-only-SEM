@@ -18,10 +18,10 @@ production-representative mesh, and establishes consistent naming.
 1. Split `output_dt` into two independent parameters:
    - `solver_dt` — auto-computed from CFL, used by the forward solver's Newmark loop
    - `output_dt` — user-specified snapshot interval (must be integer multiple of solver_dt)
-2. Scale the halfspace workflow to 500k-element mesh (10×10×5 km, 100 m elements)
-3. Unify "checkpoint" and "snapshot" naming → "snapshot" everywhere
-4. Add SI-unit suffixes to all config fields
-5. Remove `cfl_threshold` (obsolete with auto solver_dt) and `nsteps` (derived from total_duration)
+1. Scale the halfspace workflow to 500k-element mesh (10×10×5 km, 100 m elements)
+1. Unify "checkpoint" and "snapshot" naming → "snapshot" everywhere
+1. Add SI-unit suffixes to all config fields
+1. Remove `cfl_threshold` (obsolete with auto solver_dt) and `nsteps` (derived from total_duration)
 
 ## Config Schema (Final)
 
@@ -133,6 +133,7 @@ Constraint: `nsteps % snapshot_stride == 0` (last solver step lands on a snapsho
 ### Per-rank memory (n_ranks=16, ~31k elements/rank)
 
 At float64 (precomputed fields):
+
 - Mesh fields: ~0.6 GB/rank
 - Runtime u,v,a,r: ~0.7 GB/rank
 - Strain: ~0.4 GB/rank

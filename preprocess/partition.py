@@ -16,9 +16,7 @@ import numpy.typing as npt
 from preprocess.topology_reader import TopologyData
 
 
-def _build_dual_graph(
-    topology: TopologyData,
-) -> tuple[list[list[int]], npt.NDArray[np.int64]]:
+def _build_dual_graph(topology: TopologyData) -> tuple[list[list[int]], npt.NDArray[np.int64]]:
     """Build the dual graph of the mesh.
 
     Each cell is a node; edges connect cells sharing a surface.
@@ -75,8 +73,7 @@ def _build_dual_graph(
 
 
 def _geometric_partition(
-    gll_coords: npt.NDArray[np.float64],
-    n_ranks: int,
+    gll_coords: npt.NDArray[np.float64], n_ranks: int
 ) -> npt.NDArray[np.int64]:
     """Fallback: partition by sorting centroids along the longest axis.
 
@@ -113,11 +110,7 @@ def _geometric_partition(
     return element_to_rank
 
 
-def partition(
-    topology: TopologyData,
-    gll_coords: npt.NDArray[np.float64],
-    n_ranks: int,
-) -> dict:
+def partition(topology: TopologyData, gll_coords: npt.NDArray[np.float64], n_ranks: int) -> dict:
     """Partition elements across MPI ranks.
 
     Builds a dual graph from cell adjacency (shared surfaces), attempts
@@ -154,9 +147,7 @@ def partition(
 
         # Convert to METIS format: (start, adjacency, weight)
         if n_ranks > 1 and n_cell > 1:
-            _, element_to_rank_metis = metis.part_graph(
-                adjacency_list, n_ranks, recursive=True
-            )
+            _, element_to_rank_metis = metis.part_graph(adjacency_list, n_ranks, recursive=True)
             element_to_rank = np.array(element_to_rank_metis, dtype=np.int64)
         else:
             element_to_rank = np.zeros(n_cell, dtype=np.int64)
@@ -320,8 +311,4 @@ def partition(
 
         rd["exchange"] = exchange_dof
 
-    return {
-        "element_to_rank": element_to_rank,
-        "n_ranks": n_ranks,
-        "per_rank": per_rank,
-    }
+    return {"element_to_rank": element_to_rank, "n_ranks": n_ranks, "per_rank": per_rank}

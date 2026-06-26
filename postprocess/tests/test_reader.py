@@ -1,10 +1,7 @@
 """Tests for gf_post.reader — RecordReader, GeometryReader, merge_records."""
 
 import numpy as np
-import h5py
-import pytest
-
-from gf_post.reader import RecordReader, GeometryReader, merge_records
+from gf_post.reader import GeometryReader, RecordReader, merge_records
 
 
 class TestRecordReader:
