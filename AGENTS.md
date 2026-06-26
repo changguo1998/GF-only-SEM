@@ -33,7 +33,7 @@ Full math formulation: [`docs/math.md`](docs/math.md)
 
 ## Project State
 
-Implementation complete — 5 modules + tests (145 tests: 97 Python, 48 C++).
+Implementation complete — 5 modules + tests (144 tests: 96 Python, 48 C++).
 Elastic-only forward solver (SLS/attenuation deferred).
 
 See each module's `AGENTS.md` for details.
@@ -46,6 +46,9 @@ See each module's `AGENTS.md` for details.
 - **SI-unit suffixes** on config fields (`_m`, `_s`, `_m_s`, `_kg_m3`)
 - **Timestep split**: `solver_dt` (auto from CFL) + `output_dt_s` (user snapshot interval), `snapshot_stride = output_dt_s / solver_dt`
 - **No receivers**: Postprocess does NOT use receiver locations. Green's functions are extracted at all GLL nodes. No receivers.csv, no receiver positions, no receiver search in postprocess. This is a design constraint — see `docs/design-decisions.md` line 253.
+- **config.py is the single source of truth**: All simulation parameters (mesh dimensions, material, source, boundary, parallelism) defined in `config.py` only. No script or shell script duplicates or hardcodes these values — they must be read from `config.py` at runtime. See `examples/halfspace/config.py` for the canonical schema.
+- **Fixed filenames per design docs**: Example scripts (mesh generators, converters) use fixed output filenames per the design docs (`mesh.h5`, `config.h5`, `partition_{r}.h5`, `record_{r}.h5`). No CLI args to override them. Only I/O paths that vary per run (e.g., input GMSH file path) use CLI arguments.
+- **Pipeline scripts read config**: `run.sh` and similar pipeline scripts derive `N_RANKS` and other runtime params from `config.py` via Python extraction, not hardcoded values.
 
 ## External Reference Codes
 

@@ -56,8 +56,7 @@ Removed fields: `dt`, `nsteps` (user), `cfl_threshold`, `checkpoint_interval`, `
 ## Tests
 
 `tests/preprocess/test_*.py` — 74 tests covering each pipeline step.
-`tests/workflows/test_multi_elem_workflow.py` — 8-element multi-rank end-to-end.
-`tests/workflows/test_halfspace_workflow.py` — 500k-element production-scale (set `GF_RUN_SLOW=1`).
+`examples/halfspace/run.sh` — End-to-end pipeline (mesh generation → preprocess → forward solver in 3 directions).
 
 ## Design Doc
 
