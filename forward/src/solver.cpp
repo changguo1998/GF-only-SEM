@@ -15,7 +15,10 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <iomanip>
 #include <stdexcept>
+#include <chrono>
+#include <ctime>
 #include <vector>
 #include <string>
 
@@ -124,6 +127,16 @@ int run_forward(const std::string& direction) {
         double gamma = 0.5;
         double dt    = cfg.solver_dt;
 
+        // === Timing (rank 0 only) ===
+        auto t_start = std::chrono::steady_clock::now();
+        double total_time_s = cfg.nsteps * cfg.solver_dt;
+
+        if (rank == 0) {
+            std::cout << "  total simulation time: " << total_time_s << " s\n"
+                      << "  solver steps: " << cfg.nsteps
+                      << ", snapshot stride: " << cfg.snapshot_stride << "\n";
+        }
+
         // === Main time loop ===
         for (int step = 0; step < cfg.nsteps; ++step) {
             // --- Newmark predict ---
@@ -227,6 +240,30 @@ int run_forward(const std::string& direction) {
                     }
                 }
                 record.write_step(step, strain.data());
+
+                // --- Progress report (rank 0 only) ---
+                if (rank == 0) {
+                    auto t_now = std::chrono::steady_clock::now();
+                    double elapsed = std::chrono::duration<double>(t_now - t_start).count();
+                    double sim_time = (step + 1) * cfg.solver_dt;
+                    double pct = 100.0 * (step + 1) / cfg.nsteps;
+                    double eta = (step + 1 < cfg.nsteps)
+                        ? elapsed * (cfg.nsteps - step - 1) / (step + 1)
+                        : 0.0;
+
+                    std::time_t finish_t = std::time(nullptr) + static_cast<std::time_t>(eta);
+                    char time_buf[32];
+                    std::strftime(time_buf, sizeof(time_buf), "%H:%M:%S",
+                                  std::localtime(&finish_t));
+
+                    std::cout << "  snapshot: t=" << std::fixed << std::setprecision(3)
+                              << sim_time << " / " << total_time_s << " s"
+                              << "  run=" << std::setprecision(1) << elapsed << " s"
+                              << "  " << (step + 1) << "/" << cfg.nsteps
+                              << " (" << std::setprecision(1) << pct << "%)"
+                              << "  eta=" << std::setprecision(1) << eta << " s"
+                              << "  finish~" << time_buf << std::endl;
+                }
             }
         }
 
