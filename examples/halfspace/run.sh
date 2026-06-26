@@ -23,6 +23,10 @@ fi
 if [ -d "${WORK_DIR}/wavefields" ]; then
     rm -rf "${WORK_DIR}/wavefields"
 fi
+if [ -d "${WORK_DIR}/log" ]; then
+    rm -rf "${WORK_DIR}/log"
+fi
+mkdir -p "${WORK_DIR}/log"
 
 # ── Step 1: Generate mesh ───
 echo ""
@@ -40,6 +44,9 @@ echo "=== Preprocess outputs ==="
 echo "mesh.h5:      $(du -sh mesh.h5 | cut -f1)"
 echo "config.h5:    $(du -sh config.h5 | cut -f1)"
 ls -hal "$WORK_DIR/partitions/"
+echo ""
+echo "log/preprocess.log:"
+cat "${WORK_DIR}/log/preprocess.log" 2>/dev/null | tail -20 || true
 
 exit 0
 
@@ -59,6 +66,9 @@ for DIR in x y z; do
     echo "wavefields/${DIR}/:"
     ls -lh "${WORK_DIR}/wavefields/${DIR}/" 2>/dev/null || echo "  (not found)"
 done
+echo ""
+echo "Log files:"
+ls -lh "${WORK_DIR}/log/" 2>/dev/null || echo "  (not found)"
 
 # ── Summary ───
 echo ""

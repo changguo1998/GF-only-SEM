@@ -21,6 +21,7 @@
 #include "gf/exchange.hpp"
 #include "gf/gll.hpp"
 #include "gf/io.hpp"
+#include "gf/logger.hpp"
 #include "gf/pml.hpp"
 #include "gf/record.hpp"
 #include "gf/types.hpp"
@@ -67,22 +68,43 @@ int run_forward(const std::string& direction) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
-    if (rank == 0) {
-        std::cout << "gf_solver: " << nprocs << " MPI ranks, direction=" << direction << std::endl;
-    }
+    Logger logger(direction, rank);
+    logger.info(std::to_string(nprocs) + " MPI ranks, direction=" + direction);
 
     try {
         // === Read config (all ranks read same file) ===
+        auto t_io = std::chrono::steady_clock::now();
         ConfigData cfg = read_config(config_path);
         int ngll = cfg.polynomial_order + 1;
+        auto io_elapsed =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - t_io).count();
+        logger.debug("  config read: " + std::to_string(io_elapsed) + "s");
+        logger.debug("  polynomial_order=" + std::to_string(cfg.polynomial_order) +
+                     " ngll=" + std::to_string(ngll));
+        logger.debug("  solver_dt=" + std::to_string(cfg.solver_dt) +
+                     " nsteps=" + std::to_string(cfg.nsteps));
+        logger.debug("  snapshot_stride=" + std::to_string(cfg.snapshot_stride) +
+                     " precision=" + cfg.snapshot_precision);
 
         // === Read partition for this rank ===
+        t_io = std::chrono::steady_clock::now();
         std::string partition_path = partition_dir + "/partition_" + std::to_string(rank) + ".h5";
         RankData part = read_partition(partition_path, rank);
+        io_elapsed =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - t_io).count();
+        logger.debug("  partition read: " + std::to_string(io_elapsed) + "s");
 
         int n_local = part.n_local_elem;
         int n_node = ngll * ngll * ngll;
         int n_local_dof = n_local * n_node * 3;
+        logger.info("  n_local=" + std::to_string(n_local) + " n_gll_per_elem=" +
+                    std::to_string(n_node) + " dofs=" + std::to_string(n_local_dof));
+
+        // Memory estimate (8 bytes per double)
+        size_t mem_bytes = n_local_dof * 4 * 8;  // u, v, a, r
+        mem_bytes += n_local * n_node * 6 * 8;   // strain (allocated per snapshot)
+        double mem_mb = static_cast<double>(mem_bytes) / (1024.0 * 1024.0);
+        logger.debug("  est memory (state): " + std::to_string(mem_mb) + " MB");
 
         // === GLL quadrature ===
         std::vector<double> gll_pts = gll_nodes(cfg.polynomial_order);
@@ -126,17 +148,13 @@ int run_forward(const std::string& direction) {
         double gamma = 0.5;
         double dt = cfg.solver_dt;
 
-        // === Timing (rank 0 only) ===
+        // === Timing ===
         auto t_start = std::chrono::steady_clock::now();
 
-        if (rank == 0) {
-            std::cout << "  snapshots: " << (cfg.nsteps / cfg.snapshot_stride)
-                      << " (stride=" << cfg.snapshot_stride << ")"
-                      << "  total sim time: " << (cfg.nsteps * cfg.solver_dt) << " s\n"
-                      << "  " << std::setw(12) << std::left << "iter/total" << std::setw(16)
-                      << "clock" << std::setw(14) << "elapsed" << std::setw(16) << "eta"
-                      << "finish\n";
-        }
+        int n_snapshots = cfg.nsteps / cfg.snapshot_stride;
+        logger.info("  snapshots: " + std::to_string(n_snapshots) +
+                    " (stride=" + std::to_string(cfg.snapshot_stride) + ")" +
+                    "  total sim time: " + std::to_string(cfg.nsteps * cfg.solver_dt) + " s");
 
         // === Main time loop ===
         for (int step = 0; step < cfg.nsteps; ++step) {
@@ -247,37 +265,19 @@ int run_forward(const std::string& direction) {
                 }
                 record.write_step(step, strain.data());
 
-                // --- Progress report (rank 0 only) ---
-                if (rank == 0) {
+                // --- Progress report ---
+                {
                     auto t_now = std::chrono::steady_clock::now();
                     double elapsed = std::chrono::duration<double>(t_now - t_start).count();
                     double eta = (step + 1 < cfg.nsteps)
                                      ? elapsed * (cfg.nsteps - step - 1) / (step + 1)
                                      : 0.0;
 
-                    auto fmt_dur = [](double s) -> std::string {
-                        int h = static_cast<int>(s) / 3600;
-                        int m = (static_cast<int>(s) % 3600) / 60;
-                        int sec = static_cast<int>(s) % 60;
-                        std::ostringstream os;
-                        os << std::setw(2) << std::setfill('0') << h << ":" << std::setw(2)
-                           << std::setfill('0') << m << ":" << std::setw(2) << std::setfill('0')
-                           << sec;
-                        return os.str();
-                    };
-
-                    std::time_t now_t = std::time(nullptr);
-                    std::time_t finish_t = now_t + static_cast<std::time_t>(eta);
-                    char now_buf[32], fin_buf[32];
-                    std::strftime(now_buf, sizeof(now_buf), "%m-%d %H:%M:%S",
-                                  std::localtime(&now_t));
-                    std::strftime(fin_buf, sizeof(fin_buf), "%m-%d %H:%M:%S",
-                                  std::localtime(&finish_t));
-
-                    std::cout << "  " << std::setw(12) << std::left
-                              << (std::to_string(step + 1) + "/" + std::to_string(cfg.nsteps))
-                              << std::setw(16) << now_buf << std::setw(14) << fmt_dur(elapsed)
-                              << std::setw(16) << fmt_dur(eta) << fin_buf << std::endl;
+                    std::ostringstream prog;
+                    prog << std::setw(12) << std::left
+                         << (std::to_string(step + 1) + "/" + std::to_string(cfg.nsteps))
+                         << " elapsed=" << std::fixed << std::setprecision(1) << elapsed
+                         << "s eta=" << eta << "s";
                 }
             }
         }
@@ -285,12 +285,12 @@ int run_forward(const std::string& direction) {
         // === Finalize ===
         record.close();
 
-        if (rank == 0) {
-            std::cout << "gf_solver: simulation complete, " << cfg.nsteps << " steps completed."
-                      << std::endl;
-        }
+        auto t_end = std::chrono::steady_clock::now();
+        double total_elapsed = std::chrono::duration<double>(t_end - t_start).count();
+        logger.info("simulation complete, " + std::to_string(cfg.nsteps) + " steps in " +
+                    std::to_string(total_elapsed) + "s");
     } catch (const std::exception& e) {
-        std::cerr << "[Rank " << rank << "] Error: " << e.what() << std::endl;
+        logger.error(std::string("Error: ") + e.what());
         return 1;
     }
 
