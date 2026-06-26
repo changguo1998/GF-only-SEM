@@ -39,13 +39,18 @@ partitions/partition_{r}.h5 (local subset per rank: topology + field/element + c
 ### CLI
 
 ```
-mpirun -np N gf_solver config.h5 --direction {x,y,z}
+mpirun -np N gf_solver --direction {x,y,z}
 ```
+
+All I/O paths are frozen relative to CWD:
+- Input:  `config.h5`, `partitions/partition_{r}.h5`
+- Output: `wavefields/{direction}/record_{r}.h5`
 
 | Arg | Description |
 |-----|-------------|
-| `config.h5` | positional, rank-invariant config file |
 | `--direction {x,y,z}` | force direction (x, y, or z) |
+
+Directory creation is the caller's responsibility.
 
 ## Architecture
 

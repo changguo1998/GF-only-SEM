@@ -27,10 +27,14 @@ Reads partition files + config.h5, writes strain snapshots to record files.
 ### Solver Executable (`gf_solver`)
 
 ```
-mpirun -n N gf_solver wavefields/x/ --direction x --resume (optional)
+mpirun -n N gf_solver --direction x     # from CWD with frozen paths
 ```
 
-Reads partition files from `partitions/partition_{r}.h5` and config from `config.h5`.
+All I/O paths are frozen relative to CWD:
+- Input:  `config.h5`, `partitions/partition_{r}.h5`
+- Output: `wavefields/{direction}/record_{r}.h5`
+
+Directory creation is the caller's responsibility (shell script does `mkdir -p`).
 
 ### Time Loop (per step)
 
