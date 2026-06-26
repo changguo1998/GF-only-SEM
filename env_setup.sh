@@ -7,7 +7,7 @@
 # Usage:
 #   source env_setup.sh
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PROJECT_DIR="${SCRIPT_DIR}"
 
 echo "=== gf-calculation environment initialization ==="
@@ -70,3 +70,4 @@ echo "  HDF5: $(which h5cc 2>/dev/null || echo 'not found')"
 if ompi_info --all 2>/dev/null | grep -q "opal_built_with_cuda_support.*true"; then
     echo "  CUDA: OpenMPI built with CUDA GPU buffer support"
 fi
+
