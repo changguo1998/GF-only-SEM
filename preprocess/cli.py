@@ -1,10 +1,8 @@
-"""CLI entry point for the preprocessor.
+"""Preprocessor entry point.
 
-Usage:
-    python -m preprocess mesh.h5 config.py
+Reads mesh.h5 + config.py from the current working directory.
 """
 
-import argparse
 import os
 import sys
 import time
@@ -18,18 +16,12 @@ from preprocess.gll_geometry import compute_gll_geometry
 from preprocess.model_loader import load_and_interpolate
 
 
-def main(argv: list[str] | None = None) -> None:
-    """Run the full preprocessor pipeline."""
-    parser = argparse.ArgumentParser(
-        description="Preprocess mesh.h5 + config.py → mesh.h5 + partitions/*.h5 + config.h5"
-    )
-    parser.add_argument("mesh", help="Path to mesh.h5 (converter output)")
-    parser.add_argument("config", help="Path to config.py (Python config script)")
-    args = parser.parse_args(argv)
 
+def main() -> None:
+    """Run the full preprocessor pipeline using mesh.h5 + config.py in CWD."""
     start = time.time()
-    mesh_path = os.path.abspath(args.mesh)
-    config_path = os.path.abspath(args.config)
+    mesh_path = os.path.abspath("mesh.h5")
+    config_path = os.path.abspath("config.py")
 
     print(f"[preprocess] Loading config: {config_path}")
     config = load_config(config_path)

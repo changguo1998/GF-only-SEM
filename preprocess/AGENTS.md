@@ -21,7 +21,7 @@ Reads `mesh.h5` + `config.py` → produces extended `mesh.h5`, per-rank `partiti
 | `config_loader.py` | `load_config()` — importable Python config validation |
 | `config_writer.py` | Write `config.h5` with `/simulation/`, `/domain/`, `/source/` groups |
 | `model_writer.py` | Write extended mesh.h5 fields + per-rank partition_{r}.h5 files |
-| `cli.py` | CLI entry point: orchestrates full pipeline |
+|| `cli.py` | CLI entry point: reads `mesh.h5` + `config.py` from CWD, orchestrates full pipeline |
 
 ## Data Pipeline
 

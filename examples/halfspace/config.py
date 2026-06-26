@@ -10,7 +10,11 @@ Material: Vp=5000 m/s, Vs=3000 m/s, density=2700 kg/m³ (granite-like)
 Mesh: regular hexahedral, 10×10×5 = 500 elements (read by mesh_gen.py via import)
 
 Run with:
-    python -m preprocess mesh.h5 examples/halfspace/config.py
+    cp this_file /path/to/workdir/config.py
+    cd /path/to/workdir
+    python -m preprocess
+
+(Preprocess reads mesh.h5 + config.py from the current working directory.)
 """
 
 import numpy as np

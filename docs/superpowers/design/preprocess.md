@@ -42,7 +42,7 @@ Optional output: `mesh_auxiliary.h5` (CSR adjacency for validation/acceleration)
 
 ## Architecture
 
-Single Python module with a CLI entry point. The config file IS the configuration — no YAML/TOML parsing. The preprocessor uses `importlib` to load the user's config script as a Python module.
+Single Python module with a CLI entry point that reads `mesh.h5` and `config.py` from the current working directory (no CLI arguments). The config file IS the configuration — no YAML/TOML parsing. The preprocessor uses `importlib` to load the user's config script as a Python module.
 
 Output files: the preprocessor extends the input `mesh.h5` by appending `/field/element/` data, and writes one `partition_{r}.h5` per MPI rank. There is no monolithic `model.h5` — all data lives in mesh.h5 (extended) + partition files.
 
@@ -78,18 +78,20 @@ preprocess/
 ## CLI
 
 ```
-python -m preprocess mesh.h5 config.py
+python -m preprocess
 ```
 
-| Arg | Description |
-|-----|-------------|
-| `mesh.h5` | positional, converter output — read topology, write extended geometry + is_pml back |
-| `config.py` | positional, user's Python config script |
+No arguments — reads `mesh.h5` and `config.py` from the current working directory.
 
-Output files are automatically placed in convention-based directories:
+| File | Description |
+|------|-------------|
+| `mesh.h5` | Converter output in CWD — read topology, write extended geometry + is_pml back |
+| `config.py` | User's Python config script in CWD |
+
+Output files are placed alongside the inputs:
 - `config.h5` — single rank-invariant config
 - `partitions/partition_{r}.h5` — per-rank partition files
-- mesh.h5 is extended in-place with `/field/element/` geometry and `is_pml`
+- `mesh.h5` is extended in-place with `/field/element/` geometry and `is_pml`
 
 ## Config Script (`config.py`)
 

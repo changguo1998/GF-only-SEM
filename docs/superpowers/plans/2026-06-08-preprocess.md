@@ -324,7 +324,7 @@ Write all computed data to mesh.h5 (extended in-place), partition_{r}.h5, and co
 **Files:**
 - Modify: `preprocess/cli.py`
 
-CLI: `python -m preprocess mesh.h5 config.py`
+CLI: `python -m preprocess` (reads `mesh.h5` + `config.py` from CWD, no args)
 
 - [x] **Step 1: Implement `main()`** — parse args, orchestrates all 9 processing steps
 - [x] **Step 2: Commit**
