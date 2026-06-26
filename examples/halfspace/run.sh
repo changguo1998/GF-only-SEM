@@ -32,8 +32,8 @@ if [ -f "${PROJECT_DIR}/scripts/env_setup.sh" ]; then
     source "${PROJECT_DIR}/scripts/env_setup.sh" 2>/dev/null || true
 fi
 
-# MPI settings
-N_RANKS=2
+# MPI settings — read n_ranks from config.py
+N_RANKS=$(python -c "import sys; sys.path.insert(0, '${EXAMPLE_DIR}'); import config; print(config.n_ranks)")
 MPIRUN="${MPIRUN:-mpirun}"
 
 # Check gf_solver
@@ -58,10 +58,7 @@ cd "${WORK_DIR}"
 # ── Step 1: Generate mesh ───────────────────────────────────────────────
 echo ""
 echo "=== Step 1: Generate mesh ==="
-python "${EXAMPLE_DIR}/mesh_gen.py" \
-    -o mesh.h5 \
-    --nx 10 --ny 10 --nz 5 \
-    --lx 10000.0 --ly 10000.0 --lz 5000.0
+python "${EXAMPLE_DIR}/mesh_gen.py"
 
 # ── Step 2: Preprocess ──────────────────────────────────────────────────
 echo ""

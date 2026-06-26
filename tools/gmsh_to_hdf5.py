@@ -261,7 +261,8 @@ def write_auxiliary(path, topology):
 def main():
     parser = argparse.ArgumentParser(description="GMSH to HDF5 topology converter")
     parser.add_argument("input", help="Input GMSH .msh file (v4.1)")
-    parser.add_argument("-o", "--output", required=True, help="Output mesh.h5")
+    parser.add_argument("-o", "--output", default="mesh.h5",
+                        help="Output mesh.h5 (default: mesh.h5)")
     parser.add_argument("--aux", help="Optional auxiliary CSR file")
     args = parser.parse_args()
 
