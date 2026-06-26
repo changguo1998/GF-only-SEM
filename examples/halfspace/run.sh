@@ -48,8 +48,6 @@ echo ""
 echo "log/preprocess.log:"
 cat "${WORK_DIR}/log/preprocess.log" 2>/dev/null | tail -20 || true
 
-exit 0
-
 # ── Step 3: Forward solver (3 directions) ───
 for DIR in x y z; do
     echo ""
