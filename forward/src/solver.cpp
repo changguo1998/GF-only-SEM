@@ -136,7 +136,7 @@ int run_forward(const std::string& direction) {
                       << " (stride=" << cfg.snapshot_stride << ")"
                       << "  total sim time: " << (cfg.nsteps * cfg.solver_dt) << " s\n"
                       << "  " << std::setw(12) << std::left << "iter/total"
-                      << std::setw(10) << "clock"
+                      << std::setw(16) << "clock"
                       << std::setw(14) << "elapsed"
                       << std::setw(16) << "eta"
                       << "finish\n";
@@ -267,13 +267,13 @@ int run_forward(const std::string& direction) {
 
                     std::time_t now_t = std::time(nullptr);
                     std::time_t finish_t = now_t + static_cast<std::time_t>(eta);
-                    char now_buf[20], fin_buf[20];
-                    std::strftime(now_buf, sizeof(now_buf), "%H:%M:%S", std::localtime(&now_t));
-                    std::strftime(fin_buf, sizeof(fin_buf), "%H:%M:%S", std::localtime(&finish_t));
+                    char now_buf[32], fin_buf[32];
+                    std::strftime(now_buf, sizeof(now_buf), "%m-%d %H:%M:%S", std::localtime(&now_t));
+                    std::strftime(fin_buf, sizeof(fin_buf), "%m-%d %H:%M:%S", std::localtime(&finish_t));
 
                     std::cout << "  " << std::setw(12) << std::left
                               << (std::to_string(step + 1) + "/" + std::to_string(cfg.nsteps))
-                              << std::setw(10) << now_buf
+                              << std::setw(16) << now_buf
                               << std::setw(14) << fmt_dur(elapsed)
                               << std::setw(16) << fmt_dur(eta)
                               << fin_buf << std::endl;
