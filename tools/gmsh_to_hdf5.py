@@ -5,7 +5,7 @@ Reads GMSH mesh, extracts topology only (vertices, edges, surfaces, cells),
 writes mesh.h5 with /topology/ group. 1-based indexing, signed direction.
 
 Usage:
-    python tools/gmsh_to_hdf5.py input.msh -o mesh.h5 [--aux mesh_auxiliary.h5]
+    python tools/gmsh_to_hdf5.py input.msh [-o mesh.h5]
 """
 
 import argparse

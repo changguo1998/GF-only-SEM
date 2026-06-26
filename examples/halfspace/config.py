@@ -15,10 +15,10 @@ Run with:
 
 import numpy as np
 
-# ── Simulation identity ──────────────────────────────────────────────
+# ── Simulation identity ───────
 title = "halfspace_example"
 
-# ── Mesh dimensions ────────────────────────────────────────────────────
+# ── Mesh dimensions ───────
 nx_elements = 10   # Elements in x
 ny_elements = 10   # Elements in y
 nz_elements = 5    # Elements in z
@@ -26,22 +26,22 @@ lx = 10000.0       # Domain length x [m]
 ly = 10000.0       # Domain length y [m]
 lz = 5000.0        # Domain length z [m]
 
-# ── SEM discretization ───────────────────────────────────────────────
+# ── SEM discretization ───
 polynomial_order = 4  # GLL quadrature order (N=4 → 5 GLL nodes/axis)
 
-# ── Time stepping ────────────────────────────────────────────────────
+# ── Time stepping ───────
 output_dt_s = 0.01  # Desired snapshot interval [s]
 total_duration_s = 5.0  # Total simulation duration [s]
 cfl_safety = 0.5  # CFL safety factor (0 < cfl_safety < 1)
 
-# ── I/O ───────────────────────────────────────────────────────────────
+# ── I/O ───
 snapshot_precision = "float32"  # "float32" or "float64" for strain snapshots
 storage_limit_gb = 5.0  # Warn if estimated output exceeds this
 
-# ── Parallelism ──────────────────────────────────────────────────────
+# ── Parallelism ───
 n_ranks = 16  # Number of MPI ranks (METIS partition)
 
-# ── Boundary conditions ──────────────────────────────────────────────
+# ── Boundary conditions ───
 # PML thickness in elements on each face. zmin=0: free surface, zmax=3: PML
 pml_thickness = {
     "xmin": 3,
@@ -52,13 +52,13 @@ pml_thickness = {
     "zmax": 3,  # free surface at z=0
 }
 
-# ── Source ───────────────────────────────────────────────────────────
+# ── Source ───
 # Point force at center of free surface (z=0)
 source_x_m = 5000.0
 source_y_m = 5000.0
 
 
-# ── Source time function (callable) ──────────────────────────────────
+# ── Source time function (callable) ───
 def stf_func(t_s):
     """Ricker wavelet (second derivative of Gaussian).
 
@@ -70,7 +70,7 @@ def stf_func(t_s):
     return (1.0 - 2.0 * a**2) * np.exp(-(a**2))
 
 
-# ── Material model (callables) ───────────────────────────────────────
+# ── Material model (callables) ───
 def vp_m_s(x_m, y_m, z_m):
     """P-wave velocity [m/s]."""
     return 5000.0

@@ -1,24 +1,7 @@
 #!/bin/bash
-#=============================================================================
-# Half-space example: end-to-end forward solver pipeline
-#
-# Steps:
-#   1. Generate regular hex mesh → mesh.h5
-#   2. Preprocess (GLL geometry, material, PML, partition) → mesh.h5 + configs/
-#   3. Forward solver (3 directions: x, y, z) → wavefields/{x,y,z}/
-#
-# Note: Green's function extraction from snapshots operates on GLL nodes
-# directly — no receiver positions needed. See postprocess/AGENTS.md.
-#
-# Usage:
-#   cd /path/to/gf-calculation
-#   bash examples/halfspace/run.sh
-#
-# Requirements:
-#   - Python venv with gf-calculation installed (uv sync)
-#   - gf_solver built (cmake --build build)
-#   - MPI runtime (source scripts/env_setup.sh)
-#=============================================================================
+# ==============
+# halfspace/run.sh
+# ==============
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -50,17 +33,17 @@ echo "Example dir: ${EXAMPLE_DIR}"
 echo "Work dir:    ${WORK_DIR}"
 echo ""
 
-# ── Clean work dir ──────────────────────────────────────────────────────
+# ── Clean work dir ───
 rm -rf "${WORK_DIR}"
 mkdir -p "${WORK_DIR}"
 cd "${WORK_DIR}"
 
-# ── Step 1: Generate mesh ───────────────────────────────────────────────
+# ── Step 1: Generate mesh ───
 echo ""
 echo "=== Step 1: Generate mesh ==="
 python "${EXAMPLE_DIR}/mesh_gen.py"
 
-# ── Step 2: Preprocess ──────────────────────────────────────────────────
+# ── Step 2: Preprocess ───
 echo ""
 echo "=== Step 2: Preprocess ==="
 python -m preprocess mesh.h5 "${EXAMPLE_DIR}/config.py"
@@ -71,7 +54,7 @@ echo "mesh.h5:      $(du -sh mesh.h5 | cut -f1)"
 echo "config.h5:    $(du -sh configs/config.h5 | cut -f1)"
 ls -la partitions/
 
-# ── Step 3: Forward solver (3 directions) ───────────────────────────────
+# ── Step 3: Forward solver (3 directions) ───
 for DIR in x y z; do
     echo ""
     echo "=== Step 3${DIR}: Forward solver (direction=${DIR}) ==="
@@ -94,7 +77,7 @@ for DIR in x y z; do
     ls -lh "${WORK_DIR}/wavefields/${DIR}/" 2>/dev/null || echo "  (not found)"
 done
 
-# ── Summary ─────────────────────────────────────────────────────────────
+# ── Summary ───
 echo ""
 echo "========================================"
 echo "  Pipeline complete!"
