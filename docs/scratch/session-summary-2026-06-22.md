@@ -71,7 +71,7 @@ test writing:
   damping), boundary_tag, domain_bounds attrs, and optional
   `/model/partition/` subgroup with rank data. Uses the existing HDF5 file
   as base — adds groups rather than rewriting.
-- **`config_writer.py`** — writes `configs/config.h5` with simulation
+- **`config_writer.py`** — writes `config.h5` with simulation
   parameters, domain bounds, STF time series, and source position.
 - **`config_loader.py`** — imports config.py via importlib, validates 17
   required fields (scalar attrs + 4 callables), range checks, and PML

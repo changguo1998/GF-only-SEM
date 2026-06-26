@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a Python `preprocess/` module that reads mesh topology (mesh.h5) and a Python config script (config.py), computes all derived model data (GLL-node material via config.py functions, geometric quantities, partition, C-PML, source weights, STF evaluation, pre-flight validation), and writes extended `mesh.h5` + `partition_{r}.h5` + `configs/config.h5`.
+**Goal:** Build a Python `preprocess/` module that reads mesh topology (mesh.h5) and a Python config script (config.py), computes all derived model data (GLL-node material via config.py functions, geometric quantities, partition, C-PML, source weights, STF evaluation, pre-flight validation), and writes extended `mesh.h5` + `partition_{r}.h5` + `config.h5`.
 
 > **Design**: Technical decisions (data flow, domain objects, HDF5 output schema, validation rules, SLS parameter computation) are documented in [`docs/superpowers/design/preprocess.md`](../design/preprocess.md). This file contains only the implementation plan.
 
@@ -309,7 +309,7 @@ Evaluate `config.stf_func(t)` at t = 0, dt, 2*dt, ..., (nsteps-1)*dt.
 - Create: `tests/preprocess/test_model_writer.py`
 - Create: `tests/preprocess/test_config_writer.py`
 
-Write all computed data to mesh.h5 (extended in-place), partition_{r}.h5, and configs/config.h5.
+Write all computed data to mesh.h5 (extended in-place), partition_{r}.h5, and config.h5.
 
 - [x] **Step 1: Write test** — verify mesh.h5 contains topology + field/element + field/surface groups, verify partition_{r}.h5 files contain field/element + partition metadata
 - [x] **Step 2: Write test** — verify config.h5 contains simulation + domain + source groups
@@ -349,5 +349,5 @@ preprocess/
 ├── partition.py         — METIS partitioning + exchange pattern precomputation
 ├── stf_evaluator.py     — evaluate stf_func() → time series array
 ├── partition_writer.py  — write partition_{r}.h5
-└── config_writer.py     — write configs/config.h5
+└── config_writer.py     — write config.h5
 ```

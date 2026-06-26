@@ -25,7 +25,7 @@ GMSH .msh v4.1
       │              /field/element/dxi_dx, /field/element/jacobian,
       │              /field/element/is_pml (PML flag for postprocess)
   partition_{0}.h5, partition_{1}.h5, …  (per-rank partition files)
-  configs/config.h5  (simulation + domain + source, rank-invariant)
+  config.h5  (simulation + domain + source, rank-invariant)
       │
       ▼
   forward solver

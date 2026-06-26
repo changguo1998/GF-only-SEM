@@ -32,7 +32,7 @@ config.py (script, importable) ─┤
                           ├── locate source elements (free surface only), compute Lagrange interpolation weights
                           ├── write GLL geometry + is_pml BACK to mesh.h5 (extends it)
                           ↓
-                     mesh.h5 (extended) + partition_{r}.h5 + configs/config.h5
+                     mesh.h5 (extended) + partition_{r}.h5 + config.h5
                           │
                           ↓
                      forward solver (C++)
@@ -64,7 +64,7 @@ preprocess/
 ├── cfl_validator.py      — compute cfl_dt, derive solver_dt and snapshot_stride
 ├── preflight.py          — comprehensive pre-flight validation
 ├── partition_writer.py   — write partition_{r}.h5
-└── config_writer.py     — write single configs/config.h5 (rank-invariant, no direction)
+└── config_writer.py     — write single config.h5 (rank-invariant, no direction)
 ```
 
 ## Technology
@@ -87,7 +87,7 @@ python -m preprocess mesh.h5 config.py
 | `config.py` | positional, user's Python config script |
 
 Output files are automatically placed in convention-based directories:
-- `configs/config.h5` — single rank-invariant config
+- `config.h5` — single rank-invariant config
 - `partitions/partition_{r}.h5` — per-rank partition files
 - mesh.h5 is extended in-place with `/field/element/` geometry and `is_pml`
 
@@ -321,7 +321,7 @@ residual — no runtime Newton iteration or element search needed.
 
 - **mesh.h5 (extended in-place)** — GLL geometry (`/field/element/coords`, `/field/element/dxi_dx`, `/field/element/jacobian`), PML flags (`/field/element/is_pml`), and boundary tags (`/field/surface/boundary_tag`) written back to input mesh.h5.
 - **partition_{r}.h5** — one per MPI rank, containing the local subset of element data (own + ghost), GLL global numbering, exchange patterns, and partition metadata
-- **configs/config.h5** — simulation config, domain bounds, source (position + elements + weights), STF. No direction — direction is passed via CLI `--direction {x,y,z}` to the forward solver.
+- **config.h5** — simulation config, domain bounds, source (position + elements + weights), STF. No direction — direction is passed via CLI `--direction {x,y,z}` to the forward solver.
 - **mesh_auxiliary.h5** (optional) — CSR adjacency relations
 
 ## HDF5 Output
@@ -341,14 +341,14 @@ All other GLL-node data (material, mass, CPML) and partition data are NOT writte
 
 One per MPI rank. Contains the local subset (owned + ghost elements) of all GLL-node fields plus partition metadata. Full schema in [mesh.md](mesh.md).
 
-### configs/config.h5
+### config.h5
 
 Single rank-invariant file shared across all 3 force direction runs. Direction is passed to the forward solver via `--direction {x,y,z}` CLI flag.
 
 #### Schema
 
 ```
-configs/config.h5
+config.h5
 ├── /simulation/
 │   ├── title                  : string
 │   ├── polynomial_order       : int32            — N (GLL order)

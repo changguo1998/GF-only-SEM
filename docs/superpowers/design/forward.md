@@ -10,14 +10,14 @@ libgf (C++ physics library) + gf_solver (MPI-parallel executable) for elastic sp
 ## Data Flow
 
 ```
-configs/config.h5 (single, rank-invariant: simulation + domain + source)
+config.h5 (single, rank-invariant: simulation + domain + source)
 partitions/partition_{r}.h5 (local subset per rank: topology + field/element + cpml + partition metadata)
           │
           ▼
     gf_solver --direction {x,y,z}  (MPI-parallel)
     ├── parse --direction CLI flag
     ├── Each rank reads partitions/partition_{R}.h5 where R = MPI_Comm_rank()
-    ├── All ranks read configs/config.h5 (same file, rank-invariant)
+    ├── All ranks read config.h5 (same file, rank-invariant)
     ├── allocate runtime arrays per rank
     │       global residual r[NDIM, n_global_nodes]    — CG-SEM assembly target
     │       C-PML memory variables (see CPML section for exact layout)
@@ -39,7 +39,7 @@ partitions/partition_{r}.h5 (local subset per rank: topology + field/element + c
 ### CLI
 
 ```
-mpirun -np N gf_solver configs/config.h5 --direction {x,y,z}
+mpirun -np N gf_solver config.h5 --direction {x,y,z}
 ```
 
 | Arg | Description |
@@ -59,7 +59,7 @@ All mesh-dependent quantities (GLL coords, Jacobian, dξ/dx, lumped mass, materi
 
 **C-PML**: all damping profiles, stretched-coordinate functions, and convolution coefficients precomputed per GLL node in partition_{r}.h5. Forward solver maintains the full set of CPML memory variables (see CPML section for exact layout). Convolution update and acceleration correction follow the second-order recursive convolution scheme of Wang et al. (2006) with θ=1/8.
 
-**Partition discovery**: implicit by MPI rank. Each rank opens `partitions/partition_{R}.h5` where `R = MPI_Comm_rank()`. All ranks also read `configs/config.h5` (identical content, rank-invariant).
+**Partition discovery**: implicit by MPI rank. Each rank opens `partitions/partition_{R}.h5` where `R = MPI_Comm_rank()`. All ranks also read `config.h5` (identical content, rank-invariant).
 
 **Force direction**: passed via `--direction {x,y,z}` CLI flag (not embedded in config.h5). Three independent SLURM jobs share one config.h5 with different `--direction` values.
 

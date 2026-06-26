@@ -100,7 +100,7 @@ Elements with all surface boundaries tagged as absorbing (tag=2 in `/field/surfa
 
 ### Time Alignment Validation
 
-Before processing, postprocess validates that all 3 snapshot sets (fx, fy, fz) have identical run metadata. The NGLL and local_element_ids count from rank 0 of each set are compared. Run metadata (solver_dt, nsteps, snapshot_stride, n_cell) is read from configs/config.h5 and validated across the three direction runs. If any mismatch is found, postprocess aborts with an error message listing the mismatched values, for example:
+Before processing, postprocess validates that all 3 snapshot sets (fx, fy, fz) have identical run metadata. The NGLL and local_element_ids count from rank 0 of each set are compared. Run metadata (solver_dt, nsteps, snapshot_stride, n_cell) is read from config.h5 and validated across the three direction runs. If any mismatch is found, postprocess aborts with an error message listing the mismatched values, for example:
 
     Time alignment mismatch:
       fx: dt=0.01 nsteps=1000 n_cell=512

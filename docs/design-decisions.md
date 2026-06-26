@@ -85,10 +85,10 @@ GMSH .msh → converter → mesh.h5 (topology only)
                     ↓
               mesh.h5 (extended: +coords +dxi_dx)
                partition_{0,1,...}.h5 (per-rank, local subset)
-               configs/config.h5 (single, no direction)
+               config.h5 (single, no direction)
                           ↓
                      forward solver --direction {x,y,z}
-                         (reads partitions/partition_{r}.h5 + configs/config.h5)
+                         (reads partitions/partition_{r}.h5 + config.h5)
                           ↓
                     wavefields/{x,y,z}/record_{r}.h5
                           ↓
@@ -103,7 +103,7 @@ GMSH .msh → converter → mesh.h5 (topology only)
 |------|----------|----------|---------|
 | mesh.h5 | converter → extended by preprocessor | preprocessor, postprocess | Topology + GLL coords + dxi_dx + jacobian + is_pml (geometry only, no material) |
 | partition_{r}.h5 | preprocessor | forward | Per-rank local subset of all element data (coords, dxi_dx, jacobian, mass, vp, vs, density, cpml/*) + partition metadata (gll_to_global, exchange) |
-| configs/config.h5 | preprocessor | forward | Simulation params, domain bounds, source position + precomputed STF + weights. No direction — passed via CLI `--direction`. |
+| config.h5 | preprocessor | forward | Simulation params, domain bounds, source position + precomputed STF + weights. No direction — passed via CLI `--direction`. |
 | wavefields/{direction}/record_{r}.h5 | forward | postprocess | L2-smoothed strain at GLL nodes + (u,v,a) restart state, extendible time axis |
 | mesh_auxiliary.h5 | preprocessor (optional) | validation | CSR adjacency relations |
 | greenfun/tile_{i}.h5 | postprocess | user | Strain Green's functions at GLL nodes, tiled by element range |
