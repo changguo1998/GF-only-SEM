@@ -23,7 +23,6 @@ TEST_CASE("Source location at GLL node", "[source]") {
     int ngll = 4;
     int n_local = 1;
     int n_node = ngll * ngll * ngll;
-    int n_dof = n_local * n_node * 3;
 
     // Place a GLL node at (0.5, 0.5, 0.5) in the unit cube
     std::vector<double> coords(n_local * n_node * 3, 0.0);

@@ -6,7 +6,7 @@ namespace gf {
 
 void apply_pml_damping(
     const std::vector<double>& damping_profile,
-    const std::vector<double>& u,
+    const std::vector<double>& /*u*/,
     std::vector<double>& v,
     int n_dof
 ) {

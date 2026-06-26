@@ -44,7 +44,7 @@ inline void newmark_predict(double dt, double beta,
 }
 
 // Newmark correct: a_new = M⁻¹·r, v += dt·γ·a_new, u += dt·v + dt²/2·a_new
-inline void newmark_correct(double dt, double beta, double gamma,
+inline void newmark_correct(double dt, double /*beta*/, double gamma,
                              const std::vector<double>& mass,
                              std::vector<double>& u,
                              std::vector<double>& v,

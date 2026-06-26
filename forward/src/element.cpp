@@ -21,8 +21,6 @@ void compute_element_residual(
     const double* u,
     double* r
 ) {
-    const int n_node = NGLL * NGLL * NGLL;
-
     for (int i = 0; i < NGLL; ++i) {
         for (int j = 0; j < NGLL; ++j) {
             for (int k = 0; k < NGLL; ++k) {
@@ -35,7 +33,6 @@ void compute_element_residual(
                 const double vs2 = vs[n] * vs[n];
                 const double lambda = rho * (vp2 - 2.0 * vs2);
                 const double mu     = rho * vs2;
-                const double l2mu   = lambda + 2.0 * mu;
 
                 // --- Inverse Jacobian at this node ---
                 const double* dd = &dxi_dx[9 * n];

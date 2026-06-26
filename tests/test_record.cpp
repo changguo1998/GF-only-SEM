@@ -22,7 +22,7 @@ TEST_CASE("RecordWriter creates file and writes strain", "[record]") {
     std::vector<int64_t> elem_ids = {1, 2};
 
     // Create writer (writes to temp)
-    RecordWriter writer(".", "x", 0, n_elem, elem_ids.data(), ngll, comp, false);
+    RecordWriter writer("./wavefields", "x", 0, n_elem, elem_ids.data(), ngll, comp, false);
 
     // Write a few steps of strain data
     std::vector<double> strain(n_node * 6, 0.0);
@@ -84,7 +84,7 @@ TEST_CASE("RecordWriter with float32 compression", "[record]") {
 
     std::vector<int64_t> elem_ids = {5};
 
-    RecordWriter writer(".", "y", 1, n_elem, elem_ids.data(), ngll, comp, true);
+    RecordWriter writer("./wavefields", "y", 1, n_elem, elem_ids.data(), ngll, comp, true);
 
     std::vector<double> strain(n_node * 6, 1e-6);
     writer.write_step(0, strain.data());

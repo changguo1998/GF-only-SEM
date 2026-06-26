@@ -105,7 +105,6 @@ TEST_CASE("Lagrange basis: partition of unity", "[gll]") {
     // Sum of all Lagrange basis polynomials at any point is 1
     for (int N : {2, 3}) {
         auto nodes = gll_nodes(N);
-        int ngl = N + 1;
         for (int k = 0; k < 10; ++k) {
             double xi = -1.0 + 2.0 * k / 9.0; // sample points in [-1, 1]
             auto ell = lagrange_basis(xi, nodes);

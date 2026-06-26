@@ -109,7 +109,7 @@ TEST_CASE("Read partition data round-trip", "[io]") {
     REQUIRE(data.n_local_elem == n_local);
     REQUIRE(data.n_ghost_elem == 0);
     REQUIRE(data.ngll == ngll);
-    REQUIRE(data.local_element_ids.size() == n_local);
+    REQUIRE(data.local_element_ids.size() == static_cast<size_t>(n_local));
     REQUIRE(data.ghost_element_ids.empty());
     REQUIRE(data.ghost_owners.empty());
 

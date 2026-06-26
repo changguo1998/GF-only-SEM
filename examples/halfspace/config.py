@@ -23,9 +23,9 @@ import numpy as np
 title = "halfspace_example"
 
 # ── Mesh dimensions ───────
-nx_elements = 10  # Elements in x
-ny_elements = 10  # Elements in y
-nz_elements = 5  # Elements in z
+nx_elements = 6  # Elements in x
+ny_elements = 6  # Elements in y
+nz_elements = 3  # Elements in z
 lx = 10000.0  # Domain length x [m]
 ly = 10000.0  # Domain length y [m]
 lz = 5000.0  # Domain length z [m]
@@ -43,17 +43,17 @@ snapshot_precision = "float32"  # "float32" or "float64" for strain snapshots
 storage_limit_gb = 5.0  # Warn if estimated output exceeds this
 
 # ── Parallelism ───
-n_ranks = 16  # Number of MPI ranks (METIS partition)
+n_ranks = 9  # Number of MPI ranks (METIS partition)
 
 # ── Boundary conditions ───
 # PML thickness in elements on each face. zmin=0: free surface, zmax=3: PML
 pml_thickness = {
-    "xmin": 3,
-    "xmax": 3,
-    "ymin": 3,
-    "ymax": 3,
+    "xmin": 2,
+    "xmax": 2,
+    "ymin": 2,
+    "ymax": 2,
     "zmin": 0,
-    "zmax": 3,  # free surface at z=0
+    "zmax": 2,  # free surface at z=0
 }
 
 # ── Source ───

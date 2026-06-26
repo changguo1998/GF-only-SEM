@@ -11,13 +11,13 @@ struct hdf5_type;
 
 template <>
 struct hdf5_type<float> {
-    static constexpr hid_t value() noexcept { return H5T_NATIVE_FLOAT; }
+    static inline hid_t value() noexcept { return H5T_NATIVE_FLOAT; }
     static constexpr const char* label() noexcept { return "float32"; }
 };
 
 template <>
 struct hdf5_type<double> {
-    static constexpr hid_t value() noexcept { return H5T_NATIVE_DOUBLE; }
+    static inline hid_t value() noexcept { return H5T_NATIVE_DOUBLE; }
     static constexpr const char* label() noexcept { return "float64"; }
 };
 

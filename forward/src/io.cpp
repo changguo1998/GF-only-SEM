@@ -145,7 +145,7 @@ std::vector<int32_t> read_dataset_int32(hid_t file_id, const std::string& name) 
     return read_dataset_impl<int32_t>(file_id, name);
 }
 
-RankData read_partition(const std::string& path, int rank) {
+RankData read_partition(const std::string& path, int /*rank*/) {
     hid_t fid = open_read(path);
     H5FileGuard guard(fid);
 
