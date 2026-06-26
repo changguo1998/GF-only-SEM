@@ -41,6 +41,8 @@ echo "mesh.h5:      $(du -sh mesh.h5 | cut -f1)"
 echo "config.h5:    $(du -sh config.h5 | cut -f1)"
 ls -hal "$WORK_DIR/partitions/"
 
+exit 0
+
 # ── Step 3: Forward solver (3 directions) ───
 for DIR in x y z; do
     echo ""

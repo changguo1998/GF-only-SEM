@@ -54,7 +54,7 @@ def main() -> None:
     # Step: load/interpolate material
     model_path = getattr(config, "model_path", None)
     print(f"[preprocess] Loading material model...")
-    vp_gll, vs_gll, density_gll = load_and_interpolate(model_path, coords)
+    vp_gll, vs_gll, density_gll = load_and_interpolate(model_path, coords, config=config)
 
     # Step: boundary detection
     print(f"[preprocess] Detecting boundaries...")
