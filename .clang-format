@@ -1,0 +1,14 @@
+BasedOnStyle: Google
+ColumnLimit: 99
+AccessModifierOffset: -4
+IndentWidth: 4
+Standard: c++17
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+BreakConstructorInitializers: BeforeColon
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Left
+ConstructorInitializerIndentWidth: 4
+ContinuationIndentWidth: 4
