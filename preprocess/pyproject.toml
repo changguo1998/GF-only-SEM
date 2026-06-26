@@ -1,8 +1,12 @@
-[project]
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
 
 [[tool.uv.index]]
 url = "https://mirrors.cernet.edu.cn/pypi/web/simple"
 default = true
+
+[project]
 name = "gf-preprocess"
 version = "0.1.0"
 description = "SEM preprocessor — GLL geometry, 3D model interpolation, partition"
@@ -13,9 +17,9 @@ dependencies = [
     "scipy>=1.11",
 ]
 
-[build-system]
-requires = ["setuptools>=64"]
-build-backend = "setuptools.build_meta"
+[project.scripts]
+mesh_to_vtk = "tools.mesh_to_vtk:main"
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = [".."]
+include = ["tools*"]
