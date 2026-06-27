@@ -2,28 +2,28 @@
 
 ## Purpose
 
-Header-only C++17 library (`INTERFACE` CMake target) providing HDF5 compression
-policy components used by the forward solver's record writer.
+Header-only C++17 `INTERFACE` library for HDF5 record compression.
+Forward uses it in the record writer.
 
 ## Components
 
-| Header | Responsibility |
-|--------|---------------|
-| `CompressionFilter.h` | `CompressionMethod` enum (None, LZF, Zlib) + `ZlibConfig` + `CompressionConfig` struct + property list builder |
-| `PrecisionPolicy.h` | float32 (cast from float64) vs float64 precision selection |
-| `ChunkingStrategy.h` | HDF5 chunk dimension computation (element-first, chunk_size configurable, time dim chunk = 1) |
-| `CheckpointWriter.h` | Convenience `CheckpointConfig` struct + file + dataset creation helpers |
+| Header | Role |
+|--------|------|
+| `CompressionFilter.h` | Compression method: none, LZF, or zlib. Builds HDF5 property lists. |
+| `PrecisionPolicy.h` | Selects float32 or float64 output. |
+| `ChunkingStrategy.h` | Computes HDF5 chunks. Time chunk = 1. Element chunk is configurable. |
+| `CheckpointWriter.h` | Convenience config plus file/dataset helpers. |
 
 ## CMake
 
-`INTERFACE` library target `gf_compress`. No compiled sources.
-Forward solver links via `target_link_libraries(gf PRIVATE gf_compress)`.
+Target: `gf_compress`. No compiled sources.
+Link with `target_link_libraries(gf PRIVATE gf_compress)`.
 
-## Deferred Items
+## Deferred
 
-- Compression benchmark tool (`compress/benchmark/` — not implemented)
-- LZF not available on all HDF5 installs (handled at runtime with graceful skip)
+- Compression benchmark tool under `compress/benchmark/`.
+- LZF may be missing in some HDF5 builds. Runtime handles this by skipping it.
 
-## Design Doc
+## Design
 
-`docs/superpowers/design/compress.md`
+See `docs/superpowers/design/compress.md`.
