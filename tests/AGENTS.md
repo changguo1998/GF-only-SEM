@@ -26,7 +26,7 @@ tests/
 │   └── test_*.py
 ├── tools/
 │   └── test_gmsh_to_hdf5*.py
-├── postprocess/                   — 46 Python tests
+├── postprocess/                   — 19 Python tests
 └── examples/halfspace/            — End-to-end pipeline (via run.sh, not pytest)
 ```
 

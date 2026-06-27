@@ -12,11 +12,7 @@ No receiver positions — output is the full GLL-node field.
 
 | File | Responsibility |
 |------|---------------|
-| `reader.py` | `CheckpointReader` (strain dataset) + `GeometryReader` (mesh.h5 coords, dξ/dx, is_pml) |
-| `geometry.py` | GLL nodes, weights, Lagrange basis (1D + 3D tensor product) |
-| `index.py` | KD-tree spatial index over non-PML element centroids |
-| `search.py` | Point-in-hexahedron Newton iteration using dξ/dx |
-| `interpolate.py` | GLL basis interpolation of strain at arbitrary points |
+| `reader.py` | `RecordReader` (strain dataset, per-rank) + `GeometryReader` (mesh.h5 coords, dξ/dx, is_pml) + `merge_records()` |
 | `assembly.py` | Green's tensor assembly from 3 force directions × 6 strain components |
 | `writer.py` | HDF5 Green's function tile writer (`greenfun/tile_{i}.h5`) |
 | `cli.py` | CLI entry point |
@@ -27,7 +23,7 @@ No receiver positions — output is the full GLL-node field.
 mesh.h5 (GLL coords, dξ/dx, is_pml) ──┐
 wavefields/{x,y,z}/record_{r}.h5 ─────┤  (3 direction sets, N rank files each)
                                       ↓
-    CheckpointReader (merge per-rank by global element ID)
+    merge_records (per-rank → unified by global element ID)
     → Time alignment validation across 3 direction runs
     → Green's tensor assembly (3×6) at all GLL nodes
     → GFWriter (spatially tiled by element range)
@@ -48,7 +44,8 @@ gf-postprocess mesh.h5 \
 
 ## Tests
 
-`tests/` — 46 tests covering reader, geometry, index, search, interpolation, assembly, writer.
+`tests/` — 19 tests covering reader module (RecordReader, GeometryReader, merge_records).
+assembly, writer, and CLI have zero tests (gap).
 
 ## Design Doc
 
