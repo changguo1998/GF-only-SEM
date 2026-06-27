@@ -15,6 +15,7 @@ add_library(
     src/exchange.cpp
     src/io.cpp
     src/record.cpp
+    src/restart.cpp
     src/solver.cpp)
 
 target_include_directories(

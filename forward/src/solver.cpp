@@ -24,6 +24,7 @@
 #include "gf/logger.hpp"
 #include "gf/pml.hpp"
 #include "gf/record.hpp"
+#include "gf/restart.hpp"
 #include "gf/types.hpp"
 
 namespace gf {
@@ -59,7 +60,7 @@ inline void newmark_correct(double dt, double /*beta*/, double gamma,
 
 }  // anonymous namespace
 
-int run_forward(const std::string& direction) {
+int run_forward(const std::string& direction, bool resume_mode) {
     // All paths relative to CWD
     std::string config_path = "config.h5";
     std::string partition_dir = "partitions";
@@ -135,8 +136,9 @@ int run_forward(const std::string& direction) {
             comp_cfg.method = CompressionMethod::Zlib;
 
         bool use_float32 = (cfg.snapshot_precision == "float32");
-        RecordWriter record(output_dir, direction, rank, n_local, part.local_element_ids.data(),
-                            ngll, comp_cfg, use_float32);
+        RecordWriter record(output_dir, direction, rank, part.recording, ngll,
+                            comp_cfg, use_float32);
+        logger.debug("  record vertices: " + std::to_string(record.n_vertices()));
 
         // === Locate source element ===
         // Search for element containing source; for now use element 0
@@ -156,8 +158,44 @@ int run_forward(const std::string& direction) {
                     " (stride=" + std::to_string(cfg.snapshot_stride) + ")" +
                     "  total sim time: " + std::to_string(cfg.nsteps * cfg.solver_dt) + " s");
 
+        // === Initialize restart writer ===
+        int restart_stride = 0;
+        if (cfg.restart_dt_s > 0.0 && cfg.solver_dt > 0.0) {
+            restart_stride = static_cast<int>(std::round(cfg.restart_dt_s / cfg.solver_dt));
+            if (restart_stride < 1) restart_stride = 1;
+        } else if (cfg.restart_stride > 0) {
+            restart_stride = cfg.restart_stride;
+        }
+        bool do_restart = (restart_stride > 0);
+        RestartWriter restart_writer(output_dir, direction, rank, n_local, ngll);
+        if (do_restart) {
+            logger.info("  restart stride: " + std::to_string(restart_stride));
+        } else {
+            logger.debug("  restart: disabled");
+        }
+
         // === Main time loop ===
-        for (int step = 0; step < cfg.nsteps; ++step) {
+        int start_step = 0;
+        if (resume_mode) {
+            try {
+                RestartState rs = read_restart(output_dir, direction, rank);
+                if (!rs.displacement.empty() && rs.step > 0 && rs.step < cfg.nsteps) {
+                    u = std::move(rs.displacement);
+                    v = std::move(rs.velocity);
+                    a = std::move(rs.acceleration);
+                    if (!rs.pml_damping.empty()) {
+                        part.pml_damping = std::move(rs.pml_damping);
+                    }
+                    start_step = rs.step + 1;
+                    logger.info("  resumed at step " + std::to_string(start_step) +
+                               " (time_s=" + std::to_string(rs.time_s) + ")");
+                }
+            } catch (const std::exception& e) {
+                logger.error(std::string("  resume failed: ") + e.what() +
+                              " — starting from scratch");
+            }
+        }
+        for (int step = start_step; step < cfg.nsteps; ++step) {
             // --- Newmark predict ---
             newmark_predict(dt, beta, u, v, a, u_tilde);
 
@@ -204,10 +242,16 @@ int run_forward(const std::string& direction) {
             // --- Newmark correct ---
             newmark_correct(dt, beta, gamma, part.mass, u, v, a, r);
 
+            // --- Write restart (every restart_stride solver steps) ---
+            if (do_restart && step > 0 && step % restart_stride == 0) {
+                restart_writer.write(step, step * dt, u, v, a, part.pml_damping);
+            }
+
             // --- Write snapshot (every snapshot_stride solver steps) ---
             if (cfg.snapshot_stride > 0 && step % cfg.snapshot_stride == 0) {
                 // Compute strain at all GLL nodes (Voigt order: εxx, εyy, εzz, εxy, εxz, εyz)
-                std::vector<double> strain(n_local * n_node * 6, 0.0);
+                // Then extract only recording-map vertices if available
+                std::vector<double> full_strain(n_local * n_node * 6, 0.0);
 
                 for (int e = 0; e < n_local; ++e) {
                     for (int i = 0; i < ngll; ++i) {
@@ -250,20 +294,38 @@ int run_forward(const std::string& direction) {
 
                                 // Symmetric strain (Voigt order)
                                 int strain_offset = e * n_node * 6 + n * 6;
-                                strain[strain_offset + 0] = du_dx[0][0];  // εxx
-                                strain[strain_offset + 1] = du_dx[1][1];  // εyy
-                                strain[strain_offset + 2] = du_dx[2][2];  // εzz
-                                strain[strain_offset + 3] =
+                                full_strain[strain_offset + 0] = du_dx[0][0];  // εxx
+                                full_strain[strain_offset + 1] = du_dx[1][1];  // εyy
+                                full_strain[strain_offset + 2] = du_dx[2][2];  // εzz
+                                full_strain[strain_offset + 3] =
                                     0.5 * (du_dx[0][1] + du_dx[1][0]);  // εxy
-                                strain[strain_offset + 4] =
+                                full_strain[strain_offset + 4] =
                                     0.5 * (du_dx[0][2] + du_dx[2][0]);  // εxz
-                                strain[strain_offset + 5] =
+                                full_strain[strain_offset + 5] =
                                     0.5 * (du_dx[1][2] + du_dx[2][1]);  // εyz
                             }
                         }
                     }
                 }
-                record.write_step(step, strain.data());
+                // Extract only recording-map vertices (shallow mesh corners)
+                std::vector<double> rec_strain;
+                if (part.recording.has_recording && part.recording.vertex_ids.size() > 0) {
+                    size_t nv = part.recording.vertex_ids.size();
+                    rec_strain.resize(nv * 6, 0.0);
+                    for (size_t vi = 0; vi < nv; ++vi) {
+                        int local_elem = part.recording.src_elem_local[vi];
+                        int corner = part.recording.src_corner[vi];
+                        int stride = n_node;
+                        int src_offset = (local_elem * stride + corner) * 6;
+                        for (int c = 0; c < 6; ++c) {
+                            rec_strain[vi * 6 + c] = full_strain[src_offset + c];
+                        }
+                    }
+                } else {
+                    // Fallback: full GLL strain (backward compat)
+                    rec_strain = full_strain;
+                }
+                record.write_step(step, rec_strain.data());
 
                 // --- Progress report ---
                 {
@@ -285,6 +347,7 @@ int run_forward(const std::string& direction) {
 
         // === Finalize ===
         record.close();
+        restart_writer.close();
 
         auto t_end = std::chrono::steady_clock::now();
         double total_elapsed = std::chrono::duration<double>(t_end - t_start).count();

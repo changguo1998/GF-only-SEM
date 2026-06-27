@@ -1,7 +1,7 @@
 """CLI entry point for the postprocessing pipeline.
 
 Usage:
-    gf-postprocess mesh.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ -o greenfun/
+    gf-postprocess mesh.h5 config.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ -o greenfun/
 """
 
 import glob
@@ -13,7 +13,7 @@ import click
 import numpy as np
 
 from gf_post.assembly import assemble_greens_tensor
-from gf_post.reader import GeometryReader, merge_records
+from gf_post.reader import ConfigReader, GeometryReader, merge_vertex_records
 from gf_post.writer import GFWriter
 
 
@@ -28,6 +28,7 @@ def _discover_record_files(record_dir: str) -> list[str]:
 
 @click.command()
 @click.argument("mesh", type=click.Path(exists=True))
+@click.argument("config", type=click.Path(exists=True))
 @click.option(
     "--fx",
     required=True,
@@ -53,25 +54,34 @@ def _discover_record_files(record_dir: str) -> list[str]:
     default="greenfun",
     help="Output directory for Green's function tile files",
 )
-@click.option("--tile-elems", type=int, default=100, help="Maximum elements per spatial tile")
-def main(mesh, fx, fy, fz, output_dir, tile_elems):
-    """Extract strain Green's functions from SEM checkpoint files.
+def main(mesh, config, fx, fy, fz, output_dir):
+    """Extract strain Green's functions from SEM record files.
 
-    Reads strain checkpoints from three force-direction forward runs,
-    merges per-rank records, assembles the full 3×6 Green's tensor at
-    every GLL node, and writes spatially tiled HDF5 output.
+    Reads mesh-vertex strain records from three force-direction forward runs,
+    merges per-rank records, assembles the full 3x6 Green's tensor at
+    every recorded mesh vertex, and writes spatially-tiled HDF5 output.
 
-    No receiver positions needed — output is the full GLL-node field.
+    Tile size comes from config.h5 /simulation/green_tile_size_m.
     """
     start = time.time()
     print("[postprocess] Starting...", file=sys.stderr)
 
+    # Read config
+    print(f"[postprocess] Reading config from {config}", file=sys.stderr)
+    cfg = ConfigReader(config)
+    green_tile_size_m = cfg.green_tile_size_m
+    record_depth_max_m = cfg.record_depth_max_m
+    record_depth_actual_m = cfg.record_depth_actual_m
+    dt = cfg.dt
+    nsteps = cfg.nsteps
+    cfg.close()
+
     # Load mesh geometry
     print(f"[postprocess] Reading mesh geometry from {mesh}", file=sys.stderr)
     with GeometryReader(mesh) as geo:
-        gll_coords = geo.coords
-        n_cell = geo.n_cell
-        ngll = geo.ngll
+        vertex_coords = geo.vertex_coords
+        n_vertex = geo.n_vertex
+        domain_bounds = geo.domain_bounds
 
     # Discover record files
     fx_files = _discover_record_files(fx)
@@ -85,41 +95,58 @@ def main(mesh, fx, fy, fz, output_dir, tile_elems):
 
     # Merge records from each direction
     print("[postprocess] Merging fx records...", file=sys.stderr)
-    strain_fx, info_fx = merge_records(fx_files, n_cell)
+    strain_fx, mask_fx = merge_vertex_records(fx_files, n_vertex)
 
     print("[postprocess] Merging fy records...", file=sys.stderr)
-    strain_fy, info_fy = merge_records(fy_files, n_cell)
+    strain_fy, mask_fy = merge_vertex_records(fy_files, n_vertex)
 
     print("[postprocess] Merging fz records...", file=sys.stderr)
-    strain_fz, info_fz = merge_records(fz_files, n_cell)
+    strain_fz, mask_fz = merge_vertex_records(fz_files, n_vertex)
 
-    # Time alignment validation
-    for name, info in [("fx", info_fx), ("fy", info_fy), ("fz", info_fz)]:
-        if info["dt"] != info_fx["dt"] or info["nsteps"] != info_fx["nsteps"]:
-            raise ValueError(
-                f"Time alignment mismatch: {name} has dt={info['dt']} "
-                f"nsteps={info['nsteps']}, expected dt={info_fx['dt']} "
-                f"nsteps={info_fx['nsteps']}"
-            )
+    # Consistency check: same recorded vertices across directions
+    if not np.array_equal(mask_fx, mask_fy) or not np.array_equal(mask_fx, mask_fz):
+        print("[postprocess] WARNING: recorded vertex sets differ across directions",
+              file=sys.stderr)
 
-    dt = info_fx["dt"]
+    # Use combined mask of all recorded vertices
+    vertex_mask = mask_fx & mask_fy & mask_fz
+    recorded_indices = np.where(vertex_mask)[0]
+    recorded_ids = np.arange(1, n_vertex + 1, dtype=np.int64)[recorded_indices]
+    print(f"[postprocess] {len(recorded_indices)}/{n_vertex} vertices recorded",
+          file=sys.stderr)
+
     nt = strain_fx.shape[0]
-    time_arr = np.arange(nt) * dt * info_fx["checkpoint_interval"]
+    time_arr = np.arange(nt) * dt * cfg.output_dt_s / dt if hasattr(cfg, 'output_dt_s') else np.arange(nt) * dt
 
-    # Assemble Green's tensor at all GLL nodes
-    # strain_fx shape: [nt, n_cell, NGLL, NGLL, NGLL, 6]
-    # greens_tensor shape: [nt, n_cell, NGLL, NGLL, NGLL, 6, 3]
-    print("[postprocess] Assembling Green's tensor at all GLL nodes...", file=sys.stderr)
+    # Subset to recorded vertices only
+    strain_fx = strain_fx[:, recorded_indices, :]
+    strain_fy = strain_fy[:, recorded_indices, :]
+    strain_fz = strain_fz[:, recorded_indices, :]
+
+    # Assemble Green's tensor at recorded vertices
+    print("[postprocess] Assembling Green's tensor...", file=sys.stderr)
     greens = assemble_greens_tensor({"fx": strain_fx, "fy": strain_fy, "fz": strain_fz})
 
-    # Write output — tiled by element range
+    # Write output — spatially tiled
     print(f"[postprocess] Writing Green's function tiles to {output_dir}...", file=sys.stderr)
-    tiles = GFWriter.write(output_dir, gll_coords, time_arr, dt, greens, tile_elems)
+    tiles = GFWriter.write(
+        output_dir,
+        vertex_coords[recorded_indices],
+        recorded_ids,
+        time_arr,
+        dt,
+        greens,
+        green_tile_size_m,
+        domain_bounds,
+        record_depth_max_m=record_depth_max_m,
+        record_depth_actual_m=record_depth_actual_m,
+    )
 
     elapsed = time.time() - start
     n_tiles = len(tiles)
     print(
-        f"[postprocess] Done in {elapsed:.1f}s — {n_tiles} tile(s), {n_cell} element(s)",
+        f"[postprocess] Done in {elapsed:.1f}s — {n_tiles} tile(s), "
+        f"{len(recorded_indices)} recorded vertex(ices)",
         file=sys.stderr,
     )
 

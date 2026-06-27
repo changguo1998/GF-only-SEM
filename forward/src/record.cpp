@@ -3,6 +3,8 @@
 
 #include <hdf5.h>
 
+#include <cmath>
+#include <cstring>
 #include <stdexcept>
 #include <vector>
 
@@ -14,7 +16,6 @@ namespace gf {
 
 namespace {
 
-// Helper: write scalar attribute
 void write_scalar_attr(hid_t loc_id, const std::string& name, hid_t type_id, const void* value) {
     hid_t attr_space = H5Screate(H5S_SCALAR);
     if (attr_space < 0)
@@ -25,12 +26,13 @@ void write_scalar_attr(hid_t loc_id, const std::string& name, hid_t type_id, con
         H5Sclose(attr_space);
         throw std::runtime_error("H5Acreate2 failed for attr: " + name);
     }
-    H5Awrite(attr_id, type_id, value);
+    herr_t status = H5Awrite(attr_id, type_id, value);
     H5Aclose(attr_id);
     H5Sclose(attr_space);
+    if (status < 0)
+        throw std::runtime_error("H5Awrite failed for attr: " + name);
 }
 
-// Helper: write string attribute
 void write_string_attr(hid_t loc_id, const std::string& name, const std::string& value) {
     hid_t str_type = H5Tcopy(H5T_C_S1);
     H5Tset_size(str_type, value.size());
@@ -42,24 +44,23 @@ void write_string_attr(hid_t loc_id, const std::string& name, const std::string&
         H5Tclose(str_type);
         throw std::runtime_error("H5Acreate2 failed for string attr: " + name);
     }
-    H5Awrite(attr_id, str_type, value.c_str());
+    herr_t status = H5Awrite(attr_id, str_type, value.c_str());
     H5Aclose(attr_id);
     H5Sclose(attr_space);
     H5Tclose(str_type);
+    if (status < 0)
+        throw std::runtime_error("H5Awrite failed for string attr: " + name);
 }
+
 }  // anonymous namespace
 
 RecordWriter::RecordWriter(const std::string& output_dir, const std::string& source_direction,
-                           int rank, int n_local_elem, const int64_t* element_ids, int ngll,
+                           int rank, const RankData::RecordingMap& rec_map, int ngll,
                            CompressionConfig compression, bool use_float32)
-    : file_id_(-1),
-      strain_dset_(-1),
-      strain_space_(-1),
-      current_step_(0),
-      n_elem_local_(static_cast<hsize_t>(n_local_elem)),
-      ngll_(ngll),
-      use_float32_(use_float32),
+    : file_id_(-1), strain_dset_(-1), current_step_(0), ngll_(ngll), use_float32_(use_float32),
       source_direction_(source_direction) {
+    n_vertices_ = static_cast<hsize_t>(rec_map.vertex_ids.size());
+
     // Build file path: {output_dir}/{direction}/record_{rank}.h5
     std::string wavefields_dir = output_dir + "/" + source_direction;
     filepath_ = wavefields_dir + "/record_" + std::to_string(rank) + ".h5";
@@ -71,64 +72,65 @@ RecordWriter::RecordWriter(const std::string& output_dir, const std::string& sou
     }
 
     // Write root group attributes
-    int ngll_attr = ngll_;
+    int rank_int = rank;
     write_string_attr(file_id_, "source_direction", source_direction);
-    write_scalar_attr(file_id_, "ngll", H5T_NATIVE_INT, &ngll_attr);
-    write_scalar_attr(file_id_, "rank", H5T_NATIVE_INT, &rank);
+    write_scalar_attr(file_id_, "rank", H5T_NATIVE_INT, &rank_int);
+    write_scalar_attr(file_id_, "ngll", H5T_NATIVE_INT, &ngll);
+    write_string_attr(file_id_, "basis", "mesh_vertices");
+    write_scalar_attr(file_id_, "excludes_pml", H5T_NATIVE_HBOOL, &rec_map.has_recording);
 
-    // Write local_element_ids dataset
-    hsize_t elem_dims[1] = {n_elem_local_};
-    hid_t elem_space = H5Screate_simple(1, elem_dims, nullptr);
-    if (elem_space < 0)
-        throw std::runtime_error("H5Screate_simple failed for elem_ids");
-    hid_t elem_dset = H5Dcreate2(file_id_, "local_element_ids", H5T_NATIVE_INT64, elem_space,
-                                 H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-    if (elem_dset < 0) {
+    // Write vertex_ids dataset
+    if (n_vertices_ > 0) {
+        hsize_t elem_dims[1] = {n_vertices_};
+        hid_t elem_space = H5Screate_simple(1, elem_dims, nullptr);
+        if (elem_space < 0)
+            throw std::runtime_error("H5Screate_simple failed for vertex_ids");
+        hid_t elem_dset = H5Dcreate2(file_id_, "vertex_ids", H5T_NATIVE_INT64, elem_space,
+                                     H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        if (elem_dset < 0) {
+            H5Sclose(elem_space);
+            throw std::runtime_error("H5Dcreate2 failed for vertex_ids");
+        }
+        H5Dwrite(elem_dset, H5T_NATIVE_INT64, H5S_ALL, H5S_ALL, H5P_DEFAULT,
+                 rec_map.vertex_ids.data());
+        H5Dclose(elem_dset);
         H5Sclose(elem_space);
-        throw std::runtime_error("H5Dcreate2 failed for local_element_ids");
     }
-    H5Dwrite(elem_dset, H5T_NATIVE_INT64, H5S_ALL, H5S_ALL, H5P_DEFAULT, element_ids);
-    H5Dclose(elem_dset);
-    H5Sclose(elem_space);
 
-    // Create extendible strain dataset: [1, n_elem_local, NGLL, NGLL, NGLL, 6]
+    // Create extendible strain dataset: [1, n_vertices, 6]
     constexpr hsize_t ncomps = 6;
-    hsize_t strain_dims[6] = {1,
-                              n_elem_local_,
-                              static_cast<hsize_t>(ngll_),
-                              static_cast<hsize_t>(ngll_),
-                              static_cast<hsize_t>(ngll_),
-                              ncomps};
-    hsize_t max_dims[6] = {H5S_UNLIMITED,
-                           n_elem_local_,
-                           static_cast<hsize_t>(ngll_),
-                           static_cast<hsize_t>(ngll_),
-                           static_cast<hsize_t>(ngll_),
-                           ncomps};
+    hsize_t strain_dims[3] = {1, n_vertices_, ncomps};
+    hsize_t max_dims[3] = {H5S_UNLIMITED, n_vertices_, ncomps};
 
-    strain_space_ = H5Screate_simple(6, strain_dims, max_dims);
-    if (strain_space_ < 0)
+    hid_t strain_space = H5Screate_simple(3, strain_dims, max_dims);
+    if (strain_space < 0)
         throw std::runtime_error("H5Screate_simple failed for strain");
 
     // Apply chunking and compression
     hid_t plist = H5Pcreate(H5P_DATASET_CREATE);
     if (plist < 0) {
-        H5Sclose(strain_space_);
+        H5Sclose(strain_space);
         throw std::runtime_error("H5Pcreate failed");
     }
-    apply_chunking(plist, ngll_, n_elem_local_);
+
+    // Chunk along time dimension: 1 snapshot per chunk
+    hsize_t chunk_dims[3] = {1, n_vertices_, ncomps};
+    H5Pset_chunk(plist, 3, chunk_dims);
+
+    // Apply compression filter
     apply_compression(plist, compression);
 
-    hid_t write_type = select_precision_type(use_float32);
+    hid_t write_type = select_precision_type(use_float32_);
 
     strain_dset_ =
-        H5Dcreate2(file_id_, "strain", write_type, strain_space_, H5P_DEFAULT, plist, H5P_DEFAULT);
+        H5Dcreate2(file_id_, "strain", write_type, strain_space, H5P_DEFAULT, plist, H5P_DEFAULT);
     if (strain_dset_ < 0) {
         H5Pclose(plist);
-        H5Sclose(strain_space_);
+        H5Sclose(strain_space);
         throw std::runtime_error("H5Dcreate2 failed for strain");
     }
     H5Pclose(plist);
+    H5Sclose(strain_space);
 
     current_step_ = 1;  // already have 1 step allocated
 }
@@ -137,7 +139,6 @@ RecordWriter::~RecordWriter() {
     try {
         close();
     } catch (...) {
-        // suppress exceptions in destructor
     }
 }
 
@@ -147,13 +148,8 @@ void RecordWriter::write_step(int step, const double* strain) {
         throw std::runtime_error("RecordWriter: file not open");
     }
 
-    // Extend the dataset along time dimension (dim 0) to current_step_.
-    hsize_t new_dims[6] = {current_step_,
-                           n_elem_local_,
-                           static_cast<hsize_t>(ngll_),
-                           static_cast<hsize_t>(ngll_),
-                           static_cast<hsize_t>(ngll_),
-                           6};
+    // Extend dataset along time dimension
+    hsize_t new_dims[3] = {current_step_, n_vertices_, 6};
     herr_t status = H5Dset_extent(strain_dset_, new_dims);
     if (status < 0) {
         throw std::runtime_error("H5Dset_extent failed at step " + std::to_string(current_step_));
@@ -164,20 +160,14 @@ void RecordWriter::write_step(int step, const double* strain) {
     if (filespace < 0) {
         throw std::runtime_error("H5Dget_space failed");
     }
-    H5Sget_simple_extent_dims(filespace, new_dims, nullptr);
 
     // Select hyperslab for the new step
-    hsize_t start[6] = {current_step_ - 1, 0, 0, 0, 0, 0};
-    hsize_t count[6] = {1,
-                        n_elem_local_,
-                        static_cast<hsize_t>(ngll_),
-                        static_cast<hsize_t>(ngll_),
-                        static_cast<hsize_t>(ngll_),
-                        6};
+    hsize_t start[3] = {current_step_ - 1, 0, 0};
+    hsize_t count[3] = {1, n_vertices_, 6};
     H5Sselect_hyperslab(filespace, H5S_SELECT_SET, start, nullptr, count, nullptr);
 
     // Create memory dataspace for this slab
-    hid_t memspace = H5Screate_simple(6, count, nullptr);
+    hid_t memspace = H5Screate_simple(3, count, nullptr);
     if (memspace < 0) {
         H5Sclose(filespace);
         throw std::runtime_error("H5Screate_simple failed for memspace");
@@ -185,9 +175,7 @@ void RecordWriter::write_step(int step, const double* strain) {
 
     // If float32, convert doubles to floats on the fly
     if (use_float32_) {
-        hsize_t total = 1;
-        for (int i = 0; i < 6; ++i)
-            total *= count[i];
+        hsize_t total = n_vertices_ * 6;
         std::vector<float> fbuf(total);
         for (hsize_t i = 0; i < total; ++i)
             fbuf[i] = static_cast<float>(strain[i]);
@@ -206,10 +194,6 @@ void RecordWriter::close() {
     if (strain_dset_ >= 0) {
         H5Dclose(strain_dset_);
         strain_dset_ = -1;
-    }
-    if (strain_space_ >= 0) {
-        H5Sclose(strain_space_);
-        strain_space_ = -1;
     }
     if (file_id_ >= 0) {
         H5Fclose(file_id_);

@@ -149,7 +149,7 @@ def _write_partition_files(
                     _write_dataset(rec_grp, "source_element_local_index",
                                    np.array(per_rank_rec["source_element_local_index"], dtype=np.int32), dtype="int32")
                     _write_dataset(rec_grp, "source_corner_index",
-                                   np.array(per_rank_rec["source_corner_index"], dtype=np.int8), dtype="int8")
+                                   np.array(per_rank_rec["source_corner_index"], dtype=np.int32), dtype="int32")
 
 
 

@@ -53,6 +53,16 @@ struct RankData {
         std::vector<int> recv_dof_indices;  // local DOF indices to receive into (ghost DOFs)
     };
     std::vector<ExchangePattern> exchange_patterns;
+
+    // Recording map (from /recording/ in partition file)
+    // Maps shallow mesh vertices to source element + corner for strain extraction
+    struct RecordingMap {
+        bool has_recording = false;           // true if /recording/ group exists
+        std::vector<int64_t> vertex_ids;      // global mesh vertex IDs [n_vertices]
+        std::vector<int32_t> src_elem_local;  // local element index [n_vertices]
+        std::vector<int8_t> src_corner;       // corner index 0-7 [n_vertices]
+    };
+    RecordingMap recording;
 };
 
 // --- Time stepping ---
@@ -77,6 +87,14 @@ struct ConfigData {
     double xmin = 0.0, xmax = 0.0;
     double ymin = 0.0, ymax = 0.0;
     double zmin = 0.0, zmax = 0.0;
+
+    // Recording / restart
+    double record_depth_max_m = 0.0;
+    double record_depth_actual_m = 0.0;
+    double green_tile_size_m = 0.0;
+    double restart_dt_s = 0.0;       // 0 = no restart
+    int restart_stride = 0;          // 0 = no restart
+    bool resume_mode = false;        // true if --resume flag set
 
     // Source
     std::vector<double> stf_t;

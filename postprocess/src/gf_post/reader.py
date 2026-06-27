@@ -1,11 +1,22 @@
-"""HDF5 readers for checkpoint records and mesh geometry."""
+"""HDF5 readers for record files and mesh geometry.
+
+Record files now store shallow mesh-vertex strain (from recording map)
+with vertex_ids. Metadata (dt, nsteps, green_tile_size_m) comes from config.h5.
+"""
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 
 
 class RecordReader:
-    """Reads strain checkpoints from a single-rank record HDF5 file."""
+    """Reads shallow mesh-vertex strain from a single-rank record HDF5 file.
+
+    File format (wavefields/{direction}/record_{r}.h5):
+      attrs: rank, source_direction, basis="mesh_vertices", excludes_pml
+      /vertex_ids  : int64[n_vertices]
+      /strain      : float32[n_snapshots, n_vertices, 6]  (extendible)
+    """
 
     def __init__(self, path: str):
         self.path = path
@@ -21,47 +32,43 @@ class RecordReader:
             self._file = None
 
     @property
-    def dt(self) -> float:
-        return float(self._file.attrs["dt"])
+    def source_direction(self) -> str:
+        return str(self._file.attrs["source_direction"])
 
     @property
-    def source_direction(self) -> int:
-        return int(self._file.attrs["source_direction"])
+    def basis(self) -> str:
+        return str(self._file.attrs.get("basis", "mesh_vertices"))
 
     @property
-    def record_interval(self) -> int:
-        return int(self._file.attrs["checkpoint_interval"])
+    def vertex_ids(self) -> np.ndarray:
+        """Global mesh vertex IDs recorded by this rank [n_vertices]."""
+        return np.array(self._file["vertex_ids"])
 
     @property
-    def nsteps(self) -> int:
-        return int(self._file.attrs["nsteps"])
+    def n_vertices(self) -> int:
+        return int(self._file["vertex_ids"].shape[0])
 
     @property
-    def local_element_ids(self) -> np.ndarray:
-        return np.array(self._file["local_element_ids"])
+    def n_snapshots(self) -> int:
+        return int(self._file["strain"].shape[0])
 
-    @property
-    def n_records(self) -> int:
-        strain = self._file["strain"]
-        return strain.shape[0]
+    def read_strain(self, snap_idx: int) -> np.ndarray:
+        """Read strain for one snapshot.
 
-    def read_strain(self, step: int) -> np.ndarray:
-        """Read strain for a single timestep.
-
-        Returns shape: (n_elem_local, NGLL, NGLL, NGLL, 6)
+        Returns shape: (n_vertices, 6)
         """
-        return np.array(self._file["strain"][step])
+        return np.array(self._file["strain"][snap_idx])
 
     def read_all_strain(self) -> np.ndarray:
-        """Read all strain checkpoints.
+        """Read all strain snapshots.
 
-        Returns shape: (n_records, n_elem_local, NGLL, NGLL, NGLL, 6)
+        Returns shape: (n_snapshots, n_vertices, 6)
         """
         return np.array(self._file["strain"])
 
 
 class GeometryReader:
-    """Reads GLL geometry data from mesh.h5."""
+    """Reads mesh vertex coordinates from mesh.h5."""
 
     def __init__(self, path: str):
         self.path = path
@@ -77,65 +84,99 @@ class GeometryReader:
             self._file = None
 
     @property
-    def coords(self) -> np.ndarray:
-        """GLL node coordinates [n_cell, NGLL, NGLL, NGLL, 3]."""
-        return np.array(self._file["/field/element/coords"])
+    def vertex_coords(self) -> np.ndarray:
+        """Mesh vertex coordinates [n_vertex, 3]."""
+        return np.array(self._file["/topology/vertex_to_coord"])
 
     @property
-    def dxi_dx(self) -> np.ndarray:
-        """Jacobian inverse [n_cell, NGLL, NGLL, NGLL, 3, 3]."""
-        return np.array(self._file["/field/element/dxi_dx"])
+    def n_vertex(self) -> int:
+        return self.vertex_coords.shape[0]
 
     @property
-    def is_pml(self) -> np.ndarray:
-        """PML flag per element [n_cell]."""
-        return np.array(self._file["/field/element/is_pml"])
+    def domain_bounds(self) -> dict[str, float]:
+        """Domain bounds from /domain/ attrs."""
+        domain = self._file["/domain"]
+        return {
+            "xmin": float(domain.attrs["xmin"]),
+            "xmax": float(domain.attrs["xmax"]),
+            "ymin": float(domain.attrs["ymin"]),
+            "ymax": float(domain.attrs["ymax"]),
+            "zmin": float(domain.attrs["zmin"]),
+            "zmax": float(domain.attrs["zmax"]),
+        }
+
+
+class ConfigReader:
+    """Reads simulation config from config.h5."""
+
+    def __init__(self, path: str):
+        self._file = h5py.File(path, "r")
+
+    def close(self):
+        self._file.close()
 
     @property
-    def n_cell(self) -> int:
-        return self.coords.shape[0]
+    def green_tile_size_m(self) -> float:
+        return float(self._file["/simulation"].attrs.get("green_tile_size_m", 1000.0))
 
     @property
-    def ngll(self) -> int:
-        return self.coords.shape[1]
+    def record_depth_max_m(self) -> float:
+        return float(self._file["/simulation"].attrs.get("record_depth_max_m", 0.0))
+
+    @property
+    def record_depth_actual_m(self) -> float:
+        return float(self._file["/simulation"].attrs.get("record_depth_actual_m", 0.0))
+
+    @property
+    def dt(self) -> float:
+        return float(self._file["/simulation"].attrs.get("solver_dt", 0.01))
+
+    @property
+    def nsteps(self) -> int:
+        return int(self._file["/simulation"].attrs.get("nsteps", 0))
+
+    @property
+    def output_dt_s(self) -> float:
+        return float(self._file["/simulation"].attrs.get("output_dt_s", self.dt))
 
 
-def merge_records(rank_files: list[str], n_cell: int) -> tuple[np.ndarray, dict]:
-    """Merge strain from multiple rank record files into unified view.
+def merge_vertex_records(
+    rank_files: list[str], n_vertex: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Merge vertex-level strain from multiple rank record files.
+
+    Each rank recorded a subset of global mesh vertices. This function
+    assembles the full-mesh strain array.
 
     Args:
         rank_files: list of paths to record_{r}.h5 files.
-        n_cell: total number of elements (global).
+        n_vertex: total number of unique mesh vertices (global).
 
     Returns:
-        (merged_strain, info) where merged_strain is
-        [n_records, n_cell, NGLL, NGLL, NGLL, 6] and info contains metadata.
+        (merged_strain, vertex_mask) where
+          merged_strain: [n_snapshots, n_vertex, 6] float32
+          vertex_mask:   [n_vertex] bool — True for vertices that were recorded
     """
-    # Open all files to get shapes
-    readers = [RecordReader(path) for path in rank_files]
+    readers = [RecordReader(p) for p in rank_files]
     for r in readers:
         r.__enter__()
 
-    n_records = readers[0].n_records
-    ngll = readers[0].read_strain(0).shape[1]
+    n_snapshots = readers[0].n_snapshots
+    dtype = readers[0].read_strain(0).dtype
 
-    merged = np.zeros(
-        (n_records, n_cell, ngll, ngll, ngll, 6), dtype=readers[0].read_strain(0).dtype
-    )
+    merged = np.zeros((n_snapshots, n_vertex, 6), dtype=dtype)
+    mask = np.zeros(n_vertex, dtype=bool)
 
     for r in readers:
-        eids = r.local_element_ids  # 1-based global IDs
-        strain = r.read_all_strain()
-        for i, eid in enumerate(eids):
-            merged[:, eid - 1, :, :, :, :] = strain[:, i, :, :, :, :]
-
-    info = {
-        "dt": readers[0].dt,
-        "nsteps": readers[0].nsteps,
-        "checkpoint_interval": readers[0].record_interval,
-    }
+        vids = r.vertex_ids  # 1-based global vertex IDs
+        strain = r.read_all_strain()  # [n_snapshots, n_local_vertices, 6]
+        for i, vid in enumerate(vids):
+            idx = int(vid) - 1  # convert to 0-based
+            if 0 <= idx < n_vertex:
+                merged[:, idx, :] = strain[:, i, :]
+                mask[idx] = True
 
     for r in readers:
         r.__exit__(None, None, None)
 
-    return merged, info
+    return merged, mask

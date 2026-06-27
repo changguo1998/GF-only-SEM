@@ -14,6 +14,6 @@ namespace gf {
 ///
 /// \param direction      Force direction string ("x", "y", or "z")
 /// \return 0 on success, non-zero on failure
-int run_forward(const std::string& direction);
+int run_forward(const std::string& direction, bool resume_mode = false);
 
 }  // namespace gf

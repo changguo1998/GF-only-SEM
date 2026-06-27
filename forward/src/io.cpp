@@ -261,6 +261,18 @@ RankData read_partition(const std::string& path, int /*rank*/) {
         }
     }
 
+    // --- Read recording map ---
+    hid_t rec_grp = H5Gopen2(fid, "/recording", H5P_DEFAULT);
+    if (rec_grp >= 0) {
+        H5FileGuard rec_guard(rec_grp);
+        data.recording.has_recording = true;
+        data.recording.vertex_ids = read_dataset_int64(fid, "/recording/vertex_ids");
+        data.recording.src_elem_local = read_dataset_int32(fid, "/recording/source_element_local_index");
+        // Read corner index as int32 (stored as int32 in HDF5)
+        auto corner_data = read_dataset_int32(fid, "/recording/source_corner_index");
+        data.recording.src_corner.assign(corner_data.begin(), corner_data.end());
+    }
+
     return data;
 }
 
@@ -299,6 +311,11 @@ ConfigData read_config(const std::string& path) {
         }
         read_attr_double(sim_grp, "cfl_safety", cfg.cfl_safety);
         read_attr_string(sim_grp, "snapshot_precision", cfg.snapshot_precision);
+        read_attr_double(sim_grp, "record_depth_max_m", cfg.record_depth_max_m);
+        read_attr_double(sim_grp, "record_depth_actual_m", cfg.record_depth_actual_m);
+        read_attr_double(sim_grp, "green_tile_size_m", cfg.green_tile_size_m);
+        read_attr_double(sim_grp, "restart_dt_s", cfg.restart_dt_s);
+        read_attr_int(sim_grp, "restart_stride", cfg.restart_stride);
     } else {
         // Legacy flat-dataset fallback for old C++ tests/files.
         auto poly_order = try_read_dataset<double>(fid, "polynomial_order");

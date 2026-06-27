@@ -1,9 +1,10 @@
 // forward/src/main.cpp
 //
-// gf_solver --direction {x,y,z}
+// gf_solver --direction {x,y,z} [--resume]
 // All I/O paths are frozen relative to CWD:
 //   Input:  config.h5, partitions/partition_{r}.h5
 //   Output: wavefields/{direction}/record_{r}.h5
+//   Restart: restart/{direction}/restart_{r}.h5 (with --resume)
 
 #include <mpi.h>
 
@@ -15,10 +16,11 @@
 #include "gf/solver.hpp"
 
 void print_usage(const char* prog) {
-    std::cerr << "Usage: " << prog << " --direction {x,y,z}\n"
+    std::cerr << "Usage: " << prog << " --direction {x,y,z} [--resume]\n"
               << "  All I/O paths are frozen relative to CWD:\n"
               << "    Input:  config.h5, partitions/partition_{r}.h5\n"
-              << "    Output: wavefields/{direction}/record_{r}.h5\n";
+              << "    Output: wavefields/{direction}/record_{r}.h5\n"
+              << "    Restart: restart/{direction}/restart_{r}.h5\n";
 }
 
 int main(int argc, char** argv) {
@@ -29,10 +31,13 @@ int main(int argc, char** argv) {
 
     try {
         std::string direction;
+        bool resume_mode = false;
 
         for (int i = 1; i < argc; ++i) {
             if (std::strcmp(argv[i], "--direction") == 0 && i + 1 < argc) {
                 direction = argv[++i];
+            } else if (std::strcmp(argv[i], "--resume") == 0) {
+                resume_mode = true;
             }
         }
 
@@ -46,12 +51,15 @@ int main(int argc, char** argv) {
         }
 
         if (rank == 0) {
-            std::cout << "gf_solver: direction=" << direction << std::endl;
+            std::cout << "gf_solver: direction=" << direction;
+            if (resume_mode)
+                std::cout << " (resume mode)";
+            std::cout << std::endl;
             std::cout << "  input:  config.h5 + partitions/partition_{r}.h5\n"
                       << "  output: wavefields/" << direction << "/record_{r}.h5" << std::endl;
         }
 
-        int result = gf::run_forward(direction);
+        int result = gf::run_forward(direction, resume_mode);
 
         MPI_Finalize();
         return result;
