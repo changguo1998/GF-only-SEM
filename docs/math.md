@@ -207,7 +207,7 @@ For each PML element and face direction, damping increases linearly from 0 at th
 
 All 3 DOF components at a node share the same damping coefficient. Non-PML elements: d = 0 everywhere (no effect).
 
-Note: full C-PML implementation with stretched-coordinate memory variables (21 arrays = 39 scalars per GLL node per PML element) is deferred. When implemented, it will follow the second-order recursive convolution formulation of Wang et al. (2006, eq. 21, θ=1/8), matching SPECFEM3D.
+Note: full C-PML memory variables are deferred. Future implementation follows Wang et al. (2006, eq. 21, θ=1/8), matching SPECFEM3D.
 
 ______________________________________________________________________
 
@@ -279,21 +279,21 @@ ______________________________________________________________________
 
 ### 10.1 Green's Tensor Assembly
 
-Three forward runs (direction x, y, z) produce recorded shallow mesh-vertex strain field ε^{(d)} for d ∈ {x,y,z} and saved time steps:
+Three runs (force x, y, z) produce recorded shallow mesh-vertex strain ε^{(d)}:
 
 <center>G_{ij}(t, x_v) = ε^{(j)}_i(t, x_v) / F_j(ω)</center>
 
-where i = 1..6 (strain component in Voigt order), j = x,y,z (force direction), and x_v is a recorded mesh vertex.
+where i = 1..6 is Voigt strain, j = x,y,z is force direction, and x_v is a recorded vertex.
 
-Full strain Green's tensor at each recorded vertex: 3 force directions × 6 strain components = 18 entries.
+Each recorded vertex stores 3 force directions × 6 strain components = 18 values.
 
 ### 10.2 Spatial Tiling
 
-Output is horizontally tiled by x/y bins. Each `greenfun/tile_x{i}_y{j}.h5` stores the Green's tensor for recorded non-PML mesh vertices within that horizontal tile and all saved depths (`depth <= record_depth_actual_m`).
+Output uses x/y tiles. Each `greenfun/tile_x{i}_y{j}.h5` stores non-PML recorded vertices in that tile for all saved depths.
 
 ### 10.3 No Receivers
 
-Green's functions are extracted at the configured shallow full-volume mesh vertices. No receiver positions, no receiver search, no position interpolation in postprocess. The SEM compute field remains full GLL; the persisted Green library is the configured mesh-vertex subset.
+Green output is the configured shallow mesh-vertex subset. No receivers, receiver search, or interpolation. SEM compute still uses full GLL.
 
 ______________________________________________________________________
 
@@ -319,10 +319,30 @@ ______________________________________________________________________
 
 All checked at preprocess time:
 
-## | Check | Condition | | ------- | ----------- | | Mesh | det(J) > 0 at all GLL nodes | | Material | v_p > 0, v_s ≥ 0, ρ > 0 at all GLL nodes | | CFL | solver_dt ≤ cfl_dt | | Source | x, y within domain; STF finite & non-NaN | | Storage | estimated disk usage ≤ storage_limit_gb | | PML | ≥ 2 elements per absorbing face (warn if thinner) |
+| Check | Condition |
+|-------|-----------|
+| Mesh | det(J) > 0 at all GLL nodes |
+| Material | v_p > 0, v_s ≥ 0, ρ > 0 |
+| CFL | solver_dt ≤ cfl_dt |
+| Source | x/y in domain; STF finite |
+| Storage | estimate ≤ storage_limit_gb |
+| PML | ≥ 2 elements per absorbing face, else warn |
 
 ## 13. Summary of Key Equations
 
-## | # | Equation | Meaning | | --- | ---------- | --------- | | 1 | ρ·ü = ∇·σ + f | Elastic wave equation | | 2 | σ = λ·tr(ε)·I + 2μ·ε | Isotropic stress-strain | | 3 | ε = ½(∇u + ∇uᵀ) | Infinitesimal strain | | 4 | Du/Dξ = D·u | Reference gradient via GLL derivative matrix | | 5 | ∂u/∂x = (∂u/∂ξ)·(∂ξ/∂x) | Physical gradient via chain rule | | 6 | r = −∫ ∇N·σ dΩ | Matrix-free internal force | | 7 | M\_{ijk} = ρ·det(J)·w_i·w_j·w_k | Lumped mass | | 8 | ũ = u_n + Δt·v_n + ½Δt²·a_n | Newmark predictor | | 9 | a\_{n+1} = M⁻¹·r(ũ) | Newmark corrector (acceleration) | | 10 | v\_{n+1} = v_n + ½Δt·a_n + ½Δt·a\_{n+1} | Newmark corrector (velocity) | | 11 | Δt ≤ h_min / v_p_max | CFL stability | | 12 | G\_{ij} = ε^{(j)}\_i | Strain Green's tensor |
+| # | Equation | Meaning |
+|---|----------|---------|
+| 1 | ρ·ü = ∇·σ + f | Elastic wave equation |
+| 2 | σ = λ·tr(ε)·I + 2μ·ε | Isotropic stress-strain |
+| 3 | ε = ½(∇u + ∇uᵀ) | Infinitesimal strain |
+| 4 | Du/Dξ = D·u | Reference gradient |
+| 5 | ∂u/∂x = (∂u/∂ξ)·(∂ξ/∂x) | Physical gradient |
+| 6 | r = −∫ ∇N·σ dΩ | Internal force |
+| 7 | M\_{ijk} = ρ·det(J)·w_i·w_j·w_k | Lumped mass |
+| 8 | ũ = u_n + Δt·v_n + ½Δt²·a_n | Newmark predictor |
+| 9 | a\_{n+1} = M⁻¹·r(ũ) | Corrector: acceleration |
+| 10 | v\_{n+1} = v_n + ½Δt·a_n + ½Δt·a\_{n+1} | Corrector: velocity |
+| 11 | Δt ≤ h_min / v_p_max | CFL |
+| 12 | G\_{ij} = ε^{(j)}\_i | Strain Green tensor |
 
 *Generated from source code: forward/include/gf/*.hpp, forward/src/*.cpp, preprocess/*.py.\*

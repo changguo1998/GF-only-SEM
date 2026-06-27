@@ -8,8 +8,7 @@ Each example is self-contained and demonstrates the computational pipeline:
 mesh generation → preprocess → forward solver
 ```
 
-Green's function extraction from snapshots operates on configured shallow mesh vertices.
-No receiver positions needed.
+Green's function extraction uses configured shallow mesh vertices. No receivers.
 
 ## Half-Space
 
@@ -72,15 +71,15 @@ examples/halfspace/
 │   ├── partition_0.h5       # Rank 0: local elements + exchange patterns
 │   └── partition_1.h5       # Rank 1
 ├── wavefields/
-│   ├── x/record_*.h5        # Shallow mesh-vertex strain snapshots (force in x)
-│   ├── y/record_*.h5        # Shallow mesh-vertex strain snapshots (force in y)
-│   └── z/record_*.h5        # Shallow mesh-vertex strain snapshots (force in z)
+│   ├── x/record_*.h5        # shallow mesh-vertex strain, force x
+│   ├── y/record_*.h5        # shallow mesh-vertex strain, force y
+│   └── z/record_*.h5        # shallow mesh-vertex strain, force z
 ├── restart/
-│   ├── x/restart_*.h5       # Latest-only full-volume restart state
+│   ├── x/restart_*.h5       # latest full-volume restart
 │   ├── y/restart_*.h5
 │   └── z/restart_*.h5
 └── greenfun/
-    └── tile_x*_y*.h5        # Horizontal Green-function tiles
+    └── tile_x*_y*.h5        # horizontal Green tiles
 ```
 
 ## Adding a New Example

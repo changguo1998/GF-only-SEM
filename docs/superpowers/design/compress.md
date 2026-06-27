@@ -5,11 +5,11 @@
 
 ## Goal
 
-Header-only C++ compression utility library that wraps HDF5 dataset creation with configurable compression filters, precision control, and chunking. Integrated into the forward solver's record write path.
+Header-only C++ helpers for HDF5 compression, precision, and chunking. Used by forward record writes.
 
 ## Architecture
 
-Header-only C++17 library (`INTERFACE` CMake target) providing three independent policy components plus a convenience `write_checkpoint()` function that composes them. The forward solver links this library.
+Header-only C++17 `INTERFACE` library. Provides compression, precision, chunking policies, plus `write_checkpoint()`.
 
 ```
 CompressionFilter  ─┐
@@ -53,7 +53,7 @@ Computes chunk dimensions from the strain tensor shape to balance I/O throughput
 
 ## Record Output Format
 
-One strain record file per MPI rank per run direction. Strain dataset is extendible along the time axis. Restart is a separate latest-only file, not part of the strain record.
+One strain record per rank per direction. `strain` extends in time. Restart is separate and latest-only.
 
 ```
 wavefields/{direction}/record_{r}.h5
@@ -69,7 +69,7 @@ wavefields/{direction}/record_{r}.h5
                                       # εxx,εyy,εzz,εxy,εxz,εyz
 ```
 
-Latest-only restart lives separately:
+Latest-only restart file:
 
 ```
 restart/{direction}/restart_{r}.h5
@@ -81,16 +81,16 @@ restart/{direction}/restart_{r}.h5
 
 ### Write Pattern
 
-1. **First snapshot**: create record file, create `vertex_ids` (fixed-size), create `strain` with dim 0 as `H5S_UNLIMITED`, write initial shallow mesh-vertex strain slice.
-1. **Subsequent snapshots**: extend strain dim 0 by 1, write new shallow mesh-vertex strain slice.
-1. **Restart overwrite**: when `step % restart_stride == 0`, overwrite `restart/{direction}/restart_{r}.h5` with full-volume state needed for exact resume.
+1. **First snapshot**: create file, fixed `vertex_ids`, extendible `strain`, and first slice.
+1. **Later snapshots**: extend time by 1 and write one slice.
+1. **Restart**: when `step % restart_stride == 0`, overwrite latest full-volume state.
 
 ### Data Shape
 
 - 6 strain components (full symmetric tensor: εxx, εyy, εzz, εxy, εxz, εyz)
 - Vertex-first layout: `[n_snapshots, n_record_vertices, 6]`
-- `vertex_ids` maps local record index to global mesh vertex ID (1-based, from partition\_{r}.h5 `/recording/`)
-- Strain precision is configurable: float32 (default, for production) or float64 (for validation). Set via config.py `snapshot_precision`. Restart state is always float64.
+- `vertex_ids` maps local record index to global mesh vertex ID (1-based).
+- `snapshot_precision`: float32 default, float64 for validation. Restart is always float64.
 
 ## Chunking
 
@@ -100,7 +100,7 @@ Chunked along time and recorded vertex dimensions:
 chunk_dims = {1, min(chunk_size, n_record_vertices), 6}
 ```
 
-Dim 0 chunk = 1 (one snapshot at a time, matching write pattern). `chunk_size` configurable (default: 64 or larger for production I/O).
+Dim 0 chunk = 1 because writes are one snapshot. `chunk_size` is configurable.
 
 ## Namespace
 

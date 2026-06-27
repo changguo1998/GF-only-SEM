@@ -78,7 +78,7 @@ The converter does NO computation. It reads GMSH and writes `/topology/` only.
 
 ### Preprocessor phase (extension)
 
-The preprocessor extends `mesh.h5` with geometry fields used by forward, validation, and postprocess vertex coordinate lookup:
+Preprocess extends `mesh.h5` with geometry used by forward, validation, and vertex lookup:
 
 ```
 mesh.h5  (preprocessor extensions)
@@ -90,9 +90,9 @@ mesh.h5  (preprocessor extensions)
         └── is_pml   : int8[n_cell]                            — 1=PML element, 0=ordinary
 ```
 
-These are the only `/field/` groups added by the preprocessor to `mesh.h5`. All other field data (material, mass, C-PML, partition metadata, shallow recording maps) lives in `partition_{r}.h5`.
+These are the only `/field/` groups added to `mesh.h5`. Material, mass, C-PML, partition metadata, and recording maps live in `partition_{r}.h5`.
 
-**`is_pml` flag**: set by the preprocessor during boundary detection. Elements within the absorbing boundary layer are marked as PML. Preprocess uses this to exclude PML from the `/recording/` map.
+**`is_pml` flag**: preprocess marks absorbing-layer elements. Recording map excludes them.
 
 ### Design Rules (shared by mesh.h5 and partition\_{r}.h5)
 
@@ -101,7 +101,7 @@ These are the only `/field/` groups added by the preprocessor to `mesh.h5`. All 
 | `X2Y` naming for relations | `edge_to_vertex`, `cell_to_surface` |
 | 1-based indexing, 0 = null | `surface_to_cell` → `(0, 5)` means boundary |
 | Sign = direction (signed int) | `+edge_id` = positive traversal, `-edge_id` = reverse |
-**Note**: Edge and surface topology exists primarily for boundary condition tagging (free surface, absorbing boundary detection) and diagnostics. The forward solver operates on elements and GLL nodes directly — it does not use edge/surface topology at runtime. The CG-SEM matrix-free assembly uses GLL nodes and element-local indexing, not face/edge connectivity.
+**Note**: Edge/surface topology is for boundary tags and diagnostics. Forward uses elements and GLL nodes only. The CG-SEM matrix-free assembly uses GLL nodes and element-local indexing, not face/edge connectivity.
 
 ### Schema — converter phase
 
@@ -136,7 +136,7 @@ vertex → edge → surface → cell
 
 ## HDF5 Format — `partition_{r}.h5` (per-rank partition files, preprocessor output)
 
-Each MPI rank receives its own partition file containing a local subset of topology, full-rank element fields, and partition metadata. The forward solver reads one `partition_{r}.h5` per rank.
+Each MPI rank gets one partition file with local topology, element fields, and metadata. Forward reads one file per rank.
 
 ```
 partition_{r}.h5
@@ -202,7 +202,7 @@ partition_{r}.h5
 - **NGLL** = N+1, embedded in array shapes — no separate attribute needed. Polynomial order N is known to all components via array shapes.
 - All element-level fields use element-first layout: `[n_elem_total, NGLL, NGLL, NGLL, …]`
 - C-PML arrays (`/field/element/cpml/`) are all precomputed by the preprocessor. Forward solver reads directly — no runtime PML damping computation.
-- `gll_to_global` is the core CG-SEM assembly mapping (equivalent to SPECFEM3D's `ibool`). It maps every GLL node `(i,j,k)` in every element (local + ghost) to a unique global node ID. Within-rank shared node assembly is implicit via accumulation into the global residual array.
+- `gll_to_global` is the CG-SEM assembly map (`ibool`). It maps each local/ghost GLL node to a global ID. Shared nodes accumulate into the same ID.
 - `n_elem_total = n_elem_local + n_ghost` — both owned and ghost elements share the same `gll_to_global` numbering space.
 
 ## Boundary Tags
@@ -215,9 +215,9 @@ Boundary detection is auto, by geometry. No GMSH physical groups needed. One fre
 
 ## Design Notes
 
-- **mesh.h5** serves postprocess only for mesh vertex coordinates (`/topology/vertex_to_coord`) referenced by output `vertex_ids`. Its `/topology/` is written by the converter; `/field/element/*` is added by the preprocessor for forward validation/diagnostics.
-- **partition\_{r}.h5** serves the forward solver (all field data, C-PML, partition metadata, and `/recording/` shallow mesh-vertex output map per rank).
-- Postprocess does not do point-in-hexahedron search or interpolation.
+- **mesh.h5** gives postprocess vertex coordinates by `vertex_ids`. Converter writes `/topology/`; preprocess adds `/field/element/*` for forward checks.
+- **partition\_{r}.h5** serves forward: field data, C-PML, metadata, and per-rank `/recording/` map.
+- Postprocess does no element search or interpolation.
 
 ## File Layout
 

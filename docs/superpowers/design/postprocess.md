@@ -1,131 +1,117 @@
 # Postprocess Module — Technical Design
 
 > Parent: [docs/design-decisions.md](../../design-decisions.md)
-> Implementation plan: [docs/superpowers/plans/2026-06-08-postprocess.md](../plans/2026-06-08-postprocess.md)
+> Plan: [docs/superpowers/plans/2026-06-08-postprocess.md](../plans/2026-06-08-postprocess.md)
 
 ## Goal
 
-Python module that reads shallow mesh-vertex strain snapshots from the three C++ SEM forward runs (`x`, `y`, `z` force directions), assembles the full 3×6 strain Green's tensor at recorded mesh vertices, and writes horizontally tiled HDF5 output.
+Read strain snapshots from three SEM runs (`x`, `y`, `z`). Merge by mesh vertex. Build `3×6` strain Green tensors. Write horizontal HDF5 tiles.
 
-No receiver positions — output is the configured shallow full-volume mesh-vertex field.
+No receivers. Output is the configured shallow, non-PML mesh-vertex field.
 
 ## Context
 
-The forward solver still computes the full SEM domain at all GLL nodes. To keep the Green's function library tractable, forward records only a configured shallow volume:
+Forward computes the full GLL SEM domain. It records only a small output set:
 
-- mesh vertices only (not interior GLL points),
-- `depth <= record_depth_actual_m`, where the actual depth is snapped to a horizontal spectral-element face at or deeper than `record_depth_max_m`,
-- non-PML only.
+- mesh vertices only,
+- `depth <= record_depth_actual_m`,
+- no PML vertices.
 
-Three independent forward runs (force directions x, y, z) produce per-rank record files under `wavefields/{x,y,z}/`. Postprocess merges these files by global mesh vertex ID and stacks the 3 force directions into a 3×6 strain Green's tensor.
+`record_depth_actual_m` is the first horizontal element face at or below `record_depth_max_m`.
 
-Strain is the primary scientific output — no displacement integration in postprocess.
+Each force run writes rank files under `wavefields/{x,y,z}/`. Postprocess merges them by global `vertex_id`, then stacks force directions into `[nt, n_vertex, 6, 3]`.
+
+Postprocess outputs strain only. It does not integrate displacement.
 
 ## Data Flow
 
 ```
-mesh.h5 (/topology/vertex_to_coord) ────────────────────────────┐
-config.h5 (/simulation green_tile_size_m + timing metadata) ─────┤
-wavefields/x/record_{r}.h5 ──────────────────────────────────────┤
-wavefields/y/record_{r}.h5 ──────────────────────────────────────┤
-wavefields/z/record_{r}.h5 ──────────────────────────────────────┤
-                                                                 ↓
-                                                           postprocess (Python)
-                                                           ├── read mesh vertices by vertex_id
-                                                           ├── read record files from 3 directions
-                                                           ├── merge by global vertex ID
-                                                           ├── validate timing, basis, depth, vertex sets
-                                                           ├── stack 3 directions → [nt, n_vertex, 6, 3]
-                                                           └── write horizontal tiles
-                                                                 ↓
-                                                         greenfun/tile_x{i}_y{j}.h5
+mesh.h5 (/topology/vertex_to_coord) ───────────────┐
+config.h5 (/simulation timing + green_tile_size_m) ┤
+wavefields/x/record_{r}.h5 ────────────────────────┤
+wavefields/y/record_{r}.h5 ────────────────────────┤
+wavefields/z/record_{r}.h5 ────────────────────────┤
+                                                    ↓
+postprocess
+├── read vertex coordinates
+├── read 3 direction record sets
+├── merge by global vertex_id
+├── validate timing, basis, depth, vertices
+├── stack → [nt, n_vertex, 6, 3]
+└── write greenfun/tile_x{i}_y{j}.h5
 ```
 
 ## Architecture
 
 ```
-mesh.h5 + config.h5 + shallow snapshot files
-         │
-         ▼
-  RecordReader     — reads vertex_ids + strain dataset + attrs from record files
-  GeometryReader   — reads /topology/vertex_to_coord from mesh.h5
-         │
-         ▼
-  Validation        — source_direction, timing, basis, depth, vertex_id consistency
-         │
-         ▼
-  Green's tensor assembly — 3 force directions × 6 strain components at mesh vertices
-         │
-         ▼
-  GFWriter          — writes greenfun/tile_x{i}_y{j}.h5 by horizontal x/y bins
+RecordReader   — read attrs, vertex_ids, strain
+GeometryReader — read /topology/vertex_to_coord
+Validation     — check direction, timing, basis, depth, vertex set
+Assembly       — stack x/y/z strain into Green tensor
+GFWriter       — write horizontal x/y tiles
 ```
 
 ## Constraints
 
 - Python 3.10+
-- Dependencies: numpy, h5py, click, pytest
-- No receiver positions, no receiver search, no point interpolation.
-- Output basis is mesh vertices only: `basis = "mesh_vertices"`.
-- The SEM compute basis remains GLL; only recorded Green's function output is downsampled to element-corner mesh vertices.
-- PML vertices/elements are excluded by the forward recording map prepared during preprocessing.
+- numpy, h5py, click, pytest
+- No receivers, receiver search, or point interpolation.
+- Output basis: `basis = "mesh_vertices"`.
+- Compute basis remains GLL.
+- Preprocess/forward exclude PML from the recording map.
 
-## Input Files
+## Inputs
 
-### mesh.h5 — Vertex Coordinates
+### `mesh.h5`
 
-| Dataset | Shape | Usage |
-|---------|-------|-------|
-| `/topology/vertex_to_coord` | float64[n_vertex, 3] | Coordinates for recorded `vertex_ids` |
+| Dataset | Shape | Use |
+|---------|-------|-----|
+| `/topology/vertex_to_coord` | float64[n_vertex, 3] | coordinates for `vertex_ids` |
 
-Postprocess does not need GLL coordinates, `dxi_dx`, or point-in-element search.
+Postprocess does not need GLL geometry, `dxi_dx`, or element search.
 
-### config.h5 — Timing + Tiling Metadata
+### `config.h5`
 
-| Attribute | Usage |
-|-----------|-------|
-| `/simulation/solver_dt` | Solver timestep |
-| `/simulation/output_dt_s` | Snapshot interval |
-| `/simulation/snapshot_stride` | Solver steps per snapshot |
-| `/simulation/nsteps` | Total solver steps |
-| `/simulation/record_depth_max_m` | Requested maximum recorded depth |
-| `/simulation/record_depth_actual_m` | Spectral-element face depth actually used |
-| `/simulation/green_tile_size_m` | Horizontal tile width in x and y |
+| Field | Use |
+|-------|-----|
+| `/simulation/solver_dt` | solver timestep |
+| `/simulation/output_dt_s` | snapshot interval |
+| `/simulation/snapshot_stride` | steps per snapshot |
+| `/simulation/nsteps` | total steps |
+| `/simulation/record_depth_max_m` | requested depth |
+| `/simulation/record_depth_actual_m` | snapped depth |
+| `/simulation/green_tile_size_m` | x/y tile width |
 
-### Snapshot Files — Strain Source
+### Record files
 
-Per MPI rank, one file per forward run:
+One file per rank per force direction:
 
 ```
 wavefields/{direction}/record_{r}.h5
-├── attrs:
-│   ├── rank                    : int32
-│   ├── source_direction        : string           # "x", "y", or "z"
-│   ├── basis                   : string           # "mesh_vertices"
-│   ├── record_depth_max_m      : float64
-│   ├── record_depth_actual_m   : float64
-│   └── excludes_pml            : bool
-├── vertex_ids                  : int64[n_record_vertices]   # global mesh vertex IDs, 1-based
-└── strain                      : {precision}[n_snapshots, n_record_vertices, 6]
-                                      # εxx, εyy, εzz, εxy, εxz, εyz
+├── attrs: rank, source_direction, basis="mesh_vertices",
+│          record_depth_max_m, record_depth_actual_m, excludes_pml=true
+├── vertex_ids : int64[n_record_vertices]        # global, 1-based
+└── strain     : {precision}[n_snapshots, n_record_vertices, 6]
+                 # εxx, εyy, εzz, εxy, εxz, εyz
 ```
 
-Restart files are not postprocess inputs.
+Restart files are not inputs.
 
 ## Validation
 
-Before processing, postprocess validates that all three direction sets have identical run metadata:
+Abort if any direction set differs in:
 
-- `basis == "mesh_vertices"`,
-- matching `record_depth_max_m` and `record_depth_actual_m`,
-- matching `solver_dt`, `snapshot_stride`, and number of snapshots,
-- matching `vertex_ids` set after merging all ranks,
-- correct `source_direction` for each directory.
+- `basis`,
+- `record_depth_max_m` or `record_depth_actual_m`,
+- `solver_dt`, `snapshot_stride`, or snapshot count,
+- merged `vertex_ids`,
+- expected `source_direction`.
 
-Mismatch aborts with a message listing the differing values.
+Error messages list the differing values.
 
-## Green's Tensor Assembly
+## Assembly
 
-Input after merge:
+Input:
 
 ```
 strain_fx : [nt, n_vertex, 6]
@@ -139,22 +125,20 @@ Output:
 greens_tensor : float32[nt, n_vertex, 6, 3]
 ```
 
-`Shape[-2]` is strain component. `Shape[-1]` is force direction (`x`, `y`, `z`).
+Axis `6` = strain component. Axis `3` = force direction (`x`, `y`, `z`).
 
 ## Horizontal Tiling
 
-Postprocess tiles by horizontal x/y bins using `green_tile_size_m` from `config.py` / `config.h5`.
-
-For each recorded vertex coordinate `(x, y, z)`:
+Use `green_tile_size_m` from `config.h5`.
 
 ```
 tile_x = floor((x - xmin) / green_tile_size_m)
 tile_y = floor((y - ymin) / green_tile_size_m)
 ```
 
-Each tile contains all recorded depths for the vertices whose x/y fall in the tile. Tiles do not split the time axis; HDF5 dataset chunking handles time-block access.
+Each tile keeps all saved times and depths for vertices in that x/y bin.
 
-## Green's Function Output
+## Output
 
 ```
 greenfun/
@@ -163,32 +147,21 @@ greenfun/
 └── ...
 ```
 
-Each tile:
+Tile schema:
 
 ```
 tile_x{i}_y{j}.h5
-├── attrs:
-│   ├── version                 : string
-│   ├── basis                   : "mesh_vertices"
-│   ├── tile_x_index            : int32
-│   ├── tile_y_index            : int32
-│   ├── x_min_m, x_max_m        : float64
-│   ├── y_min_m, y_max_m        : float64
-│   ├── z_min_m, z_max_m        : float64
-│   ├── record_depth_max_m      : float64
-│   ├── record_depth_actual_m   : float64
-│   └── excludes_pml            : bool
-├── /time/
-│   ├── t                       : float64[nt]
-│   ├── dt                      : float64
-│   └── nsteps                  : int32
-├── /mesh/
-│   └── vertex_ids              : int64[n_tile_vertices]
-└── /field/
-    └── greens_tensor           : float32[nt, n_tile_vertices, 6, 3]
+├── attrs: version, basis="mesh_vertices", tile_x_index, tile_y_index,
+│          x_min_m, x_max_m, y_min_m, y_max_m, z_min_m, z_max_m,
+│          record_depth_max_m, record_depth_actual_m, excludes_pml
+├── /time/t  : float64[nt]
+├── /time/dt : float64
+├── /time/nsteps : int32
+├── /mesh/vertex_ids : int64[n_tile_vertices]
+└── /field/greens_tensor : float32[nt, n_tile_vertices, 6, 3]
 ```
 
-Coordinates are not duplicated in Green's function files. Consumers recover coordinates from `mesh.h5` using `vertex_ids`.
+Tiles do not duplicate coordinates. Consumers read coordinates from `mesh.h5` by `vertex_ids`.
 
 ## CLI
 
@@ -196,15 +169,15 @@ Coordinates are not duplicated in Green's function files. Consumers recover coor
 gf-postprocess mesh.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ -o greenfun/
 ```
 
-| Arg | Description |
-|-----|-------------|
-| `mesh.h5` | positional, topology file with `/topology/vertex_to_coord` |
-| `--fx dir` | directory containing x-force record files |
-| `--fy dir` | directory containing y-force record files |
-| `--fz dir` | directory containing z-force record files |
-| `-o dir` | output directory for Green's function tiles (default: `greenfun/`) |
+| Arg | Meaning |
+|-----|---------|
+| `mesh.h5` | topology file with `/topology/vertex_to_coord` |
+| `--fx dir` | x-force records |
+| `--fy dir` | y-force records |
+| `--fz dir` | z-force records |
+| `-o dir` | output dir, default `greenfun/` |
 
-Horizontal tile size comes from `config.h5` (`/simulation/green_tile_size_m`), not a CLI override.
+Tile size comes from `config.h5`, not CLI.
 
 ## File Layout
 
@@ -212,12 +185,12 @@ Horizontal tile size comes from `config.h5` (`/simulation/green_tile_size_m`), n
 postprocess/
 ├── pyproject.toml
 ├── src/gf_post/
-│   ├── __init__.py         — package exports, version
-│   ├── reader.py           — RecordReader + GeometryReader
-│   ├── assembly.py         — Green's tensor assembly from 3 runs
-│   ├── writer.py           — Strain GF output HDF5 writer
-│   └── cli.py              — CLI entry point
+│   ├── __init__.py
+│   ├── reader.py      — RecordReader + GeometryReader
+│   ├── assembly.py    — stack 3 runs
+│   ├── writer.py      — Green tile writer
+│   └── cli.py
 └── tests/
-    ├── conftest.py         — synthetic snapshot fixtures
-    └── test_reader.py      — reader tests
+    ├── conftest.py
+    └── test_reader.py
 ```

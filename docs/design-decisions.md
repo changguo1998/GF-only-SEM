@@ -29,7 +29,7 @@ Mathematical formulation for all methods below: [`docs/math.md`](math.md)
 - **Domain**: Cartesian box with C-PML layers surrounding the physical domain
 - **Coordinate convention**: z positive downward (seismology standard). z_min = top free surface, z_max = bottom.
 - **PML thickness**: Configurable per face (default 3 elements)
-- **PML precomputation**: All C-PML data (damping profiles d_x, d_y, d_z; stretched-coordinate functions K, α; convolution coefficients; element type tags face/edge/corner) precomputed by preprocessor — forward solver reads and applies directly
+- **PML precompute**: Preprocess writes all C-PML arrays. Forward reads and applies them.
 - **Boundary detection**: Auto, by geometry. z_min = free surface (z positive downward), other domain bounds = absorbing. Auto-detection: z ≈ z_min → free surface (tag=1), other domain bounds → absorbing (tag=2).
   No GMSH physical groups needed.
 
@@ -40,12 +40,12 @@ Mathematical formulation for all methods below: [`docs/math.md`](math.md)
 - **Green's tensor**: Full 3×3 strain GF requires 3 forward runs (one per orthogonal force direction x, y, z)
 - **Injection**: Lagrange interpolation to surrounding GLL nodes (sub-node accuracy)
 - **Source position**: User specifies source_x_m, source_y_m only. source_z is auto-placed on top free surface (z ≈ z_min) by preprocessor.
-- **Source weights**: Precomputed by preprocessor (element list + (ξ_s, η_s, ζ_s) natural coordinates + Lagrange weights w_ijk per element) — forward solver just reads and distributes
+- **Source weights**: Preprocessor writes source elements, natural coords, and weights. Forward only distributes them.
 - **Source interpolation weights**: Normalized across all sharing surface elements so Σ w_ijk = 1
 - **STF**: External — user-defined Python function in config script, evaluated by preprocessor
 - **STF evaluation**: Integer timesteps only. STF[n] = force amplitude at t = n·solver_dt
 - **No inline STF types**: Single user function replaces all STF parameterization
-- **Source direction**: NOT in config.py. Preprocessor writes one config.h5. Forward solver reads source direction from CLI `--direction` flag — three independent runs (x, y, z) managed by SLURM.
+- **Source direction**: Not in config. Forward gets `--direction`; SLURM runs x/y/z jobs.
 
 ## 5. Architecture
 
@@ -58,7 +58,7 @@ Mathematical formulation for all methods below: [`docs/math.md`](math.md)
   preprocess/      — Python: GLL geometry, material interpolation, partition, config
   forward/         — C++: core physics library (libgf) + MPI solver executable (elastic only)
   compress/        — C++: header-only checkpoint compression utilities
-  postprocess/     — Python: strain GF extraction at recorded shallow mesh vertices, horizontal tiling
+  postprocess/     — Python: strain GF extraction at shallow mesh vertices
   tests/
   external_reference_codes/
   ```
@@ -79,7 +79,7 @@ GMSH .msh → converter → mesh.h5 (topology only)
                     ├── lumped mass
                     ├── PML damping profiles
                     ├── Auto solver_dt from CFL + output_dt_s snapshot stride
-                    ├── Recording map (shallow mesh vertices, non-PML)
+                    ├── Recording map: shallow, non-PML mesh vertices
                     ├── Comprehensive validation
                     ├── METIS partition
                     ├── STF time series
@@ -94,7 +94,7 @@ GMSH .msh → converter → mesh.h5 (topology only)
                     wavefields/{x,y,z}/record_{r}.h5
                     restart/{x,y,z}/restart_{r}.h5
                           ↓
-                     postprocess (merges recorded vertex strain)
+                     postprocess (merge vertex strain)
                           ↓
                     greenfun/tile_x{i}_y{j}.h5
 ```
@@ -103,13 +103,13 @@ GMSH .msh → converter → mesh.h5 (topology only)
 
 | File | Producer | Consumer | Content |
 |------|----------|----------|---------|
-| mesh.h5 | converter → extended by preprocessor | preprocessor, postprocess | Topology + GLL coords + dxi_dx + jacobian + is_pml (geometry only, no material). Postprocess uses `/topology/vertex_to_coord`. |
-| partition\_{r}.h5 | preprocessor | forward | Per-rank local subset of all element data (coords, dxi_dx, jacobian, mass, vp, vs, density, cpml\*) + partition metadata (gll_to_global, exchange) + `/recording/` shallow mesh-vertex map |
-| config.h5 | preprocessor | forward, postprocess | Simulation params, output/restart cadence, record depth, horizontal tile size, domain bounds, source position + precomputed STF + weights. No direction — passed via CLI `--direction`. |
-| wavefields/{direction}/record\_{r}.h5 | forward | postprocess | L2-smoothed strain at recorded shallow mesh vertices, extendible time axis |
-| restart/{direction}/restart\_{r}.h5 | forward | forward (`--resume`) | Latest-only full-volume restart state: u, v, a, C-PML memory variables, step/time |
+| mesh.h5 | converter → preprocessor | preprocessor, postprocess | Topology + GLL geometry + `is_pml`. No material. Postprocess uses `/topology/vertex_to_coord`. |
+| partition\_{r}.h5 | preprocessor | forward | Per-rank element data, C-PML, partition metadata, and `/recording/` map |
+| config.h5 | preprocessor | forward, postprocess | Simulation params, cadence, record depth, tile size, domain, source, STF, weights. No direction. |
+| wavefields/{direction}/record\_{r}.h5 | forward | postprocess | L2-smoothed strain at recorded vertices; extendible time axis |
+| restart/{direction}/restart\_{r}.h5 | forward | forward (`--resume`) | Latest full-volume restart: u, v, a, C-PML memory, step/time |
 | mesh_auxiliary.h5 | preprocessor (optional) | validation | CSR adjacency relations |
-| greenfun/tile_x{i}\_y{j}.h5 | postprocess | user | Strain Green's functions at recorded mesh vertices, tiled by horizontal x/y bins |
+| greenfun/tile_x{i}\_y{j}.h5 | postprocess | user | Mesh-vertex strain Green tensors, x/y tiled |
 
 ### Design Rules
 
@@ -172,7 +172,7 @@ partition_{r}.h5
 
 ### Record and Restart Format
 
-Forward writes shallow mesh-vertex strain records and separate latest-only restart files.
+Forward writes shallow strain records and separate latest-only restarts.
 
 ```
 wavefields/{direction}/record_{r}.h5
@@ -191,7 +191,7 @@ restart/{direction}/restart_{r}.h5
 
 ### config.h5 Format
 
-One file for all force directions. Force direction is passed as a CLI argument (`--direction {x,y,z}`) to the forward solver — not embedded in the file:
+One file serves all force directions. Forward gets direction from `--direction {x,y,z}`:
 
 ```
 config.h5
@@ -225,13 +225,11 @@ config.h5
         └── weights            : float64[n_src_elements, NGLL, NGLL, NGLL] — Lagrange w_ijk (normalized)
 ```
 
-Note: no `/attenuation/` group. Attenuation (SLS) is deferred to future work.
-Note: no `direction` attribute. Force direction is specified via `--direction` CLI flag at runtime.
+Notes: no `/attenuation/`; SLS is deferred. No `direction`; runtime CLI sets it.
 
 ### Green's Function Output
 
-Strain Green's function library — stores strain components, not displacement.
-Output is horizontally tiled by x/y bins from `green_tile_size_m`:
+Green library stores strain, not displacement. Tiles use x/y bins from `green_tile_size_m`:
 
 ```
 greenfun/
@@ -240,15 +238,15 @@ greenfun/
 └── ...
 ```
 
-Each tile contains recorded mesh vertices within the horizontal tile bounds for all saved depths (`depth <= record_depth_actual_m`). Coordinates are referenced by `vertex_ids` in `mesh.h5`; they are not duplicated in Green's files.
+Each tile stores recorded vertices in its x/y bounds for all saved depths. Green files store `vertex_ids`; coordinates stay in `mesh.h5`.
 
 ## 7. Preprocessor Decisions
 
-- **Config format**: Importable Python script (not YAML/TOML). Config file IS the configuration. All dimensional fields carry SI-unit suffixes (`_m`, `_s`, `_m_s`, `_kg_m3`).
-- **Material functions**: Callable Python functions with SI-unit suffixes `vp_m_s(x_m, y_m, z_m)`, `vs_m_s(x_m, y_m, z_m)`, `density_kg_m3(x_m, y_m, z_m)` in config.py — no separate binary model file.
+- **Config format**: Importable Python script, not YAML/TOML. Dimensional fields use SI suffixes.
+- **Material functions**: `config.py` defines `vp_m_s`, `vs_m_s`, and `density_kg_m3`. No separate binary model.
 - **Output**: partition\_{r}.h5 (per-rank subset of element data) + single config.h5 (rank-invariant simulation + domain + source data).
 - **Source direction**: NOT in config.py or config.h5. Preprocessor auto-generates one config.h5. Forward solver takes force direction via CLI `--direction {x,y,z}`.
-- **Timestep split**: User specifies `output_dt_s` (snapshot interval), `restart_dt_s` (restart overwrite interval), and `total_duration_s` in config.py. Preprocessor computes `cfl_dt = cfl_safety × h_min / vp_max`, derives `solver_dt` and `snapshot_stride`, and derives `restart_stride = round(restart_dt_s / solver_dt)`. Forward writes strain when `step % snapshot_stride == 0` and overwrites restart when `step % restart_stride == 0`.
+- **Timestep split**: User sets `output_dt_s`, `restart_dt_s`, and `total_duration_s`. Preprocess computes `solver_dt`, `snapshot_stride`, and `restart_stride`. Forward writes strain/restart on those strides.
 - **Validation**: Comprehensive checks at preprocess time:
   - Mesh: n_cell > 0, non-degenerate hex elements, det(J) > 0 at all GLL nodes
   - Material: vp > 0, vs ≥ 0, density > 0 at all GLL nodes
@@ -257,14 +255,14 @@ Each tile contains recorded mesh vertices within the horizontal tile bounds for 
   - Source: x_m, y_m within domain bounds; stf_func returns finite non-NaN values over [0, nsteps×solver_dt]
   - Storage: estimated disk usage ≤ storage_limit_gb, abort if exceeded
   - Snapshot/restart cadence: nsteps % snapshot_stride == 0; restart_stride >= 1
-- **Mesh output format**: Extended HDF5 — preprocessor writes GLL geometry (`coords`, `dxi_dx`, `jacobian`, `is_pml`) back to mesh.h5; all rank-local data and the shallow recording map go to partition\_{r}.h5.
-- **STF precomputation**: stf_func(t_s) evaluated over full time range at solver_dt spacing, written as time series array to config.h5. Forward solver reads array — no runtime STF evaluation.
+- **Mesh output**: Preprocess adds GLL geometry and `is_pml` to `mesh.h5`. Rank-local data and `/recording/` go to `partition_{r}.h5`.
+- **STF precompute**: Preprocess samples `stf_func(t_s)` at `solver_dt` and writes an array. Forward does no STF eval.
 - **Mass computation**: After material interpolation (ρ needed for lumped mass).
-- **CPML precomputation**: Layer-based — trace element connectivity from boundary faces inward. Classify each CPML element as face/edge/corner type. Precompute all C-PML arrays: damping profiles d_x, d_y, d_z per GLL node; stretched-coordinate functions K, α; convolution coefficients; element type tags. Written to partition\_{r}.h5 `/field/element/cpml/`.
+- **CPML precompute**: Trace layers inward, tag face/edge/corner elements, and write damping, stretch, convolution, and type arrays to `/field/element/cpml/`.
 - **Partitioning**: METIS k-way partition + GLL node global numbering (ibool equivalent) + precomputed exchange patterns. Each rank gets its own partition\_{r}.h5 with local subset.
 - **Geometric precompute**: GLL coords, Jacobian, dξ/dx, lumped mass, C-PML arrays — all at GLL nodes. Written to partition\_{r}.h5 `/field/element/`.
-- **Source precompute**: Source z auto-placed on top free surface (z ≈ z_min). Element list, natural coordinates (ξ_s, η_s, ζ_s), Lagrange interpolation weights w_ijk for source injection. Weights normalized across sharing surface elements (Σ w_ijk = 1).
-- **No receivers**: Postprocess operates on the configured shallow full-volume mesh-vertex strain field — no receiver CSV, no receiver search, no position interpolation.
+- **Source precompute**: Put source on top free surface. Write source elements, natural coords, and normalized weights.
+- **No receivers**: Postprocess uses recorded mesh vertices. No receiver CSV, search, or interpolation.
 - **No inline STF**: User-defined function, evaluated over full time range.
 - **DRY metric**: N/NGLL embedded in array shapes — no separate config attribute.
 - **Elastic only**: SLS attenuation deferred to future work.
@@ -273,21 +271,21 @@ Each tile contains recorded mesh vertices within the horizontal tile bounds for 
 
 - **Elastic only**: No SLS memory variables. Attenuation deferred to future work.
 - **Matrix-free assembly**: No global system matrix. K·u computed element-by-element.
-- **Global residual array**: Single `r[NDIM, NGLOB_AB]` indexed by global GLL node ID (ibrk). Assembly via `iglob(i,j,k,ispec)` mapping (grown) — element contributions accumulated additively, shared nodes implicitly summed.
+- **Global residual**: Single `r[NDIM, NGLOB_AB]` indexed by global GLL ID. Element contributions add into shared nodes.
 - **Precomputed data**: All mesh-dependent quantities read from partition\_{r}.h5 — no init phase.
 - **Material**: Read at GLL nodes from partition\_{r}.h5 — no runtime interpolation.
 - **Source injection**: Precomputed Lagrange weights and element list from config.h5 — forward solver distributes STF amplitude to GLL nodes via stored weights. No runtime Newton iteration.
-- **C-PML memory**: 21 rmemory arrays = 39 scalar values per GLL node per CPML element. Second-order recursive convolution (Wang et al. 2006, eq. 21, θ=1/8). Read from partition\_{r}.h5.
-- **C-PML**: Read all precomputed convolution coefficients from partition\_{r}.h5. Apply C-PML memory variable update and acceleration correction per element — no runtime damping computation.
-- **Shared node assembly**: Within-rank: implicit via global array accumulation. Cross-rank: MPI halo exchange using precomputed face-pair patterns — pack/unpack per face, assemble shared nodes.
-- **Runtime loop**: Newmark predict → element residual (matrix-free K·u) → C-PML → source → MPI exchange → Newmark correct → strain compute (separate pass on corrected u) → snapshot write.
+- **C-PML memory**: 21 arrays, 39 scalars per GLL node per PML element. Uses Wang et al. (2006), θ=1/8.
+- **C-PML**: Read coefficients from `partition_{r}.h5`; update memory and acceleration per element. No runtime damping build.
+- **Shared nodes**: Within-rank sums via global array. Cross-rank sums via precomputed MPI face exchanges.
+- **Runtime loop**: Newmark predict → residual → C-PML → source → MPI exchange → Newmark correct → strain → output.
 - **Strain computation**: Separate element pass after Newmark correct — computes ε = ½(∇u_new + ∇u_newᵀ) from corrected displacement field.
-- **L2 strain smoothing**: After element-wise strain computation, global L2 projection onto continuous GLL nodal basis. ε_smooth = M⁻¹ · Σ ∫ N · ε_elem dΩ. Produces C⁰-continuous strain at shared nodes. Matches SPECFEM3D convention.
-- **Strain in record**: L2-smoothed strain sampled at recorded mesh vertices (not interior GLL points, not raw element strain). Stored as float32 (default) or float64 (configurable). Written when `step % snapshot_stride == 0`.
-- **3 runs per source**: 3 orthogonal force directions (x, y, z), independent gf_solver invocations managed by SLURM. Single config.h5 shared across all 3 runs; force direction passed via CLI `--direction {x,y,z}`. Each run writes snapshots to its own directory `wavefields/{direction}/`.
-- **Restart/resume**: Restart is separate from strain records and latest-only. `restart/{direction}/restart_{r}.h5` stores all state required for exact resume: corrected (u, v, a), current step/time, and C-PML memory variables. `--resume` restores state and continues the time loop.
-- **Parallelism**: Pure MPI (one rank per core). Architecture leaves GPU/DCU kernel swap-in path for future acceleration — see [`design/gpu.md`](superpowers/design/gpu.md) for the device-abstraction design.
-- **ibool/GLL node numbering**: Per-rank global GLL node IDs stored in partition\_{r}.h5 `/partition/gll_to_global`, 1-based with 0=null. Interface node lists precomputed for MPI exchange.
+- **L2 strain smoothing**: Project element strain to continuous GLL nodes: ε_smooth = M⁻¹ · Σ ∫ N · ε_elem dΩ. Matches SPECFEM3D.
+- **Strain record**: Write L2-smoothed strain at recorded mesh vertices only. float32 default, float64 optional.
+- **3 runs per source**: Run x/y/z force jobs. One shared `config.h5`. Each writes `wavefields/{direction}/`.
+- **Restart/resume**: Restart is separate and latest-only. It stores u/v/a, step/time, and C-PML memory. `--resume` continues from it.
+- **Parallelism**: Pure MPI, one rank per core. GPU/DCU path is deferred; see [`gpu.md`](superpowers/design/gpu.md).
+- **ibool/GLL numbering**: `partition_{r}.h5` stores 1-based `/partition/gll_to_global`; 0 = null. Interfaces are precomputed.
 
 ## 9. Testing & Validation
 
@@ -317,7 +315,7 @@ Both are untracked (`*.gitignore`). Changes to them do not affect the repo.
 
 - **3 orthogonal force directions**: 3 independent forward runs (one per fx, fy, fz) produce the full 3×3 strain Green's tensor at a single source location.
 - **Single source location**: One source position per GF computation. Multiple source locations require separate preprocessor + 3×N forward runs.
-- **Postprocess alignment**: Postprocess validates timing, basis, record depth, and merged `vertex_ids` alignment across the 3 force-direction runs before extracting Green's functions.
+- **Postprocess alignment**: Validate timing, basis, depth, and merged `vertex_ids` across x/y/z before assembly.
 - **PML exclusion**: PML elements/vertices are excluded by the preprocessing recording map — only physical-domain shallow vertices contribute.
-- **Spatial tiling**: Green's function library is horizontally tiled by x/y bins of `green_tile_size_m`. Each `greenfun/tile_x{i}_y{j}.h5` stores mesh-vertex Green's tensors for all recorded depths in that horizontal tile.
-- **Reciprocity**: Numerical source placed at top free surface. Strain is recorded over the configured shallow physical volume, enabling reciprocity-based interpretation within that output domain.
+- **Spatial tiling**: `green_tile_size_m` defines x/y tiles. Each tile stores mesh-vertex Green tensors for all recorded depths.
+- **Reciprocity**: Source is on the top free surface. Strain records cover the configured shallow output volume.

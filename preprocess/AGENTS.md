@@ -1,85 +1,75 @@
-# preprocess/ — Python Preprocessor Pipeline
+# preprocess/ — AGENTS.md
 
 ## Purpose
 
-Reads `mesh.h5` + `config.py` → produces extended `mesh.h5`, per-rank `partition_{r}.h5`, and `config.h5`.
-Also derives the shallow recording map used by forward to write mesh-vertex Green's-function strain records.
+Read `mesh.h5` + `config.py`. Write extended `mesh.h5`, `config.h5`, and per-rank `partition_{r}.h5`. Also build shallow mesh-vertex recording maps.
 
 ## Files
 
 | File | Responsibility |
-|------|---------------|
-| `topology_reader.py` | Reads mesh.h5 topology (vertices, edges, surfaces, cells) |
-| `gll_geometry.py` | GLL quadrature nodes/weights, Jacobian, dξ/dx, lumped mass |
-| `model_loader.py` | Interpolate Vp, Vs, density to GLL nodes (from callable or binary) |
-| `boundary_detector.py` | Auto-detect free surface (z≈zmin) vs absorbing boundaries |
-| `cfl_validator.py` | `compute_cfl_dt()` + `compute_solver_dt()`: derive `solver_dt`, `snapshot_stride`, `restart_stride` |
-| `stf_evaluator.py` | Evaluate user STF callable at `solver_dt` intervals |
-| `source_locator.py` | Find containing elements + Lagrange weights on free surface |
-| `pml.py` | C-PML damping profiles (face/edge/corner type classification) |
-| `preflight.py` | Comprehensive validation (mesh quality, material, CFL, boundary, source, STF, storage, recording map) |
-| `partition.py` | METIS k-way partition + GLL global numbering + MPI exchange patterns |
-| `config_loader.py` | `load_config()` — importable Python config validation |
-| `config_writer.py` | Write `config.h5` with `/simulation/`, `/domain/`, `/source/` groups |
-| `model_writer.py` | Write extended mesh.h5 fields + per-rank `partition_{r}.h5` files including `/recording/` maps |
-| `cli.py` | CLI entry point: reads `mesh.h5` + `config.py` from CWD, orchestrates full pipeline |
+|------|----------------|
+| `gll_geometry.py` | GLL nodes, weights, Jacobian, `dxi_dx`, mass |
+| `model_loader.py` | evaluate `vp`, `vs`, density at GLL nodes |
+| `boundary_detector.py` | detect free surface and absorbing faces |
+| `cfl_validator.py` | derive `solver_dt`, `snapshot_stride`, `restart_stride` |
+| `stf_evaluator.py` | sample user STF at solver steps |
+| `source_locator.py` | find source elements and weights |
+| `pml.py` | C-PML profiles and element tags |
+| `preflight.py` | validate mesh, material, CFL, source, storage, recording map |
+| `partition.py` | METIS partition, GLL numbering, MPI exchange |
+| `config_loader.py` | import and validate `config.py` |
+| `config_writer.py` | write `config.h5` |
+| `model_writer.py` | write mesh fields and partition files, including `/recording/` |
+| `cli.py` | run full pipeline from CWD |
 
-## Data Pipeline
+## Pipeline
 
 ```
-config.py ─┐
-mesh.h5 ───┤
-            ↓
-    topology_reader → gll_geometry → model_loader → boundary_detector
-                                                          ↓
-    cfl_validator → recording map → stf_evaluator → source_locator
-                                                          ↓
-    pml (damping) → partition (METIS) → preflight → model_writer → config_writer
-                                                          ↓
-    mesh.h5 (extended) + partitions/partition_{r}.h5 + config.h5
+mesh.h5 + config.py
+→ load config
+→ compute GLL geometry
+→ material at GLL nodes
+→ CFL + solver_dt + strides
+→ source + STF
+→ PML
+→ validation
+→ METIS partition
+→ recording map
+→ write mesh.h5, config.h5, partitions/partition_{r}.h5
 ```
+
+## Config Rules
+
+- `config.py` is sole source of truth.
+- Use SI suffixes: `_m`, `_s`, `_m_s`, `_kg_m3`.
+- No YAML/TOML.
+- No receivers.
+- No force direction in config. Forward gets `--direction`.
 
 ## Recording Map
 
-Preprocess snaps `record_depth_max_m` to a horizontal spectral-element face at or deeper than the requested depth. It marks non-PML elements/vertices on or above that face.
+Preprocess selects non-PML mesh vertices in the shallow output volume:
 
-Per-rank partition files include:
+- requested bottom: `record_depth_max_m`
+- actual bottom: `record_depth_actual_m`, snapped to element face
+- tile width: `green_tile_size_m`
 
-```text
-/recording/
-  attrs: basis="mesh_vertices", record_depth_max_m, record_depth_actual_m,
-         green_tile_size_m, excludes_pml=true
-  save_element_mask          bool[n_local_elem]
-  vertex_ids                 int64[n_record_vertices]
-  source_element_local_index int32[n_record_vertices]
-  source_corner_index        int8[n_record_vertices]
+Each rank writes:
+
 ```
-
-## Config Schema (config.h5 /simulation/)
-
-| Attribute | Type | Source |
-|-----------|------|--------|
-| `solver_dt` | float64 | Auto-computed from CFL |
-| `output_dt_s` | float64 | User config |
-| `snapshot_stride` | int32 | Derived: `output_dt_s / solver_dt` |
-| `restart_dt_s` | float64 | User config |
-| `restart_stride` | int32 | Derived: `restart_dt_s / solver_dt` |
-| `record_depth_max_m` | float64 | User config |
-| `record_depth_actual_m` | float64 | Derived: snapped horizontal spectral-element face depth |
-| `green_tile_size_m` | float64 | User config |
-| `nsteps` | int32 | Derived: `ceil(total_duration_s / solver_dt)` |
-| `cfl_safety` | float64 | User config |
-| `snapshot_precision` | string | User config ("float32" or "float64") |
-| `storage_limit_gb` | int/float | User config |
-| `polynomial_order` | int32 | User config |
-
-Removed fields: `dt`, `nsteps` (user), `cfl_threshold`, `checkpoint_interval`, `checkpoint_precision`
+/recording/
+  attrs: basis="mesh_vertices", record_depth_max_m,
+         record_depth_actual_m, green_tile_size_m, excludes_pml=true
+  save_element_mask
+  vertex_ids
+  source_element_local_index
+  source_corner_index
+```
 
 ## Tests
 
-`tests/preprocess/test_*.py` — tests covering each pipeline step.
-`examples/halfspace/run.sh` — End-to-end pipeline (mesh generation → preprocess → forward solver in 3 directions).
+`tests/` has pytest coverage for geometry, material interpolation, CFL, source, PML, partitioning, config writing, and integration.
 
 ## Design Doc
 
-`docs/superpowers/design/preprocess.md`
+[`docs/superpowers/design/preprocess.md`](../docs/superpowers/design/preprocess.md)

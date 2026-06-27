@@ -5,7 +5,7 @@
 
 ## Goal
 
-Python module that reads mesh topology and a Python config script, computes all derived model data (GLL-node material, geometric quantities, partition, C-PML, source weights, STF evaluation, pre-flight validation) and writes extended `mesh.h5` (GLL geometry + is_pml) + per-rank partition files `partition_{r}.h5` including the shallow mesh-vertex recording map + single `config.h5` (rank-invariant simulation + domain + source, shared by all 3 force directions).
+Python module. Reads mesh topology and `config.py`. Computes derived model data and the shallow recording map. Writes `mesh.h5`, `partition_{r}.h5`, and `config.h5`.
 
 ## Data Flow
 
@@ -42,9 +42,9 @@ Optional output: `mesh_auxiliary.h5` (CSR adjacency for validation/acceleration)
 
 ## Architecture
 
-Single Python module with a CLI entry point that reads `mesh.h5` and `config.py` from the current working directory (no CLI arguments). The config file IS the configuration — no YAML/TOML parsing. The preprocessor uses `importlib` to load the user's config script as a Python module.
+Single Python CLI. Reads `mesh.h5` and `config.py` from CWD. No CLI args. No YAML/TOML. Loads config with `importlib`.
 
-Output files: the preprocessor extends the input `mesh.h5` by appending `/field/element/` data, and writes one `partition_{r}.h5` per MPI rank. There is no monolithic `model.h5` — all data lives in mesh.h5 (extended) + partition files.
+Outputs: extend `mesh.h5` and write one `partition_{r}.h5` per rank. No monolithic `model.h5`.
 
 ```
 preprocess/
@@ -95,7 +95,7 @@ Output files are placed alongside the inputs:
 
 ## Config Script (`config.py`)
 
-The user writes an importable Python module. The preprocessor imports it and extracts variables. The STF function is defined in the script — the preprocessor calls it over the full time range.
+User writes importable `config.py`. Preprocess imports it, reads variables, and samples the STF over the full time range.
 
 ```python
 # Example config.py — imported by preprocessor
@@ -239,7 +239,7 @@ After GLL geometry and material are known, derive the solver timestep from the u
 1. Set `nsteps = ceil(total_duration_s / solver_dt)`
 1. Print computed `cfl_dt`, `solver_dt`, `snapshot_stride`, `restart_stride`, and `nsteps` to stdout
 
-`solver_dt`, `output_dt_s`, derived `snapshot_stride`, `restart_dt_s`, derived `restart_stride`, and derived `nsteps` are stored in config.h5 `/simulation/`. The forward solver uses `solver_dt` for Newmark integration, writes strain snapshots every `snapshot_stride` solver steps, and overwrites restart every `restart_stride` solver steps.
+Store time fields in `/simulation`. Forward integrates with `solver_dt`, writes strain every `snapshot_stride`, and overwrites restart every `restart_stride`.
 
 ### 6. Auto-Detect Boundary Tags
 
@@ -277,13 +277,13 @@ Comprehensive validation before partition and writing. Runs as a checklist; with
 
 1. **Material**: `vp > 0`, `vs ≥ 0`, `density > 0` at all GLL nodes; `λ = ρ(vp² - 2vs²) > 0` (elastic stability); warn if `vs ≡ 0` anywhere
 1. **Mesh quality**: `det(J) > 0` at all GLL nodes (no inverted elements); warn on extreme aspect ratios
-1. **CFL/time**: validate derived `solver_dt ≤ cfl_dt`; validate integer `snapshot_stride`, `restart_stride`, and `nsteps % snapshot_stride == 0`; log cfl_dt, solver_dt, snapshot_stride, restart_stride
-1. **Boundary**: at least one surface tagged free surface (1); at least one tagged absorbing (2); verify `pml_thickness` values ≤ actual element layers from each boundary; PML thickness ≥ 2 elements per absorbing face (warn if thinner)
+1. **CFL/time**: validate `solver_dt ≤ cfl_dt`, integer strides, and `nsteps % snapshot_stride == 0`; log all derived values
+1. **Boundary**: require free and absorbing surfaces; validate `pml_thickness`; warn if absorbing face has \<2 PML elements
 1. **Source**: within xy domain bounds; Newton iteration found at least one containing element on free surface; sum of normalized Lagrange weights ≈ 1
 1. **STF**: all values finite (no NaN/Inf); warn if non-zero DC component
 1. **Partition**: `n_ranks ≤ n_cell` (pre-check before calling METIS)
-1. **Recording map**: snap `record_depth_max_m` to `record_depth_actual_m`, the first horizontal spectral-element face at or deeper than the request. Mark non-PML elements/vertices on or above that face.
-1. **Storage estimation**: compute total estimated disk usage (partition files + expected shallow mesh-vertex strain files + latest-only restart files). Abort if > `storage_limit_gb`:
+1. **Recording map**: snap requested depth to `record_depth_actual_m`; mark non-PML elements/vertices above it.
+1. **Storage**: estimate partitions + shallow strain + latest restart. Abort if > `storage_limit_gb`:
    - `snapshots_per_run = nsteps / snapshot_stride`
    - `strain_per_run_GB = snapshots_per_run × n_record_vertices × 6 × bytes_per_float / 1e9`
    - `restart_GB = n_cell × NGLL³ × 3 × 3 × 8 / 1e9 + pml_memory_GB`
@@ -300,23 +300,23 @@ Comprehensive validation before partition and writing. Runs as a checklist; with
    - `local_element_ids`: owned element global IDs
    - `ghost_element_ids`: elements sharing a face with owned elements but owned by other ranks
    - `ghost_owners`: which rank owns each ghost
-1. **GLL node global numbering**: assign a unique global node ID to every distinct GLL node on this rank (1-based, 0=null). Build `gll_to_global[n_elem_total, NGLL, NGLL, NGLL]` — the core CG-SEM assembly mapping (SPECFEM3D's `ibool` equivalent). Shared GLL nodes (within-rank and cross-rank) are identified by geometric coincidence with tolerance = `1e-6 × min_element_size`.
+1. **GLL numbering**: assign 1-based global IDs; 0 = null. Build `gll_to_global[...]` (`ibool`). Match shared nodes by coordinate tolerance `1e-6 × min_element_size`.
 1. For each neighbor rank, precompute face-pair exchange lists:
    - send: (owned_local_idx, face_idx) → (ghost_idx, ghost_face)
    - recv: ghost elements to receive into
 
-Output: one `partition_{r}.h5` per MPI rank, containing the local subset of all element data (owned + ghost), partition metadata, and `/recording/` map (see [mesh.md](mesh.md)).
+Output: one `partition_{r}.h5` per rank with owned/ghost data, metadata, and `/recording/` map. See [mesh.md](mesh.md).
 
 ### 10. Build Shallow Recording Map
 
-The Green's function library records a shallow mesh-vertex field, not the full GLL field. Preprocess derives the map once so forward can write without topology search.
+Green output is shallow mesh vertices, not full GLL. Preprocess builds the map once. Forward then writes with no topology search.
 
 1. Read `record_depth_max_m` and `green_tile_size_m` from `config.py`.
 1. Compute `target_z = zmin + record_depth_max_m` (z positive downward).
-1. Find `record_depth_actual_m`: the first horizontal spectral-element face depth at or deeper than `target_z`.
-1. Select non-PML elements fully on or above `record_depth_actual_m`; no clipped elements.
+1. Set `record_depth_actual_m` to the first horizontal element face at or below `target_z`.
+1. Select non-PML elements fully above that depth; no clipping.
 1. Select unique mesh vertices attached to selected elements.
-1. For each selected vertex, choose one owned source element and corner index so forward writes that vertex once.
+1. For each vertex, choose one owned source element and corner so forward writes it once.
 
 Output in each `partition_{r}.h5`:
 
@@ -354,9 +354,9 @@ residual — no runtime Newton iteration or element search needed.
 
 ### 13. Write Output Files
 
-- **mesh.h5 (extended in-place)** — GLL geometry (`/field/element/coords`, `/field/element/dxi_dx`, `/field/element/jacobian`), PML flags (`/field/element/is_pml`), and boundary tags (`/field/surface/boundary_tag`) written back to input mesh.h5.
-- **partition\_{r}.h5** — one per MPI rank, containing the local subset of element data (own + ghost), GLL global numbering, exchange patterns, partition metadata, and `/recording/` shallow mesh-vertex output map
-- **config.h5** — simulation config, domain bounds, source (position + elements + weights), STF. No direction — direction is passed via CLI `--direction {x,y,z}` to the forward solver.
+- **mesh.h5** — extended in-place with GLL geometry, `is_pml`, and boundary tags.
+- **partition\_{r}.h5** — per-rank element data, GLL numbering, exchange patterns, metadata, and `/recording/` map
+- **config.h5** — simulation, domain, source, weights, and STF. No force direction.
 - **mesh_auxiliary.h5** (optional) — CSR adjacency relations
 
 ## HDF5 Output
@@ -365,17 +365,17 @@ residual — no runtime Newton iteration or element search needed.
 
 The preprocessor reads topology from `mesh.h5` and writes back:
 
-- `/field/element/coords`, `/field/element/dxi_dx`, `/field/element/jacobian` — GLL node positions and geometric derivatives for forward validation/diagnostics
+- `/field/element/coords`, `/field/element/dxi_dx`, `/field/element/jacobian` — GLL geometry
 - `/field/element/is_pml` — int8 flag per element (1=PML, 0=ordinary); preprocessing also uses it to build `/recording/` maps
 - `/field/surface/boundary_tag` — surface boundary tags (0=interior, 1=free surface, 2=absorbing)
 
 Full schema for `/field/` groups in [mesh.md](mesh.md).
 
-All other GLL-node data (material, mass, CPML) and partition data are NOT written to mesh.h5. They are distributed across per-rank `partition_{r}.h5` files.
+Material, mass, C-PML, and partition data stay in per-rank `partition_{r}.h5` files.
 
 ### partition\_{r}.h5
 
-One per MPI rank. Contains the local subset (owned + ghost elements) of all GLL-node fields, partition metadata, and `/recording/` shallow mesh-vertex output map. Full schema in [mesh.md](mesh.md).
+One per MPI rank. Contains owned/ghost GLL fields, partition metadata, and `/recording/` map. Full schema: [mesh.md](mesh.md).
 
 ### config.h5
 
@@ -418,11 +418,11 @@ config.h5
 ```
 
 Note: no `/attenuation/` group. Attenuation (SLS) is deferred to future work.
-Note: no `direction` attribute. Force direction is specified via `--direction` CLI flag at runtime. Three independent SLURM jobs share one config.h5 with different `--direction` values.
+No `direction` attribute. Runtime `--direction` selects x/y/z; jobs share one `config.h5`.
 
 ## No Receivers
 
-The preprocessor does NOT configure receiver points. It configures a shallow full-volume mesh-vertex recording map from `record_depth_max_m`; postprocess assembles the Green's function at those recorded vertices directly from snapshot files.
+Preprocessor does not configure receivers. It builds a shallow mesh-vertex recording map from `record_depth_max_m`. Postprocess uses those vertices directly.
 
 ## No Per-Cell Material Tags
 

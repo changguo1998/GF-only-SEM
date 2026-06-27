@@ -5,7 +5,7 @@
 
 ## Goal
 
-libgf (C++ physics library) + gf_solver (MPI-parallel executable) for elastic spectral-element forward modeling.
+`libgf` C++ physics library plus MPI `gf_solver` for elastic SEM forward modeling.
 
 ## Data Flow
 
@@ -44,7 +44,7 @@ partitions/partition_{r}.h5 (local subset per rank: topology + field/element + c
 mpirun -np N gf_solver --direction {x,y,z}
 ```
 
-All I/O paths are frozen relative to CWD:
+All paths are fixed relative to CWD:
 
 - Input: `config.h5`, `partitions/partition_{r}.h5`
 - Strain output: `wavefields/{direction}/record_{r}.h5`
@@ -53,25 +53,25 @@ All I/O paths are frozen relative to CWD:
 | Arg | Description |
 |-----|-------------|
 | `--direction {x,y,z}` | force direction (x, y, or z) |
-Directory creation is the caller's responsibility.
+Caller creates directories.
 
 ## Architecture
 
-Modular physics library (`libgf`, static library) with headers under `forward/include/gf/` and sources under `forward/src/`, linked into an MPI executable (`gf_solver`).
+`libgf` is a static physics library linked into MPI executable `gf_solver`.
 
-**Matrix-free assembly**: no global system matrix. Residual assembled element-by-element: `r = Σ Bᵀ_e · σ_e`, accumulated into a global residual array `r[NDIM, n_global_nodes]` indexed by global GLL node ID via the `gll_to_global` mapping. Within-rank shared nodes are implicitly summed through this accumulation — no separate assembly step.
+**Matrix-free assembly**: no global matrix. Elements add `r = Σ Bᵀ_e · σ_e` into `r[NDIM, n_global_nodes]` through `gll_to_global`. Shared nodes sum by using the same global ID.
 
-All mesh-dependent quantities (GLL coords, Jacobian, dξ/dx, lumped mass, material, C-PML arrays, partition data including gll_to_global and exchange patterns) are precomputed by the preprocessor and written to per-rank partition files. The forward solver reads its local `partitions/partition_{R}.h5` file directly (where `R = MPI_Comm_rank()`) — no global model.h5 at runtime, no geometry recomputation. The forward solver is a pure physics engine.
+Preprocess writes all mesh data to per-rank partitions. Rank `R` reads `partitions/partition_{R}.h5`. No global model file. No geometry recompute.
 
-**Source injection**: precomputed Lagrange weights and element list read from config.h5. Forward solver reads STF[n] at time step n, multiplies by w_ijk, and distributes to GLL nodes — no runtime element search or interpolation.
+**Source injection**: read source elements, weights, and `STF[n]` from `config.h5`. Distribute to GLL nodes. No runtime search.
 
-**C-PML**: all damping profiles, stretched-coordinate functions, and convolution coefficients precomputed per GLL node in partition\_{r}.h5. Forward solver maintains the full set of CPML memory variables (see CPML section for exact layout). Convolution update and acceleration correction follow the second-order recursive convolution scheme of Wang et al. (2006) with θ=1/8.
+**C-PML**: read precomputed damping, stretch, and convolution coefficients from `partition_{r}.h5`. Keep all CPML memory variables. Use Wang et al. (2006), θ=1/8.
 
-**Partition discovery**: implicit by MPI rank. Each rank opens `partitions/partition_{R}.h5` where `R = MPI_Comm_rank()`. All ranks also read `config.h5` (identical content, rank-invariant).
+**Partition discovery**: rank `R` opens `partitions/partition_{R}.h5`. All ranks read same `config.h5`.
 
-**Force direction**: passed via `--direction {x,y,z}` CLI flag (not embedded in config.h5). Three independent SLURM jobs share one config.h5 with different `--direction` values.
+**Force direction**: pass `--direction {x,y,z}`. It is not in `config.h5`. Three jobs share one config.
 
-**Parallelism**: pure MPI (one rank per core). GPU/DCU kernel swap-in path is designed in [`gpu.md`](gpu.md) — device abstraction with template policy. Single-threaded per rank — no OpenMP, no element coloring needed.
+**Parallelism**: pure MPI, one rank per core. GPU/DCU path is in [`gpu.md`](gpu.md). No OpenMP.
 
 ## Technology
 
@@ -85,7 +85,7 @@ All mesh-dependent quantities (GLL coords, Jacobian, dξ/dx, lumped mass, materi
 
 ### partition\_{r}.h5
 
-Per-rank partition file written by the preprocessor (one per MPI rank). Each rank reads only `partition_{r}.h5` — no global model file at runtime. Contains the local subset of all element data plus partition metadata for the owning rank.
+Per-rank file from preprocess. Each rank reads only its file. Contains local element data and partition metadata.
 
 **Local element data** (layout `[n_elem_local, NGLL, NGLL, NGLL, ...]`, NGLL = N+1):
 
@@ -504,7 +504,7 @@ for step in 0..nsteps-1:
 
 ## Snapshot Output
 
-One strain record file per MPI rank for the entire run. Strain appends only at snapshot steps (`step % snapshot_stride == 0`). It is shallow mesh-vertex output, not full GLL output:
+One strain record per rank per run. Append only at `step % snapshot_stride == 0`. Output is shallow mesh vertices, not full GLL:
 
 ```
 wavefields/{direction}/record_{r}.h5
@@ -519,11 +519,11 @@ wavefields/{direction}/record_{r}.h5
 └── strain                      : float32[n_snapshots, n_record_vertices, 6]
 ```
 
-The strain values are L2-smoothed strain sampled at selected SEM corner GLL nodes. Interior GLL points are not recorded.
+Values are L2-smoothed strain at selected SEM corner nodes. Interior GLL points are not recorded.
 
 ## Restart Output
 
-Restart is separate from strain output and latest-only:
+Restart is separate and latest-only:
 
 ```
 restart/{direction}/restart_{r}.h5
@@ -539,7 +539,7 @@ restart/{direction}/restart_{r}.h5
 └── pml_memory_*                : float64[...]  # all active C-PML memory arrays
 ```
 
-On `--resume`, gf_solver reads the restart file, restores all state, and continues from `step + 1`.
+With `--resume`, `gf_solver` restores state and continues at `step + 1`.
 
 ## Discretization Parameters
 
@@ -547,11 +547,11 @@ On `--resume`, gf_solver reads the restart file, restores all state, and continu
 - NGLL = N+1 = 4 (test) / 6 (prod)
 - Time integration: Newmark explicit (β=0, γ=½ — central difference)
 - CFL: conditional stability, standard SEM constraint
-- solver_dt: auto-computed by preprocessor from CFL and the user snapshot interval. Read from config.h5 `/simulation/solver_dt`; snapshots use `/simulation/snapshot_stride` and `/simulation/output_dt_s`; restart overwrite uses `/simulation/restart_stride` and `/simulation/restart_dt_s`
+- `solver_dt`: from preprocess CFL logic. Snapshots use `snapshot_stride`/`output_dt_s`. Restarts use `restart_stride`/`restart_dt_s`.
 
 ## Run Config (3 Simulations per Source)
 
-For Green's function extraction: 3 orthogonal force directions (x, y, z) = 3 independent forward runs per source location. Each run is a separate invocation of gf_solver with a different `--direction {x,y,z}` CLI value. Each run produces 6 strain components (symmetric tensor: εxx, εyy, εzz, εxy, εxz, εyz).
+Green extraction uses 3 runs per source: force x, y, z. Each run calls `gf_solver --direction ...` and writes 6 strain components.
 
 ## Namespace
 
@@ -571,7 +571,7 @@ forward/
 │   ├── newmark.hpp            — NewmarkPredictor, NewmarkCorrector
 │   ├── source.hpp             — PointForceSource (Lagrange interpolation)
 │   ├── exchange.hpp           — MPI halo exchange (precomputed face lists)
-│   ├── record.hpp             — extendible HDF5 strain snapshots + restart state writer
+│   ├── record.hpp             — strain and restart HDF5 writers
 │   ├── io.hpp                 — partition_{r}.h5 + config.h5 reader
 │   └── solver.hpp             — run_forward() loop, --resume support
 ├── src/
