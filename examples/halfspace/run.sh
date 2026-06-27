@@ -9,6 +9,15 @@ WORK_DIR="${SCRIPT_DIR}"
 
 source "${SCRIPT_DIR}/setenv.sh"
 
+showdir() {
+    local p
+    p=${1:-'.'}
+    { ls -lh "$p" 2>/dev/null || echo "  (not found)"; } | head -n 5
+    if [[ "$(ls -lvh "$p" 2>/dev/null | wc -l)" -gt 5 ]]; then
+        echo "  ..."
+    fi
+}
+
 echo "=== Halfspace Forward Solver Pipeline ==="
 echo "Project dir: ${PROJECT_DIR}"
 echo "Example dir: ${EXAMPLE_DIR}"
@@ -17,6 +26,7 @@ echo ""
 
 # ── Clean work dir ───
 cd "${WORK_DIR}"
+rm "${WORK_DIR}"/*.h5 2>/dev/null
 if [ -d "${WORK_DIR}/partitions" ]; then
     rm -rf "${WORK_DIR}/partitions"
 fi
@@ -43,7 +53,7 @@ echo ""
 echo "=== Preprocess outputs ==="
 echo "mesh.h5:      $(du -sh mesh.h5 | cut -f1)"
 echo "config.h5:    $(du -sh config.h5 | cut -f1)"
-ls -hal "$WORK_DIR/partitions/"
+showdir "$WORK_DIR/partitions/"
 echo ""
 echo "log/preprocess.log:"
 cat "${WORK_DIR}/log/preprocess.log" 2>/dev/null | tail -20 || true
@@ -62,11 +72,11 @@ echo ""
 echo "=== Forward outputs ==="
 for DIR in x y z; do
     echo "wavefields/${DIR}/:"
-    ls -lh "${WORK_DIR}/wavefields/${DIR}/" 2>/dev/null || echo "  (not found)"
+    showdir "${WORK_DIR}/wavefields/${DIR}/"
 done
 echo ""
 echo "Log files:"
-ls -lh "${WORK_DIR}/log/" 2>/dev/null || echo "  (not found)"
+showdir "${WORK_DIR}/log/"
 
 # ── Summary ───
 echo ""
