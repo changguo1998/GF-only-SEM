@@ -12,7 +12,7 @@ SLS spans preprocess and forward.
 
 ### Preprocess
 
-- **Plan:** `docs/superpowers/plans/2026-06-08-preprocess.md` → Task 7
+- **Plan:** initial implementation complete — SLS Task 7 not started
 - **Design:** `docs/superpowers/design/preprocess.md` → SLS fitting
 - **Source:** `preprocess/sls.py` — missing
 - **Tests:** `tests/preprocess/test_sls.py` — missing
@@ -20,11 +20,16 @@ SLS spans preprocess and forward.
 Needed:
 
 - Compute per-GLL-node `τ_σ_l` and `τ_ε_l` from `q_kappa`, `q_mu`, `f_min`, `f_max`, and `n_sls`.
-- Write `/field/element/tau_sigma` and `/field/element/tau_epsilon` with shape `[n_cell, NGLL, NGLL, NGLL, n_sls]`.
+- Write HDF5 datasets:
+
+```
+/field/element/tau_sigma[n_cell, NGLL, NGLL, NGLL, n_sls]
+/field/element/tau_epsilon[n_cell, NGLL, NGLL, NGLL, n_sls]
+```
 
 ### Forward
 
-- **Plan:** `docs/superpowers/plans/2026-06-08-forward.md` → Task 5
+- **Plan:** initial implementation complete — SLS Task 5 not started
 - **Design:** `docs/superpowers/design/forward.md`
 - **Source:** `forward/src/viscoelastic.cpp` — missing
 - **Tests:** `forward/tests/test_viscoelastic.cpp` — missing
@@ -79,7 +84,7 @@ ______________________________________________________________________
 
 **Status:** Placeholder. `model_loader.py` returns constants.
 
-- **Plan:** `docs/superpowers/plans/2026-06-08-preprocess.md` → Task 5
+- **Plan:** initial implementation complete — binary format deferred
 - **Design:** `docs/superpowers/design/preprocess.md`
 
 Needed: define a binary model format. Read gridded Vp, Vs, density, Qκ, and Qμ. Interpolate them to GLL nodes.
@@ -93,17 +98,6 @@ ______________________________________________________________________
 - **Design:** `docs/superpowers/design/gpu.md`
 
 Needed: template-polymorphic backend for future CUDA/HIP/SYCL element kernels.
-
-______________________________________________________________________
-
-## 7. Preprocess Plan Markers
-
-**Status:** Some plan commit markers look stale.
-
-- Topology reader, GLL geometry, and SLS tasks mention SLS deferral.
-- Work may already be committed.
-
-Needed: verify with `git log --oneline` and update plan markers if useful.
 
 ______________________________________________________________________
 

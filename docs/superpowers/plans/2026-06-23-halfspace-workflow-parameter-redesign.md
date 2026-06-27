@@ -31,89 +31,89 @@
 - Estimate storage with `nsteps / snapshot_stride` snapshots.
 - Halfspace target: `100 × 100 × 50` elements, 100 m cubes.
 
-## Task 1 — `config_loader.py`
+## Task 1 — `config_loader.py` ✓
 
-- [ ] Update required keys with SI suffixes.
-- [ ] Add `total_duration_s`.
-- [ ] Remove `nsteps`, `cfl_threshold`, and `checkpoint_interval`.
-- [ ] Rename `checkpoint_precision` to `snapshot_precision`.
-- [ ] Rename material callables.
-- [ ] Update validation names and errors.
+- [x] Update required keys with SI suffixes.
+- [x] Add `total_duration_s`.
+- [x] Remove `nsteps`, `cfl_threshold`, and `checkpoint_interval`.
+- [x] Rename `checkpoint_precision` to `snapshot_precision`.
+- [x] Rename material callables.
+- [x] Update validation names and errors.
 
-## Task 2 — `cfl_validator.py`
+## Task 2 — `cfl_validator.py` ✓
 
-- [ ] Keep `compute_cfl_dt()`.
-- [ ] Remove `validate_cfl()`.
-- [ ] Add `compute_solver_dt(output_dt_s, cfl_dt, max_stride=100)`.
-- [ ] Search stride 1..100 for `output_dt_s / stride <= cfl_dt`.
-- [ ] Return `(solver_dt, snapshot_stride)`.
-- [ ] Raise clear error if no stride works.
+- [x] Keep `compute_cfl_dt()`.
+- [x] Remove `validate_cfl()`.
+- [x] Add `compute_solver_dt(output_dt_s, cfl_dt, max_stride=100)`.
+- [x] Search stride 1..100 for `output_dt_s / stride <= cfl_dt`.
+- [x] Return `(solver_dt, snapshot_stride)`.
+- [x] Raise clear error if no stride works.
 
-## Task 3 — `stf_evaluator.py`
+## Task 3 — `stf_evaluator.py` ✓
 
-- [ ] Keep signature `(stf_func, dt, nsteps)`.
-- [ ] Ensure caller passes `solver_dt` as `dt`.
-- [ ] Verify `t_s = k * dt` remains correct.
+- [x] Keep signature `(stf_func, dt, nsteps)`.
+- [x] Ensure caller passes `solver_dt` as `dt`.
+- [x] Verify `t_s = k * dt` remains correct.
 
-## Task 4 — `config_writer.py`
+## Task 4 — `config_writer.py` ✓
 
-- [ ] Add `solver_dt` and `snapshot_stride` to `_write_simulation()`.
-- [ ] Write `solver_dt`, `output_dt_s`, `snapshot_stride`, `nsteps`, and `snapshot_precision`.
-- [ ] Remove old `dt`, `cfl_threshold`, and `checkpoint_interval`.
-- [ ] Update types and docstrings.
+- [x] Add `solver_dt` and `snapshot_stride` to `_write_simulation()`.
+- [x] Write `solver_dt`, `output_dt_s`, `snapshot_stride`, `nsteps`, and `snapshot_precision`.
+- [x] Remove old `dt`, `cfl_threshold`, and `checkpoint_interval`.
+- [x] Update types and docstrings.
 
-## Task 5 — `preflight.py`
+## Task 5 — `preflight.py` ✓
 
-- [ ] Replace CFL-ratio check with stride validation.
-- [ ] Validate `nsteps % snapshot_stride == 0`.
-- [ ] Rename storage variables from checkpoint to snapshot.
-- [ ] Use `nsnapshots = nsteps / snapshot_stride`.
+- [x] Replace CFL-ratio check with stride validation.
+- [x] Validate `nsteps % snapshot_stride == 0`.
+- [x] Rename storage variables from checkpoint to snapshot.
+- [x] Use `nsnapshots = nsteps / snapshot_stride`.
 
-## Task 6 — `cli.py`
+## Task 6 — `cli.py` ✓
 
-- [ ] Import `compute_solver_dt`.
-- [ ] Compute `solver_dt` and `snapshot_stride` after CFL.
-- [ ] Derive and possibly round `nsteps`.
-- [ ] Warn if effective duration changes.
-- [ ] Pass new values to preflight, STF evaluator, and config writer.
-- [ ] Use `source_x_m`, `source_y_m`, and `output_dt_s`.
+- [x] Import `compute_solver_dt`.
+- [x] Compute `solver_dt` and `snapshot_stride` after CFL.
+- [x] Derive and possibly round `nsteps`.
+- [x] Warn if effective duration changes.
+- [x] Pass new values to preflight, STF evaluator, and config writer.
+- [x] Use `source_x_m`, `source_y_m`, and `output_dt_s`.
 
-## Task 7 — Preprocess Fixtures
+## Task 7 — Preprocess Fixtures ✓
 
 **File:** `tests/preprocess/conftest.py`
 
-- [ ] Update config fixtures to new names.
-- [ ] Add `total_duration_s`.
-- [ ] Remove old time/checkpoint fields.
-- [ ] Rename material callables.
+- [x] Update config fixtures to new names.
+- [x] Add `total_duration_s`.
+- [x] Remove old time/checkpoint fields.
+- [x] Rename material callables.
 
-## Task 8 — Config Loader Tests
+## Task 8 — Config Loader Tests ✓
 
 **File:** `tests/preprocess/test_config_loader.py`
 
-- [ ] Rewrite config strings with new names.
-- [ ] Add required-field tests for `total_duration_s`.
-- [ ] Update assertions and imports.
+- [x] Rewrite config strings with new names.
+- [x] Add required-field tests for `total_duration_s`.
+- [x] Update assertions and imports.
 
-## Task 9 — CFL Validator Tests
+## Task 9 — CFL Validator Tests ✓
 
 **File:** `tests/preprocess/test_cfl_validator.py`
 
-- [ ] Test `compute_cfl_dt()`.
-- [ ] Test integer stride search.
-- [ ] Test stride 1.
-- [ ] Test exact equality with CFL.
-- [ ] Test no valid stride.
-- [ ] Test floating tolerance.
+- [x] Test `compute_cfl_dt()`.
+- [x] Test integer stride search.
+- [x] Test stride 1.
+- [x] Test exact equality with CFL.
+- [x] Test no valid stride.
+- [x] Test floating tolerance.
 
-## Task 10 — Config Writer Tests
+## Task 10 — Config Writer Tests ✓
 
 **File:** `tests/preprocess/test_config_writer.py`
 
-- [ ] Update mock config.
-- [ ] Assert new `/simulation/` attrs.
-- [ ] Assert removed attrs are absent.
-- [ ] Assert `snapshot_precision` is written.
+- [x] Update mock config.
+- [x] Assert new `/simulation/` attrs.
+- [x] Assert removed attrs are absent.
+- [x] Assert `snapshot_precision` is written.
 
 ## Task 11 — Halfspace Workflow Test
 
@@ -127,13 +127,15 @@
 - [ ] Build `100 × 100 × 50` mesh over `10 × 10 × 5 km`.
 - [ ] Assert derived `solver_dt`, `snapshot_stride`, `nsteps`, and storage.
 
-## Task 12 — C++ Forward Solver
+> **Note:** Workflow test was deleted in commit 9c430ec (moved mesh dims to config.py). Needs recreation.
 
-- [ ] Read `solver_dt`, `snapshot_stride`, `output_dt_s`, and `snapshot_precision`.
-- [ ] Use `solver_dt` in Newmark.
-- [ ] Write snapshots when `step % snapshot_stride == 0`.
-- [ ] Rename internal checkpoint terms to snapshot.
-- [ ] Use `nsteps / snapshot_stride` for storage estimates.
+## Task 12 — C++ Forward Solver ✓
+
+- [x] Read `solver_dt`, `snapshot_stride`, `output_dt_s`, and `snapshot_precision`.
+- [x] Use `solver_dt` in Newmark.
+- [x] Write snapshots when `step % snapshot_stride == 0`.
+- [x] Rename internal checkpoint terms to snapshot.
+- [x] Use `nsteps / snapshot_stride` for storage estimates.
 
 ## Task 13 — Docs
 
