@@ -18,6 +18,8 @@ REQUIRED_KEYS = {
     "pml_thickness": (dict,),
     "source_x_m": (int, float),
     "source_y_m": (int, float),
+    "record_depth_max_m": (int, float),
+    "green_tile_size_m": (int, float),
 }
 
 REQUIRED_CALLABLES = ["stf_func", "vp_m_s", "vs_m_s", "density_kg_m3"]

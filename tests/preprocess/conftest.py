@@ -21,6 +21,8 @@ def config_dict():
         "pml_thickness": {"xmin": 3, "xmax": 3, "ymin": 3, "ymax": 3, "zmin": 0, "zmax": 3},
         "source_x_m": 500.0,
         "source_y_m": 500.0,
+        "record_depth_max_m": 500.0,
+        "green_tile_size_m": 100.0,
     }
 
 

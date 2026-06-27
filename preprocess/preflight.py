@@ -226,6 +226,26 @@ def _check_partition(n_cell: int, n_ranks: int, result: PreflightResult) -> None
     result.stats["n_ranks"] = n_ranks
 
 
+
+def _check_recording_depth(
+    record_depth_max_m: float,
+    domain_bounds: dict[str, float],
+    result: PreflightResult,
+) -> None:
+    """Validate record_depth_max_m."""
+    domain_z_range = domain_bounds["zmax"] - domain_bounds["zmin"]
+    if record_depth_max_m <= 0:
+        result.add_error(
+            f"Recording: record_depth_max_m must be positive, got {record_depth_max_m}"
+        )
+    elif record_depth_max_m > domain_z_range:
+        result.add_warning(
+            f"Recording: record_depth_max_m ({record_depth_max_m} m) exceeds domain depth ({domain_z_range:.1f} m). "
+            "All non-PML vertices will be recorded."
+        )
+    result.stats["record_depth_max_m"] = record_depth_max_m
+
+
 def _check_storage(
     n_cell: int,
     NGLL: int,
@@ -346,6 +366,10 @@ def run_preflight(
     # 7. Partition
     n_ranks = int(getattr(config_module, "n_ranks", 1))
     _check_partition(topology.n_cell, n_ranks, result)
+
+    # 7b. Recording depth
+    rd_max = float(getattr(config_module, "record_depth_max_m", 0.0))
+    _check_recording_depth(rd_max, domain_bounds, result)
 
     # 8. Storage
     # nsteps is now passed directly as parameter, not from config_module

@@ -196,6 +196,25 @@ def main() -> None:
         partition_result = None
         logger.info("  partition.py not available — skipping")
 
+    # Step: build recording map
+    logger.info("Building recording map...")
+    try:
+        from preprocess.recording_map import build_recording_map
+
+        rd_max = float(config.record_depth_max_m)
+        gt_size = float(config.green_tile_size_m)
+        element_to_rank = partition_result.get("element_to_rank") if partition_result else None
+        per_rank = partition_result.get("per_rank") if partition_result else None
+        rec_map = build_recording_map(
+            topology, boundary_tag, domain_bounds, is_pml,
+            rd_max, gt_size,
+            element_to_rank=element_to_rank, per_rank=per_rank,
+        )
+        logger.info(f"  record_depth_actual_m={rec_map['record_depth_actual_m']}")
+    except ImportError:
+        rec_map = None
+        logger.info("  recording_map.py not available — skipping")
+
     # Step: write outputs
     fields = {
         "coords": coords,
@@ -213,7 +232,8 @@ def main() -> None:
     t0 = time.time()
     from preprocess.model_writer import write_model
 
-    write_model(mesh_path, topology, fields, boundary_tag, domain_bounds, partition_result)
+    write_model(mesh_path, topology, fields, boundary_tag, domain_bounds, partition_result,
+                    recording_map=rec_map)
     logger.debug(f"  model write: {time.time() - t0:.2f}s")
 
     config_h5 = os.path.join(os.path.dirname(mesh_path), "config.h5")
@@ -232,6 +252,7 @@ def main() -> None:
         solver_dt=solver_dt,
         snapshot_stride=snapshot_stride,
         nsteps=nsteps,
+        recording_map=rec_map,
     )
 
     elapsed = time.time() - start

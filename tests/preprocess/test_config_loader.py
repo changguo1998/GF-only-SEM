@@ -62,6 +62,8 @@ n_ranks = 4
 pml_thickness = {"xmin": 3, "xmax": 3, "ymin": 3, "ymax": 3, "zmin": 0, "zmax": 3}
 source_x_m = 500.0
 source_y_m = 500.0
+record_depth_max_m = 1000.0
+green_tile_size_m = 500.0
 def stf_func(t): return 1.0
 def vp_m_s(x, y, z): return 3000.0
 def vs_m_s(x, y, z): return 1500.0
@@ -84,6 +86,8 @@ n_ranks = 4
 pml_thickness = {"xmin": 3, "xmax": 3, "ymin": 3, "ymax": 3, "zmin": 0, "zmax": 3}
 source_x_m = 500.0
 source_y_m = 500.0
+record_depth_max_m = 1000.0
+green_tile_size_m = 500.0
 def vp_m_s(x, y, z): return 3000.0
 def vs_m_s(x, y, z): return 1500.0
 def density_kg_m3(x, y, z): return 2500.0
@@ -105,6 +109,8 @@ n_ranks = 4
 pml_thickness = {"xmin": 3, "xmax": 3, "ymin": 3, "ymax": 3, "zmin": 0, "zmax": 3}
 source_x_m = 500.0
 source_y_m = 500.0
+record_depth_max_m = 1000.0
+green_tile_size_m = 500.0
 def stf_func(t): return 1.0
 def vp_m_s(x, y, z): return 3000.0
 def vs_m_s(x, y, z): return 1500.0
@@ -127,6 +133,8 @@ n_ranks = 4
 pml_thickness = {"xmin": 3, "xmax": 3, "ymin": 3, "ymax": 3, "zmin": 0, "zmax": 3}
 source_x_m = 500.0
 source_y_m = 500.0
+record_depth_max_m = 1000.0
+green_tile_size_m = 500.0
 def stf_func(t): return 1.0
 def vp_m_s(x, y, z): return 3000.0
 def vs_m_s(x, y, z): return 1500.0

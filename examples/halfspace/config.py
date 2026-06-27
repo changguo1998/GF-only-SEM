@@ -41,6 +41,8 @@ cfl_safety = 0.5  # CFL safety factor (0 < cfl_safety < 1)
 # ── I/O ───
 snapshot_precision = "float32"  # "float32" or "float64" for strain snapshots
 storage_limit_gb = 10.0  # Warn if estimated output exceeds this
+record_depth_max_m = 2000.0  # Record strain at vertices within this depth of free surface [m]
+green_tile_size_m = 1000.0  # Horizontal tile size for postprocess Green's function output [m]
 
 # ── Parallelism ───
 n_ranks = 16  # Number of MPI ranks (METIS partition)

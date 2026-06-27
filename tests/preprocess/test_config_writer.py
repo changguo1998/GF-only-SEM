@@ -23,6 +23,8 @@ def _make_mock_config():
     mod.cfl_safety = 0.5
     mod.snapshot_precision = "float32"
     mod.storage_limit_gb = 100.0
+    mod.record_depth_max_m = 500.0
+    mod.green_tile_size_m = 100.0
     return mod
 
 
