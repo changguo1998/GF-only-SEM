@@ -16,7 +16,7 @@ Full math formulation: [`docs/math.md`](docs/math.md)
 | `forward/` | C++17 | Elastic SEM solver (libgf) + MPI executable | [`forward/AGENTS.md`](forward/AGENTS.md) |
 | `compress/` | C++17 | HDF5 compression utilities (header-only) | [`compress/AGENTS.md`](compress/AGENTS.md) |
 | `postprocess/` | Python | Strain Green's function extraction | [`postprocess/AGENTS.md`](postprocess/AGENTS.md) |
-| `tools/` | Python | GMSH mesh → mesh.h5 converter | [`tools/AGENTS.md`](tools/AGENTS.md) |
+| `tools/` | Python | Mesh conversion (GMSH→HDF5) + VTK visualization tools | [`tools/AGENTS.md`](tools/AGENTS.md) |
 | `tests/` | Python + C++ | Shared test infrastructure (pytest + Catch2) | [`tests/AGENTS.md`](tests/AGENTS.md) |
 
 ## Tech Stack
@@ -48,6 +48,7 @@ See each module's `AGENTS.md` for details.
 - **No receivers**: Postprocess does NOT use receiver locations. Green's functions are extracted at all GLL nodes. No receivers.csv, no receiver positions, no receiver search in postprocess. This is a design constraint — see `docs/design-decisions.md` line 253.
 - **config.py is the single source of truth**: All simulation parameters (mesh dimensions, material, source, boundary, parallelism) defined in `config.py` only. No script or shell script duplicates or hardcodes these values — they must be read from `config.py` at runtime. See `examples/halfspace/config.py` for the canonical schema.
 - **Fixed filenames per design docs**: Example scripts (mesh generators, converters) use fixed output filenames per the design docs (`mesh.h5`, `config.h5`, `partition_{r}.h5`, `record_{r}.h5`). No CLI args to override them. Only I/O paths that vary per run (e.g., input GMSH file path) use CLI arguments.
+- **Console scripts in root pyproject**: All tool entry points (`mesh2vtk`, `partition2vtk`, `wavefield2vtk`, `wavefield2vtk_detail`) are defined in the root `pyproject.toml` under `[project.scripts]` and installed as console_scripts via `gf-calculation`, not `gf-preprocess`.
 - **Pipeline scripts read config**: `run.sh` and similar pipeline scripts derive `N_RANKS` and other runtime params from `config.py` via Python extraction, not hardcoded values.
 - **Run formatter before stage/commit**: Execute `bash format.sh` before `git add` or `git commit` to ensure all `.py`, `.md`, `.c/.cpp/.h/.hpp/.cu`, `.cmake`/`CMakeLists.txt` files are formatted consistently. Silent on success, fails fast on error.
 

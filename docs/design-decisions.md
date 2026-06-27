@@ -54,7 +54,7 @@ Mathematical formulation for all methods below: [`docs/math.md`](math.md)
 - **Glue language**: Python
 - **Project structure**:
   ```
-  tools/           — GMSH → mesh.h5 converter (Python, format transport only)
+  tools/           — GMSH → mesh.h5 converter + VTK visualization tools (Python)
   preprocess/      — Python: GLL geometry, material interpolation, partition, config
   forward/         — C++: core physics library (libgf) + MPI solver executable (elastic only)
   compress/        — C++: header-only checkpoint compression utilities

@@ -27,6 +27,22 @@ cd /path/to/gf-calculation
 bash examples/halfspace/run.sh
 ```
 
+**Visualization (after preprocess):**
+
+```bash
+cd examples/halfspace/
+source setenv.sh          # set PATH to include tool entry points
+mesh2vtk                  # → vtk/mesh.vtk (material fields + GLL points)
+partition2vtk             # → vtk/partition_{r}.vtk (per-rank view)
+```
+
+**Visualization (after forward solver):**
+
+```bash
+wavefield2vtk             # → vtk/wavefield_{step}.vtk (cell-corner strain)
+wavefield2vtk_detail      # → vtk/wavefield_{step}.vtk (full GLL point strain)
+```
+
 **Build requirements:**
 
 ```bash
