@@ -58,7 +58,7 @@ Mathematical formulation for all methods below: [`docs/math.md`](math.md)
   preprocess/      — Python: GLL geometry, material interpolation, partition, config
   forward/         — C++: core physics library (libgf) + MPI solver executable (elastic only)
   compress/        — C++: header-only checkpoint compression utilities
-  postprocess/     — Python: strain GF extraction at GLL nodes, spatial tiling
+  postprocess/     — Python: strain GF extraction at recorded shallow mesh vertices, horizontal tiling
   tests/
   external_reference_codes/
   ```
@@ -79,6 +79,7 @@ GMSH .msh → converter → mesh.h5 (topology only)
                     ├── lumped mass
                     ├── PML damping profiles
                     ├── Auto solver_dt from CFL + output_dt_s snapshot stride
+                    ├── Recording map (shallow mesh vertices, non-PML)
                     ├── Comprehensive validation
                     ├── METIS partition
                     ├── STF time series
@@ -91,22 +92,24 @@ GMSH .msh → converter → mesh.h5 (topology only)
                          (reads partitions/partition_{r}.h5 + config.h5)
                           ↓
                     wavefields/{x,y,z}/record_{r}.h5
+                    restart/{x,y,z}/restart_{r}.h5
                           ↓
-                     postprocess (reads mesh.h5 for geometry)
+                     postprocess (merges recorded vertex strain)
                           ↓
-                    greenfun/tile_{i}.h5
+                    greenfun/tile_x{i}_y{j}.h5
 ```
 
 ### File Purposes
 
 | File | Producer | Consumer | Content |
 |------|----------|----------|---------|
-| mesh.h5 | converter → extended by preprocessor | preprocessor, postprocess | Topology + GLL coords + dxi_dx + jacobian + is_pml (geometry only, no material) |
-| partition\_{r}.h5 | preprocessor | forward | Per-rank local subset of all element data (coords, dxi_dx, jacobian, mass, vp, vs, density, cpml/\*) + partition metadata (gll_to_global, exchange) |
-| config.h5 | preprocessor | forward | Simulation params, domain bounds, source position + precomputed STF + weights. No direction — passed via CLI `--direction`. |
-| wavefields/{direction}/record\_{r}.h5 | forward | postprocess | L2-smoothed strain at GLL nodes + (u,v,a) restart state, extendible time axis |
+| mesh.h5 | converter → extended by preprocessor | preprocessor, postprocess | Topology + GLL coords + dxi_dx + jacobian + is_pml (geometry only, no material). Postprocess uses `/topology/vertex_to_coord`. |
+| partition\_{r}.h5 | preprocessor | forward | Per-rank local subset of all element data (coords, dxi_dx, jacobian, mass, vp, vs, density, cpml\*) + partition metadata (gll_to_global, exchange) + `/recording/` shallow mesh-vertex map |
+| config.h5 | preprocessor | forward, postprocess | Simulation params, output/restart cadence, record depth, horizontal tile size, domain bounds, source position + precomputed STF + weights. No direction — passed via CLI `--direction`. |
+| wavefields/{direction}/record\_{r}.h5 | forward | postprocess | L2-smoothed strain at recorded shallow mesh vertices, extendible time axis |
+| restart/{direction}/restart\_{r}.h5 | forward | forward (`--resume`) | Latest-only full-volume restart state: u, v, a, C-PML memory variables, step/time |
 | mesh_auxiliary.h5 | preprocessor (optional) | validation | CSR adjacency relations |
-| greenfun/tile\_{i}.h5 | postprocess | user | Strain Green's functions at GLL nodes, tiled by element range |
+| greenfun/tile_x{i}\_y{j}.h5 | postprocess | user | Strain Green's functions at recorded mesh vertices, tiled by horizontal x/y bins |
 
 ### Design Rules
 
@@ -167,19 +170,23 @@ partition_{r}.h5
     └── /exchange/              — precomputed face-pair lists per neighbor
 ```
 
-### Record Format
+### Record and Restart Format
 
-One file per MPI rank per forward run. Extendible datasets for strain and restart state:
+Forward writes shallow mesh-vertex strain records and separate latest-only restart files.
 
 ```
 wavefields/{direction}/record_{r}.h5
-├── attrs: rank, source_direction, ngll
-├── local_element_ids  : int64[n_elem_local]
-├── strain             : float32[n_snapshots, n_elem_local, NGLL, NGLL, NGLL, 6]
-└── /restart/          — latest state (u, v, a) for resume
-    ├── displacement   : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
-    ├── velocity       : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
-    └── acceleration   : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
+├── attrs: rank, source_direction, basis="mesh_vertices", record_depth_max_m,
+│          record_depth_actual_m, excludes_pml=true
+├── vertex_ids : int64[n_record_vertices]       # global mesh vertex IDs, 1-based
+└── strain     : float32[n_snapshots, n_record_vertices, 6]
+
+restart/{direction}/restart_{r}.h5
+├── attrs: rank, source_direction, step, time_s, ngll
+├── displacement      : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
+├── velocity          : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
+├── acceleration      : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
+└── pml_memory_*      : float64[...]             # all C-PML state required for exact resume
 ```
 
 ### config.h5 Format
@@ -197,6 +204,11 @@ config.h5
 │   ├── nsteps                 : int32              — total solver steps (derived from total_duration_s)
 │   ├── cfl_safety             : float64
 │   ├── snapshot_precision     : string             — "float32" or "float64"
+│   ├── restart_dt_s           : float64            — latest-only restart overwrite interval
+│   ├── restart_stride         : int32              — solver steps per restart write
+│   ├── record_depth_max_m     : float64            — requested shallow recording depth
+│   ├── record_depth_actual_m  : float64            — snapped spectral-element face depth
+│   ├── green_tile_size_m      : float64            — horizontal postprocess tile width
 │   └── storage_limit_gb       : int32              — abort if estimated storage exceeds this
 │
 ├── /domain/
@@ -219,16 +231,16 @@ Note: no `direction` attribute. Force direction is specified via `--direction` C
 ### Green's Function Output
 
 Strain Green's function library — stores strain components, not displacement.
-Output is spatially tiled by lat/lon bounding boxes:
+Output is horizontally tiled by x/y bins from `green_tile_size_m`:
 
 ```
 greenfun/
-├── tile_0.h5    — attrs: minlat, maxlat, minlon, maxlon
-├── tile_1.h5
+├── tile_x000_y000.h5
+├── tile_x001_y000.h5
 └── ...
 ```
 
-Each tile contains the strain Green's functions for all elements within its spatial range.
+Each tile contains recorded mesh vertices within the horizontal tile bounds for all saved depths (`depth <= record_depth_actual_m`). Coordinates are referenced by `vertex_ids` in `mesh.h5`; they are not duplicated in Green's files.
 
 ## 7. Preprocessor Decisions
 
@@ -236,23 +248,23 @@ Each tile contains the strain Green's functions for all elements within its spat
 - **Material functions**: Callable Python functions with SI-unit suffixes `vp_m_s(x_m, y_m, z_m)`, `vs_m_s(x_m, y_m, z_m)`, `density_kg_m3(x_m, y_m, z_m)` in config.py — no separate binary model file.
 - **Output**: partition\_{r}.h5 (per-rank subset of element data) + single config.h5 (rank-invariant simulation + domain + source data).
 - **Source direction**: NOT in config.py or config.h5. Preprocessor auto-generates one config.h5. Forward solver takes force direction via CLI `--direction {x,y,z}`.
-- **Timestep split**: User specifies `output_dt_s` (snapshot interval) and `total_duration_s` in config.py. Preprocessor computes `cfl_dt = cfl_safety × h_min / vp_max` from minimum GLL node spacing and maximum vp, then derives `solver_dt` by searching for an integer stride such that `output_dt_s / stride ≤ cfl_dt`. The `snapshot_stride = output_dt_s / solver_dt` (integer). `nsteps = ceil(total_duration_s / solver_dt)`. Forward solver uses `solver_dt` in the Newmark loop and writes snapshots when `step % snapshot_stride == 0`.
+- **Timestep split**: User specifies `output_dt_s` (snapshot interval), `restart_dt_s` (restart overwrite interval), and `total_duration_s` in config.py. Preprocessor computes `cfl_dt = cfl_safety × h_min / vp_max`, derives `solver_dt` and `snapshot_stride`, and derives `restart_stride = round(restart_dt_s / solver_dt)`. Forward writes strain when `step % snapshot_stride == 0` and overwrites restart when `step % restart_stride == 0`.
 - **Validation**: Comprehensive checks at preprocess time:
   - Mesh: n_cell > 0, non-degenerate hex elements, det(J) > 0 at all GLL nodes
   - Material: vp > 0, vs ≥ 0, density > 0 at all GLL nodes
-  - CFL: solver_dt auto-derived from CFL constraint, snapshot_stride validated as integer
+  - CFL: solver_dt auto-derived from CFL constraint; snapshot_stride and restart_stride validated as integers
   - Boundary: Free surface detected at z ≈ z_min; PML has ≥ 2 elements per absorbing face (warn if thinner)
   - Source: x_m, y_m within domain bounds; stf_func returns finite non-NaN values over [0, nsteps×solver_dt]
   - Storage: estimated disk usage ≤ storage_limit_gb, abort if exceeded
-  - Snapshot stride: nsteps % snapshot_stride == 0
-- **Mesh output format**: Extended HDF5 — preprocessor writes GLL geometry (`coords`, `dxi_dx`, `jacobian`, `is_pml`) back to mesh.h5; all rank-local data to partition\_{r}.h5.
+  - Snapshot/restart cadence: nsteps % snapshot_stride == 0; restart_stride >= 1
+- **Mesh output format**: Extended HDF5 — preprocessor writes GLL geometry (`coords`, `dxi_dx`, `jacobian`, `is_pml`) back to mesh.h5; all rank-local data and the shallow recording map go to partition\_{r}.h5.
 - **STF precomputation**: stf_func(t_s) evaluated over full time range at solver_dt spacing, written as time series array to config.h5. Forward solver reads array — no runtime STF evaluation.
 - **Mass computation**: After material interpolation (ρ needed for lumped mass).
 - **CPML precomputation**: Layer-based — trace element connectivity from boundary faces inward. Classify each CPML element as face/edge/corner type. Precompute all C-PML arrays: damping profiles d_x, d_y, d_z per GLL node; stretched-coordinate functions K, α; convolution coefficients; element type tags. Written to partition\_{r}.h5 `/field/element/cpml/`.
 - **Partitioning**: METIS k-way partition + GLL node global numbering (ibool equivalent) + precomputed exchange patterns. Each rank gets its own partition\_{r}.h5 with local subset.
 - **Geometric precompute**: GLL coords, Jacobian, dξ/dx, lumped mass, C-PML arrays — all at GLL nodes. Written to partition\_{r}.h5 `/field/element/`.
 - **Source precompute**: Source z auto-placed on top free surface (z ≈ z_min). Element list, natural coordinates (ξ_s, η_s, ζ_s), Lagrange interpolation weights w_ijk for source injection. Weights normalized across sharing surface elements (Σ w_ijk = 1).
-- **No receivers**: Postprocess operates on GLL-node strain directly — no receiver CSV, no receiver search, no position interpolation.
+- **No receivers**: Postprocess operates on the configured shallow full-volume mesh-vertex strain field — no receiver CSV, no receiver search, no position interpolation.
 - **No inline STF**: User-defined function, evaluated over full time range.
 - **DRY metric**: N/NGLL embedded in array shapes — no separate config attribute.
 - **Elastic only**: SLS attenuation deferred to future work.
@@ -271,9 +283,9 @@ Each tile contains the strain Green's functions for all elements within its spat
 - **Runtime loop**: Newmark predict → element residual (matrix-free K·u) → C-PML → source → MPI exchange → Newmark correct → strain compute (separate pass on corrected u) → snapshot write.
 - **Strain computation**: Separate element pass after Newmark correct — computes ε = ½(∇u_new + ∇u_newᵀ) from corrected displacement field.
 - **L2 strain smoothing**: After element-wise strain computation, global L2 projection onto continuous GLL nodal basis. ε_smooth = M⁻¹ · Σ ∫ N · ε_elem dΩ. Produces C⁰-continuous strain at shared nodes. Matches SPECFEM3D convention.
-- **Strain in record**: L2-smoothed strain (not raw element strain). Stored as float32 (default) or float64 (configurable). Written when `step % snapshot_stride == 0`.
+- **Strain in record**: L2-smoothed strain sampled at recorded mesh vertices (not interior GLL points, not raw element strain). Stored as float32 (default) or float64 (configurable). Written when `step % snapshot_stride == 0`.
 - **3 runs per source**: 3 orthogonal force directions (x, y, z), independent gf_solver invocations managed by SLURM. Single config.h5 shared across all 3 runs; force direction passed via CLI `--direction {x,y,z}`. Each run writes snapshots to its own directory `wavefields/{direction}/`.
-- **Restart/resume**: Snapshots save corrected (u, v, a) state alongside strain. `--resume` flag restores state and continues the time loop — the `a` in snapshot is the corrected M⁻¹·r, directly usable for Newmark prediction.
+- **Restart/resume**: Restart is separate from strain records and latest-only. `restart/{direction}/restart_{r}.h5` stores all state required for exact resume: corrected (u, v, a), current step/time, and C-PML memory variables. `--resume` restores state and continues the time loop.
 - **Parallelism**: Pure MPI (one rank per core). Architecture leaves GPU/DCU kernel swap-in path for future acceleration — see [`design/gpu.md`](superpowers/design/gpu.md) for the device-abstraction design.
 - **ibool/GLL node numbering**: Per-rank global GLL node IDs stored in partition\_{r}.h5 `/partition/gll_to_global`, 1-based with 0=null. Interface node lists precomputed for MPI exchange.
 
@@ -305,7 +317,7 @@ Both are untracked (`*.gitignore`). Changes to them do not affect the repo.
 
 - **3 orthogonal force directions**: 3 independent forward runs (one per fx, fy, fz) produce the full 3×3 strain Green's tensor at a single source location.
 - **Single source location**: One source position per GF computation. Multiple source locations require separate preprocessor + 3×N forward runs.
-- **Postprocess alignment**: Postprocess validates solver_dt, nsteps, n_cell alignment across the 3 force-direction runs before extracting Green's functions.
-- **PML exclusion**: PML elements excluded from the Green's function library — only physical-domain elements contribute.
-- **Spatial tiling**: Green's function library is spatially tiled by element range. Each `greenfun/tile_{i}.h5` stores the full GLL-node Green's tensor for a contiguous block of elements.
-- **Reciprocity**: Numerical source placed at top free surface. Strain recorded everywhere in the physical domain, enabling reciprocity-based interpretation.
+- **Postprocess alignment**: Postprocess validates timing, basis, record depth, and merged `vertex_ids` alignment across the 3 force-direction runs before extracting Green's functions.
+- **PML exclusion**: PML elements/vertices are excluded by the preprocessing recording map — only physical-domain shallow vertices contribute.
+- **Spatial tiling**: Green's function library is horizontally tiled by x/y bins of `green_tile_size_m`. Each `greenfun/tile_x{i}_y{j}.h5` stores mesh-vertex Green's tensors for all recorded depths in that horizontal tile.
+- **Reciprocity**: Numerical source placed at top free surface. Strain is recorded over the configured shallow physical volume, enabling reciprocity-based interpretation within that output domain.

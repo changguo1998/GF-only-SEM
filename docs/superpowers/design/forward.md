@@ -31,9 +31,11 @@ partitions/partition_{r}.h5 (local subset per rank: topology + field/element + c
     │   ├── NEWMARK CORRECT: a_new = M⁻¹·r, v, u update
     │   ├── L2 strain smoothing — compute ε_elem from ∇u_new, project via M⁻¹Σ_e∫N·ε_elem dΩ
     │   ├── Compute ε_smooth from L2 projection (second element pass)
-    │   └── Write record: append ε_smooth + overwrite restart (u,v,a)
+    │   ├── Write shallow mesh-vertex strain record when step % snapshot_stride == 0
+    │   └── Overwrite full-volume restart when step % restart_stride == 0
     │
-    └── wavefields/{direction}/record_{r}.h5  (one per rank, extendible strain + restart)
+    ├── wavefields/{direction}/record_{r}.h5  (extendible shallow mesh-vertex strain)
+    └── restart/{direction}/restart_{r}.h5    (latest-only full-volume restart)
 ```
 
 ### CLI
@@ -45,7 +47,8 @@ mpirun -np N gf_solver --direction {x,y,z}
 All I/O paths are frozen relative to CWD:
 
 - Input: `config.h5`, `partitions/partition_{r}.h5`
-- Output: `wavefields/{direction}/record_{r}.h5`
+- Strain output: `wavefields/{direction}/record_{r}.h5`
+- Restart output: `restart/{direction}/restart_{r}.h5`
 
 | Arg | Description |
 |-----|-------------|
@@ -75,7 +78,7 @@ All mesh-dependent quantities (GLL coords, Jacobian, dξ/dx, lumped mass, materi
 - C++17, CMake
 - MPI (OpenMPI/MPICH)
 - Eigen3 — small matrices (3×3 for vectors, up to NGLL×NGLL for derivative matrices)
-- HDF5 (C API) — read partition\_{r}.h5 + config.h5, write record files
+- HDF5 (C API) — read partition\_{r}.h5 + config.h5, write strain record and restart files
 - Catch2 — testing
 
 ## Input Files
@@ -106,6 +109,9 @@ Per-rank partition file written by the preprocessor (one per MPI rank). Each ran
 | `/partition/ghost_element_ids` | int64[n_ghost_elem] — halo element IDs (1-based) |
 | `/partition/ghost_owners` | int32[n_ghost_elem] — source rank for each ghost element |
 | `/partition/gll_to_global` | int64[n_elem_local, NGLL, NGLL, NGLL] — global GLL node ID per local element (1-based, 0=null) |
+| `/recording/vertex_ids` | int64[n_record_vertices] — global mesh vertex IDs to write from this rank |
+| `/recording/source_element_local_index` | int32[n_record_vertices] — local source element for each recorded vertex |
+| `/recording/source_corner_index` | int8[n_record_vertices] — SEM corner index for each recorded vertex |
 | `/partition/rank_{r}/exchange/` | Per-rank exchange patterns (precomputed face-pair lists for MPI halo) |
 Note: forward solver reads from `partition_{r}.h5`, not a global model file. Each MPI rank opens and reads only its own `partition_{r}.h5` at startup. The preprocessor generates these per-rank files from the global mesh.
 
@@ -115,7 +121,7 @@ Read from [`preprocess.md`](preprocess.md):
 
 | Group | Used By Forward |
 |-------|----------------|
-| `/simulation/` | solver_dt, output_dt_s, snapshot_stride, nsteps, cfl_safety, snapshot_precision |
+| `/simulation/` | solver_dt, output_dt_s, snapshot_stride, restart_dt_s, restart_stride, nsteps, cfl_safety, snapshot_precision, record_depth_max_m, record_depth_actual_m, green_tile_size_m |
 | `/domain/` | Bounds, pml_thickness per face |
 | `/source/` | Position (x,y,z), stf[nsteps] (precomputed time series), precomputed element list + Lagrange weights |
 No `/attenuation/` — elastic-only, attenuation deferred. No `direction` — passed via CLI `--direction` flag.
@@ -131,8 +137,8 @@ No `/attenuation/` — elastic-only, attenuation deferred. No `direction` — pa
 | **newmark** | NewmarkPredictor, NewmarkCorrector (2nd order explicit, β=0, γ=½) |
 | **source** | Reads precomputed element list + Lagrange weights from config.h5. Distributes STF(t) × w_ijk to global residual |
 | **exchange** | MPI halo exchange using precomputed face-pair lists from /partition/rank\_{r}/exchange/ |
-| **record/snapshot** | L2 strain smoothing (global projection, C⁰ continuous ε_smooth) + writer: append to extendible HDF5 dataset at snapshot steps. Restart state (u,v,a) overwritten each snapshot |
-| **solver** | `run_forward()` main time loop; snapshot output + restart/resume |
+| **record/snapshot** | L2 strain smoothing (global projection, C⁰ continuous ε_smooth) + writer: append shallow mesh-vertex strain to extendible HDF5 dataset at snapshot steps |
+| **solver** | `run_forward()` main time loop; shallow strain output + latest-only restart/resume |
 
 ## Core Types
 
@@ -487,37 +493,53 @@ for step in 0..nsteps-1:
 
     9. Strain snapshot (when `step % snapshot_stride == 0`):
        Use ε_smooth from the L2 projection (not raw ε_elem).
-       Append ε_smooth to extendible dataset in wavefields/{direction}/record_{r}.h5
+       Sample only preprocessing-selected mesh vertices (`/recording/` map):
+       non-PML, depth <= record_depth_actual_m, mesh corners only.
+       Append to wavefields/{direction}/record_{r}.h5
        (6 components: εxx, εyy, εzz, εxy, εxz, εyz)
-       Overwrite /restart/ with (u, v, a) for resume capability
+
+    10. Restart overwrite (when `step % restart_stride == 0`):
+        Write all full-volume state required for exact resume.
 ````
 
 ## Snapshot Output
 
-One file per MPI rank for the entire run. Extendible strain dataset + restart state. Strain appends only at snapshot steps (`step % snapshot_stride == 0`):
+One strain record file per MPI rank for the entire run. Strain appends only at snapshot steps (`step % snapshot_stride == 0`). It is shallow mesh-vertex output, not full GLL output:
 
 ```
-record_r{rank}.h5
+wavefields/{direction}/record_{r}.h5
 ├── attrs:
-│   ├── rank               : int32
-│   ├── solver_dt           : float64          — auto-computed CFL timestep
-│   ├── output_dt_s         : float64          — user-specified snapshot interval
-│   ├── snapshot_stride     : int32            — solver steps per snapshot
-│   ├── nsteps              : int32
-│   └── current_step        : int32          ← last saved step (for resume)
-├── local_element_ids       : int64[n_elem_local]    ← 1-based global element IDs
-├── strain                  : float32[n_snapshots, n_elem_local, NGLL, NGLL, NGLL, 6]
-│                                                       └── εxx,εyy,εzz,εxy,εxz,εyz
-└── /restart/
-    ├── displacement        : float64[n_elem_local, NGLL, NGLL, NGLL, 3]   — u
-    ├── velocity            : float64[n_elem_local, NGLL, NGLL, NGLL, 3]   — v
-    └── acceleration        : float64[n_elem_local, NGLL, NGLL, NGLL, 3]   — a
+│   ├── rank                    : int32
+│   ├── source_direction        : string
+│   ├── basis                   : "mesh_vertices"
+│   ├── record_depth_max_m      : float64
+│   ├── record_depth_actual_m   : float64
+│   └── excludes_pml            : bool
+├── vertex_ids                  : int64[n_record_vertices]
+└── strain                      : float32[n_snapshots, n_record_vertices, 6]
 ```
 
-Strain at GLL nodes in Voigt notation (L2-smoothed, global projection, C⁰ continuous). The time axis is extendible: each snapshot appends a slice along dim 0.
-Restart state is overwritten each snapshot — only the latest state is kept (not extendible).
+The strain values are L2-smoothed strain sampled at selected SEM corner GLL nodes. Interior GLL points are not recorded.
 
-On `--resume`, gf_solver reads the restart group, sets initial (u, v, a) from the saved state, and continues from `current_step + 1`.
+## Restart Output
+
+Restart is separate from strain output and latest-only:
+
+```
+restart/{direction}/restart_{r}.h5
+├── attrs:
+│   ├── rank                    : int32
+│   ├── source_direction        : string
+│   ├── step                    : int32
+│   ├── time_s                  : float64
+│   └── ngll                    : int32
+├── displacement                : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
+├── velocity                    : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
+├── acceleration                : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
+└── pml_memory_*                : float64[...]  # all active C-PML memory arrays
+```
+
+On `--resume`, gf_solver reads the restart file, restores all state, and continues from `step + 1`.
 
 ## Discretization Parameters
 
@@ -525,7 +547,7 @@ On `--resume`, gf_solver reads the restart group, sets initial (u, v, a) from th
 - NGLL = N+1 = 4 (test) / 6 (prod)
 - Time integration: Newmark explicit (β=0, γ=½ — central difference)
 - CFL: conditional stability, standard SEM constraint
-- solver_dt: auto-computed by preprocessor from CFL and the user snapshot interval. Read from config.h5 `/simulation/solver_dt`; snapshots use `/simulation/snapshot_stride` and `/simulation/output_dt_s`
+- solver_dt: auto-computed by preprocessor from CFL and the user snapshot interval. Read from config.h5 `/simulation/solver_dt`; snapshots use `/simulation/snapshot_stride` and `/simulation/output_dt_s`; restart overwrite uses `/simulation/restart_stride` and `/simulation/restart_dt_s`
 
 ## Run Config (3 Simulations per Source)
 

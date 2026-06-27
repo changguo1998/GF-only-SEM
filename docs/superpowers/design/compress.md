@@ -53,46 +53,54 @@ Computes chunk dimensions from the strain tensor shape to balance I/O throughput
 
 ## Record Output Format
 
-One file per MPI rank per run direction. Strain dataset is extendible along the time axis; restart state is overwritten each snapshot:
+One strain record file per MPI rank per run direction. Strain dataset is extendible along the time axis. Restart is a separate latest-only file, not part of the strain record.
 
 ```
 wavefields/{direction}/record_{r}.h5
 ├── attrs:
-│   ├── rank               : int32
-│   ├── source_direction   : string          # "x", "y", or "z"
-│   └── ngll                : int32          # N+1
-├── local_element_ids       : int64[n_elem_local]    ← 1-based global element IDs
-├── elem_centroids          : float32[n_elem_local, 3]   # element centroid (x, y, z)
-├── strain                  : {precision}[n_snapshots, n_elem_local, NGLL, NGLL, NGLL, 6]
-│                                                       └── εxx,εyy,εzz,εxy,εxz,εyz
-└── /restart/               ← overwritten each snapshot, not extendible
-    ├── displacement        : float64[n_elem_local, NGLL, NGLL, NGLL, 3]   — u
-    ├── velocity            : float64[n_elem_local, NGLL, NGLL, NGLL, 3]   — v
-    └── acceleration        : float64[n_elem_local, NGLL, NGLL, NGLL, 3]   — a
+│   ├── rank                    : int32
+│   ├── source_direction        : string          # "x", "y", or "z"
+│   ├── basis                   : "mesh_vertices"
+│   ├── record_depth_max_m      : float64
+│   ├── record_depth_actual_m   : float64
+│   └── excludes_pml            : bool
+├── vertex_ids                  : int64[n_record_vertices]
+└── strain                      : {precision}[n_snapshots, n_record_vertices, 6]
+                                      # εxx,εyy,εzz,εxy,εxz,εyz
+```
+
+Latest-only restart lives separately:
+
+```
+restart/{direction}/restart_{r}.h5
+├── displacement                : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
+├── velocity                    : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
+├── acceleration                : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
+└── pml_memory_*                : float64[...]
 ```
 
 ### Write Pattern
 
-1. **First snapshot**: create file, create `local_element_ids` (fixed-size), create `strain` with dim 0 as `H5S_UNLIMITED`, create `/restart/` datasets (fixed-size, overwritten each snapshot). Write initial strain slice + restart state.
-1. **Subsequent snapshots**: extend strain dim 0 by 1, write new slice. Overwrite `/restart/` datasets with latest (u, v, a).
+1. **First snapshot**: create record file, create `vertex_ids` (fixed-size), create `strain` with dim 0 as `H5S_UNLIMITED`, write initial shallow mesh-vertex strain slice.
+1. **Subsequent snapshots**: extend strain dim 0 by 1, write new shallow mesh-vertex strain slice.
+1. **Restart overwrite**: when `step % restart_stride == 0`, overwrite `restart/{direction}/restart_{r}.h5` with full-volume state needed for exact resume.
 
 ### Data Shape
 
 - 6 strain components (full symmetric tensor: εxx, εyy, εzz, εxy, εxz, εyz)
-- Element-first layout: `[n_snapshots, n_elem_local, NGLL, NGLL, NGLL, 6]`
-- NGLL = N+1 (N=3 test: NGLL=4; N=5 prod: NGLL=6)
-- `local_element_ids` maps local index to global element ID (1-based, from partition\_{r}.h5)
-- Strain precision is configurable: float32 (default, for production) or float64 (for validation). Set via config.py `snapshot_precision`. Restart state (u,v,a) is always float64.
+- Vertex-first layout: `[n_snapshots, n_record_vertices, 6]`
+- `vertex_ids` maps local record index to global mesh vertex ID (1-based, from partition\_{r}.h5 `/recording/`)
+- Strain precision is configurable: float32 (default, for production) or float64 (for validation). Set via config.py `snapshot_precision`. Restart state is always float64.
 
 ## Chunking
 
-Chunked along the element dimension:
+Chunked along time and recorded vertex dimensions:
 
 ```
-chunk_dims = {1, min(chunk_size, n_elem_local), NGLL, NGLL, NGLL, 6}
+chunk_dims = {1, min(chunk_size, n_record_vertices), 6}
 ```
 
-Dim 0 chunk = 1 (one step at a time, matching write pattern). `chunk_size` configurable (default: 64).
+Dim 0 chunk = 1 (one snapshot at a time, matching write pattern). `chunk_size` configurable (default: 64 or larger for production I/O).
 
 ## Namespace
 

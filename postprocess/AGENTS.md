@@ -2,31 +2,32 @@
 
 ## Purpose
 
-Reads strain snapshots from 3 forward runs (fx, fy, fz) + mesh.h5 geometry.
-Assembles the full 3×6 strain Green's tensor at every GLL node,
-outputs spatially tiled HDF5.
+Reads shallow mesh-vertex strain snapshots from 3 forward runs (fx, fy, fz).
+Assembles the full 3×6 strain Green's tensor at recorded mesh vertices,
+outputs horizontally tiled HDF5.
 
-No receiver positions — output is the full GLL-node field.
+No receiver positions — output is the configured shallow full-volume mesh-vertex field.
 
 ## Files
 
 | File | Responsibility |
 |------|---------------|
-| `reader.py` | `RecordReader` (strain dataset, per-rank) + `GeometryReader` (mesh.h5 coords, dξ/dx, is_pml) + `merge_records()` |
+| `reader.py` | `RecordReader` (per-rank mesh-vertex strain records) + `GeometryReader` (mesh.h5 vertex coordinates) + `merge_records()` |
 | `assembly.py` | Green's tensor assembly from 3 force directions × 6 strain components |
-| `writer.py` | HDF5 Green's function tile writer (`greenfun/tile_{i}.h5`) |
+| `writer.py` | HDF5 Green's function tile writer (`greenfun/tile_x{i}_y{j}.h5`) |
 | `cli.py` | CLI entry point |
 
 ## Data Flow
 
 ```
-mesh.h5 (GLL coords, dξ/dx, is_pml) ──┐
-wavefields/{x,y,z}/record_{r}.h5 ─────┤  (3 direction sets, N rank files each)
-                                      ↓
-    merge_records (per-rank → unified by global element ID)
-    → Time alignment validation across 3 direction runs
-    → Green's tensor assembly (3×6) at all GLL nodes
-    → GFWriter (spatially tiled by element range)
+mesh.h5 (/topology/vertex_to_coord) ───┐
+config.h5 (timing + tile metadata) ─────┤
+wavefields/{x,y,z}/record_{r}.h5 ──────┤  (3 direction sets, N rank files each)
+                                       ↓
+    merge_records (per-rank → unified by global vertex ID)
+    → Time/depth/vertex-set validation across 3 direction runs
+    → Green's tensor assembly (3×6) at recorded mesh vertices
+    → GFWriter (horizontal x/y tiles)
 ```
 
 ## CLI
@@ -37,15 +38,17 @@ gf-postprocess mesh.h5 \
     -o greenfun/
 ```
 
+Horizontal tile size comes from `config.h5` (`/simulation/green_tile_size_m`), not CLI.
+
 ## Modes
 
-1. **Small domain** (< RAM): merge all records, assemble at all GLL nodes, one tile
-1. **Tiled** (TB-scale): tile by element range, one tile file per block
+1. **Small domain** (< RAM): merge all records, assemble all recorded vertices, write tiles
+1. **Streaming/tiled** (production): process horizontal tiles/time chunks without materializing all data
 
 ## Tests
 
-`tests/` — 19 tests covering reader module (RecordReader, GeometryReader, merge_records).
-assembly, writer, and CLI have zero tests (gap).
+`tests/` — 19 tests currently covering reader module (RecordReader, GeometryReader, merge_records).
+assembly, writer, and CLI need updates/tests for mesh-vertex horizontal tiling.
 
 ## Design Doc
 

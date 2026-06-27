@@ -23,7 +23,7 @@ GMSH .msh v4.1
   preprocessor  (interpolation, boundaries, geometric precompute, partition)
       │              extends mesh.h5 with /field/element/coords,
       │              /field/element/dxi_dx, /field/element/jacobian,
-      │              /field/element/is_pml (PML flag for postprocess)
+      │              /field/element/is_pml (PML flag for preprocess recording map)
   partition_{0}.h5, partition_{1}.h5, …  (per-rank partition files)
   config.h5  (simulation + domain + source, rank-invariant)
       │
@@ -44,12 +44,16 @@ working_dir/
 │   ├── partition_1.h5
 │   └── ...
 ├── wavefields/
-│   ├── x/record_{r}.h5          — forward run fx, per-rank checkpoints
+│   ├── x/record_{r}.h5          — forward run fx, shallow mesh-vertex strain
 │   ├── y/record_{r}.h5          — forward run fy
 │   └── z/record_{r}.h5          — forward run fz
+├── restart/
+│   ├── x/restart_{r}.h5         — latest-only full-volume restart
+│   ├── y/restart_{r}.h5
+│   └── z/restart_{r}.h5
 └── greenfun/
-    ├── tile_0.h5
-    ├── tile_1.h5
+    ├── tile_x000_y000.h5
+    ├── tile_x001_y000.h5
     └── ...
 ```
 
@@ -74,7 +78,7 @@ The converter does NO computation. It reads GMSH and writes `/topology/` only.
 
 ### Preprocessor phase (extension)
 
-The preprocessor extends `mesh.h5` with geometry fields that `postprocess` needs:
+The preprocessor extends `mesh.h5` with geometry fields used by forward, validation, and postprocess vertex coordinate lookup:
 
 ```
 mesh.h5  (preprocessor extensions)
@@ -86,9 +90,9 @@ mesh.h5  (preprocessor extensions)
         └── is_pml   : int8[n_cell]                            — 1=PML element, 0=ordinary
 ```
 
-These are the only `/field/` groups added by the preprocessor to `mesh.h5`. All other field data (material, mass, C-PML, partition metadata) lives in `partition_{r}.h5`.
+These are the only `/field/` groups added by the preprocessor to `mesh.h5`. All other field data (material, mass, C-PML, partition metadata, shallow recording maps) lives in `partition_{r}.h5`.
 
-**`is_pml` flag**: set by the preprocessor during boundary detection. Elements within the absorbing boundary layer are marked as PML. Postprocess uses this to exclude PML elements from Green's function output.
+**`is_pml` flag**: set by the preprocessor during boundary detection. Elements within the absorbing boundary layer are marked as PML. Preprocess uses this to exclude PML from the `/recording/` map.
 
 ### Design Rules (shared by mesh.h5 and partition\_{r}.h5)
 
@@ -211,9 +215,9 @@ Boundary detection is auto, by geometry. No GMSH physical groups needed. One fre
 
 ## Design Notes
 
-- **mesh.h5** serves the `postprocess` module (geometry: GLL coords and dxi_dx for Newton iteration / point-in-hexahedron search). Its `/topology/` is written by the converter; `/field/element/coords` and `/field/element/dxi_dx` are added by the preprocessor.
-- **partition\_{r}.h5** serves the forward solver (all field data, C-PML, partition metadata per rank).
-- `dxi_dx` in `mesh.h5` enables postprocess to access geometric derivatives for tensor assembly without needing the partition files.
+- **mesh.h5** serves postprocess only for mesh vertex coordinates (`/topology/vertex_to_coord`) referenced by output `vertex_ids`. Its `/topology/` is written by the converter; `/field/element/*` is added by the preprocessor for forward validation/diagnostics.
+- **partition\_{r}.h5** serves the forward solver (all field data, C-PML, partition metadata, and `/recording/` shallow mesh-vertex output map per rank).
+- Postprocess does not do point-in-hexahedron search or interpolation.
 
 ## File Layout
 

@@ -5,7 +5,7 @@
 
 ## Goal
 
-Python module that reads mesh topology and a Python config script, computes all derived model data (GLL-node material, geometric quantities, partition, C-PML, source weights, STF evaluation, pre-flight validation) and writes extended `mesh.h5` (GLL geometry + is_pml) + per-rank partition files `partition_{r}.h5` + single `config.h5` (rank-invariant simulation + domain + source, shared by all 3 force directions).
+Python module that reads mesh topology and a Python config script, computes all derived model data (GLL-node material, geometric quantities, partition, C-PML, source weights, STF evaluation, pre-flight validation) and writes extended `mesh.h5` (GLL geometry + is_pml) + per-rank partition files `partition_{r}.h5` including the shallow mesh-vertex recording map + single `config.h5` (rank-invariant simulation + domain + source, shared by all 3 force directions).
 
 ## Data Flow
 
@@ -107,9 +107,12 @@ output_dt_s = 0.001        # user-specified snapshot interval (s)
 total_duration_s = 10.0    # simulation duration (s)
 cfl_safety = 0.5           # CFL safety factor (0 < cfl_safety < 1)
 
-# Storage
+# Storage / output
 snapshot_precision = "float32"  # "float32" or "float64"
-storage_limit_gb = 100           # abort if estimated storage exceeds this
+storage_limit_gb = 100           # abort if estimated output exceeds this
+record_depth_max_m = 50_000.0    # requested max recorded depth below free surface
+restart_dt_s = 60.0              # overwrite latest restart every 60 s
+green_tile_size_m = 50_000.0     # horizontal x/y Green-function tile width
 strict_validation = True
 
 # Material — callable functions evaluated at each GLL node
@@ -154,6 +157,9 @@ def stf_func(t_s):
 | total_duration_s | > 0 |
 | cfl_safety | 0 < cfl_safety < 1 |
 | snapshot_precision | "float32" or "float64" |
+| restart_dt_s | > 0 |
+| record_depth_max_m | ≥ 0 and within domain depth |
+| green_tile_size_m | > 0 |
 | storage_limit_gb | > 0 |
 | source position | source_x_m and source_y_m within xy domain bounds (auto-detected from mesh), z auto-placed on free surface |
 | stf_func | callable, signature `(float) -> float`, returns finite non-NaN values for t ∈ [0, nsteps×solver_dt] |
@@ -174,11 +180,12 @@ Before writing output files, the preprocessor runs comprehensive validation:
 | Material | vp > 0, vs ≥ 0, density > 0 at all GLL nodes | Invalid material → abort |
 | CFL | cfl_dt = cfl_safety × h_min / vp_max (h_min = minimum GLL node spacing) | — |
 | CFL | Find smallest stride where output_dt_s / stride ≤ cfl_dt; set solver_dt and snapshot_stride | No stride ≤ MAX_STRIDE → abort with suggestion |
-| Time | nsteps = ceil(total_duration_s / solver_dt); nsteps % snapshot_stride == 0 | Invalid derived stride → abort |
+| Time | nsteps = ceil(total_duration_s / solver_dt); nsteps % snapshot_stride == 0; restart_stride = round(restart_dt_s / solver_dt) ≥ 1 | Invalid derived stride → abort |
 | Boundary | Free surface detected at z ≈ z_min | No free surface → abort |
 | Boundary | PML has ≥ 2 elements per absorbing face | Too thin PML → warn |
 | Source | source_x_m, source_y_m within domain bounds | Outside domain → abort |
 | STF | stf_func(t_s) returns finite, non-NaN for t_s ∈ [0, nsteps×solver_dt] | Bad STF → abort |
+| Recording | record_depth_actual_m is a horizontal spectral-element face at or deeper than record_depth_max_m; at least one non-PML vertex selected | Invalid recording map → abort |
 | Storage | Estimated disk usage ≤ storage_limit_gb | Exceeds limit → abort |
 | Partition | All ranks have ≥ 1 element | Empty rank → abort |
 
@@ -228,10 +235,11 @@ After GLL geometry and material are known, derive the solver timestep from the u
 1. Compute `cfl_dt = cfl_safety × h_min / vp_max`
 1. Search `stride = 1..MAX_STRIDE` for the first value where `output_dt_s / stride ≤ cfl_dt`
 1. Set `solver_dt = output_dt_s / stride` and `snapshot_stride = stride`
-1. Compute `nsteps = ceil(total_duration_s / solver_dt)` and adjust effective duration to `nsteps × solver_dt` if needed
-1. Print computed `cfl_dt`, `solver_dt`, `snapshot_stride`, and `nsteps` to stdout
+1. Set `restart_stride = round(restart_dt_s / solver_dt)` and validate `restart_stride >= 1`
+1. Set `nsteps = ceil(total_duration_s / solver_dt)`
+1. Print computed `cfl_dt`, `solver_dt`, `snapshot_stride`, `restart_stride`, and `nsteps` to stdout
 
-`solver_dt`, `output_dt_s`, derived `snapshot_stride`, and derived `nsteps` are stored in config.h5 `/simulation/`. The forward solver uses `solver_dt` for Newmark integration and writes snapshots every `snapshot_stride` solver steps.
+`solver_dt`, `output_dt_s`, derived `snapshot_stride`, `restart_dt_s`, derived `restart_stride`, and derived `nsteps` are stored in config.h5 `/simulation/`. The forward solver uses `solver_dt` for Newmark integration, writes strain snapshots every `snapshot_stride` solver steps, and overwrites restart every `restart_stride` solver steps.
 
 ### 6. Auto-Detect Boundary Tags
 
@@ -269,15 +277,16 @@ Comprehensive validation before partition and writing. Runs as a checklist; with
 
 1. **Material**: `vp > 0`, `vs ≥ 0`, `density > 0` at all GLL nodes; `λ = ρ(vp² - 2vs²) > 0` (elastic stability); warn if `vs ≡ 0` anywhere
 1. **Mesh quality**: `det(J) > 0` at all GLL nodes (no inverted elements); warn on extreme aspect ratios
-1. **CFL/time**: validate derived `solver_dt ≤ cfl_dt`; validate integer `snapshot_stride` and `nsteps % snapshot_stride == 0`; log cfl_dt, solver_dt, snapshot_stride
+1. **CFL/time**: validate derived `solver_dt ≤ cfl_dt`; validate integer `snapshot_stride`, `restart_stride`, and `nsteps % snapshot_stride == 0`; log cfl_dt, solver_dt, snapshot_stride, restart_stride
 1. **Boundary**: at least one surface tagged free surface (1); at least one tagged absorbing (2); verify `pml_thickness` values ≤ actual element layers from each boundary; PML thickness ≥ 2 elements per absorbing face (warn if thinner)
 1. **Source**: within xy domain bounds; Newton iteration found at least one containing element on free surface; sum of normalized Lagrange weights ≈ 1
 1. **STF**: all values finite (no NaN/Inf); warn if non-zero DC component
 1. **Partition**: `n_ranks ≤ n_cell` (pre-check before calling METIS)
-1. **Storage estimation**: compute total estimated disk usage (partition files + expected snapshot files). Abort if > `storage_limit_gb`:
+1. **Recording map**: snap `record_depth_max_m` to `record_depth_actual_m`, the first horizontal spectral-element face at or deeper than the request. Mark non-PML elements/vertices on or above that face.
+1. **Storage estimation**: compute total estimated disk usage (partition files + expected shallow mesh-vertex strain files + latest-only restart files). Abort if > `storage_limit_gb`:
    - `snapshots_per_run = nsteps / snapshot_stride`
-   - `strain_per_run_GB = snapshots_per_run × n_cell × NGLL³ × 6 × bytes_per_float / 1e9`
-   - `restart_GB = n_cell × NGLL³ × 3 × 3 × 8 / 1e9`
+   - `strain_per_run_GB = snapshots_per_run × n_record_vertices × 6 × bytes_per_float / 1e9`
+   - `restart_GB = n_cell × NGLL³ × 3 × 3 × 8 / 1e9 + pml_memory_GB`
    - `total_GB = strain_per_run_GB × 3 + restart_GB × 3 + partition_GB`
    - Print storage estimate to stdout
 
@@ -296,15 +305,38 @@ Comprehensive validation before partition and writing. Runs as a checklist; with
    - send: (owned_local_idx, face_idx) → (ghost_idx, ghost_face)
    - recv: ghost elements to receive into
 
-Output: one `partition_{r}.h5` per MPI rank, containing the local subset of all element data (owned + ghost) plus partition metadata (see [mesh.md](mesh.md)).
+Output: one `partition_{r}.h5` per MPI rank, containing the local subset of all element data (owned + ghost), partition metadata, and `/recording/` map (see [mesh.md](mesh.md)).
 
-### 10. Evaluate STF
+### 10. Build Shallow Recording Map
+
+The Green's function library records a shallow mesh-vertex field, not the full GLL field. Preprocess derives the map once so forward can write without topology search.
+
+1. Read `record_depth_max_m` and `green_tile_size_m` from `config.py`.
+1. Compute `target_z = zmin + record_depth_max_m` (z positive downward).
+1. Find `record_depth_actual_m`: the first horizontal spectral-element face depth at or deeper than `target_z`.
+1. Select non-PML elements fully on or above `record_depth_actual_m`; no clipped elements.
+1. Select unique mesh vertices attached to selected elements.
+1. For each selected vertex, choose one owned source element and corner index so forward writes that vertex once.
+
+Output in each `partition_{r}.h5`:
+
+```
+/recording/
+  attrs: basis="mesh_vertices", record_depth_max_m, record_depth_actual_m,
+         green_tile_size_m, excludes_pml=true
+  save_element_mask          bool[n_local_elem]
+  vertex_ids                 int64[n_record_vertices]
+  source_element_local_index int32[n_record_vertices]
+  source_corner_index        int8[n_record_vertices]
+```
+
+### 11. Evaluate STF
 
 Call `config.stf_func(t_s)` at `t_s = 0, solver_dt, 2*solver_dt, ..., (nsteps-1)*solver_dt`.
 
 Output: `stf[nsteps]` time series array → written to config.h5 `/source/`.
 
-### 11. Locate Source Elements + Precompute Interpolation Weights
+### 12. Locate Source Elements + Precompute Interpolation Weights
 
 Source z = z_min (auto-placed on top free surface). Source is only specified by `source_x_m` and `source_y_m` in config.py.
 
@@ -320,10 +352,10 @@ Source z = z_min (auto-placed on top free surface). Source is only specified by 
 The forward solver multiplies these precomputed weights by STF amplitude and adds to the
 residual — no runtime Newton iteration or element search needed.
 
-### 12. Write Output Files
+### 13. Write Output Files
 
 - **mesh.h5 (extended in-place)** — GLL geometry (`/field/element/coords`, `/field/element/dxi_dx`, `/field/element/jacobian`), PML flags (`/field/element/is_pml`), and boundary tags (`/field/surface/boundary_tag`) written back to input mesh.h5.
-- **partition\_{r}.h5** — one per MPI rank, containing the local subset of element data (own + ghost), GLL global numbering, exchange patterns, and partition metadata
+- **partition\_{r}.h5** — one per MPI rank, containing the local subset of element data (own + ghost), GLL global numbering, exchange patterns, partition metadata, and `/recording/` shallow mesh-vertex output map
 - **config.h5** — simulation config, domain bounds, source (position + elements + weights), STF. No direction — direction is passed via CLI `--direction {x,y,z}` to the forward solver.
 - **mesh_auxiliary.h5** (optional) — CSR adjacency relations
 
@@ -333,8 +365,8 @@ residual — no runtime Newton iteration or element search needed.
 
 The preprocessor reads topology from `mesh.h5` and writes back:
 
-- `/field/element/coords`, `/field/element/dxi_dx`, `/field/element/jacobian` — GLL node positions and geometric derivatives needed by postprocess for Green's function assembly
-- `/field/element/is_pml` — int8 flag per element (1=PML, 0=ordinary) for postprocess PML exclusion
+- `/field/element/coords`, `/field/element/dxi_dx`, `/field/element/jacobian` — GLL node positions and geometric derivatives for forward validation/diagnostics
+- `/field/element/is_pml` — int8 flag per element (1=PML, 0=ordinary); preprocessing also uses it to build `/recording/` maps
 - `/field/surface/boundary_tag` — surface boundary tags (0=interior, 1=free surface, 2=absorbing)
 
 Full schema for `/field/` groups in [mesh.md](mesh.md).
@@ -343,7 +375,7 @@ All other GLL-node data (material, mass, CPML) and partition data are NOT writte
 
 ### partition\_{r}.h5
 
-One per MPI rank. Contains the local subset (owned + ghost elements) of all GLL-node fields plus partition metadata. Full schema in [mesh.md](mesh.md).
+One per MPI rank. Contains the local subset (owned + ghost elements) of all GLL-node fields, partition metadata, and `/recording/` shallow mesh-vertex output map. Full schema in [mesh.md](mesh.md).
 
 ### config.h5
 
@@ -362,6 +394,11 @@ config.h5
 │   ├── nsteps                 : int32            — derived total solver steps
 │   ├── cfl_safety             : float64
 │   ├── snapshot_precision     : string           — "float32" or "float64"
+│   ├── restart_dt_s           : float64          — restart overwrite interval
+│   ├── restart_stride         : int32            — solver steps per restart write
+│   ├── record_depth_max_m     : float64          — requested shallow recording depth
+│   ├── record_depth_actual_m  : float64          — snapped horizontal element-face depth
+│   ├── green_tile_size_m      : float64          — horizontal postprocess tile width
 │   └── storage_limit_gb       : int32            — abort if estimated storage exceeds this
 │
 ├── /domain/
@@ -385,7 +422,7 @@ Note: no `direction` attribute. Force direction is specified via `--direction` C
 
 ## No Receivers
 
-The preprocessor does NOT configure any observation points. Postprocess assembles the Green's function at all GLL nodes directly from snapshot files.
+The preprocessor does NOT configure receiver points. It configures a shallow full-volume mesh-vertex recording map from `record_depth_max_m`; postprocess assembles the Green's function at those recorded vertices directly from snapshot files.
 
 ## No Per-Cell Material Tags
 

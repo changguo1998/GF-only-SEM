@@ -279,21 +279,21 @@ ______________________________________________________________________
 
 ### 10.1 Green's Tensor Assembly
 
-Three forward runs (direction x, y, z) produce strain field ε^{(d)} for d ∈ {x,y,z} at all GLL nodes and time steps:
+Three forward runs (direction x, y, z) produce recorded shallow mesh-vertex strain field ε^{(d)} for d ∈ {x,y,z} and saved time steps:
 
-<center>G_{ij}(t, x) = ε^{(j)}_i(t, x) / F_j(ω)</center>
+<center>G_{ij}(t, x_v) = ε^{(j)}_i(t, x_v) / F_j(ω)</center>
 
-where i = 1..6 (strain component in Voigt order) and j = x,y,z (force direction).
+where i = 1..6 (strain component in Voigt order), j = x,y,z (force direction), and x_v is a recorded mesh vertex.
 
-Full strain Green's tensor at each GLL node: 3 force directions × 6 strain components = 18 entries.
+Full strain Green's tensor at each recorded vertex: 3 force directions × 6 strain components = 18 entries.
 
 ### 10.2 Spatial Tiling
 
-Output tiled by element range (lat/lon bounding boxes). Each `greenfun/tile_{i}.h5` stores the full Green's tensor for a contiguous block of physical-domain elements (PML elements excluded).
+Output is horizontally tiled by x/y bins. Each `greenfun/tile_x{i}_y{j}.h5` stores the Green's tensor for recorded non-PML mesh vertices within that horizontal tile and all saved depths (`depth <= record_depth_actual_m`).
 
 ### 10.3 No Receivers
 
-Green's functions extracted at all GLL nodes. No receiver positions, no receiver search, no position interpolation in postprocess. This is a design constraint — all strain response data is preserved.
+Green's functions are extracted at the configured shallow full-volume mesh vertices. No receiver positions, no receiver search, no position interpolation in postprocess. The SEM compute field remains full GLL; the persisted Green library is the configured mesh-vertex subset.
 
 ______________________________________________________________________
 
