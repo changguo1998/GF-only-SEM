@@ -129,48 +129,87 @@ def read_partition_fields(partition_dir, n_cell):
     return fields
 
 
-# ── VTK writer (legacy ASCII) ──────────────────────────────────────────
+# ── VTK writer (legacy binary) ──────────────────────────────────────────
 
 
-def write_vtu(path, vertex_coords, connectivity, cell_fields):
-    """Write VTK Unstructured Grid (legacy ASCII .vtk format).
+def write_vtu(path, vertex_coords, connectivity, cell_fields, point_fields=None, n_mesh_vert=None):
+    """Write VTK Unstructured Grid (legacy binary .vtk format).
+
+    If *point_fields* is provided, writes GLL vertex cells (detail mode).
+    Otherwise writes mesh-only (hex cells only).
 
     Args:
         vertex_coords: (n_vertex, 3) float64
         connectivity:  (n_cell, 8) int64  — VTK hex vertex indices (0-based)
         cell_fields:   dict of name→(n_cell,) float64  — cell data arrays
+        point_fields:  optional dict of name→(n_vertex,) float64  — point data arrays
+        n_mesh_vert:   int, number of mesh vertices (required if point_fields given)
     """
     n_vert = vertex_coords.shape[0]
-    n_cell = connectivity.shape[0]
+    n_hex = connectivity.shape[0]
+    has_detail = point_fields is not None
+    if has_detail:
+        n_gll_pt = n_vert - n_mesh_vert
+        total_cells = n_hex + n_gll_pt
+        total_ints = n_hex * 9 + n_gll_pt * 2
+    else:
+        total_cells = n_hex
+        total_ints = n_hex * 9
 
-    with open(path, "w") as f:
-        f.write("# vtk DataFile Version 3.0\n")
-        f.write("mesh.h5 converted to VTK\n")
-        f.write("ASCII\n")
-        f.write("DATASET UNSTRUCTURED_GRID\n")
+    with open(path, "wb") as f:
+        f.write(b"# vtk DataFile Version 3.0\n")
+        f.write(b"mesh.h5 converted to VTK\n")
+        f.write(b"BINARY\n")
+        f.write(b"DATASET UNSTRUCTURED_GRID\n")
 
-        # ── Points ──
-        f.write(f"POINTS {n_vert} float\n")
-        for v in vertex_coords:
-            f.write(f"  {v[0]:.6e} {v[1]:.6e} {v[2]:.6e}\n")
+        # ── Points (float32 big-endian) ──
+        f.write(f"POINTS {n_vert} float\n".encode())
+        f.write(np.ascontiguousarray(vertex_coords, dtype=">f4").tobytes())
+        f.write(b"\n")
 
-        # ── Cells ──
-        # VTK hex: type 12, 8 vertices per cell
-        f.write(f"CELLS {n_cell} {n_cell * 9}\n")
-        for conn in connectivity:
-            f.write("  8 " + " ".join(str(int(c)) for c in conn) + "\n")
+        # ── Cells: hex + optional GLL vertex cells ──
+        f.write(f"CELLS {total_cells} {total_ints}\n".encode())
+        hex_arr = np.zeros(n_hex * 9, dtype=np.int32)
+        hex_arr[0::9] = 8  # size prefix
+        for i in range(8):
+            hex_arr[1 + i :: 9] = connectivity[:, i].astype(np.int32)
+        if has_detail:
+            gll_arr = np.zeros(n_gll_pt * 2, dtype=np.int32)
+            gll_arr[0::2] = 1
+            gll_arr[1::2] = np.arange(n_mesh_vert, n_vert, dtype=np.int32)
+            cell_arr = np.concatenate([hex_arr, gll_arr])
+        else:
+            cell_arr = hex_arr
+        f.write(np.ascontiguousarray(cell_arr, dtype=">i4").tobytes())
+        f.write(b"\n")
 
-        f.write(f"CELL_TYPES {n_cell}\n")
-        for _ in range(n_cell):
-            f.write("  12\n")
+        # ── Cell types (12 = VTK_HEXAHEDRON, 1 = VTK_VERTEX) ──
+        f.write(f"CELL_TYPES {total_cells}\n".encode())
+        if has_detail:
+            types_arr = np.concatenate(
+                [np.full(n_hex, 12, dtype=np.int32), np.full(n_gll_pt, 1, dtype=np.int32)]
+            )
+        else:
+            types_arr = np.full(n_hex, 12, dtype=np.int32)
+        f.write(np.ascontiguousarray(types_arr, dtype=">i4").tobytes())
+        f.write(b"\n")
 
-        # ── Cell data ──
-        f.write(f"CELL_DATA {n_cell}\n")
+        # ── Cell data (hex cells only) ──
+        f.write(f"CELL_DATA {n_hex}\n".encode())
         for name, data in cell_fields.items():
-            f.write(f"SCALARS {name} float 1\n")
-            f.write("LOOKUP_TABLE default\n")
-            for val in data:
-                f.write(f"  {val:.8e}\n")
+            f.write(f"SCALARS {name} float 1\n".encode())
+            f.write(b"LOOKUP_TABLE default\n")
+            f.write(np.ascontiguousarray(data, dtype=">f4").tobytes())
+            f.write(b"\n")
+
+        # ── Point data (detail mode only) ──
+        if has_detail:
+            f.write(f"POINT_DATA {n_vert}\n".encode())
+            for name, data in point_fields.items():
+                f.write(f"SCALARS {name} float 1\n".encode())
+                f.write(b"LOOKUP_TABLE default\n")
+                f.write(np.ascontiguousarray(data, dtype=">f4").tobytes())
+                f.write(b"\n")
 
 
 # ── Main ───────────────────────────────────────────────────────────────
@@ -198,6 +237,8 @@ def main():
         if "field/element/is_pml" in f:
             is_pml[:] = f["field/element/is_pml"][:]
 
+        gll_coords = f["field/element/coords"][:] if "field/element/coords" in f else None
+
     n_cell = cell_to_surface.shape[0]
     n_vert = vertex_to_coord.shape[0]
     print(f"  Cells: {n_cell}, Vertices: {n_vert}")
@@ -222,10 +263,39 @@ def main():
         cell_fields["PML_flag"] = is_pml.astype(np.float64)
         print("  Fields: PML_flag only (no partitions/)")
 
+    # ── Build GLL point data if available ──
+    point_fields = None
+    n_mesh_vert = None
+    vertex_coords_out = vertex_to_coord
+    if gll_coords is not None:
+        print("[mesh_to_vtk] Building GLL point data...")
+        ngll = gll_coords.shape[1]
+        gll_per_cell = ngll**3
+        n_mesh_vert = n_vert
+
+        # Combined point array: mesh vertices + GLL points
+        gll_pt_list = []
+        for ci in range(n_cell):
+            gll_pt_list.append(gll_coords[ci].reshape(-1, 3))
+        gll_points = np.concatenate(gll_pt_list, axis=0) if gll_pt_list else np.empty((0, 3))
+        vertex_coords_out = np.concatenate([vertex_to_coord, gll_points], axis=0)
+
+        # Point fields: mesh vertices → 0, GLL points → cell's averaged value
+        point_fields = {}
+        for name, data in cell_fields.items():
+            arr = np.zeros(vertex_coords_out.shape[0], dtype=np.float64)
+            for ci in range(n_cell):
+                s = n_mesh_vert + ci * gll_per_cell
+                arr[s : s + gll_per_cell] = data[ci]
+            point_fields[name] = arr
+
+        print(f"  GLL per cell: {gll_per_cell}, total GLL: {n_cell * gll_per_cell}")
+        print(f"  Total points: {vertex_coords_out.shape[0]}")
+
     # ── Write VTK ──
     os.makedirs(vtk_dir, exist_ok=True)
     print(f"[mesh_to_vtk] Writing {out_path}")
-    write_vtu(out_path, vertex_to_coord, connectivity, cell_fields)
+    write_vtu(out_path, vertex_coords_out, connectivity, cell_fields, point_fields, n_mesh_vert)
     print("  Done.")
 
 
