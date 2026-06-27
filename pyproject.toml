@@ -46,6 +46,19 @@ ignore = ["E501"]
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["N802", "N803", "N806"]
 
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+mesh2vtk = "tools.mesh2vtk:main"
+partition2vtk = "tools.partition2vtk:main"
+wavefield2vtk = "tools.wavefield2vtk:main"
+wavefield2vtk_detail = "tools.wavefield2vtk_detail:main"
+
+[tool.setuptools.packages.find]
+include = ["tools*"]
+
 [tool.mdformat]
 wrap = 99
 number = false
