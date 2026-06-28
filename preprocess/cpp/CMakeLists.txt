@@ -7,20 +7,12 @@ find_package(Eigen3 REQUIRED)
 find_package(HDF5 REQUIRED COMPONENTS C)
 find_package(OpenMP QUIET)
 
-add_executable(
-    gf_preprocess_cpp
-    main.cpp)
+add_executable(gf_preprocess_cpp main.cpp)
 
-target_include_directories(
-    gf_preprocess_cpp
-    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
-            ${EIGEN3_INCLUDE_DIR}
-            ${HDF5_INCLUDE_DIRS})
+target_include_directories(gf_preprocess_cpp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
+                                                     ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
 
-target_link_libraries(
-    gf_preprocess_cpp
-    PRIVATE Eigen3::Eigen
-            ${HDF5_C_LIBRARIES})
+target_link_libraries(gf_preprocess_cpp PRIVATE Eigen3::Eigen ${HDF5_C_LIBRARIES})
 
 if(OpenMP_CXX_FOUND)
     target_link_libraries(gf_preprocess_cpp PRIVATE OpenMP::OpenMP_CXX)
@@ -32,6 +24,5 @@ endif()
 
 target_compile_features(gf_preprocess_cpp PRIVATE cxx_std_17)
 
-set_target_properties(gf_preprocess_cpp PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin"
-)
+set_target_properties(gf_preprocess_cpp PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                                   "${CMAKE_SOURCE_DIR}/bin")

@@ -78,7 +78,7 @@ Each rank writes:
 ## C++ Accelerator
 
 Heavy numerical loops (GLL geometry, CFL h_min, PML damping ramps) can be
-offloaded to a compiled C++ executable.  See `cpp/main.cpp`.
+offloaded to a compiled C++ executable. See `cpp/main.cpp`.
 
 - Binary: `bin/gf_preprocess_cpp` (built by CMake to `bin/`, or g++ — see docs)
 - Threading: OpenMP multi-threading enabled by default (single-thread without OpenMP)

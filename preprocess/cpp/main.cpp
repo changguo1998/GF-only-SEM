@@ -16,10 +16,10 @@
 #include <omp.h>
 #endif
 
-#include <Eigen/Dense>
 #include <hdf5.h>
 #include <hdf5_hl.h>
 
+#include <Eigen/Dense>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -52,7 +52,8 @@ static std::vector<int64_t> read_int64_1d(hid_t loc, const char* name, hsize_t& 
     hsize_t dims[4];
     H5Sget_simple_extent_dims(space, dims, nullptr);
     n_out = 1;
-    for (int d = 0; d < ndims; ++d) n_out *= dims[d];
+    for (int d = 0; d < ndims; ++d)
+        n_out *= dims[d];
     std::vector<int64_t> buf(n_out);
     H5Dread(ds, H5T_NATIVE_INT64, H5S_ALL, H5S_ALL, H5P_DEFAULT, buf.data());
     H5Dclose(ds);
@@ -62,34 +63,33 @@ static std::vector<int64_t> read_int64_1d(hid_t loc, const char* name, hsize_t& 
 
 static void read_attr_double(hid_t loc, const char* name, double& val) {
     hid_t attr = H5Aopen(loc, name, H5P_DEFAULT);
-    if (attr < 0) { val = 0.0; return; }
+    if (attr < 0) {
+        val = 0.0;
+        return;
+    }
     H5Aread(attr, H5T_NATIVE_DOUBLE, &val);
     H5Aclose(attr);
 }
 
 // Write a 5-D double array (n_cell, NGLL, NGLL, NGLL, last_dim)
-static void write_5d_double(
-    hid_t loc, const char* name,
-    hsize_t n_cell, hsize_t NGLL, hsize_t last_dim,
-    const double* data) {
+static void write_5d_double(hid_t loc, const char* name, hsize_t n_cell, hsize_t NGLL,
+                            hsize_t last_dim, const double* data) {
     hsize_t dims[5] = {n_cell, NGLL, NGLL, NGLL, last_dim};
     hid_t space = H5Screate_simple(5, dims, nullptr);
-    hid_t ds = H5Dcreate2(loc, name, H5T_NATIVE_DOUBLE, space,
-                          H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    hid_t ds =
+        H5Dcreate2(loc, name, H5T_NATIVE_DOUBLE, space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
     H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, data);
     H5Dclose(ds);
     H5Sclose(space);
 }
 
 // Write a 4-D double array (n_cell, NGLL, NGLL, NGLL)
-static void write_4d_double(
-    hid_t loc, const char* name,
-    hsize_t n_cell, hsize_t NGLL,
-    const double* data) {
+static void write_4d_double(hid_t loc, const char* name, hsize_t n_cell, hsize_t NGLL,
+                            const double* data) {
     hsize_t dims[4] = {n_cell, NGLL, NGLL, NGLL};
     hid_t space = H5Screate_simple(4, dims, nullptr);
-    hid_t ds = H5Dcreate2(loc, name, H5T_NATIVE_DOUBLE, space,
-                          H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    hid_t ds =
+        H5Dcreate2(loc, name, H5T_NATIVE_DOUBLE, space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
     H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, data);
     H5Dclose(ds);
     H5Sclose(space);
@@ -100,9 +100,11 @@ static void write_scalar_attr(hid_t loc, const char* name, double val) {
     if (H5Aexists(loc, name))
         H5Adelete(loc, name);
     hid_t space = H5Screate(H5S_SCALAR);
-    hid_t attr = H5Acreate2(loc, name, H5T_NATIVE_DOUBLE, space,
-                            H5P_DEFAULT, H5P_DEFAULT);
-    if (attr < 0) { H5Sclose(space); return; }
+    hid_t attr = H5Acreate2(loc, name, H5T_NATIVE_DOUBLE, space, H5P_DEFAULT, H5P_DEFAULT);
+    if (attr < 0) {
+        H5Sclose(space);
+        return;
+    }
     H5Awrite(attr, H5T_NATIVE_DOUBLE, &val);
     H5Aclose(attr);
     H5Sclose(space);
@@ -147,9 +149,11 @@ static void gll_quadrature(int N, std::vector<double>& pts, std::vector<double>&
     Eigen::MatrixXd J = Eigen::MatrixXd::Zero(n_int, n_int);
     for (int j = 1; j <= n_int; ++j) {
         double beta = j / std::sqrt(4.0 * j * j - 1.0);
-        if (j > 1) J(j - 1, j - 2) = beta;
+        if (j > 1)
+            J(j - 1, j - 2) = beta;
         J(j - 1, j - 1) = 0.0;
-        if (j < n_int) J(j - 1, j) = beta;
+        if (j < n_int)
+            J(j - 1, j) = beta;
     }
 
     Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigensolver(J);
@@ -186,13 +190,12 @@ static void gll_quadrature(int N, std::vector<double>& pts, std::vector<double>&
 // -----------------------------------------------------------------------
 
 // Reference hex corners in [-1,1]^3
-static const double HEX_CORNERS[8][3] = {
-    {-1, -1, -1}, {1, -1, -1}, {1, 1, -1}, {-1, 1, -1},
-    {-1, -1, 1},  {1, -1, 1},  {1, 1, 1},  {-1, 1, 1}};
+static const double HEX_CORNERS[8][3] = {{-1, -1, -1}, {1, -1, -1}, {1, 1, -1}, {-1, 1, -1},
+                                         {-1, -1, 1},  {1, -1, 1},  {1, 1, 1},  {-1, 1, 1}};
 
 // Linear shape function values and derivatives at (xi, eta, zeta)
-static inline void linear_shape(double xi, double eta, double zeta,
-                                double N_vals[8], double dN[8][3]) {
+static inline void linear_shape(double xi, double eta, double zeta, double N_vals[8],
+                                double dN[8][3]) {
     for (int a = 0; a < 8; ++a) {
         double ca = HEX_CORNERS[a][0];
         double cb = HEX_CORNERS[a][1];
@@ -226,28 +229,46 @@ static Topology read_topology(const char* mesh_path) {
 
     Topology topo;
     // Read attributes
-    topo.n_cell = 0; topo.n_surface = 0; topo.n_edge = 0; topo.n_vertex = 0;
+    topo.n_cell = 0;
+    topo.n_surface = 0;
+    topo.n_edge = 0;
+    topo.n_vertex = 0;
     {
         hsize_t tmp;
         hid_t attr;
         attr = H5Aopen(topo_gid, "n_cell", H5P_DEFAULT);
-        if (attr >= 0) { H5Aread(attr, H5T_NATIVE_INT64, &topo.n_cell); H5Aclose(attr); }
+        if (attr >= 0) {
+            H5Aread(attr, H5T_NATIVE_INT64, &topo.n_cell);
+            H5Aclose(attr);
+        }
         attr = H5Aopen(topo_gid, "n_surface", H5P_DEFAULT);
-        if (attr >= 0) { H5Aread(attr, H5T_NATIVE_INT64, &topo.n_surface); H5Aclose(attr); }
+        if (attr >= 0) {
+            H5Aread(attr, H5T_NATIVE_INT64, &topo.n_surface);
+            H5Aclose(attr);
+        }
         attr = H5Aopen(topo_gid, "n_edge", H5P_DEFAULT);
-        if (attr >= 0) { H5Aread(attr, H5T_NATIVE_INT64, &topo.n_edge); H5Aclose(attr); }
+        if (attr >= 0) {
+            H5Aread(attr, H5T_NATIVE_INT64, &topo.n_edge);
+            H5Aclose(attr);
+        }
         attr = H5Aopen(topo_gid, "n_vertex", H5P_DEFAULT);
-        if (attr >= 0) { H5Aread(attr, H5T_NATIVE_INT64, &topo.n_vertex); H5Aclose(attr); }
+        if (attr >= 0) {
+            H5Aread(attr, H5T_NATIVE_INT64, &topo.n_vertex);
+            H5Aclose(attr);
+        }
     }
 
     // If attributes weren't set, infer from datasets
     hsize_t n;
     topo.cell_to_surface = read_int64_1d(topo_gid, "cell_to_surface", n);
-    if (topo.n_cell == 0) topo.n_cell = static_cast<int64_t>(n / 6);
+    if (topo.n_cell == 0)
+        topo.n_cell = static_cast<int64_t>(n / 6);
     topo.surface_to_edge = read_int64_1d(topo_gid, "surface_to_edge", n);
-    if (topo.n_surface == 0) topo.n_surface = static_cast<int64_t>(n / 4);
+    if (topo.n_surface == 0)
+        topo.n_surface = static_cast<int64_t>(n / 4);
     topo.edge_to_vertex = read_int64_1d(topo_gid, "edge_to_vertex", n);
-    if (topo.n_edge == 0) topo.n_edge = static_cast<int64_t>(n / 2);
+    if (topo.n_edge == 0)
+        topo.n_edge = static_cast<int64_t>(n / 2);
 
     // Read vertex_to_coord as 2D
     {
@@ -270,12 +291,11 @@ static Topology read_topology(const char* mesh_path) {
 // -----------------------------------------------------------------------
 // GLL vertex IDs for one element (GMSH hex ordering)
 // -----------------------------------------------------------------------
-static void get_cell_vertex_ids(
-    int64_t e,
-    const int64_t* c2s,   // [n_cell, 6]
-    const int64_t* s2e,   // [n_surface, 4]
-    const int64_t* e2v,   // [n_edge, 2]
-    int64_t* vertex_ids   // [8] output
+static void get_cell_vertex_ids(int64_t e,
+                                const int64_t* c2s,  // [n_cell, 6]
+                                const int64_t* s2e,  // [n_surface, 4]
+                                const int64_t* e2v,  // [n_edge, 2]
+                                int64_t* vertex_ids  // [8] output
 ) {
     // Collect face vertices for all 6 faces of element e
     int64_t face_verts[6][8];
@@ -292,11 +312,15 @@ static void get_cell_vertex_ids(
             // Add unique vertices
             bool has0 = false, has1 = false;
             for (int k = 0; k < face_counts[fi]; ++k) {
-                if (face_verts[fi][k] == v0) has0 = true;
-                if (face_verts[fi][k] == v1) has1 = true;
+                if (face_verts[fi][k] == v0)
+                    has0 = true;
+                if (face_verts[fi][k] == v1)
+                    has1 = true;
             }
-            if (!has0 && face_counts[fi] < 8) face_verts[fi][face_counts[fi]++] = v0;
-            if (!has1 && face_counts[fi] < 8) face_verts[fi][face_counts[fi]++] = v1;
+            if (!has0 && face_counts[fi] < 8)
+                face_verts[fi][face_counts[fi]++] = v0;
+            if (!has1 && face_counts[fi] < 8)
+                face_verts[fi][face_counts[fi]++] = v1;
         }
     }
 
@@ -329,18 +353,29 @@ static void get_cell_vertex_ids(
             // Check if v is in face tf1
             bool in_tf1 = false;
             for (int k1 = 0; k1 < face_counts[tf1]; ++k1) {
-                if (face_verts[tf1][k1] == v) { in_tf1 = true; break; }
+                if (face_verts[tf1][k1] == v) {
+                    in_tf1 = true;
+                    break;
+                }
             }
-            if (!in_tf1) continue;
+            if (!in_tf1)
+                continue;
             // Check if v is in face tf2
             bool in_tf2 = false;
             for (int k2 = 0; k2 < face_counts[tf2]; ++k2) {
-                if (face_verts[tf2][k2] == v) { in_tf2 = true; break; }
+                if (face_verts[tf2][k2] == v) {
+                    in_tf2 = true;
+                    break;
+                }
             }
-            if (in_tf2) { found = v; break; }
+            if (in_tf2) {
+                found = v;
+                break;
+            }
         }
         if (found < 0) {
-            fprintf(stderr, "ERROR: cannot identify corner %d for element %lld\n", c, (long long)e);
+            fprintf(stderr, "ERROR: cannot identify corner %d for element %lld\n", c,
+                    (long long)e);
             exit(1);
         }
         vertex_ids[c] = found;
@@ -356,14 +391,12 @@ struct ComputeResult {
     std::vector<double> jacobian;  // [n_cell, NGLL, NGLL, NGLL]
     std::vector<double> mass;      // [n_cell, NGLL, NGLL, NGLL]
     std::vector<double> damping;   // [n_cell, NGLL, NGLL, NGLL]
-    double cfl_dt;                  // CFL-limited timestep
+    double cfl_dt;                 // CFL-limited timestep
 };
 
 static ComputeResult compute_all(
-    const Topology& topo,
-    int N,
-    double cfl_safety,
-    double pml_thickness[6],  // xmin, xmax, ymin, ymax, zmin, zmax
+    const Topology& topo, int N, double cfl_safety,
+    double pml_thickness[6],       // xmin, xmax, ymin, ymax, zmin, zmax
     const double domain_bounds[6]  // xmin, xmax, ymin, ymax, zmin, zmax
 ) {
     int64_t n_cell = topo.n_cell;
@@ -417,12 +450,18 @@ static ComputeResult compute_all(
     double pml_start[6];  // PML entry (interior face)
     double pml_end[6];    // domain boundary
     // faces: 0=xmin,1=xmax,2=ymin,3=ymax,4=zmin,5=zmax
-    pml_start[0] = domain_bounds[0] + pml_width[0];  pml_end[0] = domain_bounds[0];
-    pml_start[1] = domain_bounds[1] - pml_width[1];  pml_end[1] = domain_bounds[1];
-    pml_start[2] = domain_bounds[2] + pml_width[2];  pml_end[2] = domain_bounds[2];
-    pml_start[3] = domain_bounds[3] - pml_width[3];  pml_end[3] = domain_bounds[3];
-    pml_start[4] = domain_bounds[4] + pml_width[4];  pml_end[4] = domain_bounds[4];
-    pml_start[5] = domain_bounds[5] - pml_width[5];  pml_end[5] = domain_bounds[5];
+    pml_start[0] = domain_bounds[0] + pml_width[0];
+    pml_end[0] = domain_bounds[0];
+    pml_start[1] = domain_bounds[1] - pml_width[1];
+    pml_end[1] = domain_bounds[1];
+    pml_start[2] = domain_bounds[2] + pml_width[2];
+    pml_end[2] = domain_bounds[2];
+    pml_start[3] = domain_bounds[3] - pml_width[3];
+    pml_end[3] = domain_bounds[3];
+    pml_start[4] = domain_bounds[4] + pml_width[4];
+    pml_end[4] = domain_bounds[4];
+    pml_start[5] = domain_bounds[5] - pml_width[5];
+    pml_end[5] = domain_bounds[5];
 
     const int64_t* c2s = topo.cell_to_surface.data();
     const int64_t* s2e = topo.surface_to_edge.data();
@@ -430,7 +469,10 @@ static ComputeResult compute_all(
     const double* v2c = topo.vertex_to_coord.data();
 
     // Precompute vertex IDs and corner coords for all elements (single-threaded)
-    struct ElemCorners { int64_t ids[8]; double coords[8][3]; };
+    struct ElemCorners {
+        int64_t ids[8];
+        double coords[8][3];
+    };
     std::unique_ptr<ElemCorners[]> elem_data(new ElemCorners[n_cell]);
     for (int64_t e = 0; e < n_cell; ++e) {
         get_cell_vertex_ids(e, c2s, s2e, e2v, elem_data[e].ids);
@@ -442,7 +484,8 @@ static ComputeResult compute_all(
         }
     }
 
-        #pragma omp parallel for schedule(dynamic, 1) reduction(min: h_min) shared(res, elem_data, pts, w, w3, pml_width) firstprivate(ngll)
+#pragma omp parallel for schedule(dynamic, 1) reduction(min : h_min) \
+    shared(res, elem_data, pts, w, w3, pml_width) firstprivate(ngll)
     for (int64_t e = 0; e < n_cell; ++e) {
         const double (*cv)[3] = elem_data[e].coords;
 
@@ -451,12 +494,18 @@ static ComputeResult compute_all(
         double e_ymin = 1e30, e_ymax = -1e30;
         double e_zmin = 1e30, e_zmax = -1e30;
         for (int vi = 0; vi < 8; ++vi) {
-            if (cv[vi][0] < e_xmin) e_xmin = cv[vi][0];
-            if (cv[vi][0] > e_xmax) e_xmax = cv[vi][0];
-            if (cv[vi][1] < e_ymin) e_ymin = cv[vi][1];
-            if (cv[vi][1] > e_ymax) e_ymax = cv[vi][1];
-            if (cv[vi][2] < e_zmin) e_zmin = cv[vi][2];
-            if (cv[vi][2] > e_zmax) e_zmax = cv[vi][2];
+            if (cv[vi][0] < e_xmin)
+                e_xmin = cv[vi][0];
+            if (cv[vi][0] > e_xmax)
+                e_xmax = cv[vi][0];
+            if (cv[vi][1] < e_ymin)
+                e_ymin = cv[vi][1];
+            if (cv[vi][1] > e_ymax)
+                e_ymax = cv[vi][1];
+            if (cv[vi][2] < e_zmin)
+                e_zmin = cv[vi][2];
+            if (cv[vi][2] > e_zmax)
+                e_zmax = cv[vi][2];
         }
 
         // Loop over all GLL nodes
@@ -480,20 +529,25 @@ static ComputeResult compute_all(
                     }
 
                     // Jacobian matrix J_ij = dx_i / dξ_j (manual 3x3)
-                    double J00=0, J01=0, J02=0;
-                    double J10=0, J11=0, J12=0;
-                    double J20=0, J21=0, J22=0;
+                    double J00 = 0, J01 = 0, J02 = 0;
+                    double J10 = 0, J11 = 0, J12 = 0;
+                    double J20 = 0, J21 = 0, J22 = 0;
                     for (int a = 0; a < 8; ++a) {
-                        J00 += dN[a][0] * cv[a][0]; J01 += dN[a][1] * cv[a][0]; J02 += dN[a][2] * cv[a][0];
-                        J10 += dN[a][0] * cv[a][1]; J11 += dN[a][1] * cv[a][1]; J12 += dN[a][2] * cv[a][1];
-                        J20 += dN[a][0] * cv[a][2]; J21 += dN[a][1] * cv[a][2]; J22 += dN[a][2] * cv[a][2];
+                        J00 += dN[a][0] * cv[a][0];
+                        J01 += dN[a][1] * cv[a][0];
+                        J02 += dN[a][2] * cv[a][0];
+                        J10 += dN[a][0] * cv[a][1];
+                        J11 += dN[a][1] * cv[a][1];
+                        J12 += dN[a][2] * cv[a][1];
+                        J20 += dN[a][0] * cv[a][2];
+                        J21 += dN[a][1] * cv[a][2];
+                        J22 += dN[a][2] * cv[a][2];
                     }
 
                     // det(J) = J00*J11*J22 + J01*J12*J20 + J02*J10*J21
                     //        - J00*J12*J21 - J01*J10*J22 - J02*J11*J20
-                    double detJ = J00*(J11*J22 - J12*J21)
-                                + J01*(J12*J20 - J10*J22)
-                                + J02*(J10*J21 - J11*J20);
+                    double detJ = J00 * (J11 * J22 - J12 * J21) + J01 * (J12 * J20 - J10 * J22) +
+                                  J02 * (J10 * J21 - J11 * J20);
 
                     // Inverse via cofactor matrix / det
                     // J^{-1}_ij = cofactor(J)_{ji} / det(J)
@@ -502,19 +556,25 @@ static ComputeResult compute_all(
                     double Jinv20, Jinv21, Jinv22;
                     if (detJ > 0) {
                         double inv_det = 1.0 / detJ;
-                        Jinv00 =  (J11*J22 - J12*J21) * inv_det;
-                        Jinv01 =  (J02*J21 - J01*J22) * inv_det;
-                        Jinv02 =  (J01*J12 - J02*J11) * inv_det;
-                        Jinv10 =  (J12*J20 - J10*J22) * inv_det;
-                        Jinv11 =  (J00*J22 - J02*J20) * inv_det;
-                        Jinv12 =  (J02*J10 - J00*J12) * inv_det;
-                        Jinv20 =  (J10*J21 - J11*J20) * inv_det;
-                        Jinv21 =  (J01*J20 - J00*J21) * inv_det;
-                        Jinv22 =  (J00*J11 - J01*J10) * inv_det;
+                        Jinv00 = (J11 * J22 - J12 * J21) * inv_det;
+                        Jinv01 = (J02 * J21 - J01 * J22) * inv_det;
+                        Jinv02 = (J01 * J12 - J02 * J11) * inv_det;
+                        Jinv10 = (J12 * J20 - J10 * J22) * inv_det;
+                        Jinv11 = (J00 * J22 - J02 * J20) * inv_det;
+                        Jinv12 = (J02 * J10 - J00 * J12) * inv_det;
+                        Jinv20 = (J10 * J21 - J11 * J20) * inv_det;
+                        Jinv21 = (J01 * J20 - J00 * J21) * inv_det;
+                        Jinv22 = (J00 * J11 - J01 * J10) * inv_det;
                     } else {
-                        Jinv00=0; Jinv01=0; Jinv02=0;
-                        Jinv10=0; Jinv11=0; Jinv12=0;
-                        Jinv20=0; Jinv21=0; Jinv22=0;
+                        Jinv00 = 0;
+                        Jinv01 = 0;
+                        Jinv02 = 0;
+                        Jinv10 = 0;
+                        Jinv11 = 0;
+                        Jinv12 = 0;
+                        Jinv20 = 0;
+                        Jinv21 = 0;
+                        Jinv22 = 0;
                     }
 
                     // Store results
@@ -547,32 +607,38 @@ static ComputeResult compute_all(
                     // Face 0: xmin
                     if (pml_width[0] > 0 && x < pml_start[0]) {
                         double r = (pml_start[0] - x) / pml_width[0];
-                        if (r > damp_val) damp_val = r;
+                        if (r > damp_val)
+                            damp_val = r;
                     }
                     // Face 1: xmax
                     if (pml_width[1] > 0 && x > pml_start[1]) {
                         double r = (x - pml_start[1]) / pml_width[1];
-                        if (r > damp_val) damp_val = r;
+                        if (r > damp_val)
+                            damp_val = r;
                     }
                     // Face 2: ymin
                     if (pml_width[2] > 0 && y < pml_start[2]) {
                         double r = (pml_start[2] - y) / pml_width[2];
-                        if (r > damp_val) damp_val = r;
+                        if (r > damp_val)
+                            damp_val = r;
                     }
                     // Face 3: ymax
                     if (pml_width[3] > 0 && y > pml_start[3]) {
                         double r = (y - pml_start[3]) / pml_width[3];
-                        if (r > damp_val) damp_val = r;
+                        if (r > damp_val)
+                            damp_val = r;
                     }
                     // Face 4: zmin
                     if (pml_width[4] > 0 && z < pml_start[4]) {
                         double r = (pml_start[4] - z) / pml_width[4];
-                        if (r > damp_val) damp_val = r;
+                        if (r > damp_val)
+                            damp_val = r;
                     }
                     // Face 5: zmax
                     if (pml_width[5] > 0 && z > pml_start[5]) {
                         double r = (z - pml_start[5]) / pml_width[5];
-                        if (r > damp_val) damp_val = r;
+                        if (r > damp_val)
+                            damp_val = r;
                     }
                     res.damping[base] = std::min(damp_val, 1.0);
                 }
@@ -591,28 +657,31 @@ static ComputeResult compute_all(
                     double y = res.coords[off + 1];
                     double z = res.coords[off + 2];
                     if (i + 1 < ngll) {
-                        int64_t noff = (((e * ngll + (i+1)) * ngll + j) * ngll + k) * 3;
+                        int64_t noff = (((e * ngll + (i + 1)) * ngll + j) * ngll + k) * 3;
                         double dx = x - res.coords[noff + 0];
                         double dy = y - res.coords[noff + 1];
                         double dz = z - res.coords[noff + 2];
-                        double dist = std::sqrt(dx*dx + dy*dy + dz*dz);
-                        if (dist < h_min) h_min = dist;
+                        double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+                        if (dist < h_min)
+                            h_min = dist;
                     }
                     if (j + 1 < ngll) {
-                        int64_t noff = (((e * ngll + i) * ngll + (j+1)) * ngll + k) * 3;
+                        int64_t noff = (((e * ngll + i) * ngll + (j + 1)) * ngll + k) * 3;
                         double dx = x - res.coords[noff + 0];
                         double dy = y - res.coords[noff + 1];
                         double dz = z - res.coords[noff + 2];
-                        double dist = std::sqrt(dx*dx + dy*dy + dz*dz);
-                        if (dist < h_min) h_min = dist;
+                        double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+                        if (dist < h_min)
+                            h_min = dist;
                     }
                     if (k + 1 < ngll) {
-                        int64_t noff = (((e * ngll + i) * ngll + j) * ngll + (k+1)) * 3;
+                        int64_t noff = (((e * ngll + i) * ngll + j) * ngll + (k + 1)) * 3;
                         double dx = x - res.coords[noff + 0];
                         double dy = y - res.coords[noff + 1];
                         double dz = z - res.coords[noff + 2];
-                        double dist = std::sqrt(dx*dx + dy*dy + dz*dz);
-                        if (dist < h_min) h_min = dist;
+                        double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+                        if (dist < h_min)
+                            h_min = dist;
                     }
                 }
             }
@@ -628,13 +697,8 @@ static ComputeResult compute_all(
 // -----------------------------------------------------------------------
 // Write results to mesh.h5
 // -----------------------------------------------------------------------
-static void write_results(
-    const char* mesh_path,
-    int64_t n_cell, int ngll,
-    const ComputeResult& res,
-    double cfl_safety,
-    double h_min
-) {
+static void write_results(const char* mesh_path, int64_t n_cell, int ngll,
+                          const ComputeResult& res, double cfl_safety, double h_min) {
     hid_t fid = open_or_fail(mesh_path, H5F_ACC_RDWR);
 
     // Ensure /field/element/ group exists
@@ -727,8 +791,8 @@ int main(int argc, char** argv) {
     // Read topology
     Topology topo = read_topology(mesh_path);
     fprintf(stderr, "Topology: n_cell=%lld, n_vertex=%lld, n_surface=%lld, n_edge=%lld\n",
-            (long long)topo.n_cell, (long long)topo.n_vertex,
-            (long long)topo.n_surface, (long long)topo.n_edge);
+            (long long)topo.n_cell, (long long)topo.n_vertex, (long long)topo.n_surface,
+            (long long)topo.n_edge);
 
     // Read domain bounds from /domain/ attrs (written by mesh generator or Python)
     double domain_bounds[6] = {0, 0, 0, 0, 0, 0};
@@ -751,25 +815,28 @@ int main(int argc, char** argv) {
             domain_bounds[0] = domain_bounds[2] = domain_bounds[4] = 1e30;
             domain_bounds[1] = domain_bounds[3] = domain_bounds[5] = -1e30;
             for (int64_t i = 0; i < nv; ++i) {
-                if (vc[i*3+0] < domain_bounds[0]) domain_bounds[0] = vc[i*3+0];
-                if (vc[i*3+0] > domain_bounds[1]) domain_bounds[1] = vc[i*3+0];
-                if (vc[i*3+1] < domain_bounds[2]) domain_bounds[2] = vc[i*3+1];
-                if (vc[i*3+1] > domain_bounds[3]) domain_bounds[3] = vc[i*3+1];
-                if (vc[i*3+2] < domain_bounds[4]) domain_bounds[4] = vc[i*3+2];
-                if (vc[i*3+2] > domain_bounds[5]) domain_bounds[5] = vc[i*3+2];
+                if (vc[i * 3 + 0] < domain_bounds[0])
+                    domain_bounds[0] = vc[i * 3 + 0];
+                if (vc[i * 3 + 0] > domain_bounds[1])
+                    domain_bounds[1] = vc[i * 3 + 0];
+                if (vc[i * 3 + 1] < domain_bounds[2])
+                    domain_bounds[2] = vc[i * 3 + 1];
+                if (vc[i * 3 + 1] > domain_bounds[3])
+                    domain_bounds[3] = vc[i * 3 + 1];
+                if (vc[i * 3 + 2] < domain_bounds[4])
+                    domain_bounds[4] = vc[i * 3 + 2];
+                if (vc[i * 3 + 2] > domain_bounds[5])
+                    domain_bounds[5] = vc[i * 3 + 2];
             }
         }
         H5Fclose(fid);
     }
 
-    fprintf(stderr, "Domain: x=[%g,%g] y=[%g,%g] z=[%g,%g]\n",
-            domain_bounds[0], domain_bounds[1],
-            domain_bounds[2], domain_bounds[3],
-            domain_bounds[4], domain_bounds[5]);
-    fprintf(stderr, "N=%d, ngll=%d, cfl_safety=%g\n", N, N+1, cfl_safety);
-    fprintf(stderr, "PML thickness: [%g %g %g %g %g %g]\n",
-            pml_thickness[0], pml_thickness[1], pml_thickness[2],
-            pml_thickness[3], pml_thickness[4], pml_thickness[5]);
+    fprintf(stderr, "Domain: x=[%g,%g] y=[%g,%g] z=[%g,%g]\n", domain_bounds[0], domain_bounds[1],
+            domain_bounds[2], domain_bounds[3], domain_bounds[4], domain_bounds[5]);
+    fprintf(stderr, "N=%d, ngll=%d, cfl_safety=%g\n", N, N + 1, cfl_safety);
+    fprintf(stderr, "PML thickness: [%g %g %g %g %g %g]\n", pml_thickness[0], pml_thickness[1],
+            pml_thickness[2], pml_thickness[3], pml_thickness[4], pml_thickness[5]);
 
     // Compute
     ComputeResult res = compute_all(topo, N, cfl_safety, pml_thickness, domain_bounds);

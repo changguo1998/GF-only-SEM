@@ -45,6 +45,10 @@ python "${EXAMPLE_DIR}/mesh_gen.py"
 
 # ── Step 2: Copy config to work dir and preprocess ───
 # (preprocess reads mesh.h5 + config.py from CWD)
+# C++ accelerator uses OpenMP. Set thread count via OMP_NUM_THREADS:
+#   export OMP_NUM_THREADS=8
+# Default: OMP_NUM_THREADS unset -> all available CPUs.
+# Single-thread fallback if compiled without OpenMP.
 echo ""
 echo "=== Step 2: Preprocess ==="
 python -m preprocess

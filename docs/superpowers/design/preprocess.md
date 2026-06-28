@@ -78,16 +78,23 @@ The heaviest numerical computations (GLL geometry, CFL h_min, PML damping ramps)
 can be offloaded to a standalone C++ executable via subprocess:
 
 - **Binary**: `bin/gf_preprocess_cpp` (built by CMake to `bin/`, or g++ — see Build below)
+
 - **Dependencies**: HDF5, Eigen3 (same as forward solver)
+
 - **Data flow**: reads mesh.h5 `/topology/`, writes results to `/field/element/`
+
 - **Integration**: `accelerator.py` runs the binary, parses `H_MIN` from stdout,
   reads precomputed arrays from HDF5. Falls back to pure Python if binary absent.
+
 - **CLI signature**:
+
   ```
   gf_preprocess_cpp <mesh.h5> <N> <cfl_safety> \
       <pml_xmin> <pml_xmax> <pml_ymin> <pml_ymax> <pml_zmin> <pml_zmax>
   ```
+
 - **Build** (example):
+
   ```sh
   g++ -std=c++17 -O2 -march=native -fopenmp \
       -I<eigen3>/include/eigen3 \
@@ -96,6 +103,7 @@ can be offloaded to a standalone C++ executable via subprocess:
   ```
 
   Or via CMake:
+
   ```sh
   cmake -S . -B build && cmake --build build --target gf_preprocess_cpp
   # binary at bin/gf_preprocess_cpp

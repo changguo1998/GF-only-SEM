@@ -65,10 +65,16 @@ def _find_binary() -> str | None:
 
     # 4. CMake build dirs
     for suffix in ("", ".exe"):
-        found = _check(os.path.join(project_root, "build", "preprocess", "cpp", f"gf_preprocess_cpp{suffix}"))
+        found = _check(
+            os.path.join(project_root, "build", "preprocess", "cpp", f"gf_preprocess_cpp{suffix}")
+        )
         if found:
             return found
-        found = _check(os.path.join(project_root, "build", "preprocess", "cpp", "Debug", f"gf_preprocess_cpp{suffix}"))
+        found = _check(
+            os.path.join(
+                project_root, "build", "preprocess", "cpp", "Debug", f"gf_preprocess_cpp{suffix}"
+            )
+        )
         if found:
             return found
 
@@ -77,9 +83,7 @@ def _find_binary() -> str | None:
 
 
 def run_accelerator(
-    mesh_path: str,
-    config: types.ModuleType,
-    domain_bounds: dict[str, float],
+    mesh_path: str, config: types.ModuleType, domain_bounds: dict[str, float]
 ) -> dict[str, any]:
     """Run gf_preprocess_cpp if available, return precomputed data.
 
@@ -160,8 +164,7 @@ def run_accelerator(
 
     if proc.returncode != 0:
         logger.warning(
-            f"C++ accelerator exited with code {proc.returncode}:\n"
-            f"  stderr: {proc.stderr[:500]}"
+            f"C++ accelerator exited with code {proc.returncode}:\n  stderr: {proc.stderr[:500]}"
         )
         return result
 

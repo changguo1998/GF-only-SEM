@@ -31,7 +31,6 @@ mpirun -n N gf_solver --direction x
 
 Binary at `bin/gf_solver` (built by CMake). Add `bin/` to `$PATH` or run as `./bin/gf_solver`.
 
-
 Frozen paths from CWD:
 
 - input: `config.h5`, `partitions/partition_{r}.h5`

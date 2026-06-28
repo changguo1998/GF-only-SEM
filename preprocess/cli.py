@@ -118,6 +118,7 @@ def main() -> None:
     # Step: CFL validation — compute solver_dt and snapshot_stride
     # CFL: combine C++ h_min (or compute all-Python) with vp_max
     from preprocess.cfl_validator import compute_cfl_dt as _compute_cfl_dt, compute_solver_dt
+
     if accel_result["used_cpp"]:
         h_min_cpp = accel_result["cfl_dt"]  # C++ returns h_min, not full dt
         vp_max = float(vp_gll.max())
