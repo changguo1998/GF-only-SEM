@@ -6,6 +6,9 @@ in CWD, resolves hexahedral cell connectivity for local elements, and writes
 partition_{r}.vtk per rank with cell-averaged Vp, Vs, density, mass, damping,
 PML flag, and rank assignment.
 
+Uses GLL-derived edge (LINE), face (QUAD), and sub-volume (HEX) cells for
+proper ParaView interpolation.
+
 Useful for visually inspecting METIS partition quality and per-rank element
 distribution in ParaView / VisIt.
 """
@@ -16,38 +19,16 @@ import re
 import h5py
 import numpy as np
 
-# ── Hex face definitions (local vertex indices, CCW from outside) ─────
-# GMSH hex ordering (also VTK hex ordering):
-#   v0(0,0,0) v1(1,0,0) v2(1,1,0) v3(0,1,0)  — bottom
-#   v4(0,0,1) v5(1,0,1) v6(1,1,1) v7(0,1,1)  — top
-_HEX_FACES = [
-    [0, 3, 2, 1],  # -z (bottom)
-    [4, 5, 6, 7],  # +z (top)
-    [0, 1, 5, 4],  # -y (front)
-    [3, 7, 6, 2],  # +y (back)
-    [0, 4, 7, 3],  # -x (left)
-    [1, 2, 6, 5],  # +x (right)
-]
+_HEX_FACES = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [3, 7, 6, 2], [0, 4, 7, 3], [1, 2, 6, 5]]
 
 
 def resolve_cell_vertices(cell_to_surface, surface_to_edge, edge_to_vertex, cell_idx):
-    """Resolve the 8 global vertex indices of a hex cell.
-
-    Uses the signed surface/edge topology to build a mapping from
-    local hex vertex index (0-7) to global vertex index (0-based).
-
-    Returns list of 8 global vertex indices in VTK hex order:
-        [v0, v1, v2, v3, v4, v5, v6, v7]
-    """
-    signed_surfaces = cell_to_surface[cell_idx]  # (6,) 1-based, signed
-    local_to_global = {}  # lv → gv
-
+    signed_surfaces = cell_to_surface[cell_idx]
+    local_to_global = {}
     for fi in range(6):
-        sid_signed = signed_surfaces[fi]  # signed surface id (+ or -)
-        sid = int(abs(sid_signed)) - 1  # 0-based surface id
-        canonical_edges = surface_to_edge[sid]  # canonical (4,) 1-based, signed
-
-        # If cell uses reversed orientation, negate and reverse edge order
+        sid_signed = signed_surfaces[fi]
+        sid = int(abs(sid_signed)) - 1
+        canonical_edges = surface_to_edge[sid]
         if sid_signed > 0:
             signed_edges = canonical_edges
         else:
@@ -57,27 +38,19 @@ def resolve_cell_vertices(cell_to_surface, surface_to_edge, edge_to_vertex, cell
                 -canonical_edges[1],
                 -canonical_edges[0],
             ]
-
         for k in range(4):
-            eid = int(abs(signed_edges[k])) - 1  # 0-based edge id
-            gv1, gv2 = edge_to_vertex[eid]  # 1-based, sorted: gv1 < gv2
+            eid = int(abs(signed_edges[k])) - 1
+            gv1, gv2 = edge_to_vertex[eid]
             gv1 -= 1
             gv2 -= 1
-
             lvk = _HEX_FACES[fi][k]
             lvk_next = _HEX_FACES[fi][(k + 1) % 4]
-
             if signed_edges[k] > 0:
-                # Edge direction matches CCW face traversal:
-                #   gv1 → lvk,  gv2 → lvk_next
                 local_to_global[lvk] = gv1
                 local_to_global[lvk_next] = gv2
             else:
-                # Edge direction reversed:
-                #   gv2 → lvk,  gv1 → lvk_next
                 local_to_global[lvk] = gv2
                 local_to_global[lvk_next] = gv1
-
     return [local_to_global[lv] for lv in range(8)]
 
 
@@ -91,29 +64,171 @@ def build_local_connectivity(local_element_ids, cell_to_surface, surface_to_edge
     return connectivity
 
 
+# ── GLL topology helpers ────────────────────────────────────────────────
+
+
+def _gll_idx(i, j, k, ngll):
+    """Flat C-order index for local GLL point (i, j, k)."""
+    return i * ngll * ngll + j * ngll + k
+
+
+def build_gll_cell_template(ngll):
+    """Return (edge_lines, face_quads, sub_hexes) templates (local 0-based indices)."""
+
+    def idx(i, j, k):
+        return _gll_idx(i, j, k, ngll)
+
+    edge_lines = []
+    for j, k in [(0, 0), (ngll - 1, 0), (0, ngll - 1), (ngll - 1, ngll - 1)]:
+        for i in range(ngll - 1):
+            edge_lines.append((idx(i, j, k), idx(i + 1, j, k)))
+    for i, k in [(0, 0), (ngll - 1, 0), (0, ngll - 1), (ngll - 1, ngll - 1)]:
+        for j in range(ngll - 1):
+            edge_lines.append((idx(i, j, k), idx(i, j + 1, k)))
+    for i, j in [(0, 0), (ngll - 1, 0), (ngll - 1, ngll - 1), (0, ngll - 1)]:
+        for k in range(ngll - 1):
+            edge_lines.append((idx(i, j, k), idx(i, j, k + 1)))
+
+    face_quads = []
+    for i in range(ngll - 1):
+        for j in range(ngll - 1):
+            face_quads.append(
+                (idx(i, j, 0), idx(i + 1, j, 0), idx(i + 1, j + 1, 0), idx(i, j + 1, 0))
+            )
+    for i in range(ngll - 1):
+        for j in range(ngll - 1):
+            face_quads.append(
+                (
+                    idx(i, j, ngll - 1),
+                    idx(i + 1, j, ngll - 1),
+                    idx(i + 1, j + 1, ngll - 1),
+                    idx(i, j + 1, ngll - 1),
+                )
+            )
+    for i in range(ngll - 1):
+        for k in range(ngll - 1):
+            face_quads.append(
+                (idx(i, 0, k), idx(i + 1, 0, k), idx(i + 1, 0, k + 1), idx(i, 0, k + 1))
+            )
+    for i in range(ngll - 1):
+        for k in range(ngll - 1):
+            face_quads.append(
+                (
+                    idx(i, ngll - 1, k),
+                    idx(i + 1, ngll - 1, k),
+                    idx(i + 1, ngll - 1, k + 1),
+                    idx(i, ngll - 1, k + 1),
+                )
+            )
+    for j in range(ngll - 1):
+        for k in range(ngll - 1):
+            face_quads.append(
+                (idx(0, j, k), idx(0, j + 1, k), idx(0, j + 1, k + 1), idx(0, j, k + 1))
+            )
+    for j in range(ngll - 1):
+        for k in range(ngll - 1):
+            face_quads.append(
+                (
+                    idx(ngll - 1, j, k),
+                    idx(ngll - 1, j + 1, k),
+                    idx(ngll - 1, j + 1, k + 1),
+                    idx(ngll - 1, j, k + 1),
+                )
+            )
+
+    sub_hexes = []
+    for i in range(ngll - 1):
+        for j in range(ngll - 1):
+            for k in range(ngll - 1):
+                sub_hexes.append(
+                    (
+                        idx(i, j, k),
+                        idx(i + 1, j, k),
+                        idx(i + 1, j + 1, k),
+                        idx(i, j + 1, k),
+                        idx(i, j, k + 1),
+                        idx(i + 1, j, k + 1),
+                        idx(i + 1, j + 1, k + 1),
+                        idx(i, j + 1, k + 1),
+                    )
+                )
+
+    return edge_lines, face_quads, sub_hexes
+
+
+def build_all_gll_cells(edge_template, face_template, sub_template, n_local, ngll, n_mesh_vert):
+    """Build full GLL cell arrays + element map for local cells.
+
+    Returns (edge_arr, face_arr, sub_arr, n_edge, n_face, n_sub, gll_elem_map).
+    """
+    gll_per_cell = ngll**3
+
+    n_edge = n_local * len(edge_template)
+    n_face = n_local * len(face_template)
+    n_sub = n_local * len(sub_template)
+
+    edge_arr = np.zeros(n_edge * 3, dtype=np.int32)
+    face_arr = np.zeros(n_face * 5, dtype=np.int32)
+    sub_arr = np.zeros(n_sub * 9, dtype=np.int32)
+
+    for li in range(n_local):
+        base = n_mesh_vert + li * gll_per_cell
+        for tli, (a, b) in enumerate(edge_template):
+            pos = (li * len(edge_template) + tli) * 3
+            edge_arr[pos] = 2
+            edge_arr[pos + 1] = base + a
+            edge_arr[pos + 2] = base + b
+        for tli, (a, b, c, d) in enumerate(face_template):
+            pos = (li * len(face_template) + tli) * 5
+            face_arr[pos] = 4
+            face_arr[pos + 1] = base + a
+            face_arr[pos + 2] = base + b
+            face_arr[pos + 3] = base + c
+            face_arr[pos + 4] = base + d
+        for tli, corners in enumerate(sub_template):
+            pos = (li * len(sub_template) + tli) * 9
+            sub_arr[pos] = 8
+            for ci, corner in enumerate(corners):
+                sub_arr[pos + 1 + ci] = base + corner
+
+    gll_elem_map = np.concatenate(
+        [
+            np.repeat(np.arange(n_local, dtype=np.int32), len(edge_template)),
+            np.repeat(np.arange(n_local, dtype=np.int32), len(face_template)),
+            np.repeat(np.arange(n_local, dtype=np.int32), len(sub_template)),
+        ]
+    )
+    return edge_arr, face_arr, sub_arr, n_edge, n_face, n_sub, gll_elem_map
+
+
 # ── VTK writer (legacy binary) ──────────────────────────────────────────
 
 
-def write_vtu(path, vertex_coords, connectivity, cell_fields, point_fields=None, n_mesh_vert=None):
-    """Write VTK Unstructured Grid (legacy binary .vtk format).
+def write_vtu(
+    path,
+    vertex_coords,
+    connectivity,
+    cell_fields,
+    point_fields=None,
+    n_mesh_vert=None,
+    edge_arr=None,
+    face_arr=None,
+    sub_arr=None,
+    n_edge=0,
+    n_face=0,
+    n_sub=0,
+    gll_elem_map=None,
+):
+    """Write VTK with mesh hex cells + GLL edge/face/sub cells (binary).
 
-    If *point_fields* is provided, writes GLL vertex cells (detail mode).
-    Otherwise writes mesh-only (hex cells only).
-
-    Args:
-        vertex_coords: (n_vertex, 3) float64
-        connectivity:  (n_cell, 8) int64  — VTK hex vertex indices (0-based)
-        cell_fields:   dict of name→(n_cell,) float64  — cell data arrays
-        point_fields:  optional dict of name→(n_vertex,) float64  — point data arrays
-        n_mesh_vert:   int, number of mesh vertices (required if point_fields given)
+    Cell ordering: [mesh_hexes | edge_LINEs | face_QUADs | sub_HEXes]
     """
     n_vert = vertex_coords.shape[0]
     n_hex = connectivity.shape[0]
     has_detail = point_fields is not None
     if has_detail:
-        n_gll_pt = n_vert - n_mesh_vert
-        total_cells = n_hex + n_gll_pt
-        total_ints = n_hex * 9 + n_gll_pt * 2
+        total_cells = n_hex + n_edge + n_face + n_sub
+        total_ints = n_hex * 9 + n_edge * 3 + n_face * 5 + n_sub * 9
     else:
         total_cells = n_hex
         total_ints = n_hex * 9
@@ -124,47 +239,48 @@ def write_vtu(path, vertex_coords, connectivity, cell_fields, point_fields=None,
         f.write(b"BINARY\n")
         f.write(b"DATASET UNSTRUCTURED_GRID\n")
 
-        # ── Points (float32 big-endian) ──
         f.write(f"POINTS {n_vert} float\n".encode())
         f.write(np.ascontiguousarray(vertex_coords, dtype=">f4").tobytes())
         f.write(b"\n")
 
-        # ── Cells: hex + optional GLL vertex cells ──
         f.write(f"CELLS {total_cells} {total_ints}\n".encode())
         hex_arr = np.zeros(n_hex * 9, dtype=np.int32)
-        hex_arr[0::9] = 8  # size prefix
+        hex_arr[0::9] = 8
         for i in range(8):
             hex_arr[1 + i :: 9] = connectivity[:, i].astype(np.int32)
         if has_detail:
-            gll_arr = np.zeros(n_gll_pt * 2, dtype=np.int32)
-            gll_arr[0::2] = 1
-            gll_arr[1::2] = np.arange(n_mesh_vert, n_vert, dtype=np.int32)
-            cell_arr = np.concatenate([hex_arr, gll_arr])
+            cell_arr = np.concatenate([hex_arr, edge_arr, face_arr, sub_arr])
         else:
             cell_arr = hex_arr
         f.write(np.ascontiguousarray(cell_arr, dtype=">i4").tobytes())
         f.write(b"\n")
 
-        # ── Cell types (12 = VTK_HEXAHEDRON, 1 = VTK_VERTEX) ──
         f.write(f"CELL_TYPES {total_cells}\n".encode())
         if has_detail:
             types_arr = np.concatenate(
-                [np.full(n_hex, 12, dtype=np.int32), np.full(n_gll_pt, 1, dtype=np.int32)]
+                [
+                    np.full(n_hex, 12, dtype=np.int32),
+                    np.full(n_edge, 3, dtype=np.int32),
+                    np.full(n_face, 9, dtype=np.int32),
+                    np.full(n_sub, 12, dtype=np.int32),
+                ]
             )
         else:
             types_arr = np.full(n_hex, 12, dtype=np.int32)
         f.write(np.ascontiguousarray(types_arr, dtype=">i4").tobytes())
         f.write(b"\n")
 
-        # ── Cell data (hex cells only) ──
-        f.write(f"CELL_DATA {n_hex}\n".encode())
+        f.write(f"CELL_DATA {total_cells}\n".encode())
         for name, data in cell_fields.items():
+            data_padded = np.zeros(total_cells, dtype=data.dtype)
+            data_padded[:n_hex] = data
+            if gll_elem_map is not None:
+                data_padded[n_hex:] = data[gll_elem_map]
             f.write(f"SCALARS {name} float 1\n".encode())
             f.write(b"LOOKUP_TABLE default\n")
-            f.write(np.ascontiguousarray(data, dtype=">f4").tobytes())
+            f.write(np.ascontiguousarray(data_padded, dtype=">f4").tobytes())
             f.write(b"\n")
 
-        # ── Point data (detail mode only) ──
         if has_detail:
             f.write(f"POINT_DATA {n_vert}\n".encode())
             for name, data in point_fields.items():
@@ -187,7 +303,6 @@ def main():
         print("[partition_to_vtk] Error: no partitions/ directory found in CWD")
         return 1
 
-    # ── Read topology from mesh.h5 ──
     print(f"[partition_to_vtk] Reading {mesh_path}")
     with h5py.File(mesh_path, "r") as f:
         topo = f["topology"]
@@ -206,7 +321,6 @@ def main():
     n_vert = vertex_to_coord.shape[0]
     print(f"  Global cells: {n_cell}, vertices: {n_vert}")
 
-    # ── Find all partition files ──
     part_files = sorted(
         f for f in os.listdir(part_dir) if f.startswith("partition_") and f.endswith(".h5")
     )
@@ -216,11 +330,16 @@ def main():
 
     print(f"[partition_to_vtk] Found {len(part_files)} partition files")
 
+    if gll_coords is not None:
+        ngll = gll_coords.shape[1]
+        edge_tmpl, face_tmpl, sub_tmpl = build_gll_cell_template(ngll)
+    else:
+        ngll = 0
+        edge_tmpl = face_tmpl = sub_tmpl = None
+
     os.makedirs(vtk_dir, exist_ok=True)
 
-    # ── Process each partition ──
     for pf in part_files:
-        # Extract rank from filename
         m = re.match(r"partition_(\d+)\.h5$", pf)
         if not m:
             continue
@@ -229,28 +348,22 @@ def main():
         out_path = os.path.join(vtk_dir, f"partition_{rank}.vtk")
 
         with h5py.File(part_path, "r") as f:
-            local_zero = f["partition/local_element_ids"][:]  # 0-based
+            local_zero = f["partition/local_element_ids"][:]
             n_local = len(local_zero)
 
-            # Build connectivity for local elements
             connectivity = build_local_connectivity(
                 local_zero, cell_to_surface, surface_to_edge, edge_to_vertex
             )
 
-            # Read field data: cell-average GLL-node fields
             field_names = ["vp", "vs", "density", "mass", "damping"]
             cell_fields = {}
             for name in field_names:
-                data = f[f"field/element/{name}"][:]  # (n_local, NGLL, NGLL, NGLL)
+                data = f[f"field/element/{name}"][:]
                 cell_fields[name] = np.mean(data, axis=(1, 2, 3))
 
-            # PML flag from global (subset to local elements)
             cell_fields["PML_flag"] = is_pml_global[local_zero].astype(np.float64)
-
-            # Rank field (for coloring by partition)
             cell_fields["Rank"] = np.full(n_local, float(rank))
 
-        # Rename for display
         vtk_fields = {
             "Vp_m_s": cell_fields["vp"],
             "Vs_m_s": cell_fields["vs"],
@@ -261,23 +374,24 @@ def main():
             "Rank": cell_fields["Rank"],
         }
 
-        # ── Build GLL point data if available ──
+        # ── Build GLL point data + topology if available ──
         point_fields = None
         n_mesh_vert = None
         vertex_coords_out = vertex_to_coord
+        edge_arr = face_arr = sub_arr = None
+        n_edge = n_face = n_sub = 0
+        gll_elem_map = None
+
         if gll_coords is not None:
-            ngll = gll_coords.shape[1]
             gll_per_cell = ngll**3
             n_mesh_vert = n_vert
 
-            # Combined points: mesh vertices + GLL points of local elements
             gll_pt_list = []
             for ci in local_zero:
                 gll_pt_list.append(gll_coords[ci].reshape(-1, 3))
             gll_points = np.concatenate(gll_pt_list, axis=0) if gll_pt_list else np.empty((0, 3))
             vertex_coords_out = np.concatenate([vertex_to_coord, gll_points], axis=0)
 
-            # Point fields: mesh vertices → 0, local GLL points → cell's averaged value
             point_fields = {}
             for name, data in vtk_fields.items():
                 arr = np.zeros(vertex_coords_out.shape[0], dtype=np.float64)
@@ -286,9 +400,26 @@ def main():
                     arr[s : s + gll_per_cell] = data[li]
                 point_fields[name] = arr
 
-        # ── Write VTK ──
+            edge_arr, face_arr, sub_arr, n_edge, n_face, n_sub, gll_elem_map = build_all_gll_cells(
+                edge_tmpl, face_tmpl, sub_tmpl, n_local, ngll, n_mesh_vert
+            )
+
         print(f"  [{pf}] {n_local} cells → {out_path}")
-        write_vtu(out_path, vertex_coords_out, connectivity, vtk_fields, point_fields, n_mesh_vert)
+        write_vtu(
+            out_path,
+            vertex_coords_out,
+            connectivity,
+            vtk_fields,
+            point_fields,
+            n_mesh_vert,
+            edge_arr,
+            face_arr,
+            sub_arr,
+            n_edge,
+            n_face,
+            n_sub,
+            gll_elem_map,
+        )
 
     print("[partition_to_vtk] Done.")
     return 0

@@ -754,7 +754,11 @@ static void write_results(const char* mesh_path, int64_t n_cell, int ngll,
 static void print_cfl_info(double h_min, double cfl_safety) {
     // Print in a format Python can parse
     printf("H_MIN=%.15e\n", h_min);
+    printf("CFL_DT=%.15e\n", h_min);
     printf("CFL_SAFETY=%.15e\n", cfl_safety);
+#ifdef _OPENMP
+    printf("OMP_THREADS=%d\n", omp_get_max_threads());
+#endif
     fflush(stdout);
 }
 

@@ -171,6 +171,7 @@ def run_accelerator(
     # Parse stdout for CFL info
     h_min = None
     cfl_dt = None
+    omp_threads = None
     for line in proc.stdout.strip().split("\n"):
         line = line.strip()
         if line.startswith("H_MIN="):
@@ -184,6 +185,8 @@ def run_accelerator(
                 logger.warning(
                     f"cfl_safety mismatch: config={cfl_safety}, C++={cfl_safety_parsed}"
                 )
+        elif line.startswith("OMP_THREADS="):
+            omp_threads = int(line.split("=", 1)[1])
 
     # Log stderr for diagnostics
     if proc.stderr.strip():
@@ -236,9 +239,10 @@ def run_accelerator(
         }
     )
 
+    threads_str = f", OMP threads={omp_threads}" if omp_threads is not None else ""
     logger.info(
-        f"C++ accelerator: h_min={h_min:.6e}, cfl_dt={cfl_dt:.6e}, "
-        f"coords={coords.shape}, dxi_dx={dxi_dx.shape}"
+        f"C++ accelerator: h_min={h_min:.6e}, cfl_dt={cfl_dt:.6e},"
+        f" coords={coords.shape}, dxi_dx={dxi_dx.shape}{threads_str}"
     )
 
     return result

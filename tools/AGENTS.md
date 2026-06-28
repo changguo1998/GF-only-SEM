@@ -21,16 +21,23 @@ All writers produce binary unstructured-grid `.vtk` files for ParaView or VisIt.
 
 ### Mesh and Partition
 
-If `/field/element/coords` exists, write detail-mode VTK:
+If `/field/element/coords` exists, write detail-mode VTK with GLL sub-cells:
 
 | Section | Contents |
 |---------|----------|
 | `POINTS` | Mesh vertices plus GLL points. |
-| `CELLS` | Hexahedra plus one `VERTEX` cell per GLL point. |
-| `CELL_DATA` | Vp, Vs, density, mass, PML damping, PML flag, and rank when present. |
+| `CELLS` | Original hexahedra + GLL-derived edge (LINE), face (QUAD), and sub-volume (HEX) cells for proper ParaView interpolation. |
+| `CELL_TYPES` | 12 (hex), 3 (line), 9 (quad). |
+| `CELL_DATA` | Vp, Vs, density, mass, PML damping, PML flag, and rank when present. Hex values broadcast to child GLL cells via `gll_elem_map`. |
 | `POINT_DATA` | Cell-averaged fields at GLL points; mesh vertices get 0. |
 
-If GLL coords are absent, write mesh vertices only.
+GLL sub-cell topology per hex element (NGLL=5 → 125 GLL points):
+
+- 12×(NGLL−1) = 48 edge LINE cells
+- 6×(NGLL−1)² = 96 face QUAD cells
+- (NGLL−1)³ = 64 sub-volume HEX cells
+
+If GLL coords are absent, write mesh vertices only (non-detail mode).
 
 ### Wavefield
 
@@ -43,8 +50,9 @@ If GLL coords are absent, write mesh vertices only.
 `wavefield2vtk_detail`:
 
 - `POINTS`: mesh vertices plus all GLL points.
-- `CELL_DATA`: PML flag on hex cells.
-- `POINT_DATA`: GLL strain; mesh vertices get 0.
+- `CELLS`: hex cells + GLL-derived edge/face/sub cells.
+- `CELL_DATA`: PML flag broadcast to all GLL sub-cells.
+- `POINT_DATA`: GLL strain (18 fields: 6 Voigt × 3 directions); mesh vertices get 0.
 - One file per timestep.
 
 ## Usage

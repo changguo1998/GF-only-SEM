@@ -81,6 +81,8 @@ Heavy numerical loops (GLL geometry, CFL h_min, PML damping ramps) can be
 offloaded to a compiled C++ executable. See `cpp/main.cpp`.
 
 - Binary: `bin/gf_preprocess_cpp` (built by CMake to `bin/`, or g++ — see docs)
-- Threading: OpenMP multi-threading enabled by default (single-thread without OpenMP)
-- Fallback: pure Python if binary absent
+- Threading: OpenMP multi-threading enabled by default (single-thread without OpenMP).
+  Set `OMP_NUM_THREADS` to control; accelerator logs actual thread count at INFO.
+- Fallback: pure Python if binary absent or CFL info cannot be parsed.
 - Integration: `accelerator.py` → runs subprocess, reads results from HDF5
+- Diagnostics: C++ stdout prints `H_MIN`, `CFL_DT`, `CFL_SAFETY`, `OMP_THREADS` for Python to capture and log.

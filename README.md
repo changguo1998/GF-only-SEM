@@ -35,7 +35,7 @@ bash examples/halfspace/run.sh
 | `forward/` | C++17 | Elastic CG-SEM solver (libgf) + MPI executable |
 | `postprocess/` | Python | Strain Green's function extraction |
 | `compress/` | C++17 | Header-only HDF5 compression utilities |
-| `tools/` | Python | GMSH→HDF5 converter, VTK visualization |
+| `tools/` | Python | GMSH→HDF5 converter, VTK visualization with GLL sub-cell topology |
 
 ## Key Commands
 
@@ -70,6 +70,7 @@ Key fields: `polynomial_order`, `output_dt_s`, `total_duration_s`, `cfl_safety`,
 - **Source direction** not in config — CLI `--direction {x,y,z}` per run
 - **Elastic only** — SLS attenuation deferred
 - **Full variable names** — `solver_dt`, `snapshot_stride`, `vertex_ids` (no abbreviations)
+- **VTK output with GLL sub-cells** — mesh hexahedra supplemented with GLL-derived edge, face, and sub-volume cells for proper ParaView interpolation; cell data broadcast from parent hex to child GLL cells
 
 ## Testing
 
