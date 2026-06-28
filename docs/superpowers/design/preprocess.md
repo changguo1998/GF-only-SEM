@@ -77,7 +77,7 @@ preprocess/
 The heaviest numerical computations (GLL geometry, CFL h_min, PML damping ramps)
 can be offloaded to a standalone C++ executable via subprocess:
 
-- **Binary**: `preprocess/cpp/gf_preprocess_cpp` (build manually, no MPI)
+- **Binary**: `bin/gf_preprocess_cpp` (built by CMake to `bin/`, or g++ — see Build below)
 - **Dependencies**: HDF5, Eigen3 (same as forward solver)
 - **Data flow**: reads mesh.h5 `/topology/`, writes results to `/field/element/`
 - **Integration**: `accelerator.py` runs the binary, parses `H_MIN` from stdout,
@@ -89,12 +89,19 @@ can be offloaded to a standalone C++ executable via subprocess:
   ```
 - **Build** (example):
   ```sh
-  g++ -std=c++17 -O2 -march=native -I<eigen3>/include/eigen3 \
+  g++ -std=c++17 -O2 -march=native -fopenmp \
+      -I<eigen3>/include/eigen3 \
       -I/usr/include/hdf5/serial -L/usr/lib/x86_64-linux-gnu/hdf5/serial \
-      -o gf_preprocess_cpp main.cpp -lhdf5 -lm
+      -o bin/gf_preprocess_cpp preprocess/cpp/main.cpp -lhdf5 -lm
   ```
 
-This is purely optional — the pipeline runs identically without it.
+  Or via CMake:
+  ```sh
+  cmake -S . -B build && cmake --build build --target gf_preprocess_cpp
+  # binary at bin/gf_preprocess_cpp
+  ```
+
+OpenMP is auto-detected — single-thread fallback if unavailable. The C++ accelerator is used by default when the binary is present; pure Python fallback if absent.
 
 ## Technology
 

@@ -80,6 +80,7 @@ Each rank writes:
 Heavy numerical loops (GLL geometry, CFL h_min, PML damping ramps) can be
 offloaded to a compiled C++ executable.  See `cpp/main.cpp`.
 
-- Binary: `preprocess/cpp/gf_preprocess_cpp` (built manually, no MPI needed)
+- Binary: `bin/gf_preprocess_cpp` (built by CMake to `bin/`, or g++ — see docs)
+- Threading: OpenMP multi-threading enabled by default (single-thread without OpenMP)
 - Fallback: pure Python if binary absent
 - Integration: `accelerator.py` → runs subprocess, reads results from HDF5

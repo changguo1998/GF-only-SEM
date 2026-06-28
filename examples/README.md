@@ -50,6 +50,7 @@ uv sync --group dev
 
 # C++ forward solver
 cd build && cmake .. && make gf_solver
+# binary goes to bin/gf_solver
 
 # MPI environment (if using Spack)
 source env_setup.sh
