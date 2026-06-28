@@ -4,3 +4,11 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 log/
+# Build directories (any variant)
+build*/
+build/*/
+
+# Compiled C++ binaries
+preprocess/cpp/gf_preprocess_cpp
+preprocess/cpp/gf_preprocess_cpp_debug
+*.o
