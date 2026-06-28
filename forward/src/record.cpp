@@ -89,28 +89,31 @@ RecordWriter::RecordWriter(const std::string& output_dir, const std::string& sou
     write_scalar_attr(file_id_, "record_depth_actual_m", H5T_NATIVE_DOUBLE,
                       &record_depth_actual_m);
 
-    // Write vertex_ids dataset
+    // Write vertex_ids dataset (possibly empty)
+    hsize_t elem_dims[1] = {n_vertices_};
+    hid_t elem_space = H5Screate_simple(1, elem_dims, nullptr);
+    if (elem_space < 0)
+        throw std::runtime_error("H5Screate_simple failed for vertex_ids");
+    hid_t elem_dset = H5Dcreate2(file_id_, "vertex_ids", H5T_NATIVE_INT64, elem_space, H5P_DEFAULT,
+                                 H5P_DEFAULT, H5P_DEFAULT);
+    if (elem_dset < 0) {
+        H5Sclose(elem_space);
+        throw std::runtime_error("H5Dcreate2 failed for vertex_ids");
+    }
     if (n_vertices_ > 0) {
-        hsize_t elem_dims[1] = {n_vertices_};
-        hid_t elem_space = H5Screate_simple(1, elem_dims, nullptr);
-        if (elem_space < 0)
-            throw std::runtime_error("H5Screate_simple failed for vertex_ids");
-        hid_t elem_dset = H5Dcreate2(file_id_, "vertex_ids", H5T_NATIVE_INT64, elem_space,
-                                     H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-        if (elem_dset < 0) {
-            H5Sclose(elem_space);
-            throw std::runtime_error("H5Dcreate2 failed for vertex_ids");
-        }
         H5Dwrite(elem_dset, H5T_NATIVE_INT64, H5S_ALL, H5S_ALL, H5P_DEFAULT,
                  rec_map.vertex_ids.data());
-        H5Dclose(elem_dset);
-        H5Sclose(elem_space);
     }
+    H5Dclose(elem_dset);
+    H5Sclose(elem_space);
 
-    // Create extendible strain dataset: [1, n_vertices, 6]
+    // Create extendible strain dataset: [n_snapshots, n_vertices, 6].
+    // Empty recording ranks use shape [0, 0, 6] with unlimited vertex max
+    // so HDF5 can use positive chunk dimensions.
     constexpr hsize_t ncomps = 6;
-    hsize_t strain_dims[3] = {1, n_vertices_, ncomps};
-    hsize_t max_dims[3] = {H5S_UNLIMITED, n_vertices_, ncomps};
+    hsize_t strain_dims[3] = {n_vertices_ > 0 ? hsize_t{1} : hsize_t{0}, n_vertices_, ncomps};
+    hsize_t max_dims[3] = {H5S_UNLIMITED, n_vertices_ > 0 ? n_vertices_ : hsize_t{H5S_UNLIMITED},
+                           ncomps};
 
     hid_t strain_space = H5Screate_simple(3, strain_dims, max_dims);
     if (strain_space < 0)
@@ -123,8 +126,9 @@ RecordWriter::RecordWriter(const std::string& output_dir, const std::string& sou
         throw std::runtime_error("H5Pcreate failed");
     }
 
-    // Chunk along time dimension: 1 snapshot per chunk
-    hsize_t chunk_dims[3] = {1, n_vertices_, ncomps};
+    // Chunk along time dimension: 1 snapshot per chunk. HDF5 requires all
+    // chunk dimensions to be positive even when this rank records zero vertices.
+    hsize_t chunk_dims[3] = {1, n_vertices_ > 0 ? n_vertices_ : hsize_t{1}, ncomps};
     H5Pset_chunk(plist, 3, chunk_dims);
 
     // Apply compression filter
@@ -142,7 +146,7 @@ RecordWriter::RecordWriter(const std::string& output_dir, const std::string& sou
     H5Pclose(plist);
     H5Sclose(strain_space);
 
-    current_step_ = 1;  // already have 1 step allocated
+    current_step_ = n_vertices_ > 0 ? 1 : 0;  // non-empty ranks start with 1 allocated step
 }
 
 RecordWriter::~RecordWriter() {
@@ -156,6 +160,10 @@ void RecordWriter::write_step(int step, const double* strain) {
     (void)step;
     if (file_id_ < 0 || strain_dset_ < 0) {
         throw std::runtime_error("RecordWriter: file not open");
+    }
+
+    if (n_vertices_ == 0) {
+        return;
     }
 
     // Extend dataset along time dimension

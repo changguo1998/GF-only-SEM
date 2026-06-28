@@ -252,12 +252,14 @@ int run_forward(const std::string& direction, bool resume_mode) {
 
             // --- Write snapshot (every snapshot_stride solver steps) ---
             if (cfg.snapshot_stride > 0 && step % cfg.snapshot_stride == 0) {
-                // Compute strain: if recording map is active, compute only at the
-                // specific GLL corner nodes needed (fast path). Otherwise fall back
-                // to full-volume GLL strain computation.
+                // Compute strain: in normal recording mode, write only shallow
+                // mesh-vertex records. Some ranks legitimately have zero recorded
+                // vertices; they must write empty record files, not full-GLL data.
+                // Full-volume GLL strain is only for legacy runs without recording.
                 std::vector<double> rec_strain;
+                bool recording_mode = cfg.record_depth_max_m > 0.0;
                 bool has_recording =
-                    part.recording.has_recording && part.recording.vertex_ids.size() > 0;
+                    part.recording.has_recording && !part.recording.vertex_ids.empty();
 
                 if (has_recording) {
                     size_t n_vertices = part.recording.vertex_ids.size();
@@ -318,7 +320,7 @@ int run_forward(const std::string& direction, bool resume_mode) {
                         out[4] = 0.5 * (du_dx[0][2] + du_dx[2][0]);  // εxz
                         out[5] = 0.5 * (du_dx[1][2] + du_dx[2][1]);  // εyz
                     }
-                } else {
+                } else if (!recording_mode) {
                     // Full GLL strain computation (no recording map)
                     rec_strain.resize(n_local * n_node * 6, 0.0);
                     for (int elem = 0; elem < n_local; ++elem) {

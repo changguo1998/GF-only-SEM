@@ -20,10 +20,10 @@ N_RANKS=$(python -c "import sys; sys.path.insert(0, '${EXAMPLE_DIR}'); import co
 MPIRUN="${MPIRUN:-mpirun}"
 
 # Check gf_solver
-SOLVER="${PROJECT_DIR}/build/forward/gf_solver"
+SOLVER="${PROJECT_DIR}/bin/gf_solver"
 if [ ! -x "${SOLVER}" ]; then
     echo "ERROR: gf_solver not found at ${SOLVER}"
-    echo "       Build with: cd ${PROJECT_DIR}/build && make gf_solver"
+    echo "       Build with: cd ${PROJECT_DIR}/build && cmake --build . --target gf_solver"
     return 1 2>/dev/null || exit 1
 fi
 

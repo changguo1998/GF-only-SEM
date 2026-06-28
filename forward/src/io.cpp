@@ -262,7 +262,11 @@ RankData read_partition(const std::string& path, int /*rank*/) {
     }
 
     // --- Read recording map ---
-    hid_t rec_grp = H5Gopen2(fid, "/recording", H5P_DEFAULT);
+    hid_t rec_grp = -1;
+    H5E_BEGIN_TRY {
+        rec_grp = H5Gopen2(fid, "/recording", H5P_DEFAULT);
+    }
+    H5E_END_TRY;
     if (rec_grp >= 0) {
         H5FileGuard rec_guard(rec_grp);
         data.recording.has_recording = true;
