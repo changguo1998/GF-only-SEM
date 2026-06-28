@@ -20,6 +20,7 @@ Read `mesh.h5` + `config.py`. Write extended `mesh.h5`, `config.h5`, and per-ran
 | `config_loader.py` | import and validate `config.py` |
 | `config_writer.py` | write `config.h5` |
 | `model_writer.py` | write mesh fields and partition files, including `/recording/` |
+| `accelerator.py` | optional C++ subprocess for GLL geometry, CFL, PML damping |
 | `cli.py` | run full pipeline from CWD |
 
 ## Pipeline
@@ -27,11 +28,11 @@ Read `mesh.h5` + `config.py`. Write extended `mesh.h5`, `config.h5`, and per-ran
 ```
 mesh.h5 + config.py
 → load config
-→ compute GLL geometry
+→ [C++ accelerator: GLL geometry, CFL h_min, PML damping ramps]
 → material at GLL nodes
 → CFL + solver_dt + strides
 → source + STF
-→ PML
+→ PML masking
 → validation
 → METIS partition
 → recording map
@@ -73,3 +74,12 @@ Each rank writes:
 ## Design Doc
 
 [`docs/superpowers/design/preprocess.md`](../docs/superpowers/design/preprocess.md)
+
+## C++ Accelerator
+
+Heavy numerical loops (GLL geometry, CFL h_min, PML damping ramps) can be
+offloaded to a compiled C++ executable.  See `cpp/main.cpp`.
+
+- Binary: `preprocess/cpp/gf_preprocess_cpp` (built manually, no MPI needed)
+- Fallback: pure Python if binary absent
+- Integration: `accelerator.py` → runs subprocess, reads results from HDF5

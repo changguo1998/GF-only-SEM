@@ -13,11 +13,12 @@ Python module. Reads mesh topology and `config.py`. Computes derived model data 
 mesh.h5 (/topology/) ─────────┐
 config.py (script, importable) ─┤
                                 ↓
-                          preprocessor (Python)
+                          preprocessor (Python [+ optional C++ accelerator])
                           ├── import config.py
                           ├── read mesh.h5 topology
-                          ├── compute GLL node coords per element
-                          ├── compute geometric quantities (J, dξ/dx)
+                          ├── [C++ accelerator: GLL node coords, J, dξ/dx, mass, CFL h_min, PML ramp]
+                          ├── compute GLL node coords per element (Python fallback)
+                          ├── compute geometric quantities (J, dξ/dx) (Python fallback)
                           ├── call config.py material functions → GLL nodes
                           ├── compute lumped mass
                           ├── auto-detect boundary tags (surface level), set is_pml flags
@@ -50,9 +51,10 @@ Outputs: extend `mesh.h5` and write one `partition_{r}.h5` per rank. No monolith
 preprocess/
 ├── __init__.py
 ├── cli.py              — CLI entry point
+├── accelerator.py      — optional C++ subprocess runner (GLL geom, CFL, PML)
 ├── config_loader.py     — importlib load config.py, validate
 ├── topology_reader.py   — read mesh.h5 /topology/
-├── gll_geometry.py      — compute GLL node coords, jacobian, dξ/dx per element
+├── gll_geometry.py      — compute GLL node coords, jacobian, dξ/dx per element (Python fallback)
 ├── material.py          — evaluate config vp_m_s(x_m,y_m,z_m), vs_m_s(x_m,y_m,z_m), density_kg_m3(x_m,y_m,z_m) at GLL nodes
 ├── mass.py              — compute lumped mass (requires ρ from material step)
 ├── boundary_detector.py — auto boundary tagging (surface level), set is_pml flags
@@ -65,13 +67,41 @@ preprocess/
 ├── preflight.py          — comprehensive pre-flight validation
 ├── partition_writer.py   — write partition_{r}.h5
 └── config_writer.py     — write single config.h5 (rank-invariant, no direction)
+├── cpp/
+│   ├── CMakeLists.txt   — build target
+│   └── main.cpp         — GLL geometry, CFL h_min, PML damping (no MPI)
 ```
+
+## C++ Accelerator
+
+The heaviest numerical computations (GLL geometry, CFL h_min, PML damping ramps)
+can be offloaded to a standalone C++ executable via subprocess:
+
+- **Binary**: `preprocess/cpp/gf_preprocess_cpp` (build manually, no MPI)
+- **Dependencies**: HDF5, Eigen3 (same as forward solver)
+- **Data flow**: reads mesh.h5 `/topology/`, writes results to `/field/element/`
+- **Integration**: `accelerator.py` runs the binary, parses `H_MIN` from stdout,
+  reads precomputed arrays from HDF5. Falls back to pure Python if binary absent.
+- **CLI signature**:
+  ```
+  gf_preprocess_cpp <mesh.h5> <N> <cfl_safety> \
+      <pml_xmin> <pml_xmax> <pml_ymin> <pml_ymax> <pml_zmin> <pml_zmax>
+  ```
+- **Build** (example):
+  ```sh
+  g++ -std=c++17 -O2 -march=native -I<eigen3>/include/eigen3 \
+      -I/usr/include/hdf5/serial -L/usr/lib/x86_64-linux-gnu/hdf5/serial \
+      -o gf_preprocess_cpp main.cpp -lhdf5 -lm
+  ```
+
+This is purely optional — the pipeline runs identically without it.
 
 ## Technology
 
 - Python 3.10+
 - numpy, h5py, scipy (interpolation), pytest
 - METIS — called via ctypes or subprocess (partition step)
+- Optional C++17 (HDF5, Eigen3) for heavy loops via subprocess
 - No YAML/TOML dependency
 - Elastic only — SLS attenuation deferred
 

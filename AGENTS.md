@@ -12,7 +12,7 @@ Full math formulation: [`docs/math.md`](docs/math.md)
 
 | Module | Language | Purpose | AGENTS.md |
 |--------|----------|---------|-----------|
-| `preprocess/` | Python | GLL geometry, material interpolation, PML, partition, config | [`preprocess/AGENTS.md`](preprocess/AGENTS.md) |
+| `preprocess/` | Python + C++17 (optional) | GLL geometry, material interpolation, PML, partition, config; optional C++ accelerator for heavy loops | [`preprocess/AGENTS.md`](preprocess/AGENTS.md) |
 | `forward/` | C++17 | Elastic SEM solver (libgf) + MPI executable | [`forward/AGENTS.md`](forward/AGENTS.md) |
 | `compress/` | C++17 | HDF5 compression utilities (header-only) | [`compress/AGENTS.md`](compress/AGENTS.md) |
 | `postprocess/` | Python | Strain Green's function extraction | [`postprocess/AGENTS.md`](postprocess/AGENTS.md) |
@@ -27,7 +27,7 @@ Full math formulation: [`docs/math.md`](docs/math.md)
 | Build | CMake |
 | I/O | HDF5 |
 | Mesh partitioning | METIS (called from preprocessor) |
-| Pre/post | Python |
+| Pre/post | Python + optional C++17 (accelerator) |
 | External reference | `external_reference_codes/` (read-only, untracked by git) |
 | Design docs | `docs/design-decisions.md`, `docs/math.md`, `docs/superpowers/design/` |
 
