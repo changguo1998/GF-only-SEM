@@ -327,7 +327,7 @@ Output in each `partition_{r}.h5`:
   save_element_mask          bool[n_local_elem]
   vertex_ids                 int64[n_record_vertices]
   source_element_local_index int32[n_record_vertices]
-  source_corner_index        int8[n_record_vertices]
+  source_corner_index        int32[n_record_vertices]
 ```
 
 ### 11. Evaluate STF

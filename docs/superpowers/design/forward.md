@@ -111,7 +111,7 @@ Per-rank file from preprocess. Each rank reads only its file. Contains local ele
 | `/partition/gll_to_global` | int64[n_elem_local, NGLL, NGLL, NGLL] — global GLL node ID per local element (1-based, 0=null) |
 | `/recording/vertex_ids` | int64[n_record_vertices] — global mesh vertex IDs to write from this rank |
 | `/recording/source_element_local_index` | int32[n_record_vertices] — local source element for each recorded vertex |
-| `/recording/source_corner_index` | int8[n_record_vertices] — SEM corner index for each recorded vertex |
+| `/recording/source_corner_index` | int32[n_record_vertices] — SEM corner index for each recorded vertex |
 | `/partition/rank_{r}/exchange/` | Per-rank exchange patterns (precomputed face-pair lists for MPI halo) |
 Note: forward solver reads from `partition_{r}.h5`, not a global model file. Each MPI rank opens and reads only its own `partition_{r}.h5` at startup. The preprocessor generates these per-rank files from the global mesh.
 
@@ -495,6 +495,8 @@ for step in 0..nsteps-1:
        Use ε_smooth from the L2 projection (not raw ε_elem).
        Sample only preprocessing-selected mesh vertices (`/recording/` map):
        non-PML, depth <= record_depth_actual_m, mesh corners only.
+       Fast path: only compute strain at recorded GLL corner nodes,
+       skipping the full NGLL³ interior for elements with no recorded vertices.
        Append to wavefields/{direction}/record_{r}.h5
        (6 components: εxx, εyy, εzz, εxy, εxz, εyz)
 
@@ -571,13 +573,14 @@ forward/
 │   ├── newmark.hpp            — NewmarkPredictor, NewmarkCorrector
 │   ├── source.hpp             — PointForceSource (Lagrange interpolation)
 │   ├── exchange.hpp           — MPI halo exchange (precomputed face lists)
-│   ├── record.hpp             — strain and restart HDF5 writers
+│   ├── record.hpp             — shallow-vertex strain HDF5 writer
+│   ├── restart.hpp            — restart/resume full-volume HDF5 writer/reader
 │   ├── io.hpp                 — partition_{r}.h5 + config.h5 reader
 │   └── solver.hpp             — run_forward() loop, --resume support
 ├── src/
 │   ├── element.cpp, assembly.cpp
 │   ├── pml.cpp, newmark.cpp, source.cpp
-│   ├── exchange.cpp, record.cpp, io.cpp
+│   ├── exchange.cpp, record.cpp, restart.cpp, io.cpp
 │   ├── solver.cpp
 │   └── main.cpp               — gf_solver entry point
 └── tests/

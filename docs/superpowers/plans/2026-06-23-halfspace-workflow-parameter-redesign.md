@@ -139,9 +139,9 @@
 
 ## Task 13 — Docs
 
-- [ ] Update `docs/design-decisions.md`.
-- [ ] Update `docs/superpowers/design/preprocess.md`.
-- [ ] Update `docs/superpowers/design/forward.md`.
+- [x] Update `docs/design-decisions.md`.
+- [x] Update `docs/superpowers/design/preprocess.md`.
+- [x] Update `docs/superpowers/design/forward.md`.
 
 ## Task 14 — Integration
 
