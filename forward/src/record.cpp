@@ -56,8 +56,13 @@ void write_string_attr(hid_t loc_id, const std::string& name, const std::string&
 
 RecordWriter::RecordWriter(const std::string& output_dir, const std::string& source_direction,
                            int rank, const RankData::RecordingMap& rec_map, int ngll,
-                           CompressionConfig compression, bool use_float32)
-    : file_id_(-1), strain_dset_(-1), current_step_(0), ngll_(ngll), use_float32_(use_float32),
+                           CompressionConfig compression, bool use_float32,
+                           double record_depth_max_m, double record_depth_actual_m)
+    : file_id_(-1),
+      strain_dset_(-1),
+      current_step_(0),
+      ngll_(ngll),
+      use_float32_(use_float32),
       source_direction_(source_direction) {
     n_vertices_ = static_cast<hsize_t>(rec_map.vertex_ids.size());
 
@@ -77,7 +82,12 @@ RecordWriter::RecordWriter(const std::string& output_dir, const std::string& sou
     write_scalar_attr(file_id_, "rank", H5T_NATIVE_INT, &rank_int);
     write_scalar_attr(file_id_, "ngll", H5T_NATIVE_INT, &ngll);
     write_string_attr(file_id_, "basis", "mesh_vertices");
-    write_scalar_attr(file_id_, "excludes_pml", H5T_NATIVE_HBOOL, &rec_map.has_recording);
+    hbool_t excludes_pml_flag = rec_map.has_recording ? 1 : 0;
+    write_scalar_attr(file_id_, "excludes_pml", H5T_NATIVE_HBOOL, &excludes_pml_flag);
+
+    write_scalar_attr(file_id_, "record_depth_max_m", H5T_NATIVE_DOUBLE, &record_depth_max_m);
+    write_scalar_attr(file_id_, "record_depth_actual_m", H5T_NATIVE_DOUBLE,
+                      &record_depth_actual_m);
 
     // Write vertex_ids dataset
     if (n_vertices_ > 0) {

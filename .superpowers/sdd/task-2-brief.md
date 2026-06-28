@@ -7,16 +7,16 @@ Add restart/resume capability to the forward solver and change `RecordWriter` to
 ## Files to Create/Modify
 
 1. **Create** `forward/include/gf/restart.hpp` — `RestartWriter` + `RestartReader` class declarations
-2. **Create** `forward/src/restart.cpp` — implementation
-3. `forward/include/gf/record.hpp` — change `RecordWriter` to use recording map
-4. `forward/src/record.cpp` — implement shallow vertex recording
-5. `forward/include/gf/io.hpp` — add recording map to `RankData`, add `restart_dt_s`/`restart_stride` to `ConfigData`
-6. `forward/src/io.cpp` — read `/recording/` group from partition, read restart config
-7. `forward/include/gf/types.hpp` — add `RecordingMap` struct
-8. `forward/include/gf/solver.hpp` — add `--resume` flag
-9. `forward/src/solver.cpp` — integrate restart writes, resume, shallow recording
-10. `forward/src/main.cpp` — parse `--resume` flag
-11. `forward/CMakeLists.txt` — add `src/restart.cpp`
+1. **Create** `forward/src/restart.cpp` — implementation
+1. `forward/include/gf/record.hpp` — change `RecordWriter` to use recording map
+1. `forward/src/record.cpp` — implement shallow vertex recording
+1. `forward/include/gf/io.hpp` — add recording map to `RankData`, add `restart_dt_s`/`restart_stride` to `ConfigData`
+1. `forward/src/io.cpp` — read `/recording/` group from partition, read restart config
+1. `forward/include/gf/types.hpp` — add `RecordingMap` struct
+1. `forward/include/gf/solver.hpp` — add `--resume` flag
+1. `forward/src/solver.cpp` — integrate restart writes, resume, shallow recording
+1. `forward/src/main.cpp` — parse `--resume` flag
+1. `forward/CMakeLists.txt` — add `src/restart.cpp`
 
 ## Design
 
@@ -32,6 +32,7 @@ struct RecordingMap {
 ```
 
 Add to `RankData`:
+
 ```cpp
 RecordingMap recording;
 ```
@@ -54,6 +55,7 @@ bool resume_mode = false;        // if true, restore from restart file
 **After:** writes `/strain` with shape `[n_snapshots, n_record_vertices, 6]`
 
 Schema:
+
 ```
 wavefields/{direction}/record_{r}.h5
 ├── attrs:
@@ -68,11 +70,13 @@ wavefields/{direction}/record_{r}.h5
 ```
 
 Constructor changes:
+
 ```cpp
 RecordWriter(const std::string& output_dir, const std::string& source_direction, int rank,
              const RecordingMap& rec_map, int ngll,
              CompressionConfig compression, bool use_float32 = false);
 ```
+
 - No more `n_local_elem` / `element_ids` — use `rec_map.vertex_ids.size()` for n_vertices
 - Write `vertex_ids` dataset
 - Write new attrs: `basis`, `record_depth_max_m`, `record_depth_actual_m`, `excludes_pml`
@@ -99,6 +103,7 @@ private:
 ```
 
 Schema:
+
 ```
 restart/{direction}/restart_{r}.h5
 ├── attrs:
@@ -133,15 +138,15 @@ RestartState read_restart(const std::string& output_dir, const std::string& sour
 ### Solver changes (solver.cpp)
 
 1. After reading partition, check if `recording.has_recording` is true
-2. Initialize RecordWriter with `rec_map` (shallow vertices)
-3. At snapshot steps:
+1. Initialize RecordWriter with `rec_map` (shallow vertices)
+1. At snapshot steps:
    - Compute strain at all GLL nodes (current full computation)
    - **Extract only recording-map vertices** using `src_elem_local` + `src_corner` indices
    - Write shallow strain via `record.write_step()`
-4. Compute `restart_stride` from config: if `restart_dt_s > 0`, `restart_stride = round(restart_dt_s / solver_dt)`
-5. Initialize RestartWriter if `restart_stride > 0`
-6. At restart steps (`step > 0 && step % restart_stride == 0`), call `restart.write()`
-7. If `resume_mode`:
+1. Compute `restart_stride` from config: if `restart_dt_s > 0`, `restart_stride = round(restart_dt_s / solver_dt)`
+1. Initialize RestartWriter if `restart_stride > 0`
+1. At restart steps (`step > 0 && step % restart_stride == 0`), call `restart.write()`
+1. If `resume_mode`:
    - Read restart file via `RestartReader`
    - Restore u, v, a, pml_damping arrays
    - Start loop from `restored_step + 1`
@@ -149,6 +154,7 @@ RestartState read_restart(const std::string& output_dir, const std::string& sour
 ### Config reading (io.cpp)
 
 Add these to `/simulation/` attribute reads:
+
 ```cpp
 read_attr_double(sim_grp, "record_depth_max_m", cfg.record_depth_max_m);
 read_attr_double(sim_grp, "record_depth_actual_m", cfg.record_depth_actual_m);
@@ -162,6 +168,7 @@ If `restart_dt_s` is missing or 0, no restart writes occur.
 ### Partition reading (io.cpp)
 
 Read `/recording/` group:
+
 ```cpp
 hid_t rec_grp = H5Gopen2(fid, "/recording", H5P_DEFAULT);
 if (rec_grp >= 0) {
@@ -178,6 +185,7 @@ Note: HDF5 doesn't have `int8` natively — write/read as `H5T_NATIVE_INT8` (cha
 ### main.cpp
 
 Add `--resume` flag:
+
 ```
 gf_solver --direction x [--resume]
 ```
@@ -195,12 +203,14 @@ If `--resume`, set `cfg.resume_mode = true`.
 ## Tests
 
 The forward module uses Catch2 tests in `tests/`. For this task:
+
 - Extend existing forward tests if they exist
 - At minimum, verify compilation succeeds and the new classes construct/destruct cleanly
 
 ## Build
 
 Add `src/restart.cpp` to `forward/CMakeLists.txt`:
+
 ```cmake
 add_library(
     libgf STATIC

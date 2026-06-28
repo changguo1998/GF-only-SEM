@@ -60,7 +60,7 @@ struct RankData {
         bool has_recording = false;           // true if /recording/ group exists
         std::vector<int64_t> vertex_ids;      // global mesh vertex IDs [n_vertices]
         std::vector<int32_t> src_elem_local;  // local element index [n_vertices]
-        std::vector<int8_t> src_corner;       // corner index 0-7 [n_vertices]
+        std::vector<int32_t> src_corner;      // corner index 0-7 [n_vertices]
     };
     RecordingMap recording;
 };
@@ -92,9 +92,8 @@ struct ConfigData {
     double record_depth_max_m = 0.0;
     double record_depth_actual_m = 0.0;
     double green_tile_size_m = 0.0;
-    double restart_dt_s = 0.0;       // 0 = no restart
-    int restart_stride = 0;          // 0 = no restart
-    bool resume_mode = false;        // true if --resume flag set
+    double restart_dt_s = 0.0;  // 0 = no restart
+    int restart_stride = 0;     // 0 = no restart
 
     // Source
     std::vector<double> stf_t;

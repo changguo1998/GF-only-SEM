@@ -30,8 +30,9 @@ public:
     /// \param compression      Compression configuration
     /// \param use_float32      If true, store strain as 32-bit float
     RecordWriter(const std::string& output_dir, const std::string& source_direction, int rank,
-                 const RankData::RecordingMap& rec_map, int ngll,
-                 CompressionConfig compression, bool use_float32 = false);
+                 const RankData::RecordingMap& rec_map, int ngll, CompressionConfig compression,
+                 bool use_float32 = false, double record_depth_max_m = 0.0,
+                 double record_depth_actual_m = 0.0);
 
     ~RecordWriter();
 

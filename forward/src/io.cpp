@@ -267,10 +267,10 @@ RankData read_partition(const std::string& path, int /*rank*/) {
         H5FileGuard rec_guard(rec_grp);
         data.recording.has_recording = true;
         data.recording.vertex_ids = read_dataset_int64(fid, "/recording/vertex_ids");
-        data.recording.src_elem_local = read_dataset_int32(fid, "/recording/source_element_local_index");
-        // Read corner index as int32 (stored as int32 in HDF5)
-        auto corner_data = read_dataset_int32(fid, "/recording/source_corner_index");
-        data.recording.src_corner.assign(corner_data.begin(), corner_data.end());
+        data.recording.src_elem_local =
+            read_dataset_int32(fid, "/recording/source_element_local_index");
+        // Read corner index as int32
+        data.recording.src_corner = read_dataset_int32(fid, "/recording/source_corner_index");
     }
 
     return data;

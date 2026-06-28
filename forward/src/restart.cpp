@@ -48,8 +48,8 @@ void write_string_attr(hid_t loc_id, const std::string& name, const std::string&
         throw std::runtime_error("H5Awrite failed for string attr: " + name);
 }
 
-void write_dset(hid_t loc_id, const std::string& name, const std::vector<double>& data,
-                int ndim, const hsize_t* dims) {
+void write_dset(hid_t loc_id, const std::string& name, const std::vector<double>& data, int ndim,
+                const hsize_t* dims) {
     // Remove existing dataset if present (overwrite mode)
     if (H5Lexists(loc_id, name.c_str(), H5P_DEFAULT) > 0) {
         H5Ldelete(loc_id, name.c_str(), H5P_DEFAULT);
@@ -71,7 +71,7 @@ void write_dset(hid_t loc_id, const std::string& name, const std::vector<double>
 }  // anonymous namespace
 
 RestartWriter::RestartWriter(const std::string& output_dir, const std::string& source_direction,
-                              int rank, int n_local_elem, int ngll)
+                             int rank, int n_local_elem, int ngll)
     : file_id_(-1), n_elem_local_(n_local_elem), ngll_(ngll), source_direction_(source_direction) {
     std::string restart_dir = output_dir + "/" + source_direction;
     filepath_ = restart_dir + "/restart_" + std::to_string(rank) + ".h5";
@@ -95,9 +95,9 @@ RestartWriter::~RestartWriter() {
 }
 
 void RestartWriter::write(int step, double time_s, const std::vector<double>& displacement,
-                           const std::vector<double>& velocity,
-                           const std::vector<double>& acceleration,
-                           const std::vector<double>& pml_damping) {
+                          const std::vector<double>& velocity,
+                          const std::vector<double>& acceleration,
+                          const std::vector<double>& pml_damping) {
     if (file_id_ < 0) {
         throw std::runtime_error("RestartWriter: file not open");
     }
@@ -106,12 +106,10 @@ void RestartWriter::write(int step, double time_s, const std::vector<double>& di
     write_scalar_attr(file_id_, "step", H5T_NATIVE_INT, &step);
     write_scalar_attr(file_id_, "time_s", H5T_NATIVE_DOUBLE, &time_s);
 
-    hsize_t dims4[4] = {static_cast<hsize_t>(n_elem_local_),
-                        static_cast<hsize_t>(ngll_), static_cast<hsize_t>(ngll_),
-                        static_cast<hsize_t>(ngll_)};
-    hsize_t dims4_3[5] = {static_cast<hsize_t>(n_elem_local_),
-                          static_cast<hsize_t>(ngll_), static_cast<hsize_t>(ngll_),
-                          static_cast<hsize_t>(ngll_), 3};
+    hsize_t dims4[4] = {static_cast<hsize_t>(n_elem_local_), static_cast<hsize_t>(ngll_),
+                        static_cast<hsize_t>(ngll_), static_cast<hsize_t>(ngll_)};
+    hsize_t dims4_3[5] = {static_cast<hsize_t>(n_elem_local_), static_cast<hsize_t>(ngll_),
+                          static_cast<hsize_t>(ngll_), static_cast<hsize_t>(ngll_), 3};
 
     write_dset(file_id_, "displacement", displacement, 5, dims4_3);
     write_dset(file_id_, "velocity", velocity, 5, dims4_3);
@@ -127,7 +125,7 @@ void RestartWriter::close() {
 }
 
 RestartState read_restart(const std::string& output_dir, const std::string& source_direction,
-                           int rank) {
+                          int rank) {
     std::string filepath =
         output_dir + "/" + source_direction + "/restart_" + std::to_string(rank) + ".h5";
 

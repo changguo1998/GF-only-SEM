@@ -31,11 +31,6 @@ namespace gf {
 
 namespace {
 
-// 1D flat index for (elem, i, j, k) in element-first layout
-inline int elem_idx(int e, int i, int j, int k, int n_node, int stride = 1) {
-    return (e * n_node + (i * stride + j) * stride + k);
-}
-
 // Newmark explicit predict step: ũ = u + dt·v + (dt²/2)·(1-2β)·a
 inline void newmark_predict(double dt, double beta, const std::vector<double>& u,
                             const std::vector<double>& v, const std::vector<double>& a,
@@ -136,8 +131,8 @@ int run_forward(const std::string& direction, bool resume_mode) {
             comp_cfg.method = CompressionMethod::Zlib;
 
         bool use_float32 = (cfg.snapshot_precision == "float32");
-        RecordWriter record(output_dir, direction, rank, part.recording, ngll,
-                            comp_cfg, use_float32);
+        RecordWriter record(output_dir, direction, rank, part.recording, ngll, comp_cfg,
+                            use_float32, cfg.record_depth_max_m, cfg.record_depth_actual_m);
         logger.debug("  record vertices: " + std::to_string(record.n_vertices()));
 
         // === Locate source element ===
@@ -162,7 +157,8 @@ int run_forward(const std::string& direction, bool resume_mode) {
         int restart_stride = 0;
         if (cfg.restart_dt_s > 0.0 && cfg.solver_dt > 0.0) {
             restart_stride = static_cast<int>(std::round(cfg.restart_dt_s / cfg.solver_dt));
-            if (restart_stride < 1) restart_stride = 1;
+            if (restart_stride < 1)
+                restart_stride = 1;
         } else if (cfg.restart_stride > 0) {
             restart_stride = cfg.restart_stride;
         }
@@ -188,11 +184,11 @@ int run_forward(const std::string& direction, bool resume_mode) {
                     }
                     start_step = rs.step + 1;
                     logger.info("  resumed at step " + std::to_string(start_step) +
-                               " (time_s=" + std::to_string(rs.time_s) + ")");
+                                " (time_s=" + std::to_string(rs.time_s) + ")");
                 }
             } catch (const std::exception& e) {
                 logger.error(std::string("  resume failed: ") + e.what() +
-                              " — starting from scratch");
+                             " — starting from scratch");
             }
         }
         for (int step = start_step; step < cfg.nsteps; ++step) {
@@ -249,82 +245,121 @@ int run_forward(const std::string& direction, bool resume_mode) {
 
             // --- Write snapshot (every snapshot_stride solver steps) ---
             if (cfg.snapshot_stride > 0 && step % cfg.snapshot_stride == 0) {
-                // Compute strain at all GLL nodes (Voigt order: εxx, εyy, εzz, εxy, εxz, εyz)
-                // Then extract only recording-map vertices if available
-                std::vector<double> full_strain(n_local * n_node * 6, 0.0);
+                // Compute strain: if recording map is active, compute only at the
+                // specific GLL corner nodes needed (fast path). Otherwise fall back
+                // to full-volume GLL strain computation.
+                std::vector<double> rec_strain;
+                bool has_recording =
+                    part.recording.has_recording && part.recording.vertex_ids.size() > 0;
 
-                for (int e = 0; e < n_local; ++e) {
-                    for (int i = 0; i < ngll; ++i) {
-                        for (int j = 0; j < ngll; ++j) {
-                            for (int k = 0; k < ngll; ++k) {
-                                const int n = (i * ngll + j) * ngll + k;
-                                const double* dd = &part.dxi_dx[e * n_node * 9 + n * 9];
-                                const double* uu = &u[e * n_node * 3 + n * 3];
+                if (has_recording) {
+                    size_t nv = part.recording.vertex_ids.size();
+                    rec_strain.resize(nv * 6, 0.0);
+                    for (size_t vi = 0; vi < nv; ++vi) {
+                        int elem = part.recording.src_elem_local[vi];
+                        int corner = part.recording.src_corner[vi];
 
-                                // Reference gradient: du_dxi
-                                double dudxi[3] = {0.0, 0.0, 0.0};
-                                double dudeta[3] = {0.0, 0.0, 0.0};
-                                double dudzeta[3] = {0.0, 0.0, 0.0};
+                        // Corner → GLL (i, j, k) indices
+                        int ci = (corner & 1) ? (ngll - 1) : 0;
+                        int cj = (corner & 2) ? (ngll - 1) : 0;
+                        int ck = (corner & 4) ? (ngll - 1) : 0;
 
-                                for (int s = 0; s < ngll; ++s) {
-                                    double Di_s = D_mat[i * ngll + s];
-                                    double Dj_s = D_mat[j * ngll + s];
-                                    double Dk_s = D_mat[k * ngll + s];
-                                    int n_sjk = (s * ngll + j) * ngll + k;
-                                    int n_isk = (i * ngll + s) * ngll + k;
-                                    int n_ijs = (i * ngll + j) * ngll + s;
+                        const int cn = (ci * ngll + cj) * ngll + ck;
+                        const double* dd = &part.dxi_dx[elem * n_node * 9 + cn * 9];
+                        const double* uu = &u[elem * n_node * 3 + cn * 3];
 
-                                    for (int d = 0; d < 3; ++d) {
-                                        dudxi[d] += Di_s * uu[3 * n_sjk + d];
-                                        dudeta[d] += Dj_s * uu[3 * n_isk + d];
-                                        dudzeta[d] += Dk_s * uu[3 * n_ijs + d];
+                        // Reference gradient at this GLL node
+                        double dudxi[3] = {0.0, 0.0, 0.0};
+                        double dudeta[3] = {0.0, 0.0, 0.0};
+                        double dudzeta[3] = {0.0, 0.0, 0.0};
+                        for (int s = 0; s < ngll; ++s) {
+                            double Di_s = D_mat[ci * ngll + s];
+                            double Dj_s = D_mat[cj * ngll + s];
+                            double Dk_s = D_mat[ck * ngll + s];
+                            int n_sjk = (s * ngll + cj) * ngll + ck;
+                            int n_isk = (ci * ngll + s) * ngll + ck;
+                            int n_ijs = (ci * ngll + cj) * ngll + s;
+                            for (int d = 0; d < 3; ++d) {
+                                dudxi[d] += Di_s * uu[3 * n_sjk + d];
+                                dudeta[d] += Dj_s * uu[3 * n_isk + d];
+                                dudzeta[d] += Dk_s * uu[3 * n_ijs + d];
+                            }
+                        }
+
+                        // Transform to physical gradient
+                        double du_dx[3][3];
+                        for (int comp = 0; comp < 3; ++comp) {
+                            du_dx[comp][0] =
+                                dudxi[comp] * dd[0] + dudeta[comp] * dd[1] + dudzeta[comp] * dd[2];
+                            du_dx[comp][1] =
+                                dudxi[comp] * dd[3] + dudeta[comp] * dd[4] + dudzeta[comp] * dd[5];
+                            du_dx[comp][2] =
+                                dudxi[comp] * dd[6] + dudeta[comp] * dd[7] + dudzeta[comp] * dd[8];
+                        }
+
+                        // Symmetric strain (Voigt order)
+                        double* out = &rec_strain[vi * 6];
+                        out[0] = du_dx[0][0];                        // εxx
+                        out[1] = du_dx[1][1];                        // εyy
+                        out[2] = du_dx[2][2];                        // εzz
+                        out[3] = 0.5 * (du_dx[0][1] + du_dx[1][0]);  // εxy
+                        out[4] = 0.5 * (du_dx[0][2] + du_dx[2][0]);  // εxz
+                        out[5] = 0.5 * (du_dx[1][2] + du_dx[2][1]);  // εyz
+                    }
+                } else {
+                    // Full GLL strain computation (no recording map)
+                    rec_strain.resize(n_local * n_node * 6, 0.0);
+                    for (int e = 0; e < n_local; ++e) {
+                        for (int i = 0; i < ngll; ++i) {
+                            for (int j = 0; j < ngll; ++j) {
+                                for (int k = 0; k < ngll; ++k) {
+                                    const int n = (i * ngll + j) * ngll + k;
+                                    const double* dd = &part.dxi_dx[e * n_node * 9 + n * 9];
+                                    const double* uu = &u[e * n_node * 3 + n * 3];
+                                    double dudxi[3] = {0.0, 0.0, 0.0};
+                                    double dudeta[3] = {0.0, 0.0, 0.0};
+                                    double dudzeta[3] = {0.0, 0.0, 0.0};
+                                    for (int s = 0; s < ngll; ++s) {
+                                        double Di_s = D_mat[i * ngll + s];
+                                        double Dj_s = D_mat[j * ngll + s];
+                                        double Dk_s = D_mat[k * ngll + s];
+                                        int n_sjk = (s * ngll + j) * ngll + k;
+                                        int n_isk = (i * ngll + s) * ngll + k;
+                                        int n_ijs = (i * ngll + j) * ngll + s;
+                                        for (int d = 0; d < 3; ++d) {
+                                            dudxi[d] += Di_s * uu[3 * n_sjk + d];
+                                            dudeta[d] += Dj_s * uu[3 * n_isk + d];
+                                            dudzeta[d] += Dk_s * uu[3 * n_ijs + d];
+                                        }
                                     }
+                                    double du_dx[3][3];
+                                    for (int comp = 0; comp < 3; ++comp) {
+                                        du_dx[comp][0] = dudxi[comp] * dd[0] +
+                                                         dudeta[comp] * dd[1] +
+                                                         dudzeta[comp] * dd[2];
+                                        du_dx[comp][1] = dudxi[comp] * dd[3] +
+                                                         dudeta[comp] * dd[4] +
+                                                         dudzeta[comp] * dd[5];
+                                        du_dx[comp][2] = dudxi[comp] * dd[6] +
+                                                         dudeta[comp] * dd[7] +
+                                                         dudzeta[comp] * dd[8];
+                                    }
+                                    int strain_offset = e * n_node * 6 + n * 6;
+                                    rec_strain[strain_offset + 0] = du_dx[0][0];
+                                    rec_strain[strain_offset + 1] = du_dx[1][1];
+                                    rec_strain[strain_offset + 2] = du_dx[2][2];
+                                    rec_strain[strain_offset + 3] =
+                                        0.5 * (du_dx[0][1] + du_dx[1][0]);
+                                    rec_strain[strain_offset + 4] =
+                                        0.5 * (du_dx[0][2] + du_dx[2][0]);
+                                    rec_strain[strain_offset + 5] =
+                                        0.5 * (du_dx[1][2] + du_dx[2][1]);
                                 }
-
-                                // Transform to physical gradient
-                                double du_dx[3][3];
-                                for (int comp = 0; comp < 3; ++comp) {
-                                    du_dx[comp][0] = dudxi[comp] * dd[0] + dudeta[comp] * dd[1] +
-                                                     dudzeta[comp] * dd[2];
-                                    du_dx[comp][1] = dudxi[comp] * dd[3] + dudeta[comp] * dd[4] +
-                                                     dudzeta[comp] * dd[5];
-                                    du_dx[comp][2] = dudxi[comp] * dd[6] + dudeta[comp] * dd[7] +
-                                                     dudzeta[comp] * dd[8];
-                                }
-
-                                // Symmetric strain (Voigt order)
-                                int strain_offset = e * n_node * 6 + n * 6;
-                                full_strain[strain_offset + 0] = du_dx[0][0];  // εxx
-                                full_strain[strain_offset + 1] = du_dx[1][1];  // εyy
-                                full_strain[strain_offset + 2] = du_dx[2][2];  // εzz
-                                full_strain[strain_offset + 3] =
-                                    0.5 * (du_dx[0][1] + du_dx[1][0]);  // εxy
-                                full_strain[strain_offset + 4] =
-                                    0.5 * (du_dx[0][2] + du_dx[2][0]);  // εxz
-                                full_strain[strain_offset + 5] =
-                                    0.5 * (du_dx[1][2] + du_dx[2][1]);  // εyz
                             }
                         }
                     }
                 }
-                // Extract only recording-map vertices (shallow mesh corners)
-                std::vector<double> rec_strain;
-                if (part.recording.has_recording && part.recording.vertex_ids.size() > 0) {
-                    size_t nv = part.recording.vertex_ids.size();
-                    rec_strain.resize(nv * 6, 0.0);
-                    for (size_t vi = 0; vi < nv; ++vi) {
-                        int local_elem = part.recording.src_elem_local[vi];
-                        int corner = part.recording.src_corner[vi];
-                        int stride = n_node;
-                        int src_offset = (local_elem * stride + corner) * 6;
-                        for (int c = 0; c < 6; ++c) {
-                            rec_strain[vi * 6 + c] = full_strain[src_offset + c];
-                        }
-                    }
-                } else {
-                    // Fallback: full GLL strain (backward compat)
-                    rec_strain = full_strain;
-                }
+
                 record.write_step(step, rec_strain.data());
 
                 // --- Progress report ---
