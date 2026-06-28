@@ -27,40 +27,50 @@ def _find_binary() -> str | None:
     """Locate gf_preprocess_cpp binary.
 
     Search order:
-      1. Same directory as this module (preprocess/cpp/...)
-      2. PATH
-      3. Build directory adjacent to source (preprocess/cpp/build/...)
+      1. Project bin/ directory (bin/gf_preprocess_cpp)
+      2. Same directory as this module (preprocess/cpp/gf_preprocess_cpp)
+      3. PATH (gf_preprocess_cpp)
+      4. CMake build directories
     Returns absolute path or None.
     """
-    # Same directory as this module
     this_dir = os.path.dirname(os.path.abspath(__file__))
-    candidates = [
-        os.path.join(this_dir, "cpp", "gf_preprocess_cpp"),
-        os.path.join(this_dir, "cpp", "build", "gf_preprocess_cpp"),
-        "gf_preprocess_cpp",  # via PATH
-    ]
-
-    for cand in candidates:
-        if os.path.isfile(cand) and os.access(cand, os.X_OK):
-            logger.debug(f"Found C++ accelerator: {cand}")
-            return os.path.abspath(cand)
-        # Also try with .exe suffix (Windows/MinGW)
-        cand_exe = cand + ".exe"
-        if os.path.isfile(cand_exe) and os.access(cand_exe, os.X_OK):
-            logger.debug(f"Found C++ accelerator: {cand_exe}")
-            return os.path.abspath(cand_exe)
-
-    # Check build directory relative to project root
     project_root = os.path.dirname(this_dir)  # preprocess/ is one level down
-    build_candidates = [
-        os.path.join(project_root, "build", "preprocess", "cpp", "gf_preprocess_cpp"),
-        os.path.join(project_root, "build", "preprocess", "cpp", "gf_preprocess_cpp.exe"),
-        os.path.join(project_root, "build", "preprocess", "cpp", "Debug", "gf_preprocess_cpp.exe"),
-    ]
-    for cand in build_candidates:
+
+    def _check(cand: str) -> str | None:
         if os.path.isfile(cand) and os.access(cand, os.X_OK):
             logger.debug(f"Found C++ accelerator: {cand}")
             return os.path.abspath(cand)
+        return None
+
+    # 1. Project bin/ directory (standard location)
+    for suffix in ("", ".exe"):
+        found = _check(os.path.join(project_root, "bin", f"gf_preprocess_cpp{suffix}"))
+        if found:
+            return found
+
+    # 2. Source-adjacent (preprocess/cpp/)
+    for suffix in ("", ".exe"):
+        found = _check(os.path.join(this_dir, "cpp", f"gf_preprocess_cpp{suffix}"))
+        if found:
+            return found
+        found = _check(os.path.join(this_dir, "cpp", "build", f"gf_preprocess_cpp{suffix}"))
+        if found:
+            return found
+
+    # 3. PATH
+    for suffix in ("", ".exe"):
+        found = _check(f"gf_preprocess_cpp{suffix}")
+        if found:
+            return found
+
+    # 4. CMake build dirs
+    for suffix in ("", ".exe"):
+        found = _check(os.path.join(project_root, "build", "preprocess", "cpp", f"gf_preprocess_cpp{suffix}"))
+        if found:
+            return found
+        found = _check(os.path.join(project_root, "build", "preprocess", "cpp", "Debug", f"gf_preprocess_cpp{suffix}"))
+        if found:
+            return found
 
     logger.info("C++ accelerator not found — using pure Python")
     return None

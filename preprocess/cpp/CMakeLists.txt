@@ -31,3 +31,7 @@ else()
 endif()
 
 target_compile_features(gf_preprocess_cpp PRIVATE cxx_std_17)
+# Output binary to project bin/ directory
+set_target_properties(gf_preprocess_cpp PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin"
+)
