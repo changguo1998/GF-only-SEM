@@ -61,7 +61,15 @@ On each snapshot write (rank 0 only), an in-place progress line is printed:
  500/5000  10%  elapsed= 123.4s  eta= 1110.6s  finish~2026-06-28 15:30:45
 ```
 
-Fields: step/total, percentage, wall-clock elapsed, estimated remaining time, estimated finish time (yyyy-mm-dd HH:MM:SS). Updated in-place via `\r` carriage return (no spamming). Finalised with newline on completion.
+Fields: step/total, percentage, wall-clock elapsed, estimated remaining time,
+estimated finish time (yyyy-mm-dd HH:MM:SS). Updated in-place via carriage return
+
+- ANSI clear-line (`\r\x1b[K`, no newline). Finalised with newline on completion.
+
+Some ranks may have zero recorded vertices (no shallow elements). These ranks
+write an empty record file with `vertex_ids (0,)` and `strain (0,0,6)` and skip
+strain computation. The solver does not fall back to full-volume GLL strain when
+recording mode is enabled (`record_depth_max_m > 0`).
 
 ## Config Fields
 
