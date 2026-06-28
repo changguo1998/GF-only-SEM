@@ -7,13 +7,13 @@ Build a shallow mesh-vertex recording map in preprocess. The map selects non-PML
 ## Files to Create/Modify
 
 1. `preprocess/config_loader.py` — add `record_depth_max_m`, `green_tile_size_m` to REQUIRED_KEYS
-2. **Create** `preprocess/recording_map.py` — new module: `build_recording_map()`
-3. `preprocess/model_writer.py` — add `/recording/` group to `partition_{r}.h5` writer
-4. `preprocess/config_writer.py` — add `record_depth_max_m`, `record_depth_actual_m`, `green_tile_size_m` to `/simulation/` attrs
-5. `preprocess/cli.py` — call `build_recording_map()` before writing partitions, pass result to writer
-6. `preprocess/preflight.py` — add recording-map validation check
-7. `examples/halfspace/config.py` — add `record_depth_max_m`, `green_tile_size_m`
-8. **Create** `tests/preprocess/test_recording_map.py`
+1. **Create** `preprocess/recording_map.py` — new module: `build_recording_map()`
+1. `preprocess/model_writer.py` — add `/recording/` group to `partition_{r}.h5` writer
+1. `preprocess/config_writer.py` — add `record_depth_max_m`, `record_depth_actual_m`, `green_tile_size_m` to `/simulation/` attrs
+1. `preprocess/cli.py` — call `build_recording_map()` before writing partitions, pass result to writer
+1. `preprocess/preflight.py` — add recording-map validation check
+1. `examples/halfspace/config.py` — add `record_depth_max_m`, `green_tile_size_m`
+1. **Create** `tests/preprocess/test_recording_map.py`
 
 ## Design
 
@@ -57,6 +57,7 @@ green_tile_size_m = 1000.0    # float64 — horizontal tile width for postproces
 ### config.h5 additions
 
 In `/simulation/` attrs, add:
+
 - `record_depth_max_m` (float64)
 - `record_depth_actual_m` (float64)
 - `green_tile_size_m` (float64)
@@ -79,6 +80,7 @@ def build_recording_map(
 ```
 
 Returns dict with:
+
 - `record_depth_actual_m`: float
 - `per_rank_recording`: dict[int, dict] — per-rank recording data:
   - `save_element_mask`: list[bool] n_local_elem
@@ -107,8 +109,8 @@ After partition step, call `build_recording_map()`. Pass result to `write_model(
 Create `tests/preprocess/test_recording_map.py`:
 
 1. Test recording map on small regular mesh — verify correct vertices selected
-2. Test PML exclusion — PML-tagged elements not in recording
-3. Test depth limit — vertices above depth included, below excluded
-4. Test record_depth_actual_m snapping — snaps to element face
-5. Test full-domain coverage — all non-PML vertices when depth exceeds domain
-6. Test per-rank output shape matches partition — verify save_element_mask length = n_local_elem
+1. Test PML exclusion — PML-tagged elements not in recording
+1. Test depth limit — vertices above depth included, below excluded
+1. Test record_depth_actual_m snapping — snaps to element face
+1. Test full-domain coverage — all non-PML vertices when depth exceeds domain
+1. Test per-rank output shape matches partition — verify save_element_mask length = n_local_elem

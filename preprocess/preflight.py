@@ -226,11 +226,8 @@ def _check_partition(n_cell: int, n_ranks: int, result: PreflightResult) -> None
     result.stats["n_ranks"] = n_ranks
 
 
-
 def _check_recording_depth(
-    record_depth_max_m: float,
-    domain_bounds: dict[str, float],
-    result: PreflightResult,
+    record_depth_max_m: float, domain_bounds: dict[str, float], result: PreflightResult
 ) -> None:
     """Validate record_depth_max_m."""
     domain_z_range = domain_bounds["zmax"] - domain_bounds["zmin"]

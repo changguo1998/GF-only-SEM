@@ -1,30 +1,31 @@
 """Script to update model_writer.py with recording map support."""
+
 import re
 
-with open('preprocess/model_writer.py', 'r') as f:
+with open("preprocess/model_writer.py", "r") as f:
     content = f.read()
 
 # 1. Update write_model signature + docstring
 content = content.replace(
     'def write_model(\n    mesh_path: str,\n    topology: TopologyData,\n    fields: dict[str, npt.NDArray],\n    boundary_tag: npt.NDArray[np.int64],\n    domain_bounds: dict[str, float],\n    partition_result: dict | None = None,\n) -> None:\n    """Extend mesh.h5 with field data and write partition files.',
-    'def write_model(\n    mesh_path: str,\n    topology: TopologyData,\n    fields: dict[str, npt.NDArray],\n    boundary_tag: npt.NDArray[np.int64],\n    domain_bounds: dict[str, float],\n    partition_result: dict | None = None,\n    recording_map: dict | None = None,\n) -> None:\n    """Extend mesh.h5 with field data and write partition files.'
+    'def write_model(\n    mesh_path: str,\n    topology: TopologyData,\n    fields: dict[str, npt.NDArray],\n    boundary_tag: npt.NDArray[np.int64],\n    domain_bounds: dict[str, float],\n    partition_result: dict | None = None,\n    recording_map: dict | None = None,\n) -> None:\n    """Extend mesh.h5 with field data and write partition files.',
 )
 
 # 2. Update call to _write_partition_files
 content = content.replace(
-    '    if partition_result is not None:\n        _write_partition_files(mesh_path, topology, fields, boundary_tag, partition_result)',
-    '    if partition_result is not None:\n        _write_partition_files(mesh_path, topology, fields, boundary_tag, partition_result,\n                                recording_map=recording_map)'
+    "    if partition_result is not None:\n        _write_partition_files(mesh_path, topology, fields, boundary_tag, partition_result)",
+    "    if partition_result is not None:\n        _write_partition_files(mesh_path, topology, fields, boundary_tag, partition_result,\n                                recording_map=recording_map)",
 )
 
 # 3. Update _write_partition_files signature
 content = content.replace(
-    'def _write_partition_files(\n    mesh_path: str,\n    topology: TopologyData,\n    fields: dict[str, npt.NDArray],\n    boundary_tag: npt.NDArray[np.int64],\n    partition_result: dict,\n) -> None:',
-    'def _write_partition_files(\n    mesh_path: str,\n    topology: TopologyData,\n    fields: dict[str, npt.NDArray],\n    boundary_tag: npt.NDArray[np.int64],\n    partition_result: dict,\n    recording_map: dict | None = None,\n) -> None:'
+    "def _write_partition_files(\n    mesh_path: str,\n    topology: TopologyData,\n    fields: dict[str, npt.NDArray],\n    boundary_tag: npt.NDArray[np.int64],\n    partition_result: dict,\n) -> None:",
+    "def _write_partition_files(\n    mesh_path: str,\n    topology: TopologyData,\n    fields: dict[str, npt.NDArray],\n    boundary_tag: npt.NDArray[np.int64],\n    partition_result: dict,\n    recording_map: dict | None = None,\n) -> None:",
 )
 
 # 4. Add recording map writing after exchange patterns
 # Find the line after exchange writing and insert recording map code
-recording_code = '''
+recording_code = """
             # Write recording map if present
             if recording_map is not None:
                 per_rank_rec = recording_map.get("per_rank_recording", {}).get(r)
@@ -43,7 +44,7 @@ recording_code = '''
                                    np.array(per_rank_rec["source_element_local_index"], dtype=np.int32), dtype="int32")
                     _write_dataset(rec_grp, "source_corner_index",
                                    np.array(per_rank_rec["source_corner_index"], dtype=np.int8), dtype="int8")
-'''
+"""
 
 # Insert after the exchange-writing block (after "recv_dof" line)
 insert_point = '                    _write_dataset(ng, "recv_dof", recv_arr, dtype="int32")\n\n            # Write recording map if present'
@@ -62,7 +63,7 @@ old = '                    _write_dataset(ng, "recv_dof", recv_arr, dtype="int32
 new = old + recording_code
 content = content.replace(old, new)
 
-with open('preprocess/model_writer.py', 'w') as f:
+with open("preprocess/model_writer.py", "w") as f:
     f.write(content)
 
 print("Done")

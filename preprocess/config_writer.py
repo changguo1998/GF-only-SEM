@@ -47,13 +47,19 @@ def write_config(
     os.makedirs(parent_dir, exist_ok=True)
 
     with h5py.File(config_path, "w") as f:
-        _write_simulation(f, config_module, solver_dt, snapshot_stride, nsteps, recording_map=recording_map)
+        _write_simulation(
+            f, config_module, solver_dt, snapshot_stride, nsteps, recording_map=recording_map
+        )
         _write_domain(f, domain_bounds)
         _write_source(f, stf_t, stf_values, source_xyz, source_loc_result)
 
 
 def _write_simulation(
-    f: h5py.File, config_module, solver_dt: float, snapshot_stride: int, nsteps: int,
+    f: h5py.File,
+    config_module,
+    solver_dt: float,
+    snapshot_stride: int,
+    nsteps: int,
     recording_map: dict | None = None,
 ) -> None:
     grp = f.create_group("simulation")
@@ -70,7 +76,9 @@ def _write_simulation(
     grp.attrs["record_depth_max_m"] = float(config_module.record_depth_max_m)
     grp.attrs["green_tile_size_m"] = float(config_module.green_tile_size_m)
     if recording_map is not None:
-        grp.attrs["record_depth_actual_m"] = recording_map.get("record_depth_actual_m", float(config_module.record_depth_max_m))
+        grp.attrs["record_depth_actual_m"] = recording_map.get(
+            "record_depth_actual_m", float(config_module.record_depth_max_m)
+        )
 
 
 def _write_domain(f: h5py.File, domain_bounds: dict[str, float]) -> None:

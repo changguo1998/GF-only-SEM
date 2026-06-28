@@ -41,8 +41,14 @@ def write_model(
     _extend_mesh_h5(mesh_path, fields, boundary_tag, domain_bounds)
 
     if partition_result is not None:
-        _write_partition_files(mesh_path, topology, fields, boundary_tag, partition_result,
-                                recording_map=recording_map)
+        _write_partition_files(
+            mesh_path,
+            topology,
+            fields,
+            boundary_tag,
+            partition_result,
+            recording_map=recording_map,
+        )
 
 
 def _extend_mesh_h5(
@@ -138,19 +144,40 @@ def _write_partition_files(
                 if per_rank_rec is not None and len(per_rank_rec.get("vertex_ids", [])) > 0:
                     rec_grp = f.create_group("recording")
                     rec_grp.attrs["basis"] = "mesh_vertices"
-                    rec_grp.attrs["record_depth_max_m"] = recording_map.get("record_depth_actual_m", 0.0)
-                    rec_grp.attrs["record_depth_actual_m"] = recording_map.get("record_depth_actual_m", 0.0)
-                    rec_grp.attrs["green_tile_size_m"] = recording_map.get("green_tile_size_m", 0.0)
+                    rec_grp.attrs["record_depth_max_m"] = recording_map.get(
+                        "record_depth_actual_m", 0.0
+                    )
+                    rec_grp.attrs["record_depth_actual_m"] = recording_map.get(
+                        "record_depth_actual_m", 0.0
+                    )
+                    rec_grp.attrs["green_tile_size_m"] = recording_map.get(
+                        "green_tile_size_m", 0.0
+                    )
                     rec_grp.attrs["excludes_pml"] = True
-                    _write_dataset(rec_grp, "save_element_mask",
-                                   np.array(per_rank_rec["save_element_mask"], dtype=bool), dtype="bool")
-                    _write_dataset(rec_grp, "vertex_ids",
-                                   np.array(per_rank_rec["vertex_ids"], dtype=np.int64), dtype="int64")
-                    _write_dataset(rec_grp, "source_element_local_index",
-                                   np.array(per_rank_rec["source_element_local_index"], dtype=np.int32), dtype="int32")
-                    _write_dataset(rec_grp, "source_corner_index",
-                                   np.array(per_rank_rec["source_corner_index"], dtype=np.int32), dtype="int32")
-
+                    _write_dataset(
+                        rec_grp,
+                        "save_element_mask",
+                        np.array(per_rank_rec["save_element_mask"], dtype=bool),
+                        dtype="bool",
+                    )
+                    _write_dataset(
+                        rec_grp,
+                        "vertex_ids",
+                        np.array(per_rank_rec["vertex_ids"], dtype=np.int64),
+                        dtype="int64",
+                    )
+                    _write_dataset(
+                        rec_grp,
+                        "source_element_local_index",
+                        np.array(per_rank_rec["source_element_local_index"], dtype=np.int32),
+                        dtype="int32",
+                    )
+                    _write_dataset(
+                        rec_grp,
+                        "source_corner_index",
+                        np.array(per_rank_rec["source_corner_index"], dtype=np.int32),
+                        dtype="int32",
+                    )
 
 
 def _write_dataset(
