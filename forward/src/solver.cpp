@@ -32,24 +32,24 @@ namespace gf {
 namespace {
 
 // Newmark explicit predict step: ũ = u + dt·v + (dt²/2)·(1-2β)·a
-inline void newmark_predict(double dt, double beta, const std::vector<double>& u,
-                            const std::vector<double>& v, const std::vector<double>& a,
-                            std::vector<double>& u_tilde) {
-    for (size_t i = 0; i < u.size(); ++i) {
-        u_tilde[i] = u[i] + dt * v[i] + (0.5 * dt * dt * (1.0 - 2.0 * beta)) * a[i];
+inline void newmark_predict(double solver_dt, double beta, const std::vector<double>& displacement,
+                            const std::vector<double>& velocity, const std::vector<double>& acceleration,
+                            std::vector<double>& displacement_tilde) {
+    for (size_t i = 0; i < displacement.size(); ++i) {
+        displacement_tilde[i] = displacement[i] + solver_dt * velocity[i] + (0.5 * solver_dt * solver_dt * (1.0 - 2.0 * beta)) * acceleration[i];
     }
 }
 
 // Newmark correct: a_new = M⁻¹·r, v += dt·γ·a_new, u += dt·v + dt²/2·a_new
-inline void newmark_correct(double dt, double /*beta*/, double gamma,
-                            const std::vector<double>& mass, std::vector<double>& u,
-                            std::vector<double>& v, std::vector<double>& a,
-                            std::vector<double>& r) {
-    for (size_t i = 0; i < r.size(); ++i) {
-        double a_new = r[i] / mass[i / 3];  // same mass for all 3 directions
-        u[i] += dt * v[i] + 0.5 * dt * dt * a_new;
-        v[i] += dt * gamma * a_new;
-        a[i] = a_new;
+inline void newmark_correct(double solver_dt, double /*beta*/, double gamma,
+                            const std::vector<double>& mass, std::vector<double>& displacement,
+                            std::vector<double>& velocity, std::vector<double>& acceleration,
+                            std::vector<double>& residual) {
+    for (size_t i = 0; i < residual.size(); ++i) {
+        double a_new = residual[i] / mass[i / 3];  // same mass for all 3 directions
+        displacement[i] += solver_dt * velocity[i] + 0.5 * solver_dt * solver_dt * a_new;
+        velocity[i] += solver_dt * gamma * a_new;
+        acceleration[i] = a_new;
     }
 }
 
@@ -97,7 +97,7 @@ int run_forward(const std::string& direction, bool resume_mode) {
                     std::to_string(n_node) + " dofs=" + std::to_string(n_local_dof));
 
         // Memory estimate (8 bytes per double)
-        size_t mem_bytes = n_local_dof * 4 * 8;  // u, v, a, r
+        size_t mem_bytes = n_local_dof * 4 * 8;  // displacement, velocity, acceleration, residual
         mem_bytes += n_local * n_node * 6 * 8;   // strain (allocated per snapshot)
         double mem_mb = static_cast<double>(mem_bytes) / (1024.0 * 1024.0);
         logger.debug("  est memory (state): " + std::to_string(mem_mb) + " MB");
@@ -110,11 +110,11 @@ int run_forward(const std::string& direction, bool resume_mode) {
         // === Allocate displacement, velocity, acceleration ===
         // Flat arrays: [n_local_dof] for owned elements
 
-        std::vector<double> u(n_local_dof, 0.0);
-        std::vector<double> v(n_local_dof, 0.0);
-        std::vector<double> a(n_local_dof, 0.0);
-        std::vector<double> r(n_local_dof, 0.0);        // residual
-        std::vector<double> u_tilde(n_local_dof, 0.0);  // predicted displacement
+        std::vector<double> displacement(n_local_dof, 0.0);
+        std::vector<double> velocity(n_local_dof, 0.0);
+        std::vector<double> acceleration(n_local_dof, 0.0);
+        std::vector<double> residual(n_local_dof, 0.0);        // residual
+        std::vector<double> displacement_tilde(n_local_dof, 0.0);  // predicted displacement
 
         // === Use precomputed exchange patterns from partition file ===
         // These contain send_dof and recv_dof indices for shared interface nodes.
@@ -143,7 +143,7 @@ int run_forward(const std::string& direction, bool resume_mode) {
         // === Newmark parameters ===
         double beta = 0.0;  // explicit central difference
         double gamma = 0.5;
-        double dt = cfg.solver_dt;
+        double solver_dt = cfg.solver_dt;
 
         // === Timing ===
         auto t_start = std::chrono::steady_clock::now();
@@ -176,9 +176,9 @@ int run_forward(const std::string& direction, bool resume_mode) {
             try {
                 RestartState rs = read_restart(output_dir, direction, rank);
                 if (!rs.displacement.empty() && rs.step > 0 && rs.step < cfg.nsteps) {
-                    u = std::move(rs.displacement);
-                    v = std::move(rs.velocity);
-                    a = std::move(rs.acceleration);
+                    displacement = std::move(rs.displacement);
+                    velocity = std::move(rs.velocity);
+                    acceleration = std::move(rs.acceleration);
                     if (!rs.pml_damping.empty()) {
                         part.pml_damping = std::move(rs.pml_damping);
                     }
@@ -186,34 +186,34 @@ int run_forward(const std::string& direction, bool resume_mode) {
                     logger.info("  resumed at step " + std::to_string(start_step) +
                                 " (time_s=" + std::to_string(rs.time_s) + ")");
                 }
-            } catch (const std::exception& e) {
-                logger.error(std::string("  resume failed: ") + e.what() +
+            } catch (const std::exception& ex) {
+                logger.error(std::string("  resume failed: ") + ex.what() +
                              " — starting from scratch");
             }
         }
         for (int step = start_step; step < cfg.nsteps; ++step) {
             // --- Newmark predict ---
-            newmark_predict(dt, beta, u, v, a, u_tilde);
+            newmark_predict(solver_dt, beta, displacement, velocity, acceleration, displacement_tilde);
 
             // --- Zero residual ---
-            std::fill(r.begin(), r.end(), 0.0);
+            std::fill(residual.begin(), residual.end(), 0.0);
 
             // --- Element residual computation (matrix-free) ---
-            for (int e = 0; e < n_local; ++e) {
-                const double* elem_dxi_dx = part.dxi_dx.data() + e * n_node * 9;
-                const double* elem_jac = part.jacobian.data() + e * n_node;
-                const double* elem_vp = part.vp.data() + e * n_node;
-                const double* elem_vs = part.vs.data() + e * n_node;
-                const double* elem_rho = part.density.data() + e * n_node;
-                const double* elem_u = u_tilde.data() + e * n_node * 3;
-                double* elem_r = r.data() + e * n_node * 3;
+            for (int elem = 0; elem < n_local; ++elem) {
+                const double* elem_dxi_dx = part.dxi_dx.data() + elem * n_node * 9;
+                const double* elem_jac = part.jacobian.data() + elem * n_node;
+                const double* elem_vp = part.vp.data() + elem * n_node;
+                const double* elem_vs = part.vs.data() + elem * n_node;
+                const double* elem_rho = part.density.data() + elem * n_node;
+                const double* elem_u = displacement_tilde.data() + elem * n_node * 3;
+                double* elem_r = residual.data() + elem * n_node * 3;
 
                 compute_element_residual(elem_dxi_dx, elem_jac, elem_vp, elem_vs, elem_rho,
                                          D_mat.data(), gll_wts.data(), ngll, elem_u, elem_r);
             }
 
             // --- PML damping ---
-            apply_pml_damping(part.pml_damping, u_tilde, v, static_cast<int>(v.size()));
+            apply_pml_damping(part.pml_damping, displacement_tilde, velocity, static_cast<int>(velocity.size()));
 
             // --- Source injection ---
             // Distribute STF * source_weights at source_node
@@ -225,7 +225,7 @@ int run_forward(const std::string& direction, bool resume_mode) {
                 }
                 int dof_idx = src_elem * n_node * 3 + src_node * 3 + dir;
                 if (dof_idx < n_local_dof) {
-                    r[dof_idx] += stf_val;
+                    residual[dof_idx] += stf_val;
                 }
             }
 
@@ -233,14 +233,14 @@ int run_forward(const std::string& direction, bool resume_mode) {
             // Exchange residual r at shared interface nodes so that contributions
             // from neighbor ranks are summed (accumulate, not overwrite).
             // After this, r has all contributions at shared nodes across all ranks.
-            exchange_halo(exchange_patterns, r, 3);
+            exchange_halo(exchange_patterns, residual, 3);
 
             // --- Newmark correct ---
-            newmark_correct(dt, beta, gamma, part.mass, u, v, a, r);
+            newmark_correct(solver_dt, beta, gamma, part.mass, displacement, velocity, acceleration, residual);
 
             // --- Write restart (every restart_stride solver steps) ---
             if (do_restart && step > 0 && step % restart_stride == 0) {
-                restart_writer.write(step, step * dt, u, v, a, part.pml_damping);
+                restart_writer.write(step, step * solver_dt, displacement, velocity, acceleration, part.pml_damping);
             }
 
             // --- Write snapshot (every snapshot_stride solver steps) ---
@@ -253,52 +253,52 @@ int run_forward(const std::string& direction, bool resume_mode) {
                     part.recording.has_recording && part.recording.vertex_ids.size() > 0;
 
                 if (has_recording) {
-                    size_t nv = part.recording.vertex_ids.size();
-                    rec_strain.resize(nv * 6, 0.0);
-                    for (size_t vi = 0; vi < nv; ++vi) {
-                        int elem = part.recording.src_elem_local[vi];
-                        int corner = part.recording.src_corner[vi];
+                    size_t n_vertices = part.recording.vertex_ids.size();
+                    rec_strain.resize(n_vertices * 6, 0.0);
+                    for (size_t vertex_idx = 0; vertex_idx < n_vertices; ++vertex_idx) {
+                        int elem = part.recording.src_elem_local[vertex_idx];
+                        int corner = part.recording.src_corner[vertex_idx];
 
                         // Corner → GLL (i, j, k) indices
-                        int ci = (corner & 1) ? (ngll - 1) : 0;
-                        int cj = (corner & 2) ? (ngll - 1) : 0;
-                        int ck = (corner & 4) ? (ngll - 1) : 0;
+                        int corner_i = (corner & 1) ? (ngll - 1) : 0;
+                        int corner_j = (corner & 2) ? (ngll - 1) : 0;
+                        int corner_k = (corner & 4) ? (ngll - 1) : 0;
 
-                        const int cn = (ci * ngll + cj) * ngll + ck;
-                        const double* dd = &part.dxi_dx[elem * n_node * 9 + cn * 9];
-                        const double* uu = &u[elem * n_node * 3 + cn * 3];
+                        const int corner_node = (corner_i * ngll + corner_j) * ngll + corner_k;
+                        const double* dxi_dx_ptr = &part.dxi_dx[elem * n_node * 9 + corner_node * 9];
+                        const double* disp_ptr = &displacement[elem * n_node * 3 + corner_node * 3];
 
                         // Reference gradient at this GLL node
                         double dudxi[3] = {0.0, 0.0, 0.0};
                         double dudeta[3] = {0.0, 0.0, 0.0};
                         double dudzeta[3] = {0.0, 0.0, 0.0};
                         for (int s = 0; s < ngll; ++s) {
-                            double Di_s = D_mat[ci * ngll + s];
-                            double Dj_s = D_mat[cj * ngll + s];
-                            double Dk_s = D_mat[ck * ngll + s];
-                            int n_sjk = (s * ngll + cj) * ngll + ck;
-                            int n_isk = (ci * ngll + s) * ngll + ck;
-                            int n_ijs = (ci * ngll + cj) * ngll + s;
+                            double Di_s = D_mat[corner_i * ngll + s];
+                            double Dj_s = D_mat[corner_j * ngll + s];
+                            double Dk_s = D_mat[corner_k * ngll + s];
+                            int node_sjk = (s * ngll + corner_j) * ngll + corner_k;
+                            int node_isk = (corner_i * ngll + s) * ngll + corner_k;
+                            int node_ijs = (corner_i * ngll + corner_j) * ngll + s;
                             for (int d = 0; d < 3; ++d) {
-                                dudxi[d] += Di_s * uu[3 * n_sjk + d];
-                                dudeta[d] += Dj_s * uu[3 * n_isk + d];
-                                dudzeta[d] += Dk_s * uu[3 * n_ijs + d];
+                                dudxi[d] += Di_s * disp_ptr[3 * node_sjk + d];
+                                dudeta[d] += Dj_s * disp_ptr[3 * node_isk + d];
+                                dudzeta[d] += Dk_s * disp_ptr[3 * node_ijs + d];
                             }
                         }
 
                         // Transform to physical gradient
                         double du_dx[3][3];
-                        for (int comp = 0; comp < 3; ++comp) {
-                            du_dx[comp][0] =
-                                dudxi[comp] * dd[0] + dudeta[comp] * dd[1] + dudzeta[comp] * dd[2];
-                            du_dx[comp][1] =
-                                dudxi[comp] * dd[3] + dudeta[comp] * dd[4] + dudzeta[comp] * dd[5];
-                            du_dx[comp][2] =
-                                dudxi[comp] * dd[6] + dudeta[comp] * dd[7] + dudzeta[comp] * dd[8];
+                        for (int component = 0; component < 3; ++component) {
+                            du_dx[component][0] =
+                                dudxi[component] * dxi_dx_ptr[0] + dudeta[component] * dxi_dx_ptr[1] + dudzeta[component] * dxi_dx_ptr[2];
+                            du_dx[component][1] =
+                                dudxi[component] * dxi_dx_ptr[3] + dudeta[component] * dxi_dx_ptr[4] + dudzeta[component] * dxi_dx_ptr[5];
+                            du_dx[component][2] =
+                                dudxi[component] * dxi_dx_ptr[6] + dudeta[component] * dxi_dx_ptr[7] + dudzeta[component] * dxi_dx_ptr[8];
                         }
 
                         // Symmetric strain (Voigt order)
-                        double* out = &rec_strain[vi * 6];
+                        double* out = &rec_strain[vertex_idx * 6];
                         out[0] = du_dx[0][0];                        // εxx
                         out[1] = du_dx[1][1];                        // εyy
                         out[2] = du_dx[2][2];                        // εzz
@@ -309,13 +309,13 @@ int run_forward(const std::string& direction, bool resume_mode) {
                 } else {
                     // Full GLL strain computation (no recording map)
                     rec_strain.resize(n_local * n_node * 6, 0.0);
-                    for (int e = 0; e < n_local; ++e) {
+                    for (int elem = 0; elem < n_local; ++elem) {
                         for (int i = 0; i < ngll; ++i) {
                             for (int j = 0; j < ngll; ++j) {
                                 for (int k = 0; k < ngll; ++k) {
-                                    const int n = (i * ngll + j) * ngll + k;
-                                    const double* dd = &part.dxi_dx[e * n_node * 9 + n * 9];
-                                    const double* uu = &u[e * n_node * 3 + n * 3];
+                                    const int node_idx = (i * ngll + j) * ngll + k;
+                                    const double* dxi_dx_ptr = &part.dxi_dx[elem * n_node * 9 + node_idx * 9];
+                                    const double* disp_ptr = &displacement[elem * n_node * 3 + node_idx * 3];
                                     double dudxi[3] = {0.0, 0.0, 0.0};
                                     double dudeta[3] = {0.0, 0.0, 0.0};
                                     double dudzeta[3] = {0.0, 0.0, 0.0};
@@ -323,28 +323,28 @@ int run_forward(const std::string& direction, bool resume_mode) {
                                         double Di_s = D_mat[i * ngll + s];
                                         double Dj_s = D_mat[j * ngll + s];
                                         double Dk_s = D_mat[k * ngll + s];
-                                        int n_sjk = (s * ngll + j) * ngll + k;
-                                        int n_isk = (i * ngll + s) * ngll + k;
-                                        int n_ijs = (i * ngll + j) * ngll + s;
+                                        int node_sjk = (s * ngll + j) * ngll + k;
+                                        int node_isk = (i * ngll + s) * ngll + k;
+                                        int node_ijs = (i * ngll + j) * ngll + s;
                                         for (int d = 0; d < 3; ++d) {
-                                            dudxi[d] += Di_s * uu[3 * n_sjk + d];
-                                            dudeta[d] += Dj_s * uu[3 * n_isk + d];
-                                            dudzeta[d] += Dk_s * uu[3 * n_ijs + d];
+                                            dudxi[d] += Di_s * disp_ptr[3 * node_sjk + d];
+                                            dudeta[d] += Dj_s * disp_ptr[3 * node_isk + d];
+                                            dudzeta[d] += Dk_s * disp_ptr[3 * node_ijs + d];
                                         }
                                     }
                                     double du_dx[3][3];
-                                    for (int comp = 0; comp < 3; ++comp) {
-                                        du_dx[comp][0] = dudxi[comp] * dd[0] +
-                                                         dudeta[comp] * dd[1] +
-                                                         dudzeta[comp] * dd[2];
-                                        du_dx[comp][1] = dudxi[comp] * dd[3] +
-                                                         dudeta[comp] * dd[4] +
-                                                         dudzeta[comp] * dd[5];
-                                        du_dx[comp][2] = dudxi[comp] * dd[6] +
-                                                         dudeta[comp] * dd[7] +
-                                                         dudzeta[comp] * dd[8];
+                                    for (int component = 0; component < 3; ++component) {
+                                        du_dx[component][0] = dudxi[component] * dxi_dx_ptr[0] +
+                                                         dudeta[component] * dxi_dx_ptr[1] +
+                                                         dudzeta[component] * dxi_dx_ptr[2];
+                                        du_dx[component][1] = dudxi[component] * dxi_dx_ptr[3] +
+                                                         dudeta[component] * dxi_dx_ptr[4] +
+                                                         dudzeta[component] * dxi_dx_ptr[5];
+                                        du_dx[component][2] = dudxi[component] * dxi_dx_ptr[6] +
+                                                         dudeta[component] * dxi_dx_ptr[7] +
+                                                         dudzeta[component] * dxi_dx_ptr[8];
                                     }
-                                    int strain_offset = e * n_node * 6 + n * 6;
+                                    int strain_offset = elem * n_node * 6 + node_idx * 6;
                                     rec_strain[strain_offset + 0] = du_dx[0][0];
                                     rec_strain[strain_offset + 1] = du_dx[1][1];
                                     rec_strain[strain_offset + 2] = du_dx[2][2];
@@ -388,8 +388,8 @@ int run_forward(const std::string& direction, bool resume_mode) {
         double total_elapsed = std::chrono::duration<double>(t_end - t_start).count();
         logger.info("simulation complete, " + std::to_string(cfg.nsteps) + " steps in " +
                     std::to_string(total_elapsed) + "s");
-    } catch (const std::exception& e) {
-        logger.error(std::string("Error: ") + e.what());
+    } catch (const std::exception& ex) {
+        logger.error(std::string("Error: ") + ex.what());
         return 1;
     }
 
