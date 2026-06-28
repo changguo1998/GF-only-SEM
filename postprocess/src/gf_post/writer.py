@@ -22,7 +22,7 @@ class GFWriter:
         vertex_coords: npt.NDArray[np.float64],
         vertex_ids: npt.NDArray[np.int64],
         time: npt.NDArray[np.float64],
-        dt: float,
+        solver_dt_s: float,
         greens: npt.NDArray[np.float64],
         green_tile_size_m: float,
         domain_bounds: dict[str, float],
@@ -36,7 +36,7 @@ class GFWriter:
             vertex_coords: [n_vertex, 3] mesh vertex coordinates.
             vertex_ids: [n_vertex] global mesh vertex IDs (1-based).
             time: [nt] time array.
-            dt: Time step.
+            solver_dt_s: Solver timestep in seconds.
             greens: [nt, n_vertex, 6, 3] Green's tensor at vertices only.
             green_tile_size_m: Horizontal tile width in meters.
             domain_bounds: dict with xmin, xmax, ymin, ymax, zmin, zmax.
@@ -60,6 +60,13 @@ class GFWriter:
         xmax = domain_bounds["xmax"]
         ymax = domain_bounds["ymax"]
 
+        # Validate input shapes
+        expected_shape = (len(time), vertex_coords.shape[0], 6, 3)
+        if greens.shape != expected_shape:
+            raise ValueError(
+                f"greens shape mismatch: got {greens.shape}, expected {expected_shape}"
+            )
+
         # Bin vertices into spatial tiles
         tile_bins: dict[tuple[int, int], list[int]] = {}
         for vi in range(n_vertex):
@@ -80,15 +87,19 @@ class GFWriter:
             _write_tile(
                 tile_path,
                 vertex_ids[vert_indices],
-                time, dt,
+                time,
+                solver_dt_s,
                 greens[:, vert_indices, :, :],
-                tx, ty,
+                tx,
+                ty,
                 xmin + tx * green_tile_size_m,
                 xmin + (tx + 1) * green_tile_size_m,
                 ymin + ty * green_tile_size_m,
                 ymin + (ty + 1) * green_tile_size_m,
-                zmin, zmax,
-                record_depth_max_m, record_depth_actual_m,
+                zmin,
+                zmax,
+                record_depth_max_m,
+                record_depth_actual_m,
             )
             tiles.append(tile_path)
 
@@ -99,7 +110,7 @@ def _write_tile(
     path: Path,
     tile_vertex_ids: npt.NDArray[np.int64],
     time: npt.NDArray[np.float64],
-    dt: float,
+    solver_dt_s: float,
     tile_greens: npt.NDArray[np.float64],
     tile_x: int,
     tile_y: int,
@@ -113,9 +124,6 @@ def _write_tile(
     record_depth_actual_m: float,
 ):
     """Write a single tile HDF5 file."""
-    nt = len(time)
-    n_tile_vertices = tile_vertex_ids.shape[0]
-
     with h5py.File(path, "w") as f:
         # Attrs
         f.attrs["version"] = "1.0.0"
@@ -135,8 +143,8 @@ def _write_tile(
         # Time
         time_grp = f.create_group("time")
         time_grp.create_dataset("t", data=time.astype(np.float64))
-        time_grp.attrs["dt"] = np.float64(dt)
-        time_grp.attrs["nsteps"] = nt
+        time_grp.attrs["dt"] = np.float64(solver_dt_s)
+        time_grp.attrs["nsteps"] = len(time)
 
         # Mesh
         mesh_grp = f.create_group("mesh")
@@ -144,6 +152,4 @@ def _write_tile(
 
         # Field
         field_grp = f.create_group("field")
-        field_grp.create_dataset(
-            "greens_tensor", data=tile_greens.astype(np.float32),
-        )
+        field_grp.create_dataset("greens_tensor", data=tile_greens.astype(np.float32))

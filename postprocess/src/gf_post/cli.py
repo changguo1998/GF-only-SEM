@@ -68,13 +68,12 @@ def main(mesh, config, fx, fy, fz, output_dir):
 
     # Read config
     print(f"[postprocess] Reading config from {config}", file=sys.stderr)
-    cfg = ConfigReader(config)
-    green_tile_size_m = cfg.green_tile_size_m
-    record_depth_max_m = cfg.record_depth_max_m
-    record_depth_actual_m = cfg.record_depth_actual_m
-    dt = cfg.dt
-    nsteps = cfg.nsteps
-    cfg.close()
+    with ConfigReader(config) as cfg:
+        green_tile_size_m = cfg.green_tile_size_m
+        record_depth_max_m = cfg.record_depth_max_m
+        record_depth_actual_m = cfg.record_depth_actual_m
+        solver_dt = cfg.solver_dt
+        output_dt_s = cfg.output_dt_s
 
     # Load mesh geometry
     print(f"[postprocess] Reading mesh geometry from {mesh}", file=sys.stderr)
@@ -105,18 +104,18 @@ def main(mesh, config, fx, fy, fz, output_dir):
 
     # Consistency check: same recorded vertices across directions
     if not np.array_equal(mask_fx, mask_fy) or not np.array_equal(mask_fx, mask_fz):
-        print("[postprocess] WARNING: recorded vertex sets differ across directions",
-              file=sys.stderr)
+        print(
+            "[postprocess] WARNING: recorded vertex sets differ across directions", file=sys.stderr
+        )
 
     # Use combined mask of all recorded vertices
     vertex_mask = mask_fx & mask_fy & mask_fz
     recorded_indices = np.where(vertex_mask)[0]
     recorded_ids = np.arange(1, n_vertex + 1, dtype=np.int64)[recorded_indices]
-    print(f"[postprocess] {len(recorded_indices)}/{n_vertex} vertices recorded",
-          file=sys.stderr)
+    print(f"[postprocess] {len(recorded_indices)}/{n_vertex} vertices recorded", file=sys.stderr)
 
-    nt = strain_fx.shape[0]
-    time_arr = np.arange(nt) * dt * cfg.output_dt_s / dt if hasattr(cfg, 'output_dt_s') else np.arange(nt) * dt
+    n_snapshots = strain_fx.shape[0]
+    time_arr = np.arange(n_snapshots) * output_dt_s
 
     # Subset to recorded vertices only
     strain_fx = strain_fx[:, recorded_indices, :]
@@ -134,7 +133,7 @@ def main(mesh, config, fx, fy, fz, output_dir):
         vertex_coords[recorded_indices],
         recorded_ids,
         time_arr,
-        dt,
+        solver_dt,
         greens,
         green_tile_size_m,
         domain_bounds,

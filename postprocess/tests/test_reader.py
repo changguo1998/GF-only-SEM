@@ -1,5 +1,6 @@
 """Tests for gf_post.reader — RecordReader, GeometryReader, ConfigReader."""
 
+import h5py
 import numpy as np
 from gf_post.reader import ConfigReader, GeometryReader, RecordReader, merge_vertex_records
 
@@ -68,7 +69,7 @@ class TestConfigReader:
     def test_green_tile_size(self, synthetic_config_path):
         cfg = ConfigReader(synthetic_config_path)
         assert cfg.green_tile_size_m == 0.5
-        assert cfg.dt == 0.01
+        assert cfg.solver_dt == 0.01
         assert cfg.nsteps == 2
         cfg.close()
 
@@ -99,3 +100,28 @@ class TestMergeVertexRecords:
         # Vertex 1 (rank 1): val = t+1+10
         assert np.isclose(merged[0, 1, 0], 11.0)
         assert np.isclose(merged[1, 1, 0], 12.0)
+
+    def test_merge_overlap_warns(self, tmp_path, capsys):
+        """Two ranks recording the same vertex emit a warning; last value wins."""
+        n_snapshots = 2
+        paths = []
+        for rank in [0, 1]:
+            path = tmp_path / f"record_{rank}.h5"
+            paths.append(path)
+            with h5py.File(path, "w") as f:
+                f.attrs["source_direction"] = "x"
+                f.attrs["basis"] = "mesh_vertices"
+                f.attrs["excludes_pml"] = True
+                f.create_dataset("vertex_ids", data=np.array([1], dtype=np.int64))
+                strain = np.zeros((n_snapshots, 1, 6), dtype=np.float64)
+                vertex_value = float(rank) + 1.0  # rank0 → 1.0, rank1 → 2.0
+                for t in range(n_snapshots):
+                    strain[t, 0, :] = [vertex_value, vertex_value, vertex_value, 0.0, 0.0, 0.0]
+                f.create_dataset("strain", data=strain, maxshape=(None, 1, 6))
+
+        merged, mask = merge_vertex_records(paths, n_vertex=8)
+        captured = capsys.readouterr()
+        assert "recorded by multiple ranks" in captured.err
+        # Last rank wins → value 2.0
+        assert np.isclose(merged[0, 0, 0], 2.0)
+        assert mask[0]

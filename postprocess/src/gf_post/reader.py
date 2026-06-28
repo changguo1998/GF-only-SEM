@@ -1,8 +1,10 @@
 """HDF5 readers for record files and mesh geometry.
 
 Record files now store shallow mesh-vertex strain (from recording map)
-with vertex_ids. Metadata (dt, nsteps, green_tile_size_m) comes from config.h5.
+with vertex_ids. Metadata (solver_dt, nsteps, green_tile_size_m) comes from config.h5.
 """
+
+import sys
 
 import h5py
 import numpy as np
@@ -112,6 +114,12 @@ class ConfigReader:
     def __init__(self, path: str):
         self._file = h5py.File(path, "r")
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
     def close(self):
         self._file.close()
 
@@ -128,7 +136,7 @@ class ConfigReader:
         return float(self._file["/simulation"].attrs.get("record_depth_actual_m", 0.0))
 
     @property
-    def dt(self) -> float:
+    def solver_dt(self) -> float:
         return float(self._file["/simulation"].attrs.get("solver_dt", 0.01))
 
     @property
@@ -137,12 +145,10 @@ class ConfigReader:
 
     @property
     def output_dt_s(self) -> float:
-        return float(self._file["/simulation"].attrs.get("output_dt_s", self.dt))
+        return float(self._file["/simulation"].attrs.get("output_dt_s", self.solver_dt))
 
 
-def merge_vertex_records(
-    rank_files: list[str], n_vertex: int
-) -> tuple[np.ndarray, np.ndarray]:
+def merge_vertex_records(rank_files: list[str], n_vertex: int) -> tuple[np.ndarray, np.ndarray]:
     """Merge vertex-level strain from multiple rank record files.
 
     Each rank recorded a subset of global mesh vertices. This function
@@ -158,25 +164,32 @@ def merge_vertex_records(
           vertex_mask:   [n_vertex] bool — True for vertices that were recorded
     """
     readers = [RecordReader(p) for p in rank_files]
-    for r in readers:
-        r.__enter__()
+    for rank_reader in readers:
+        rank_reader.__enter__()
 
-    n_snapshots = readers[0].n_snapshots
-    dtype = readers[0].read_strain(0).dtype
+    try:
+        n_snapshots = readers[0].n_snapshots
+        dtype = readers[0].read_strain(0).dtype
 
-    merged = np.zeros((n_snapshots, n_vertex, 6), dtype=dtype)
-    mask = np.zeros(n_vertex, dtype=bool)
+        merged = np.zeros((n_snapshots, n_vertex, 6), dtype=dtype)
+        mask = np.zeros(n_vertex, dtype=bool)
 
-    for r in readers:
-        vids = r.vertex_ids  # 1-based global vertex IDs
-        strain = r.read_all_strain()  # [n_snapshots, n_local_vertices, 6]
-        for i, vid in enumerate(vids):
-            idx = int(vid) - 1  # convert to 0-based
-            if 0 <= idx < n_vertex:
-                merged[:, idx, :] = strain[:, i, :]
-                mask[idx] = True
-
-    for r in readers:
-        r.__exit__(None, None, None)
+        for rank_reader in readers:
+            local_vertex_ids = rank_reader.vertex_ids  # 1-based global vertex IDs
+            strain = rank_reader.read_all_strain()  # [n_snapshots, n_local_vertices, 6]
+            for local_index, global_vertex_id in enumerate(local_vertex_ids):
+                zero_based_index = int(global_vertex_id) - 1
+                if 0 <= zero_based_index < n_vertex:
+                    if mask[zero_based_index]:
+                        print(
+                            f"[postprocess] WARNING: vertex {global_vertex_id} "
+                            f"recorded by multiple ranks — using last value",
+                            file=sys.stderr,
+                        )
+                    merged[:, zero_based_index, :] = strain[:, local_index, :]
+                    mask[zero_based_index] = True
+    finally:
+        for rank_reader in readers:
+            rank_reader.__exit__(None, None, None)
 
     return merged, mask

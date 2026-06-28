@@ -16,16 +16,19 @@ def synthetic_mesh_path(tmp_path):
     with h5py.File(path, "w") as f:
         # Topology
         topo = f.create_group("topology")
-        v2c = np.array([
-            [0.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [1.0, 1.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-            [1.0, 0.0, 1.0],
-            [1.0, 1.0, 1.0],
-            [0.0, 1.0, 1.0],
-        ], dtype=np.float64)
+        v2c = np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 1.0],
+                [1.0, 1.0, 1.0],
+                [0.0, 1.0, 1.0],
+            ],
+            dtype=np.float64,
+        )
         topo.create_dataset("vertex_to_coord", data=v2c)
 
         # Domain
@@ -68,8 +71,14 @@ def synthetic_record_path(tmp_path):
         f.create_dataset("vertex_ids", data=np.array([1], dtype=np.int64))
         strain = np.zeros((n_checkpoints, n_vertices, 6), dtype=np.float64)
         for t in range(n_checkpoints):
-            strain[t, 0, :] = [float(t) + 1.0, 2.0 * (float(t) + 1.0), 3.0 * (float(t) + 1.0),
-                               0.0, 0.0, 0.0]
+            strain[t, 0, :] = [
+                float(t) + 1.0,
+                2.0 * (float(t) + 1.0),
+                3.0 * (float(t) + 1.0),
+                0.0,
+                0.0,
+                0.0,
+            ]
         f.create_dataset("strain", data=strain, maxshape=(None, n_vertices, 6))
     return path
 

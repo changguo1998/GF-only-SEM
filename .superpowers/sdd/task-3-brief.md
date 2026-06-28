@@ -7,11 +7,11 @@ Change postprocess tiling from element-count-based to spatial `green_tile_size_m
 ## Files to Modify
 
 1. `postprocess/src/gf_post/cli.py` — remove `--tile-elems`, read `green_tile_size_m` from config.h5
-2. `postprocess/src/gf_post/writer.py` — change tiling to spatial bins, update schema
-3. `postprocess/src/gf_post/reader.py` — read `record_depth_max_m`/`record_depth_actual_m`/`green_tile_size_m` from config.h5
-4. `postprocess/tests/conftest.py` — add `green_tile_size_m` to synthetic config
-5. `postprocess/tests/test_reader.py` — update tests
-6. **Create** `postprocess/tests/test_writer.py` — test spatial tiling
+1. `postprocess/src/gf_post/writer.py` — change tiling to spatial bins, update schema
+1. `postprocess/src/gf_post/reader.py` — read `record_depth_max_m`/`record_depth_actual_m`/`green_tile_size_m` from config.h5
+1. `postprocess/tests/conftest.py` — add `green_tile_size_m` to synthetic config
+1. `postprocess/tests/test_reader.py` — update tests
+1. **Create** `postprocess/tests/test_writer.py` — test spatial tiling
 
 ## Design
 
@@ -22,6 +22,7 @@ From `docs/superpowers/design/postprocess.md` "Horizontal Tiling":
 Read `green_tile_size_m` from `config.h5` `/simulation/` attrs.
 
 For each mesh vertex (from mesh.h5 `/topology/vertex_to_coord`):
+
 ```
 tile_x = floor((x - xmin) / green_tile_size_m)
 tile_y = floor((y - ymin) / green_tile_size_m)
@@ -39,6 +40,7 @@ greenfun/
 ```
 
 Tile schema:
+
 ```
 tile_x{i}_y{j}.h5
 ├── attrs: version, basis="mesh_vertices",
@@ -55,6 +57,7 @@ tile_x{i}_y{j}.h5
 ```
 
 Key differences from current:
+
 - Tile naming: `tile_x{i}_y{j}.h5` instead of `tile_{idx}.h5`
 - Tiling by spatial bin, not element range
 - `vertex_ids` dataset instead of `coords` — consumers read coordinates from `mesh.h5`
@@ -64,6 +67,7 @@ Key differences from current:
 ### Reader changes
 
 `reader.py` needs a method to read config.h5 simulation attrs:
+
 ```python
 class ConfigReader:
     def __init__(self, path: str):
@@ -130,7 +134,7 @@ class GFWriter:
 Create `postprocess/tests/test_writer.py`:
 
 1. Test spatial tiling produces correct number of tiles for known mesh size
-2. Test tile naming matches `tile_x{i}_y{j}.h5` pattern
-3. Test tile schema (attrs, datasets present)
-4. Test empty bin produces no file
-5. Test vertex_ids in each tile match expected spatial bin
+1. Test tile naming matches `tile_x{i}_y{j}.h5` pattern
+1. Test tile schema (attrs, datasets present)
+1. Test empty bin produces no file
+1. Test vertex_ids in each tile match expected spatial bin
