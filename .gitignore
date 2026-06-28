@@ -12,3 +12,4 @@ build/*/
 preprocess/cpp/gf_preprocess_cpp
 preprocess/cpp/gf_preprocess_cpp_debug
 *.o
+*_nothread

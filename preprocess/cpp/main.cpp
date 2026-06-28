@@ -12,6 +12,8 @@
  * field/info/solver_dt in mesh.h5.
  */
 
+#include <omp.h>
+
 #include <Eigen/Dense>
 #include <hdf5.h>
 #include <hdf5_hl.h>
@@ -424,21 +426,24 @@ static ComputeResult compute_all(
     const int64_t* e2v = topo.edge_to_vertex.data();
     const double* v2c = topo.vertex_to_coord.data();
 
-    int64_t vertex_ids[8];
-
+    // Precompute vertex IDs and corner coords for all elements (single-threaded)
+    struct ElemCorners { int64_t ids[8]; double coords[8][3]; };
+    ElemCorners* elem_data = new ElemCorners[n_cell];
     for (int64_t e = 0; e < n_cell; ++e) {
-        // Get 8 corner vertices for this element
-        get_cell_vertex_ids(e, c2s, s2e, e2v, vertex_ids);
-
-        // Physical corner coordinates
+        get_cell_vertex_ids(e, c2s, s2e, e2v, elem_data[e].ids);
         for (int vi = 0; vi < 8; ++vi) {
-            int64_t vid = vertex_ids[vi] - 1;  // 0-based
-            cv[vi][0] = v2c[vid * 3 + 0];
-            cv[vi][1] = v2c[vid * 3 + 1];
-            cv[vi][2] = v2c[vid * 3 + 2];
+            int64_t vid = elem_data[e].ids[vi] - 1;
+            elem_data[e].coords[vi][0] = v2c[vid * 3 + 0];
+            elem_data[e].coords[vi][1] = v2c[vid * 3 + 1];
+            elem_data[e].coords[vi][2] = v2c[vid * 3 + 2];
         }
+    }
 
-        // Element bounding box (for PML check)
+        #pragma omp parallel for schedule(dynamic, 1) reduction(min: h_min) shared(res, elem_data, pts, w, w3, pml_width) firstprivate(ngll)
+    for (int64_t e = 0; e < n_cell; ++e) {
+        const double (*cv)[3] = elem_data[e].coords;
+
+        // Element bounding box (from precomputed corner coords)
         double e_xmin = 1e30, e_xmax = -1e30;
         double e_ymin = 1e30, e_ymax = -1e30;
         double e_zmin = 1e30, e_zmax = -1e30;
@@ -450,8 +455,6 @@ static ComputeResult compute_all(
             if (cv[vi][2] < e_zmin) e_zmin = cv[vi][2];
             if (cv[vi][2] > e_zmax) e_zmax = cv[vi][2];
         }
-
-        bool elem_in_pml = false;  // We'll just compute ramp for all, but flag will be set by Python later
 
         // Loop over all GLL nodes
         for (int i = 0; i < ngll; ++i) {
@@ -473,22 +476,42 @@ static ComputeResult compute_all(
                         x_phys[2] += N_vals[a] * cv[a][2];
                     }
 
-                    // Jacobian matrix J[m][n] = dx_m / dξ_n
-                    Eigen::Matrix3d J;
-                    for (int m = 0; m < 3; ++m)
-                        for (int n = 0; n < 3; ++n) {
-                            double val = 0.0;
-                            for (int a = 0; a < 8; ++a)
-                                val += dN[a][n] * cv[a][m];
-                            J(m, n) = val;
-                        }
+                    // Jacobian matrix J_ij = dx_i / dξ_j (manual 3x3)
+                    double J00=0, J01=0, J02=0;
+                    double J10=0, J11=0, J12=0;
+                    double J20=0, J21=0, J22=0;
+                    for (int a = 0; a < 8; ++a) {
+                        J00 += dN[a][0] * cv[a][0]; J01 += dN[a][1] * cv[a][0]; J02 += dN[a][2] * cv[a][0];
+                        J10 += dN[a][0] * cv[a][1]; J11 += dN[a][1] * cv[a][1]; J12 += dN[a][2] * cv[a][1];
+                        J20 += dN[a][0] * cv[a][2]; J21 += dN[a][1] * cv[a][2]; J22 += dN[a][2] * cv[a][2];
+                    }
 
-                    double detJ = J.determinant();
-                    Eigen::Matrix3d Jinv;
+                    // det(J) = J00*J11*J22 + J01*J12*J20 + J02*J10*J21
+                    //        - J00*J12*J21 - J01*J10*J22 - J02*J11*J20
+                    double detJ = J00*(J11*J22 - J12*J21)
+                                + J01*(J12*J20 - J10*J22)
+                                + J02*(J10*J21 - J11*J20);
+
+                    // Inverse via cofactor matrix / det
+                    // J^{-1}_ij = cofactor(J)_{ji} / det(J)
+                    double Jinv00, Jinv01, Jinv02;
+                    double Jinv10, Jinv11, Jinv12;
+                    double Jinv20, Jinv21, Jinv22;
                     if (detJ > 0) {
-                        Jinv = J.inverse();
+                        double inv_det = 1.0 / detJ;
+                        Jinv00 =  (J11*J22 - J12*J21) * inv_det;
+                        Jinv01 =  (J02*J21 - J01*J22) * inv_det;
+                        Jinv02 =  (J01*J12 - J02*J11) * inv_det;
+                        Jinv10 =  (J12*J20 - J10*J22) * inv_det;
+                        Jinv11 =  (J00*J22 - J02*J20) * inv_det;
+                        Jinv12 =  (J02*J10 - J00*J12) * inv_det;
+                        Jinv20 =  (J10*J21 - J11*J20) * inv_det;
+                        Jinv21 =  (J01*J20 - J00*J21) * inv_det;
+                        Jinv22 =  (J00*J11 - J01*J10) * inv_det;
                     } else {
-                        Jinv.setZero();
+                        Jinv00=0; Jinv01=0; Jinv02=0;
+                        Jinv10=0; Jinv11=0; Jinv12=0;
+                        Jinv20=0; Jinv21=0; Jinv22=0;
                     }
 
                     // Store results
@@ -498,15 +521,15 @@ static ComputeResult compute_all(
                     res.jacobian[base] = detJ;
 
                     int64_t dxi_off = base * 9;
-                    res.dxi_dx[dxi_off + 0] = Jinv(0, 0);
-                    res.dxi_dx[dxi_off + 1] = Jinv(0, 1);
-                    res.dxi_dx[dxi_off + 2] = Jinv(0, 2);
-                    res.dxi_dx[dxi_off + 3] = Jinv(1, 0);
-                    res.dxi_dx[dxi_off + 4] = Jinv(1, 1);
-                    res.dxi_dx[dxi_off + 5] = Jinv(1, 2);
-                    res.dxi_dx[dxi_off + 6] = Jinv(2, 0);
-                    res.dxi_dx[dxi_off + 7] = Jinv(2, 1);
-                    res.dxi_dx[dxi_off + 8] = Jinv(2, 2);
+                    res.dxi_dx[dxi_off + 0] = Jinv00;
+                    res.dxi_dx[dxi_off + 1] = Jinv01;
+                    res.dxi_dx[dxi_off + 2] = Jinv02;
+                    res.dxi_dx[dxi_off + 3] = Jinv10;
+                    res.dxi_dx[dxi_off + 4] = Jinv11;
+                    res.dxi_dx[dxi_off + 5] = Jinv12;
+                    res.dxi_dx[dxi_off + 6] = Jinv20;
+                    res.dxi_dx[dxi_off + 7] = Jinv21;
+                    res.dxi_dx[dxi_off + 8] = Jinv22;
 
                     res.mass[base] = detJ * w3[(i * ngll + j) * ngll + k];
 
@@ -554,7 +577,9 @@ static ComputeResult compute_all(
         }
     }
 
-    // Second pass: compute CFL min spacing from stored coords
+    delete[] elem_data;
+
+    // Second pass: compute CFL min spacing from stored coords (single-threaded)
     for (int64_t e = 0; e < n_cell; ++e) {
         for (int i = 0; i < ngll; ++i) {
             for (int j = 0; j < ngll; ++j) {

@@ -16,9 +16,19 @@ target_include_directories(
             ${EIGEN3_INCLUDE_DIR}
             ${HDF5_INCLUDE_DIRS})
 
+find_package(OpenMP QUIET)
+
 target_link_libraries(
     gf_preprocess_cpp
     PRIVATE Eigen3::Eigen
             ${HDF5_C_LIBRARIES})
+
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(gf_preprocess_cpp PRIVATE OpenMP::OpenMP_CXX)
+    target_compile_options(gf_preprocess_cpp PRIVATE ${OpenMP_CXX_FLAGS})
+    message(STATUS "OpenMP found: enabled parallel GLL geometry")
+else()
+    message(STATUS "OpenMP not found: single-threaded GLL geometry")
+endif()
 
 target_compile_features(gf_preprocess_cpp PRIVATE cxx_std_17)
