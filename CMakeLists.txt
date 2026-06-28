@@ -14,6 +14,7 @@ FetchContent_MakeAvailable(Catch2)
 
 add_subdirectory(compress)
 add_subdirectory(forward)
+add_subdirectory(preprocess/cpp)
 
 # ----- Find packages for tests (and general use) -----
 find_package(MPI REQUIRED CXX)

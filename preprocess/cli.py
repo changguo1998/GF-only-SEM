@@ -11,6 +11,7 @@ import time
 import numpy as np
 import logging
 
+from preprocess.accelerator import run_accelerator
 from preprocess.config_loader import load_config
 from preprocess.gll_geometry import compute_gll_geometry
 from preprocess.model_loader import load_and_interpolate
@@ -82,13 +83,26 @@ def main() -> None:
     N = int(config.polynomial_order)
     n_gll = N + 1
 
-    # Step: compute GLL geometry
-    logger.info(f"Computing GLL geometry (N={N}, {n_cell} cells)...")
-    t0 = time.time()
-    coords, jacobian, dxi_dx, mass_gll = compute_gll_geometry(topology, N)
-    logger.debug(f"  GLL geometry: {time.time() - t0:.2f}s")
+    # Try C++ accelerator for GLL geometry, CFL, and PML damping
+    accel_result = run_accelerator(mesh_path, config, domain_bounds)
 
-    # Step: load/interpolate material
+    if accel_result["used_cpp"]:
+        logger.info("Using C++-accelerated GLL geometry")
+        coords = accel_result["coords"]
+        jacobian = accel_result["jacobian"]
+        dxi_dx = accel_result["dxi_dx"]
+        mass_gll = accel_result["mass"]
+        damping_cpp = accel_result["damping"]
+        cfl_dt = accel_result["cfl_dt"]
+    else:
+        # Step: compute GLL geometry (Python fallback)
+        logger.info(f"Computing GLL geometry (N={N}, {n_cell} cells)...")
+        t0 = time.time()
+        coords, jacobian, dxi_dx, mass_gll = compute_gll_geometry(topology, N)
+        logger.debug(f"  GLL geometry: {time.time() - t0:.2f}s")
+        damping_cpp = None
+
+    # Step: load/interpolate material (always Python — user callables)
     model_path = getattr(config, "model_path", None)
     logger.info("Loading material model...")
     t0 = time.time()
@@ -102,10 +116,16 @@ def main() -> None:
     boundary_tag, is_pml = detect_boundaries(topology, domain_bounds)
 
     # Step: CFL validation — compute solver_dt and snapshot_stride
-    logger.info("Running CFL validation...")
-    from preprocess.cfl_validator import compute_cfl_dt, compute_solver_dt
-
-    cfl_dt = compute_cfl_dt(coords, vp_gll, config.cfl_safety)
+    # CFL: combine C++ h_min (or compute all-Python) with vp_max
+    from preprocess.cfl_validator import compute_cfl_dt as _compute_cfl_dt, compute_solver_dt
+    if accel_result["used_cpp"]:
+        h_min_cpp = accel_result["cfl_dt"]  # C++ returns h_min, not full dt
+        vp_max = float(vp_gll.max())
+        cfl_dt = config.cfl_safety * h_min_cpp / vp_max
+        logger.info(f"Using C++ h_min={h_min_cpp:.6e}, vp_max={vp_max:.6e}, cfl_dt={cfl_dt:.6e}")
+    else:
+        logger.info("Running CFL validation (Python)...")
+        cfl_dt = _compute_cfl_dt(coords, vp_gll, config.cfl_safety)
 
     # Derive solver timestep and snapshot stride from output_dt_s
     solver_dt, snapshot_stride = compute_solver_dt(config.output_dt_s, cfl_dt)
@@ -174,16 +194,25 @@ def main() -> None:
         sys.exit(1)
 
     # Step: PML damping
-    logger.info("Computing PML damping profiles...")
-    try:
-        from preprocess.pml import compute_pml_damping
+    if damping_cpp is not None:
+        logger.info("Using C++-computed PML damping ramps")
+        # Mask damping: zero out non-PML elements (C++ computes ramp for all)
+        is_pml_flat = is_pml.reshape(-1)
+        damping = damping_cpp.copy()
+        for e in range(n_cell):
+            if not is_pml_flat[e]:
+                damping[e] = 0.0
+    else:
+        logger.info("Computing PML damping profiles...")
+        try:
+            from preprocess.pml import compute_pml_damping
 
-        damping = compute_pml_damping(
-            topology, coords, config.pml_thickness, domain_bounds, is_pml
-        )
-    except ImportError:
-        damping = np.zeros((n_cell, n_gll, n_gll, n_gll), dtype=np.float64)
-        logger.info("  pml.py not available — damping = 0")
+            damping = compute_pml_damping(
+                topology, coords, config.pml_thickness, domain_bounds, is_pml
+            )
+        except ImportError:
+            damping = np.zeros((n_cell, n_gll, n_gll, n_gll), dtype=np.float64)
+            logger.info("  pml.py not available — damping = 0")
 
     # Step: partition
     n_ranks = int(config.n_ranks)
