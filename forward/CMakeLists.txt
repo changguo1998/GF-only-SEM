@@ -27,3 +27,7 @@ target_link_libraries(libgf PUBLIC MPI::MPI_CXX Eigen3::Eigen ${HDF5_C_LIBRARIES
 
 add_executable(gf_solver src/main.cpp)
 target_link_libraries(gf_solver PRIVATE libgf)
+
+set_target_properties(gf_solver PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin"
+)
