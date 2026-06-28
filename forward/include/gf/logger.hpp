@@ -59,6 +59,31 @@ public:
         }
     }
 
+    void progress(const std::string& msg) {
+        // In-place progress line: write timestamped to file, \r-update stdout
+        if (file_.is_open()) {
+            auto now = std::chrono::system_clock::now();
+            auto t = std::chrono::system_clock::to_time_t(now);
+            auto ms =
+                std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) %
+                1000;
+            char time_buf[32];
+            std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", std::localtime(&t));
+            file_ << time_buf << "." << std::setw(3) << std::setfill('0') << ms.count()
+                  << " [PROG] " << msg << std::endl;
+        }
+        if (rank_ == 0) {
+            std::cout << "\r" << msg << std::flush;
+        }
+    }
+
+    void progress_done() {
+        // Finalise progress line (move to next line on stdout)
+        if (rank_ == 0) {
+            std::cout << std::endl;
+        }
+    }
+
     void close() {
         if (file_.is_open()) {
             file_.close();

@@ -53,6 +53,16 @@ Newmark predict
 → overwrite restart if step % restart_stride == 0
 ```
 
+## Progress Output
+
+On each snapshot write (rank 0 only), an in-place progress line is printed:
+
+```
+ 500/5000  10%  elapsed= 123.4s  eta= 1110.6s  finish~2026-06-28 15:30:45
+```
+
+Fields: step/total, percentage, wall-clock elapsed, estimated remaining time, estimated finish time (yyyy-mm-dd HH:MM:SS). Updated in-place via `\r` carriage return (no spamming). Finalised with newline on completion.
+
 ## Config Fields
 
 - `solver_dt`: Newmark timestep
