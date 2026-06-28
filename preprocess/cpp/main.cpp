@@ -12,7 +12,9 @@
  * field/info/solver_dt in mesh.h5.
  */
 
+#ifdef _OPENMP
 #include <omp.h>
+#endif
 
 #include <Eigen/Dense>
 #include <hdf5.h>
@@ -22,6 +24,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -428,7 +431,7 @@ static ComputeResult compute_all(
 
     // Precompute vertex IDs and corner coords for all elements (single-threaded)
     struct ElemCorners { int64_t ids[8]; double coords[8][3]; };
-    ElemCorners* elem_data = new ElemCorners[n_cell];
+    std::unique_ptr<ElemCorners[]> elem_data(new ElemCorners[n_cell]);
     for (int64_t e = 0; e < n_cell; ++e) {
         get_cell_vertex_ids(e, c2s, s2e, e2v, elem_data[e].ids);
         for (int vi = 0; vi < 8; ++vi) {
@@ -576,8 +579,6 @@ static ComputeResult compute_all(
             }
         }
     }
-
-    delete[] elem_data;
 
     // Second pass: compute CFL min spacing from stored coords (single-threaded)
     for (int64_t e = 0; e < n_cell; ++e) {
