@@ -9,6 +9,82 @@ import numpy.typing as npt
 from preprocess.topology_reader import TopologyData
 
 
+def compute_element_tile_index(
+    n_cell: int,
+    nx_elements: int,
+    ny_elements: int,
+    pml_xmin: int,
+    pml_xmax: int,
+    pml_ymin: int,
+    pml_ymax: int,
+    tilex_elements: list[int],
+    tiley_elements: list[int],
+) -> npt.NDArray[np.int64]:
+    """Compute tile index for every element in a structured hex mesh.
+
+    Elements are numbered row-major: x fastest, then y, then z.
+    PML elements at mesh boundaries get tile_index = -1.
+    Non-PML interior elements are partitioned into horizontal tiles
+    following tilex_elements / tiley_elements.
+
+    Returns:
+        [n_cell] int64 array: tile_index (0..n_tiles-1), with -1 for PML.
+    """
+    n_tilex = len(tilex_elements)
+    n_tiley = len(tiley_elements)
+    if n_tilex == 0 or n_tiley == 0:
+        return np.full(n_cell, -1, dtype=np.int64)
+
+    # Cumulative tile boundaries in interior-element space
+    tilex_cumul = [0]
+    for sz in tilex_elements:
+        tilex_cumul.append(tilex_cumul[-1] + sz)
+    tiley_cumul = [0]
+    for sz in tiley_elements:
+        tiley_cumul.append(tiley_cumul[-1] + sz)
+
+    n_interior_x = nx_elements - pml_xmin - pml_xmax
+    n_interior_y = ny_elements - pml_ymin - pml_ymax
+
+    tile_index = np.full(n_cell, -1, dtype=np.int64)
+
+    for elem_idx in range(n_cell):
+        # Row-major: x fastest, then y, then z
+        i = elem_idx % nx_elements
+        j = (elem_idx // nx_elements) % ny_elements
+
+        # Interior element index (non-PML region)
+        interior_i = i - pml_xmin
+        interior_j = j - pml_ymin
+
+        if interior_i < 0 or interior_i >= n_interior_x:
+            continue  # PML in x
+        if interior_j < 0 or interior_j >= n_interior_y:
+            continue  # PML in y
+
+        # Find tile in x
+        tile_x = -1
+        for tx in range(n_tilex):
+            if tilex_cumul[tx] <= interior_i < tilex_cumul[tx + 1]:
+                tile_x = tx
+                break
+        if tile_x < 0:
+            continue
+
+        # Find tile in y
+        tile_y = -1
+        for ty in range(n_tiley):
+            if tiley_cumul[ty] <= interior_j < tiley_cumul[ty + 1]:
+                tile_y = ty
+                break
+        if tile_y < 0:
+            continue
+
+        tile_index[elem_idx] = tile_y * n_tilex + tile_x
+
+    return tile_index
+
+
 def write_model(
     mesh_path: str,
     topology: TopologyData,
@@ -17,12 +93,14 @@ def write_model(
     domain_bounds: dict[str, float],
     partition_result: dict | None = None,
     recording_map: dict | None = None,
+    tile_config: dict | None = None,
 ) -> None:
     """Extend mesh.h5 with field data and write partition files.
 
     mesh.h5 is extended (append mode) with:
       /field/element/coords, /field/element/dxi_dx, /field/element/jacobian
       /field/element/is_pml
+      /field/element/tile_index
       /field/surface/boundary_tag
 
     When partition_result is provided, per-rank partition_{r}.h5 files are
@@ -37,8 +115,11 @@ def write_model(
         boundary_tag: Surface boundary tags [n_surface] int64.
         domain_bounds: Dict with xmin, xmax, ymin, ymax, zmin, zmax.
         partition_result: Optional partition output from partition().
+        tile_config: Optional dict with nx_elements, ny_elements,
+                     pml_xmin, pml_xmax, pml_ymin, pml_ymax,
+                     tilex_elements, tiley_elements.
     """
-    _extend_mesh_h5(mesh_path, fields, boundary_tag, domain_bounds)
+    _extend_mesh_h5(mesh_path, fields, boundary_tag, domain_bounds, tile_config=tile_config)
 
     if partition_result is not None:
         _write_partition_files(
@@ -48,6 +129,7 @@ def write_model(
             boundary_tag,
             partition_result,
             recording_map=recording_map,
+            tile_config=tile_config,
         )
 
 
@@ -56,6 +138,7 @@ def _extend_mesh_h5(
     fields: dict[str, npt.NDArray],
     boundary_tag: npt.NDArray[np.int64],
     domain_bounds: dict[str, float],
+    tile_config: dict | None = None,
 ) -> None:
     with h5py.File(mesh_path, "a") as f:
         fld = f.require_group("field")
@@ -67,6 +150,22 @@ def _extend_mesh_h5(
 
         is_pml = fields.get("is_pml", np.array([], dtype=np.bool_))
         _write_dataset(felem, "is_pml", is_pml.astype(np.int8), dtype="int8")
+
+        # Write tile_index to mesh.h5 if tile config is available
+        if tile_config is not None:
+            n_cell = topology.n_cell
+            tile_idx = compute_element_tile_index(
+                n_cell,
+                tile_config.get("nx_elements", 0),
+                tile_config.get("ny_elements", 0),
+                tile_config.get("pml_xmin", 0),
+                tile_config.get("pml_xmax", 0),
+                tile_config.get("pml_ymin", 0),
+                tile_config.get("pml_ymax", 0),
+                tile_config.get("tilex_elements", []),
+                tile_config.get("tiley_elements", []),
+            )
+            _write_dataset(felem, "tile_index", tile_idx, dtype="int64")
 
         fsurf = fld.require_group("surface")
         if boundary_tag is not None:
@@ -84,6 +183,7 @@ def _write_partition_files(
     boundary_tag: npt.NDArray[np.int64],
     partition_result: dict,
     recording_map: dict | None = None,
+    tile_config: dict | None = None,
 ) -> None:
     mesh_dir = os.path.dirname(os.path.abspath(mesh_path))
     parts_dir = os.path.join(mesh_dir, "partitions")
@@ -97,6 +197,21 @@ def _write_partition_files(
         element_to_rank = np.zeros(topology.n_cell, dtype=np.int32)
 
     field_keys = ["coords", "dxi_dx", "jacobian", "mass", "vp", "vs", "density", "damping"]
+
+    # Precompute global tile_index if tile config provided
+    global_tile_index = None
+    if tile_config is not None:
+        global_tile_index = compute_element_tile_index(
+            topology.n_cell,
+            tile_config.get("nx_elements", 0),
+            tile_config.get("ny_elements", 0),
+            tile_config.get("pml_xmin", 0),
+            tile_config.get("pml_xmax", 0),
+            tile_config.get("pml_ymin", 0),
+            tile_config.get("pml_ymax", 0),
+            tile_config.get("tilex_elements", []),
+            tile_config.get("tiley_elements", []),
+        )
 
     for r in range(n_ranks):
         rk = per_rank.get(r, {})
@@ -118,6 +233,15 @@ def _write_partition_files(
                     continue
                 local_data = arr[local_zero] if n_local > 0 else np.array([], dtype=arr.dtype)
                 _write_dataset(felem_grp, key, local_data, compression=True)
+
+            # Write tile_index to partition file
+            if global_tile_index is not None:
+                local_tile = (
+                    global_tile_index[local_zero]
+                    if n_local > 0
+                    else np.array([], dtype=np.int64)
+                )
+                _write_dataset(felem_grp, "tile_index", local_tile, dtype="int64")
 
             fsurf_grp = fld_grp.create_group("surface")
             _write_dataset(fsurf_grp, "boundary_tag", boundary_tag, dtype="int64")

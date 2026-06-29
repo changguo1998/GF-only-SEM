@@ -264,6 +264,18 @@ def main() -> None:
     t0 = time.time()
     from preprocess.model_writer import write_model
 
+    # Build tile config for model writer (tile_index in partition files + mesh.h5)
+    tile_config = {
+        "nx_elements": int(config.nx_elements),
+        "ny_elements": int(config.ny_elements),
+        "pml_xmin": int(config.pml_thickness.get("xmin", 0)),
+        "pml_xmax": int(config.pml_thickness.get("xmax", 0)),
+        "pml_ymin": int(config.pml_thickness.get("ymin", 0)),
+        "pml_ymax": int(config.pml_thickness.get("ymax", 0)),
+        "tilex_elements": list(config.tilex_elements),
+        "tiley_elements": list(config.tiley_elements),
+    }
+
     write_model(
         mesh_path,
         topology,
@@ -272,6 +284,7 @@ def main() -> None:
         domain_bounds,
         partition_result,
         recording_map=rec_map,
+        tile_config=tile_config,
     )
     logger.debug(f"  model write: {time.time() - t0:.2f}s")
 
