@@ -78,9 +78,12 @@ TEST_CASE("Rigid-body translation gives zero residual", "[element]") {
 
     std::vector<double> r(elem.n_node * 3, 0.0);
 
-    compute_element_residual(elem.dxi_dx.data(), elem.jacobian.data(), elem.vp.data(),
-                             elem.vs.data(), elem.density.data(), elem.D.data(), elem.w.data(),
-                             elem.ngll, u.data(), r.data());
+    compute_element_residual<gf::BackendCPU>(
+        1 /* n_elem */,
+        elem.dxi_dx.data(), elem.jacobian.data(),
+        elem.vp.data(), elem.vs.data(), elem.density.data(),
+        elem.D.data(), elem.w.data(), elem.ngll,
+        u.data(), r.data());
 
     // Residual should be zero for rigid body translation (no strain, no stress)
     for (size_t i = 0; i < r.size(); ++i) {
@@ -103,9 +106,12 @@ TEST_CASE("Rigid-body rotation gives near-zero residual", "[element]") {
     }
 
     std::vector<double> r(elem.n_node * 3, 0.0);
-    compute_element_residual(elem.dxi_dx.data(), elem.jacobian.data(), elem.vp.data(),
-                             elem.vs.data(), elem.density.data(), elem.D.data(), elem.w.data(),
-                             elem.ngll, u.data(), r.data());
+    compute_element_residual<gf::BackendCPU>(
+        1 /* n_elem */,
+        elem.dxi_dx.data(), elem.jacobian.data(),
+        elem.vp.data(), elem.vs.data(), elem.density.data(),
+        elem.D.data(), elem.w.data(), elem.ngll,
+        u.data(), r.data());
 
     // Residual should be near zero for rigid rotation (only antisymmetric strain gradient)
     for (size_t i = 0; i < r.size(); ++i) {
@@ -126,9 +132,12 @@ TEST_CASE("Uniform uniaxial strain produces correct residual", "[element]") {
     }
 
     std::vector<double> r(elem.n_node * 3, 0.0);
-    compute_element_residual(elem.dxi_dx.data(), elem.jacobian.data(), elem.vp.data(),
-                             elem.vs.data(), elem.density.data(), elem.D.data(), elem.w.data(),
-                             elem.ngll, u.data(), r.data());
+    compute_element_residual<gf::BackendCPU>(
+        1 /* n_elem */,
+        elem.dxi_dx.data(), elem.jacobian.data(),
+        elem.vp.data(), elem.vs.data(), elem.density.data(),
+        elem.D.data(), elem.w.data(), elem.ngll,
+        u.data(), r.data());
 
     // For uniform ε_xx, stress is σ_xx = (λ+2μ)*ε, σ_yy = σ_zz = λ*ε
     // The residual is the internal force: r = -∫B^T σ dΩ

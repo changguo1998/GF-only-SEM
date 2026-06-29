@@ -130,9 +130,11 @@ TEST_CASE("Single-element forward steps complete without crash", "[integration]"
 
         // --- Element residual ---
         std::fill(elem_r.begin(), elem_r.end(), 0.0);
-        compute_element_residual(rd.dxi_dx.data(), rd.jacobian.data(), rd.vp.data(), rd.vs.data(),
-                                 rd.density.data(), D.data(), wts.data(), ngll, u_tilde.data(),
-                                 elem_r.data());
+        compute_element_residual<gf::BackendCPU>(
+            1 /* n_elem */,
+            rd.dxi_dx.data(), rd.jacobian.data(), rd.vp.data(), rd.vs.data(),
+            rd.density.data(), D.data(), wts.data(), ngll, u_tilde.data(),
+            elem_r.data());
 
         // --- Assembly ---
         assemble_residual(elem_r, rd, r);
@@ -190,8 +192,10 @@ TEST_CASE("Rigid-body initial condition produces zero residual", "[integration]"
     }
 
     std::vector<double> r(n_dof, 0.0);
-    compute_element_residual(rd.dxi_dx.data(), rd.jacobian.data(), rd.vp.data(), rd.vs.data(),
-                             rd.density.data(), D.data(), wts.data(), ngll, u.data(), r.data());
+    compute_element_residual<gf::BackendCPU>(
+        1 /* n_elem */,
+        rd.dxi_dx.data(), rd.jacobian.data(), rd.vp.data(), rd.vs.data(),
+        rd.density.data(), D.data(), wts.data(), ngll, u.data(), r.data());
 
     // Rigid-body translation → zero residual
     for (int i = 0; i < n_dof; ++i) {
