@@ -355,7 +355,7 @@ def main():
                 local_zero, cell_to_surface, surface_to_edge, edge_to_vertex
             )
 
-            field_names = ["vp", "vs", "density", "mass", "damping"]
+            field_names = ["vp", "vs", "density", "mass", "damping", "tile_index"]
             cell_fields = {}
             for name in field_names:
                 data = f[f"field/element/{name}"][:]
@@ -372,6 +372,7 @@ def main():
             "PML_Damping": cell_fields["damping"],
             "PML_flag": cell_fields["PML_flag"],
             "Rank": cell_fields["Rank"],
+            "Tile_Index": cell_fields.get("tile_index", np.full(n_local, -1.0)),
         }
 
         # ── Build GLL point data + topology if available ──

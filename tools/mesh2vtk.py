@@ -63,7 +63,7 @@ def read_partition_fields(partition_dir, n_cell):
     )
     if not part_files:
         raise FileNotFoundError(f"No partition_*.h5 files found in {partition_dir}")
-    field_names = ["vp", "vs", "density", "mass", "damping"]
+    field_names = ["vp", "vs", "density", "mass", "damping", "tile_index"]
     fields = {name: np.zeros(n_cell, dtype=np.float64) for name in field_names}
     for pf in part_files:
         with h5py.File(os.path.join(partition_dir, pf), "r") as f:
@@ -348,9 +348,11 @@ def main():
         cell_fields["Mass"] = fields["mass"]
         cell_fields["PML_Damping"] = fields["damping"]
         cell_fields["PML_flag"] = is_pml.astype(np.float64)
+        cell_fields["Tile_Index"] = fields.get("tile_index", np.full(n_cell, -1.0))
         print("  Fields: " + ", ".join(cell_fields.keys()))
     else:
         cell_fields["PML_flag"] = is_pml.astype(np.float64)
+        cell_fields["Tile_Index"] = np.full(n_cell, -1.0)
         print("  Fields: PML_flag only (no partitions/)")
 
     point_fields = None
