@@ -20,22 +20,26 @@ Elastic CG-SEM solver. Reads `config.h5` + `partition_{r}.h5`. Computes full vol
 | `newmark.hpp` | `newmark.cpp` | explicit Newmark time step |
 | `source.hpp` | `source.cpp` | point force injection |
 | `pml.hpp` | `pml.cpp` | C-PML update |
-| `exchange.hpp` | `exchange.cpp` | MPI halo exchange |
+| `exchange.hpp` | `exchange.cpp`, `exchange_noop.cpp` | MPI halo exchange (or no-op stub) |
 | `io.hpp` | `io.cpp` | HDF5 input |
 | `record.hpp` | `record.cpp` | shallow strain writer |
 | `solver.hpp` | `solver.cpp` | time loop (backend-agnostic, dispatches via `ActiveBackend`) |
-| — | `main.cpp` | MPI CLI, `--direction` |
+| — | `main.cpp` | CLI for all 3 binaries, `--direction` |
 
 ### Device Backend
 
 `compute_element_residual` is backend-templated (`BackendCPU` / `BackendCUDA`).
+Each solver binary uses a compile-time backend selection via `GF_ACTIVE_BACKEND`.
+
 Elastic coefficients λ and μ are precomputed at GLL nodes during preprocessing
 and read from partition files — the kernel receives λ, μ directly instead of
 computing them from Vp, Vs, density every timestep.
-MPI is always required: `find_package(MPI REQUIRED)` in CMake, `MPI_Init` in `main.cpp`,
-and `exchange_halo` in the solver loop. The GPU backend replaces *only*
-`compute_element_residual` — Newmark, PML, source, exchange, I/O stay on CPU.
-After each GPU kernel, residual is copied back to host for MPI exchange.
+
+MPI is optional at link time: `gf_solver_cuda` links a no-op exchange stub
+and guards `MPI_Init` via `#ifndef GF_NO_MPI`. All other solvers use real MPI.
+The GPU backend replaces *only* `compute_element_residual` — Newmark, PML,
+source, exchange, I/O stay on CPU. After each GPU kernel, residual is copied
+back to host for MPI exchange.
 
 CMake `GF_DEVICE_BACKEND=CUDA` enables the CUDA path. All other solver components
 (Newmark, PML, source, exchange, I/O) remain on CPU.
@@ -48,13 +52,30 @@ See [`docs/superpowers/design/gpu.md`](../docs/superpowers/design/gpu.md) for fu
 > **GPU binding:** On multi-GPU nodes, each MPI rank must bind to a distinct device
 > (via `CUDA_VISIBLE_DEVICES` or `cudaSetDevice`). Without this, all ranks use GPU 0.
 
-### Executable
+### Executables
+
+Three solver binaries are produced, selectable by name:
+
+| Binary | Backend | MPI | Use case |
+|--------|---------|-----|----------|
+| `gf_solver_mpi` | CPU | yes | CPU cluster, workstation |
+| `gf_solver_cuda` | CUDA | no | Single GPU, no MPI needed |
+| `gf_solver_mpi_cuda` | CUDA | yes | Multi-GPU cluster |
+
+All three share the same source code. MPI-dependent code is guarded by
+`#ifndef GF_NO_MPI`. Backend dispatch uses `ActiveBackend` (set by CMake
+define `GF_ACTIVE_BACKEND`).
 
 ```bash
-mpirun -n N gf_solver --direction x
-```
+# MPI + CPU (default)
+mpirun -n N gf_solver_mpi --direction x
 
-Binary at `bin/gf_solver` (built by CMake). Add `bin/` to `$PATH` or run as `./bin/gf_solver`.
+# Single GPU (no mpirun)
+gf_solver_cuda --direction x
+
+# Multi-GPU via MPI
+mpirun -n N gf_solver_mpi_cuda --direction x
+```
 
 Frozen paths from CWD:
 
@@ -139,14 +160,24 @@ spack load /zkrqzmds   # OpenMPI 5.0.10
 ### CMake
 
 ```bash
-# CPU (default)
-cmake -B build -DGF_DEVICE_BACKEND=CPU
-cmake --build build
+# CPU + MPI (default — always available)
+cmake -B build
+cmake --build build --target gf_solver_mpi
 
-# CUDA (requires CUDA toolkit, loaded via spack)
-cmake -B build -DGF_DEVICE_BACKEND=CUDA
+# CUDA single-GPU (requires CUDA toolkit)
+cmake -B build
+cmake --build build --target gf_solver_cuda
+
+# CUDA + MPI multi-GPU
+cmake -B build
+cmake --build build --target gf_solver_mpi_cuda
+
+# All available targets
 cmake --build build
 ```
+
+CMake auto-detects MPI and CUDA via `find_package`. Targets whose
+dependencies are not found are silently skipped.
 
 ## Tests
 

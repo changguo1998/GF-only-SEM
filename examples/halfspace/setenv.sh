@@ -19,11 +19,11 @@ source "${PROJECT_DIR}/env_setup.sh"
 N_RANKS=$(python -c "import sys; sys.path.insert(0, '${EXAMPLE_DIR}'); import config; print(config.n_ranks)")
 MPIRUN="${MPIRUN:-mpirun}"
 
-# Check gf_solver
-SOLVER="${PROJECT_DIR}/bin/gf_solver"
+# Check solver binary (default: MPI+CPU). Override SOLVER for GPU variants.
+SOLVER="${SOLVER:-${PROJECT_DIR}/bin/gf_solver_mpi}"
 if [ ! -x "${SOLVER}" ]; then
-    echo "ERROR: gf_solver not found at ${SOLVER}"
-    echo "       Build with: cd ${PROJECT_DIR}/build && cmake --build . --target gf_solver"
+    echo "ERROR: solver not found at ${SOLVER}"
+    echo "       Build with: cd ${PROJECT_DIR}/build && cmake --build . --target gf_solver_mpi"
     return 1 2>/dev/null || exit 1
 fi
 

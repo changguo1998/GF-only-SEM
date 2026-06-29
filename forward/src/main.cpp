@@ -6,7 +6,9 @@
 //   Output: wavefields/{direction}/record_{r}.h5
 //   Restart: restart/{direction}/restart_{r}.h5 (with --resume)
 
+#ifndef GF_NO_MPI
 #include <mpi.h>
+#endif
 
 #include <cstring>
 #include <iostream>
@@ -24,10 +26,13 @@ void print_usage(const char* prog) {
 }
 
 int main(int argc, char** argv) {
+#ifndef GF_NO_MPI
     MPI_Init(&argc, &argv);
-
-    int rank;
+#endif
+    int rank = 0;
+#ifndef GF_NO_MPI
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+#endif
 
     try {
         std::string direction;
@@ -46,7 +51,9 @@ int main(int argc, char** argv) {
                 std::cerr << "Error: --direction must be x, y, or z, got '" << direction << "'\n";
                 print_usage(argv[0]);
             }
+#ifndef GF_NO_MPI
             MPI_Finalize();
+#endif
             return 1;
         }
 
@@ -61,12 +68,16 @@ int main(int argc, char** argv) {
 
         int result = gf::run_forward(direction, resume_mode);
 
+#ifndef GF_NO_MPI
         MPI_Finalize();
+#endif
         return result;
 
     } catch (const std::exception& e) {
         std::cerr << "[Rank " << rank << "] Fatal error: " << e.what() << std::endl;
+#ifndef GF_NO_MPI
         MPI_Finalize();
+#endif
         return 1;
     }
 }

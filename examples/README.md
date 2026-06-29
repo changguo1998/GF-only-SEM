@@ -48,9 +48,12 @@ wavefield2vtk_detail      # → vtk/wavefield_{step}.vtk (full GLL point strain)
 # Python dependencies
 uv sync --group dev
 
-# C++ forward solver
-cd build && cmake .. && make gf_solver
-# binary goes to bin/gf_solver
+# C++ forward solver (choose one):
+#   MPI + CPU (default):   cmake --build build --target gf_solver_mpi
+#   CUDA single-GPU:       cmake --build build --target gf_solver_cuda
+#   MPI + CUDA multi-GPU:  cmake --build build --target gf_solver_mpi_cuda
+cd build && cmake .. && make gf_solver_mpi
+# binaries go to bin/
 
 # MPI environment (if using Spack)
 source env_setup.sh

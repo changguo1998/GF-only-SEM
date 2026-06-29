@@ -1,8 +1,9 @@
 // forward/src/solver.cpp
 #include "gf/solver.hpp"
 
-#include <hdf5.h>
+#ifndef GF_NO_MPI
 #include <mpi.h>
+#endif
 
 #include <chrono>
 #include <cmath>
@@ -64,12 +65,19 @@ int run_forward(const std::string& direction, bool resume_mode) {
     std::string config_path = "config.h5";
     std::string partition_dir = "partitions";
     std::string output_dir = "wavefields";
-    int rank, nprocs;
+    int rank = 0;
+    int nprocs = 1;
+#ifndef GF_NO_MPI
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+#endif
 
     Logger logger(direction, rank);
+#ifdef GF_NO_MPI
+    logger.info("single process, direction=" + direction);
+#else
     logger.info(std::to_string(nprocs) + " MPI ranks, direction=" + direction);
+#endif
 
     try {
         // === Read config (all ranks read same file) ===
