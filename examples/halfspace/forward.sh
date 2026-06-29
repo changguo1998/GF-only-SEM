@@ -2,40 +2,22 @@
 # ==============
 # halfspace/forward.sh
 # ==============
-# Stage: generate mesh + preprocess + forward solver (3 directions).
-# Run standalone:  bash forward.sh
+# Stage 3: mesh + preprocess + forward solver (3 directions).
+# Usage: source forward.sh   (or bash forward.sh)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK_DIR="${SCRIPT_DIR}"
 
-source "${SCRIPT_DIR}/setenv.sh"
-source "${SCRIPT_DIR}/lib.sh"
-
-echo "=== Stage: Generate mesh + Preprocess + Forward ==="
-cd "${WORK_DIR}"
-clean_workdir "${WORK_DIR}"
-
-# ── Mesh ───
-echo "--- mesh_gen.py ---"
-python "${EXAMPLE_DIR}/mesh_gen.py"
-
-# ── Preprocess ───
-echo ""
-echo "--- python -m preprocess ---"
-python -m preprocess
-
-echo ""
-echo "=== Preprocess outputs ==="
-echo "mesh.h5:      $(du -sh mesh.h5 | cut -f1)"
-echo "config.h5:    $(du -sh config.h5 | cut -f1)"
-showdir "${WORK_DIR}/partitions/"
-echo ""
+# Prior stages first (chain sources mesh.sh → setenv.sh + lib.sh)
+source "${SCRIPT_DIR}/preprocess.sh"
 
 # ── Forward solver (3 directions) ───
+echo ""
+echo "=== Stage 3: Forward solver ==="
 for DIR in x y z; do
     echo ""
-    echo "=== Forward solver (direction=${DIR}) ==="
+    echo "--- direction=${DIR} ---"
     mkdir -p "${WORK_DIR}/wavefields/${DIR}"
     cd "${WORK_DIR}"
     ${MPIRUN} -n ${N_RANKS} "${SOLVER}" --direction "${DIR}"
@@ -53,4 +35,4 @@ echo "Log files:"
 showdir "${WORK_DIR}/log/"
 
 echo ""
-echo "=== Stage complete (forward) ==="
+echo "=== Stage 3 complete ==="
