@@ -39,6 +39,8 @@ struct RandomElement {
     std::vector<double> jacobian;
     std::vector<double> vp;
     std::vector<double> vs;
+    std::vector<double> lambda_;
+    std::vector<double> mu_;
     std::vector<double> density;
     std::vector<double> D;
     std::vector<double> w;
@@ -77,8 +79,18 @@ struct RandomElement {
             v = std::abs(v) + 500.0;  // vs > 500
 
         random_fill(density, seed + 4);
-        for (auto& d : density)
-            d = std::abs(d) + 1000.0;  // density > 1000
+        for (auto& d_mag : density)
+            d_mag = std::abs(d_mag) + 1000.0;  // density > 1000
+
+        // Precompute elastic coefficients from Vp, Vs, density
+        lambda_.resize(n_node);
+        mu_.resize(n_node);
+        for (int i = 0; i < n_node; ++i) {
+            double vs2 = vs[i] * vs[i];
+            double vp2 = vp[i] * vp[i];
+            mu_[i] = density[i] * vs2;
+            lambda_[i] = density[i] * (vp2 - 2.0 * vs2);
+        }
     }
 };
 
