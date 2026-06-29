@@ -150,9 +150,7 @@ def _write_partition_files(
                     rec_grp.attrs["record_depth_actual_m"] = recording_map.get(
                         "record_depth_actual_m", 0.0
                     )
-                    rec_grp.attrs["green_tile_size_m"] = recording_map.get(
-                        "green_tile_size_m", 0.0
-                    )
+
                     rec_grp.attrs["excludes_pml"] = True
                     _write_dataset(
                         rec_grp,

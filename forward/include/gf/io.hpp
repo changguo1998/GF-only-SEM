@@ -39,4 +39,7 @@ std::vector<int64_t> read_dataset_int64(hid_t file_id, const std::string& name);
 /// Helper: read an int32_t dataset from an open HDF5 file.
 std::vector<int32_t> read_dataset_int32(hid_t file_id, const std::string& name);
 
+// Read int64 dataset, return as std::vector<int> (narrowing conversion).
+std::vector<int> read_dataset_int(hid_t file_id, const std::string& name);
+
 }  // namespace gf

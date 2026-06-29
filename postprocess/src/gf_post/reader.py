@@ -1,7 +1,7 @@
 """HDF5 readers for record files and mesh geometry.
 
 Record files now store shallow mesh-vertex strain (from recording map)
-with vertex_ids. Metadata (solver_dt, nsteps, green_tile_size_m) comes from config.h5.
+with vertex_ids. Metadata (solver_dt, nsteps, tilex_elements, tiley_elements) comes from config.h5.
 """
 
 import sys
@@ -124,8 +124,31 @@ class ConfigReader:
         self._file.close()
 
     @property
-    def green_tile_size_m(self) -> float:
-        return float(self._file["/simulation"].attrs.get("green_tile_size_m", 1000.0))
+    def nx_elements(self) -> int:
+        return int(self._file["/simulation"].attrs.get("nx_elements", 0))
+
+    @property
+    def ny_elements(self) -> int:
+        return int(self._file["/simulation"].attrs.get("ny_elements", 0))
+
+    @property
+    def pml_thickness(self) -> dict[str, int]:
+        return {
+            "xmin": int(self._file["/simulation"].attrs.get("pml_xmin", 0)),
+            "xmax": int(self._file["/simulation"].attrs.get("pml_xmax", 0)),
+            "ymin": int(self._file["/simulation"].attrs.get("pml_ymin", 0)),
+            "ymax": int(self._file["/simulation"].attrs.get("pml_ymax", 0)),
+            "zmin": int(self._file["/simulation"].attrs.get("pml_zmin", 0)),
+            "zmax": int(self._file["/simulation"].attrs.get("pml_zmax", 0)),
+        }
+
+    @property
+    def tilex_elements(self) -> list[int]:
+        return list(self._file["/simulation/tilex_elements"][:])
+
+    @property
+    def tiley_elements(self) -> list[int]:
+        return list(self._file["/simulation/tiley_elements"][:])
 
     @property
     def record_depth_max_m(self) -> float:

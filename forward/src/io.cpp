@@ -166,6 +166,15 @@ std::vector<int32_t> read_dataset_int32(hid_t file_id, const std::string& name) 
     return read_dataset_impl<int32_t>(file_id, name);
 }
 
+std::vector<int> read_dataset_int(hid_t file_id, const std::string& name) {
+    // Check if dataset exists; return empty if not.
+    if (H5Lexists(file_id, name.c_str(), H5P_DEFAULT) <= 0) {
+        return {};
+    }
+    auto tmp = read_dataset_impl<int64_t>(file_id, name);
+    return std::vector<int>(tmp.begin(), tmp.end());
+}
+
 RankData read_partition(const std::string& path, int /*rank*/) {
     hid_t fid = open_read(path);
     H5FileGuard guard(fid);
@@ -317,7 +326,17 @@ ConfigData read_config(const std::string& path) {
         read_attr_string(sim_grp, "snapshot_precision", cfg.snapshot_precision);
         read_attr_double(sim_grp, "record_depth_max_m", cfg.record_depth_max_m);
         read_attr_double(sim_grp, "record_depth_actual_m", cfg.record_depth_actual_m);
-        read_attr_double(sim_grp, "green_tile_size_m", cfg.green_tile_size_m);
+        read_attr_int(sim_grp, "nx_elements", cfg.nx_elements);
+        read_attr_int(sim_grp, "ny_elements", cfg.ny_elements);
+        read_attr_int(sim_grp, "nz_elements", cfg.nz_elements);
+        read_attr_int(sim_grp, "pml_xmin", cfg.pml_xmin);
+        read_attr_int(sim_grp, "pml_xmax", cfg.pml_xmax);
+        read_attr_int(sim_grp, "pml_ymin", cfg.pml_ymin);
+        read_attr_int(sim_grp, "pml_ymax", cfg.pml_ymax);
+        read_attr_int(sim_grp, "pml_zmin", cfg.pml_zmin);
+        read_attr_int(sim_grp, "pml_zmax", cfg.pml_zmax);
+        cfg.tilex_elements = read_dataset_int(sim_grp, "tilex_elements");
+        cfg.tiley_elements = read_dataset_int(sim_grp, "tiley_elements");
         read_attr_double(sim_grp, "restart_dt_s", cfg.restart_dt_s);
         read_attr_int(sim_grp, "restart_stride", cfg.restart_stride);
     } else {

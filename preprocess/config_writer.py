@@ -74,7 +74,26 @@ def _write_simulation(
     grp.attrs["snapshot_precision"] = config_module.snapshot_precision
     grp.attrs["storage_limit_gb"] = float(config_module.storage_limit_gb)
     grp.attrs["record_depth_max_m"] = float(config_module.record_depth_max_m)
-    grp.attrs["green_tile_size_m"] = float(config_module.green_tile_size_m)
+    # Mesh grid dimensions
+    grp.attrs["nx_elements"] = int(getattr(config_module, "nx_elements", 0))
+    grp.attrs["ny_elements"] = int(getattr(config_module, "ny_elements", 0))
+    grp.attrs["nz_elements"] = int(getattr(config_module, "nz_elements", 0))
+    # PML thickness (elements)
+    pml = getattr(config_module, "pml_thickness", {})
+    grp.attrs["pml_xmin"] = int(pml.get("xmin", 0))
+    grp.attrs["pml_xmax"] = int(pml.get("xmax", 0))
+    grp.attrs["pml_ymin"] = int(pml.get("ymin", 0))
+    grp.attrs["pml_ymax"] = int(pml.get("ymax", 0))
+    grp.attrs["pml_zmin"] = int(pml.get("zmin", 0))
+    grp.attrs["pml_zmax"] = int(pml.get("zmax", 0))
+    # Tile sizes (element counts)
+    tilex = getattr(config_module, "tilex_elements", [])
+    tiley = getattr(config_module, "tiley_elements", [])
+    import numpy as np
+    if tilex:
+        grp.create_dataset("tilex_elements", data=np.array(tilex, dtype=np.int64))
+    if tiley:
+        grp.create_dataset("tiley_elements", data=np.array(tiley, dtype=np.int64))
     if recording_map is not None:
         grp.attrs["record_depth_actual_m"] = recording_map.get(
             "record_depth_actual_m", float(config_module.record_depth_max_m)

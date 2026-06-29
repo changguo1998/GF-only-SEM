@@ -61,7 +61,7 @@ def main(mesh, config, fx, fy, fz, output_dir):
     merges per-rank records, assembles the full 3x6 Green's tensor at
     every recorded mesh vertex, and writes spatially-tiled HDF5 output.
 
-    Tile size comes from config.h5 /simulation/green_tile_size_m.
+    Tile sizes come from config.h5 /simulation/tilex_elements and tiley_elements (element counts).
     """
     start = time.time()
     print("[postprocess] Starting...", file=sys.stderr)
@@ -69,7 +69,11 @@ def main(mesh, config, fx, fy, fz, output_dir):
     # Read config
     print(f"[postprocess] Reading config from {config}", file=sys.stderr)
     with ConfigReader(config) as cfg:
-        green_tile_size_m = cfg.green_tile_size_m
+        nx_elements = cfg.nx_elements
+        ny_elements = cfg.ny_elements
+        pml_thickness = cfg.pml_thickness
+        tilex_elements = cfg.tilex_elements
+        tiley_elements = cfg.tiley_elements
         record_depth_max_m = cfg.record_depth_max_m
         record_depth_actual_m = cfg.record_depth_actual_m
         solver_dt = cfg.solver_dt
@@ -135,7 +139,11 @@ def main(mesh, config, fx, fy, fz, output_dir):
         time_arr,
         solver_dt,
         greens,
-        green_tile_size_m,
+        nx_elements,
+        ny_elements,
+        pml_thickness,
+        tilex_elements,
+        tiley_elements,
         domain_bounds,
         record_depth_max_m=record_depth_max_m,
         record_depth_actual_m=record_depth_actual_m,

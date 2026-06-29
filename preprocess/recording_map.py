@@ -20,7 +20,6 @@ def build_recording_map(
     domain_bounds: dict[str, float],
     is_pml: npt.NDArray[np.bool_ | np.int8],
     record_depth_max_m: float,
-    green_tile_size_m: float,
     element_to_rank: npt.NDArray[np.int32] | None = None,
     per_rank: dict[int, dict] | None = None,
 ) -> dict[str, Any]:
@@ -31,7 +30,6 @@ def build_recording_map(
         domain_bounds: Dict with xmin, xmax, ymin, ymax, zmin, zmax.
         is_pml: [n_cell] bool/int8 — True for PML elements.
         record_depth_max_m: Requested recording depth from surface (z upward).
-        green_tile_size_m: Horizontal tile size for postprocess.
         element_to_rank: [n_cell] rank assignment (from partition).
         per_rank: Per-rank data dict from partition().
 

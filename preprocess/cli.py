@@ -232,7 +232,6 @@ def main() -> None:
         from preprocess.recording_map import build_recording_map
 
         rd_max = float(config.record_depth_max_m)
-        gt_size = float(config.green_tile_size_m)
         element_to_rank = partition_result.get("element_to_rank") if partition_result else None
         per_rank = partition_result.get("per_rank") if partition_result else None
         rec_map = build_recording_map(
@@ -240,7 +239,6 @@ def main() -> None:
             domain_bounds,
             is_pml,
             rd_max,
-            gt_size,
             element_to_rank=element_to_rank,
             per_rank=per_rank,
         )
