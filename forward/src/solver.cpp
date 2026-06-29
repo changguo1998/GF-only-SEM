@@ -94,10 +94,19 @@ int run_forward(const std::string& direction, bool resume_mode) {
         logger.debug("  snapshot_stride=" + std::to_string(cfg.snapshot_stride) +
                      " precision=" + cfg.snapshot_precision);
 
-        // === Read partition for this rank ===
+        // === Read partition(s) for this rank ===
         t_io = std::chrono::steady_clock::now();
-        std::string partition_path = partition_dir + "/partition_" + std::to_string(rank) + ".h5";
-        RankData part = read_partition(partition_path, rank);
+        RankData part;
+        if (nprocs == 1) {
+            // Single-rank mode: read ALL partitions and merge into full domain
+            part = read_partition_all(partition_dir);
+            logger.debug("  merged " + std::to_string(part.n_local_elem) +
+                         " elements from all partitions");
+        } else {
+            std::string partition_path =
+                partition_dir + "/partition_" + std::to_string(rank) + ".h5";
+            part = read_partition(partition_path, rank);
+        }
         io_elapsed =
             std::chrono::duration<double>(std::chrono::steady_clock::now() - t_io).count();
         logger.debug("  partition read: " + std::to_string(io_elapsed) + "s");

@@ -5,8 +5,8 @@ project(gf_calculation LANGUAGES CXX)
 # Dependencies (auto-detected where available)
 # -----------------------------------------------------------------------
 
-# MPI: optional at top level. Required for MPI-based solvers.
-# Without MPI, only gf_solver_cuda (single-GPU) can be built.
+# MPI: optional at top level. Required for MPI-based solvers. Without MPI, only gf_solver_cuda
+# (single-GPU) can be built.
 find_package(MPI)
 if(MPI_FOUND)
     message(STATUS "MPI found — MPI solver targets enabled")
@@ -14,9 +14,9 @@ else()
     message(WARNING "MPI not found — MPI-based targets will NOT be built")
 endif()
 
-# CUDA: optional. If found, CUDA-accelerated solver targets are built.
-# Must be checked at top level because enable_language(CUDA) needs to
-# happen before any CUDA targets are defined in subdirectories.
+# CUDA: optional. If found, CUDA-accelerated solver targets are built. Must be checked at top level
+# because enable_language(CUDA) needs to happen before any CUDA targets are defined in
+# subdirectories.
 find_package(CUDAToolkit QUIET)
 if(CUDAToolkit_FOUND)
     enable_language(CUDA)

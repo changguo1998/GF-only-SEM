@@ -3,8 +3,11 @@
 
 #include <hdf5.h>
 
+#include <algorithm>
+#include <filesystem>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 
 #include "gf/types.hpp"
 
@@ -289,6 +292,83 @@ RankData read_partition(const std::string& path, int /*rank*/) {
     }
 
     return data;
+}
+
+RankData read_partition_all(const std::string& partition_dir) {
+    // Count partitions by scanning partition_{r}.h5 files
+    int n_partitions = 0;
+    for (int r = 0;; ++r) {
+        std::string path = partition_dir + "/partition_" + std::to_string(r) + ".h5";
+        std::error_code ec;
+        if (!std::filesystem::exists(path, ec))
+            break;
+        ++n_partitions;
+    }
+
+    if (n_partitions == 0) {
+        throw std::runtime_error("read_partition_all: no partition files found in " +
+                                 partition_dir);
+    }
+
+    // Helper: append src to dest
+    auto concat_vec = [](auto& dest, const auto& src) {
+        dest.insert(dest.end(), src.begin(), src.end());
+    };
+
+    RankData merged;
+    int cumulative_elements = 0;
+
+    for (int r = 0; r < n_partitions; ++r) {
+        std::string path = partition_dir + "/partition_" + std::to_string(r) + ".h5";
+        RankData part = read_partition(path, r);
+
+        // Verify NGLL consistency
+        if (r > 0 && part.ngll != merged.ngll) {
+            throw std::runtime_error("read_partition_all: partition " + std::to_string(r) +
+                                     " has NGLL=" + std::to_string(part.ngll) + " but expected " +
+                                     std::to_string(merged.ngll));
+        }
+
+        if (r == 0) {
+            // Move first partition into merged, then clear MPI-only fields
+            merged = std::move(part);
+            merged.exchange_patterns.clear();
+            merged.ghost_element_ids.clear();
+            merged.ghost_owners.clear();
+            cumulative_elements = merged.n_local_elem;
+        } else {
+            // Concatenate element-based arrays
+            concat_vec(merged.local_element_ids, part.local_element_ids);
+            concat_vec(merged.coords, part.coords);
+            concat_vec(merged.jacobian, part.jacobian);
+            concat_vec(merged.dxi_dx, part.dxi_dx);
+            concat_vec(merged.mass, part.mass);
+            concat_vec(merged.vp, part.vp);
+            concat_vec(merged.vs, part.vs);
+            concat_vec(merged.density, part.density);
+            concat_vec(merged.lambda_, part.lambda_);
+            concat_vec(merged.mu_, part.mu_);
+            concat_vec(merged.pml_damping, part.pml_damping);
+
+            // Merge recording: adjust src_elem_local by cumulative element count
+            if (part.recording.has_recording) {
+                merged.recording.has_recording = true;
+                concat_vec(merged.recording.vertex_ids, part.recording.vertex_ids);
+                for (int32_t local_idx : part.recording.src_elem_local) {
+                    merged.recording.src_elem_local.push_back(local_idx + cumulative_elements);
+                }
+                concat_vec(merged.recording.src_corner, part.recording.src_corner);
+            }
+
+            cumulative_elements += part.n_local_elem;
+        }
+    }
+
+    merged.n_local_elem = cumulative_elements;
+    merged.n_ghost_elem = 0;
+    merged.n_total_elem = merged.n_local_elem;
+
+    return merged;
 }
 
 ConfigData read_config(const std::string& path) {

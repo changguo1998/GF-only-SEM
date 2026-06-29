@@ -22,6 +22,16 @@ namespace gf {
 /// \return      Populated RankData for this rank
 RankData read_partition(const std::string& path, int rank);
 
+/// Read ALL partitions and merge into a single RankData (single-rank mode).
+///
+/// Scans partition_dir for partition_{r}.h5 files, reads each, concatenates
+/// element-based arrays, merges recording maps, and clears ghost/exchange
+/// data. Used when nprocs==1 (non-MPI or mpirun -n 1).
+///
+/// \param partition_dir  Directory containing partition_{r}.h5 files, e.g. "partitions"
+/// \return               Merged RankData for the full domain
+RankData read_partition_all(const std::string& partition_dir);
+
 /// Read config.h5 (rank-invariant simulation configuration).
 ///
 /// Reads all simulation parameters from the config file:
