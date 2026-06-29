@@ -49,8 +49,11 @@ CMake `GF_DEVICE_BACKEND=CUDA` enables the CUDA path. All other solver component
 
 See [`docs/superpowers/design/gpu.md`](../docs/superpowers/design/gpu.md) for full design.
 
-> **GPU binding:** On multi-GPU nodes, each MPI rank must bind to a distinct device
-> (via `CUDA_VISIBLE_DEVICES` or `cudaSetDevice`). Without this, all ranks use GPU 0.
+> **GPU auto-binding:** `gf_solver_cuda` and `gf_solver_mpi_cuda` automatically detect
+> available GPUs via `cudaGetDeviceCount()` and assign `cudaSetDevice(rank % n_devices)`.
+> If MPI ranks on a shared-memory node exceed GPUs, the solver warns and reduces to
+> 1 rank per GPU: excess ranks exit early, remaining ranks redistribute partitions
+> via `read_partition_range()` (block distribution, no cross-rank exchange).
 
 ### Executables
 

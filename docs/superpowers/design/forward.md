@@ -5,7 +5,7 @@
 
 ## Goal
 
-`libgf` C++ physics library plus MPI `gf_solver` for elastic SEM forward modeling.
+`libgf` C++ physics library plus 3 solver binaries (`gf_solver_mpi`, `gf_solver_cuda`, `gf_solver_mpi_cuda`) for elastic SEM forward modeling.
 
 ## Data Flow
 
@@ -14,7 +14,7 @@ config.h5 (single, rank-invariant: simulation + domain + source)
 partitions/partition_{r}.h5 (local subset per rank: topology + field/element + cpml + partition metadata)
           │
           ▼
-    gf_solver --direction {x,y,z}  (MPI-parallel)
+    gf_solver_{mpi,cuda,mpi_cuda} --direction {x,y,z}  (CPU/GPU, MPI optional)
     ├── parse --direction CLI flag
     ├── Each rank reads partitions/partition_{R}.h5 where R = MPI_Comm_rank()
     ├── All ranks read config.h5 (same file, rank-invariant)
@@ -41,7 +41,9 @@ partitions/partition_{r}.h5 (local subset per rank: topology + field/element + c
 ### CLI
 
 ```
-mpirun -np N gf_solver --direction {x,y,z}
+mpirun -np N bin/gf_solver_mpi --direction {x,y,z}        # CPU + MPI
+bin/gf_solver_cuda --direction x                          # single GPU (no MPI)
+mpirun -np N bin/gf_solver_mpi_cuda --direction x         # multi-GPU
 ```
 
 All paths are fixed relative to CWD:
@@ -57,7 +59,18 @@ Caller creates directories.
 
 ## Architecture
 
-`libgf` is a static physics library linked into MPI executable `gf_solver`.
+`libgf` is a static physics library linked into solver executables. Three variants:
+
+| Binary | Backend | MPI | Build definition |
+|--------|---------|-----|-----------------|
+| `gf_solver_mpi` | CPU | yes | default |
+| `gf_solver_cuda` | CUDA | no | `GF_WITH_CUDA` + `GF_NO_MPI` |
+| `gf_solver_mpi_cuda` | CUDA | yes | `GF_WITH_CUDA` |
+
+GPU auto-detects via `cudaGetDeviceCount()` and assigns `cudaSetDevice(rank % n_devices)`.
+When MPI ranks exceed GPUs on a node, excess ranks exit and remaining ranks
+redistribute partitions via `read_partition_range()`. Single-rank mode (1 MPI rank or
+non-MPI) reads all partitions via `read_partition_all()` — no repartitioning needed.
 
 **Matrix-free assembly**: no global matrix. Elements add `r = Σ Bᵀ_e · σ_e` into `r[NDIM, n_global_nodes]` through `gll_to_global`. Shared nodes sum by using the same global ID.
 
@@ -585,7 +598,7 @@ forward/
 │   ├── pml.cpp, newmark.cpp, source.cpp
 │   ├── exchange.cpp, record.cpp, restart.cpp, io.cpp
 │   ├── solver.cpp
-│   └── main.cpp               — gf_solver entry point
+│   └── main.cpp               — solvers entry point
 └── tests/
     ├── CMakeLists.txt
     ├── test_gll.cpp, test_element.cpp, test_element_cuda.cu

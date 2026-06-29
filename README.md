@@ -20,36 +20,33 @@ config.py + mesh.h5 → preprocess → partition_{r}.h5 + config.h5
 uv sync --group dev
 source env_setup.sh
 
-# Build (CPU — default)
-cmake -S . -B build -DGF_DEVICE_BACKEND=CPU && cmake --build build
-
-# CUDA backend (requires CUDA toolkit, e.g. via Spack)
-# source $HOME/.spack/share/spack/setup-env.sh
-# spack load cuda
-# cmake -S . -B build -DGF_DEVICE_BACKEND=CUDA && cmake --build build
+# Build (all auto-detected targets)
+cmake -B build && cmake --build build --target gf_solver_mpi
 
 # Run example
 bash examples/halfspace/run.sh
 ```
 
-## CUDA Backend
+## Forward Solvers
 
-The element residual computation (K·u, the throughput bottleneck) supports
-a GPU backend via `compute_element_residual<Backend>` template dispatch.
+Three binaries built from the same source, switchable by name:
 
-- **CPU** (default, `-DGF_DEVICE_BACKEND=CPU`): serial loop over elements
-- **CUDA** (`-DGF_DEVICE_BACKEND=CUDA`): one GPU block per element, one thread per GLL node
-- **HIP/SYCL**: deferred — same pattern
+| Binary | Backend | MPI | Use case |
+|--------|---------|-----|----------|
+| `gf_solver_mpi` | CPU | yes | CPU cluster, workstation |
+| `gf_solver_cuda` | CUDA | no | Single GPU, no MPI |
+| `gf_solver_mpi_cuda` | CUDA | yes | Multi-GPU cluster |
 
-Build with `-DGF_DEVICE_BACKEND=CUDA`. MPI is always required (GPU replaces only the element kernel;
-residual is copied back to CPU for MPI exchange). See `docs/superpowers/design/gpu.md` for details.
+- MPI and CUDA are auto-detected by CMake. Missing dependencies skip their targets.
+- GPU auto-binds via `cudaSetDevice(rank % n_devices)`.
+- When MPI ranks exceed GPUs (e.g. `-n 16` on 1-GPU host), solver warns, reduces to 1 rank per GPU, and redistributes partitions.
 
 ## Modules
 
 | Module | Language | Purpose |
 |--------|----------|---------|
 | `preprocess/` | Python + C++17 | GLL geometry, material, PML, partition, config |
-| `forward/` | C++17 | Elastic CG-SEM solver (libgf) + MPI executable |
+| `forward/` | C++17 | Elastic CG-SEM solver (libgf) + 3 MPI/CUDA executables |
 | `postprocess/` | Python | Strain Green's function extraction |
 | `compress/` | C++17 | Header-only HDF5 compression utilities |
 | `tools/` | Python | GMSH→HDF5 converter, VTK visualization with GLL sub-cell topology |
@@ -59,11 +56,13 @@ residual is copied back to CPU for MPI exchange). See `docs/superpowers/design/g
 ### Build
 
 ```bash
-# CPU
-cmake -S . -B build -DGF_DEVICE_BACKEND=CPU && cmake --build build
+# All available targets (auto-detects MPI + CUDA)
+cmake -B build && cmake --build build
 
-# CUDA (after: spack load cuda)
-cmake -S . -B build -DGF_DEVICE_BACKEND=CUDA && cmake --build build
+# Individual targets
+cmake --build build --target gf_solver_mpi        # MPI + CPU
+cmake --build build --target gf_solver_cuda        # CUDA single-GPU
+cmake --build build --target gf_solver_mpi_cuda    # MPI + CUDA multi-GPU
 ```
 
 ### Run
@@ -72,10 +71,16 @@ cmake -S . -B build -DGF_DEVICE_BACKEND=CUDA && cmake --build build
 # Preprocess
 python -m preprocess                          # reads config.py + mesh.h5 from CWD
 
-# Forward (3 directions)
-mpirun -n $N_RANKS gf_solver --direction x
-mpirun -n $N_RANKS gf_solver --direction y
-mpirun -n $N_RANKS gf_solver --direction z
+# Forward (3 directions) — choose your binary:
+mpirun -n $N_RANKS bin/gf_solver_mpi --direction x
+mpirun -n $N_RANKS bin/gf_solver_mpi --direction y
+mpirun -n $N_RANKS bin/gf_solver_mpi --direction z
+
+# Or single-GPU (no MPI):
+bin/gf_solver_cuda --direction x
+
+# Or multi-GPU via MPI:
+mpirun -n $N_RANKS bin/gf_solver_mpi_cuda --direction x
 
 # Post-process
 gf-postprocess mesh.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/
