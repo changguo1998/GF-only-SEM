@@ -380,30 +380,21 @@ def main():
                 local_zero, cell_to_surface, surface_to_edge, edge_to_vertex
             )
 
-            field_names = ["vp", "vs", "density", "mass", "damping", "tile_index"]
-            cell_fields = {}
-            for name in field_names:
-                data = f[f"field/element/{name}"][:]
-                if data.ndim == 1:
-                    cell_fields[name] = data.astype(np.float64)
-                else:
-                    cell_fields[name] = np.mean(data, axis=tuple(range(1, data.ndim)))
+            # ── Cell-root fields (read inside with block) ──
+            tile_raw = f["field/element/tile_index"][:].astype(np.float64)
 
-            cell_fields["PML_flag"] = is_pml_global[local_zero].astype(np.float64)
-            cell_fields["Rank"] = np.full(n_local, float(rank))
+            # ── Point-root raw GLL data (read inside with block) ──
+            raw_gll = {}
+            for name in ["vp", "vs", "density", "mass", "damping"]:
+                raw_gll[name] = f[f"field/element/{name}"][:].astype(np.float64)
 
         vtk_fields = {
-            "Vp_m_s": cell_fields["vp"],
-            "Vs_m_s": cell_fields["vs"],
-            "Density_kg_m3": cell_fields["density"],
-            "Mass": cell_fields["mass"],
-            "PML_Damping": cell_fields["damping"],
-            "PML_flag": cell_fields["PML_flag"],
-            "Rank": cell_fields["Rank"],
-            "Tile_Index": cell_fields.get("tile_index", np.full(n_local, -1.0)),
+            "PML_flag": is_pml_global[local_zero].astype(np.float64),
+            "Rank": np.full(n_local, float(rank)),
+            "Tile_Index": tile_raw if tile_raw.ndim == 1 else np.full(n_local, -1.0),
         }
 
-        # ── Build GLL point data + topology if available ──
+        # ── Point-root fields (POINT_DATA only, from raw GLL data) ──
         point_fields = None
         n_mesh_vert = None
         vertex_coords_out = vertex_to_coord
@@ -422,17 +413,24 @@ def main():
             vertex_coords_out = np.concatenate([vertex_to_coord, gll_points], axis=0)
 
             point_fields = {}
-            for name, data in vtk_fields.items():
+            for name_h5, name_raw in [
+                ("Vp_m_s", "vp"),
+                ("Vs_m_s", "vs"),
+                ("Density_kg_m3", "density"),
+                ("Mass", "mass"),
+                ("PML_Damping", "damping"),
+            ]:
                 arr = np.zeros(vertex_coords_out.shape[0], dtype=np.float64)
-                # Mesh vertices: average from surrounding elements
+                # Mesh vertices: interpolate from surrounding elements (point→point)
+                cell_avg = np.mean(raw_gll[name_raw].reshape(n_local, -1), axis=1)
                 arr[:n_mesh_vert] = _interpolate_local_vertex_field(
-                    data, connectivity, n_mesh_vert
+                    cell_avg, connectivity, n_mesh_vert
                 )
-                # GLL points: use parent cell's value
+                # GLL points: use raw values directly
                 for li in range(n_local):
                     s = n_mesh_vert + li * gll_per_cell
-                    arr[s : s + gll_per_cell] = data[li]
-                point_fields[name] = arr
+                    arr[s : s + gll_per_cell] = raw_gll[name_raw][li].ravel()
+                point_fields[name_h5] = arr
 
             edge_arr, face_arr, sub_arr, n_edge, n_face, n_sub, gll_elem_map = build_all_gll_cells(
                 edge_tmpl, face_tmpl, sub_tmpl, n_local, ngll, n_mesh_vert

@@ -58,6 +58,10 @@ def build_cell_connectivity(cell_to_surface, surface_to_edge, edge_to_vertex):
 
 
 def read_partition_fields(partition_dir, n_cell):
+    """Read cell-averaged fields from partition files.
+
+    Returns dict of 1-D arrays [n_cell] — one scalar per element.
+    """
     part_files = sorted(
         f for f in os.listdir(partition_dir) if f.startswith("partition_") and f.endswith(".h5")
     )
@@ -77,6 +81,29 @@ def read_partition_fields(partition_dir, n_cell):
                     avg = np.mean(data, axis=tuple(range(1, data.ndim)))
                 for li, gid in enumerate(local_ids):
                     fields[name][gid] = avg[li]
+    return fields
+
+
+def read_partition_gll_fields(partition_dir, n_cell, gll_shape):
+    """Read raw GLL-point fields from partition files.
+
+    Returns dict of 3-D/4-D arrays [n_cell, ngll, ngll, ngll (, comp)].
+    Only material fields (vp, vs, density, mass, damping) — NOT tile_index.
+    """
+    part_files = sorted(
+        f for f in os.listdir(partition_dir) if f.startswith("partition_") and f.endswith(".h5")
+    )
+    if not part_files:
+        raise FileNotFoundError(f"No partition_*.h5 files found in {partition_dir}")
+    field_names = ["vp", "vs", "density", "mass", "damping"]
+    fields = {name: np.zeros((n_cell, *gll_shape), dtype=np.float64) for name in field_names}
+    for pf in part_files:
+        with h5py.File(os.path.join(partition_dir, pf), "r") as f:
+            local_ids = f["partition/local_element_ids"][:]
+            for name in field_names:
+                data = f[f"field/element/{name}"][:].astype(np.float64)
+                for li, gid in enumerate(local_ids):
+                    fields[name][gid] = data[li]
     return fields
 
 
@@ -380,22 +407,6 @@ def main():
     connectivity = build_cell_connectivity(cell_to_surface, surface_to_edge, edge_to_vertex)
 
     cell_fields = {}
-    if has_partitions:
-        print("[mesh_to_vtk] Reading partitions/...")
-        fields = read_partition_fields(part_dir, n_cell)
-        cell_fields["Vp_m_s"] = fields["vp"]
-        cell_fields["Vs_m_s"] = fields["vs"]
-        cell_fields["Density_kg_m3"] = fields["density"]
-        cell_fields["Mass"] = fields["mass"]
-        cell_fields["PML_Damping"] = fields["damping"]
-        cell_fields["PML_flag"] = is_pml.astype(np.float64)
-        cell_fields["Tile_Index"] = fields.get("tile_index", np.full(n_cell, -1.0))
-        print("  Fields: " + ", ".join(cell_fields.keys()))
-    else:
-        cell_fields["PML_flag"] = is_pml.astype(np.float64)
-        cell_fields["Tile_Index"] = np.full(n_cell, -1.0)
-        print("  Fields: PML_flag only (no partitions/)")
-
     point_fields = None
     n_mesh_vert = None
     vertex_coords_out = vertex_to_coord
@@ -403,30 +414,80 @@ def main():
     n_edge = n_face = n_sub = 0
     gll_elem_map = None
 
-    if gll_coords is not None:
-        print("[mesh_to_vtk] Building GLL point data and topology...")
-        ngll = gll_coords.shape[1]
-        gll_per_cell = ngll**3
-        n_mesh_vert = n_vert
+    if has_partitions:
+        ngll_dim = None
+        # Peek at GLL dims if available (for reading raw GLL fields)
+        if gll_coords is not None:
+            ngll_dim = gll_coords.shape[1]
 
-        gll_pt_list = []
-        for ci in range(n_cell):
-            gll_pt_list.append(gll_coords[ci].reshape(-1, 3))
-        gll_points = np.concatenate(gll_pt_list, axis=0) if gll_pt_list else np.empty((0, 3))
-        vertex_coords_out = np.concatenate([vertex_to_coord, gll_points], axis=0)
+        print("[mesh_to_vtk] Reading partitions/...")
+        fields = read_partition_fields(part_dir, n_cell)
 
-        # Build point data: interpolate cell fields to mesh vertices,
-        # then copy cell-averaged value to all GLL points of that cell.
-        point_fields = {}
-        for name, data in cell_fields.items():
-            arr = np.zeros(vertex_coords_out.shape[0], dtype=np.float64)
-            # Mesh vertices: average from surrounding elements
-            arr[:n_mesh_vert] = _interpolate_mesh_vertex_field(data, connectivity, n_mesh_vert)
-            # GLL points: use parent cell's value
+        # ── Cell-root fields (stay as CELL_DATA, no broadcast to points) ──
+        cell_fields["PML_flag"] = is_pml.astype(np.float64)
+        cell_fields["Tile_Index"] = fields.get("tile_index", np.full(n_cell, -1.0))
+        print("  Cell fields: " + ", ".join(cell_fields.keys()))
+
+        # ── Point-root fields (stay as POINT_DATA, no averaging to cells) ──
+        if ngll_dim is not None and gll_coords is not None:
+            gll_fields = read_partition_gll_fields(
+                part_dir, n_cell, (ngll_dim, ngll_dim, ngll_dim)
+            )
+            ngll = ngll_dim
+            gll_per_cell = ngll**3
+            n_mesh_vert = n_vert
+
+            gll_pt_list = []
             for ci in range(n_cell):
-                s = n_mesh_vert + ci * gll_per_cell
-                arr[s : s + gll_per_cell] = data[ci]
-            point_fields[name] = arr
+                gll_pt_list.append(gll_coords[ci].reshape(-1, 3))
+            gll_points = np.concatenate(gll_pt_list, axis=0) if gll_pt_list else np.empty((0, 3))
+            vertex_coords_out = np.concatenate([vertex_to_coord, gll_points], axis=0)
+
+            print("[mesh_to_vtk] Building GLL point data and topology...")
+            # Point fields from raw GLL data — no cell averaging, no broadcast
+            point_fields = {}
+            for name_h5, name_raw in [
+                ("Vp_m_s", "vp"),
+                ("Vs_m_s", "vs"),
+                ("Density_kg_m3", "density"),
+                ("Mass", "mass"),
+                ("PML_Damping", "damping"),
+            ]:
+                arr = np.zeros(vertex_coords_out.shape[0], dtype=np.float64)
+                # Mesh vertices: interpolate from surrounding elements (point→point)
+                # Use cell-averaged value as estimator for mesh vertex locations
+                cell_avg = np.mean(
+                    gll_fields[name_raw].reshape(n_cell, -1), axis=1
+                )
+                arr[:n_mesh_vert] = _interpolate_mesh_vertex_field(
+                    cell_avg, connectivity, n_mesh_vert
+                )
+                # GLL points: use raw values directly (not cell-averaged)
+                for ci in range(n_cell):
+                    s = n_mesh_vert + ci * gll_per_cell
+                    arr[s : s + gll_per_cell] = gll_fields[name_raw][ci].ravel()
+                point_fields[name_h5] = arr
+            print("  Point fields: " + ", ".join(point_fields.keys()))
+
+            # Build GLL topology for detail view
+            edge_tmpl, face_tmpl, sub_tmpl = build_gll_cell_template(ngll)
+            edge_arr, face_arr, sub_arr, n_edge, n_face, n_sub, gll_elem_map = (
+                build_all_gll_cells(
+                    edge_tmpl, face_tmpl, sub_tmpl, n_cell, ngll, n_mesh_vert
+                )
+            )
+            print(
+                f"  GLL per cell: {gll_per_cell}, total GLL: {n_cell * gll_per_cell}"
+            )
+            print(
+                f"  Topology: {n_edge}L + {n_face}Q + {n_sub}H = "
+                f"{n_edge + n_face + n_sub} GLL cells"
+            )
+    else:
+        # No partitions — PML_flag and Tile_Index only as cell fields
+        cell_fields["PML_flag"] = is_pml.astype(np.float64)
+        cell_fields["Tile_Index"] = np.full(n_cell, -1.0)
+        print("  Fields: PML_flag only (no partitions/)")
 
         edge_tmpl, face_tmpl, sub_tmpl = build_gll_cell_template(ngll)
         edge_arr, face_arr, sub_arr, n_edge, n_face, n_sub, gll_elem_map = build_all_gll_cells(
