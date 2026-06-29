@@ -26,7 +26,7 @@ clean_workdir() {
     local wd="${1:-.}"
     cd "${wd}"
     rm -f "${wd}"/*.h5
-    rm -rf "${wd}/partitions" "${wd}/wavefields" "${wd}/log"
+    rm -rf "${wd}/partitions" "${wd}/wavefields" "${wd}/log" "${wd}/vtk"
     mkdir -p "${wd}/log"
 }
 

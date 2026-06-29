@@ -26,6 +26,17 @@ showdir "${WORK_DIR}/partitions/"
 echo ""
 echo "log/preprocess.log:"
 cat "${WORK_DIR}/log/preprocess.log" 2>/dev/null | tail -20 || true
+echo ""
+echo "=== VTK output ==="
+cd "${WORK_DIR}"
+echo "--- mesh2vtk ---"
+python -m tools.mesh2vtk
+echo ""
+echo "--- partition2vtk ---"
+python -m tools.partition2vtk
+echo ""
+showdir "${WORK_DIR}/vtk/"
+echo ""
 
 echo ""
 echo "=== Stage 2 complete ==="
