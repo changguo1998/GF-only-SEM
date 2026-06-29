@@ -9,7 +9,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK_DIR="${SCRIPT_DIR}"
 
-# Mesh stage first (sources setenv.sh + lib.sh itself)
+# Mesh stage first (sources setenv.sh + defines helpers)
 source "${SCRIPT_DIR}/mesh.sh"
 
 # ── Preprocess ───

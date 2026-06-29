@@ -9,7 +9,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK_DIR="${SCRIPT_DIR}"
 
-# Prior stages first (chain sources mesh.sh → setenv.sh + lib.sh)
+# Prior stages first (chain sources mesh.sh → helpers + setenv)
 source "${SCRIPT_DIR}/preprocess.sh"
 
 # ── Forward solver (3 directions) ───
