@@ -84,6 +84,7 @@ if(CUDAToolkit_FOUND)
 
     add_executable(gf_solver_cuda src/main.cpp)
     target_link_libraries(gf_solver_cuda PRIVATE libgf_cuda_nompi)
+    target_compile_definitions(gf_solver_cuda PRIVATE GF_WITH_CUDA)
     set_target_properties(gf_solver_cuda PROPERTIES RUNTIME_OUTPUT_DIRECTORY
                                                     "${CMAKE_SOURCE_DIR}/bin")
 
@@ -111,6 +112,7 @@ if(CUDAToolkit_FOUND AND MPI_FOUND)
 
     add_executable(gf_solver_mpi_cuda src/main.cpp)
     target_link_libraries(gf_solver_mpi_cuda PRIVATE libgf_cuda)
+    target_compile_definitions(gf_solver_mpi_cuda PRIVATE GF_WITH_CUDA)
     set_target_properties(gf_solver_mpi_cuda PROPERTIES RUNTIME_OUTPUT_DIRECTORY
                                                         "${CMAKE_SOURCE_DIR}/bin")
 

@@ -10,6 +10,10 @@
 #include <mpi.h>
 #endif
 
+#ifdef GF_WITH_CUDA
+#include <cuda_runtime.h>
+#endif
+
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
@@ -32,6 +36,41 @@ int main(int argc, char** argv) {
     int rank = 0;
 #ifndef GF_NO_MPI
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+#endif
+
+#ifdef GF_WITH_CUDA
+    int n_devices = 0;
+    cudaError_t cerr = cudaGetDeviceCount(&n_devices);
+    if (cerr != cudaSuccess)
+        n_devices = 0;
+
+    if (n_devices == 0) {
+        if (rank == 0)
+            std::cerr << "Error: no CUDA-capable GPU found.\n";
+#ifndef GF_NO_MPI
+        MPI_Finalize();
+#endif
+        return 1;
+    }
+
+    cudaSetDevice(rank % n_devices);
+
+#ifndef GF_NO_MPI
+    // Per-node warning: MPI ranks on this node > GPUs
+    {
+        MPI_Comm shm_comm;
+        MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &shm_comm);
+        int shm_size = 0, shm_rank = 0;
+        MPI_Comm_size(shm_comm, &shm_size);
+        MPI_Comm_rank(shm_comm, &shm_rank);
+        MPI_Comm_free(&shm_comm);
+
+        if (shm_rank == 0 && shm_size > n_devices) {
+            std::cout << "[WARN] " << shm_size << " MPI ranks on this node but only " << n_devices
+                      << " GPU(s) — ranks share GPU(s), performance degraded.\n";
+        }
+    }
+#endif
 #endif
 
     try {
