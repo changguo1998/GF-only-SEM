@@ -19,6 +19,31 @@ import re
 import h5py
 import numpy as np
 
+
+def _interpolate_local_vertex_field(cell_field, connectivity, n_vert):
+    """Average cell-centered field onto mesh vertices (local connectivity)."""
+    counts = np.zeros(n_vert, dtype=np.int32)
+    for ci in range(connectivity.shape[0]):
+        for v in connectivity[ci]:
+            counts[v] += 1
+    offsets = np.zeros(n_vert + 1, dtype=np.int32)
+    np.cumsum(counts, out=offsets[1:])
+    v2c = np.zeros(offsets[-1], dtype=np.int32)
+    cur = np.zeros(n_vert, dtype=np.int32)
+    for ci in range(connectivity.shape[0]):
+        for v in connectivity[ci]:
+            pos = offsets[v] + cur[v]
+            v2c[pos] = ci
+            cur[v] += 1
+    result = np.zeros(n_vert, dtype=np.float64)
+    for vi in range(n_vert):
+        start = offsets[vi]
+        end = offsets[vi + 1]
+        if end > start:
+            cells = v2c[start:end]
+            result[vi] = np.mean(cell_field[cells])
+    return result
+
 _HEX_FACES = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [3, 7, 6, 2], [0, 4, 7, 3], [1, 2, 6, 5]]
 
 
@@ -359,7 +384,10 @@ def main():
             cell_fields = {}
             for name in field_names:
                 data = f[f"field/element/{name}"][:]
-                cell_fields[name] = np.mean(data, axis=(1, 2, 3))
+                if data.ndim == 1:
+                    cell_fields[name] = data.astype(np.float64)
+                else:
+                    cell_fields[name] = np.mean(data, axis=tuple(range(1, data.ndim)))
 
             cell_fields["PML_flag"] = is_pml_global[local_zero].astype(np.float64)
             cell_fields["Rank"] = np.full(n_local, float(rank))
@@ -396,6 +424,11 @@ def main():
             point_fields = {}
             for name, data in vtk_fields.items():
                 arr = np.zeros(vertex_coords_out.shape[0], dtype=np.float64)
+                # Mesh vertices: average from surrounding elements
+                arr[:n_mesh_vert] = _interpolate_local_vertex_field(
+                    data, connectivity, n_mesh_vert
+                )
+                # GLL points: use parent cell's value
                 for li in range(n_local):
                     s = n_mesh_vert + li * gll_per_cell
                     arr[s : s + gll_per_cell] = data[li]

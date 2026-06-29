@@ -70,7 +70,11 @@ def read_partition_fields(partition_dir, n_cell):
             local_ids = f["partition/local_element_ids"][:]
             for name in field_names:
                 data = f[f"field/element/{name}"][:]
-                avg = np.mean(data, axis=(1, 2, 3))
+                # 1-D fields (e.g. tile_index) have no GLL dims — use as-is
+                if data.ndim == 1:
+                    avg = data.astype(np.float64)
+                else:
+                    avg = np.mean(data, axis=tuple(range(1, data.ndim)))
                 for li, gid in enumerate(local_ids):
                     fields[name][gid] = avg[li]
     return fields
@@ -305,6 +309,43 @@ def write_vtu(
                 f.write(b"\n")
 
 
+# ── Vertex-to-element helpers ───────────────────────────────────────────
+
+
+def _build_vertex_to_cell_map(connectivity, n_vert):
+    """Build per-vertex lists of cell indices from [n_cell, 8] connectivity."""
+    counts = np.zeros(n_vert, dtype=np.int32)
+    for ci in range(connectivity.shape[0]):
+        for v in connectivity[ci]:
+            counts[v] += 1
+    offsets = np.zeros(n_vert + 1, dtype=np.int32)
+    np.cumsum(counts, out=offsets[1:])
+    v2c = np.zeros(offsets[-1], dtype=np.int32)
+    cur = np.zeros(n_vert, dtype=np.int32)
+    for ci in range(connectivity.shape[0]):
+        for v in connectivity[ci]:
+            pos = offsets[v] + cur[v]
+            v2c[pos] = ci
+            cur[v] += 1
+    return v2c, offsets
+
+
+def _interpolate_mesh_vertex_field(cell_field, connectivity, n_vert):
+    """Average cell-centered field onto mesh vertices.
+
+    Each mesh vertex gets the mean of all elements that contain it.
+    """
+    v2c, offsets = _build_vertex_to_cell_map(connectivity, n_vert)
+    result = np.zeros(n_vert, dtype=np.float64)
+    for vi in range(n_vert):
+        start = offsets[vi]
+        end = offsets[vi + 1]
+        if end > start:
+            cells = v2c[start:end]
+            result[vi] = np.mean(cell_field[cells])
+    return result
+
+
 # ── Main ───────────────────────────────────────────────────────────────
 
 
@@ -374,9 +415,14 @@ def main():
         gll_points = np.concatenate(gll_pt_list, axis=0) if gll_pt_list else np.empty((0, 3))
         vertex_coords_out = np.concatenate([vertex_to_coord, gll_points], axis=0)
 
+        # Build point data: interpolate cell fields to mesh vertices,
+        # then copy cell-averaged value to all GLL points of that cell.
         point_fields = {}
         for name, data in cell_fields.items():
             arr = np.zeros(vertex_coords_out.shape[0], dtype=np.float64)
+            # Mesh vertices: average from surrounding elements
+            arr[:n_mesh_vert] = _interpolate_mesh_vertex_field(data, connectivity, n_mesh_vert)
+            # GLL points: use parent cell's value
             for ci in range(n_cell):
                 s = n_mesh_vert + ci * gll_per_cell
                 arr[s : s + gll_per_cell] = data[ci]
