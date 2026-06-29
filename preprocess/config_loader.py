@@ -148,36 +148,36 @@ def _validate_pml_thickness(pml: dict) -> None:
 
 def _validate_tile_sizes(mod: ModuleType) -> None:
     """Validate tilex_elements and tiley_elements against mesh dims and PML."""
-    tilex = getattr(mod, 'tilex_elements', [])
-    tiley = getattr(mod, 'tiley_elements', [])
-    pml = getattr(mod, 'pml_thickness', {})
-    nx = getattr(mod, 'nx_elements', 0)
-    ny = getattr(mod, 'ny_elements', 0)
+    tilex = getattr(mod, "tilex_elements", [])
+    tiley = getattr(mod, "tiley_elements", [])
+    pml = getattr(mod, "pml_thickness", {})
+    nx = getattr(mod, "nx_elements", 0)
+    ny = getattr(mod, "ny_elements", 0)
 
     if not isinstance(tilex, list) or not tilex:
-        raise ConfigValidationError('tilex_elements must be a non-empty list')
+        raise ConfigValidationError("tilex_elements must be a non-empty list")
     if not isinstance(tiley, list) or not tiley:
-        raise ConfigValidationError('tiley_elements must be a non-empty list')
+        raise ConfigValidationError("tiley_elements must be a non-empty list")
 
     for val in tilex:
         if not isinstance(val, int) or val < 1:
-            raise ConfigValidationError(f'tilex_elements values must be positive ints, got {val}')
+            raise ConfigValidationError(f"tilex_elements values must be positive ints, got {val}")
     for val in tiley:
         if not isinstance(val, int) or val < 1:
-            raise ConfigValidationError(f'tiley_elements values must be positive ints, got {val}')
+            raise ConfigValidationError(f"tiley_elements values must be positive ints, got {val}")
 
-    nx_interior = nx - pml.get('xmin', 0) - pml.get('xmax', 0)
-    ny_interior = ny - pml.get('ymin', 0) - pml.get('ymax', 0)
+    nx_interior = nx - pml.get("xmin", 0) - pml.get("xmax", 0)
+    ny_interior = ny - pml.get("ymin", 0) - pml.get("ymax", 0)
 
     if sum(tilex) != nx_interior:
         raise ConfigValidationError(
-            f'sum(tilex_elements)={sum(tilex)} != nx_interior={nx_interior} '
-            f'(nx={nx} - pml_xmin={pml.get("xmin",0)} - pml_xmax={pml.get("xmax",0)})'
+            f"sum(tilex_elements)={sum(tilex)} != nx_interior={nx_interior} "
+            f"(nx={nx} - pml_xmin={pml.get('xmin', 0)} - pml_xmax={pml.get('xmax', 0)})"
         )
     if sum(tiley) != ny_interior:
         raise ConfigValidationError(
-            f'sum(tiley_elements)={sum(tiley)} != ny_interior={ny_interior} '
-            f'(ny={ny} - pml_ymin={pml.get("ymin",0)} - pml_ymax={pml.get("ymax",0)})'
+            f"sum(tiley_elements)={sum(tiley)} != ny_interior={ny_interior} "
+            f"(ny={ny} - pml_ymin={pml.get('ymin', 0)} - pml_ymax={pml.get('ymax', 0)})"
         )
 
 

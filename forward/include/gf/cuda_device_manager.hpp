@@ -27,12 +27,12 @@ namespace gf {
 /// the dynamic fields. Read-only geometry stays on device permanently.
 struct CudaDeviceBuffers {
     // --- Read-only geometry (allocated once, never freed mid-loop) ---
-    double* d_dxi_dx = nullptr;   // [n_elem * NGLL^3 * 9]
+    double* d_dxi_dx = nullptr;    // [n_elem * NGLL^3 * 9]
     double* d_jacobian = nullptr;  // [n_elem * NGLL^3]
-    double* d_lambda = nullptr;  // [n_elem * NGLL^3]  precomputed λ
-    double* d_mu = nullptr;       // [n_elem * NGLL^3]  precomputed μ
-    double* d_D = nullptr;        // [NGLL * NGLL]
-    double* d_weights = nullptr;  // [NGLL]
+    double* d_lambda = nullptr;    // [n_elem * NGLL^3]  precomputed λ
+    double* d_mu = nullptr;        // [n_elem * NGLL^3]  precomputed μ
+    double* d_D = nullptr;         // [NGLL * NGLL]
+    double* d_weights = nullptr;   // [NGLL]
 
     // --- Per-timestep fields (pinned / transfer each step) ---
     double* d_u = nullptr;  // [n_elem * NGLL^3 * 3]  displacement (predicted)
@@ -47,11 +47,10 @@ struct CudaDeviceBuffers {
 
 /// Allocate device buffers for @p n_elem elements with @p ngll GLL points per axis.
 /// Copies read-only mesh data to device. Returns initialized CudaDeviceBuffers.
-inline CudaDeviceBuffers allocate_device_buffers(int n_elem, int ngll,
-                                                 const double* h_dxi_dx,
+inline CudaDeviceBuffers allocate_device_buffers(int n_elem, int ngll, const double* h_dxi_dx,
                                                  const double* h_jacobian, const double* h_lambda,
-                                                 const double* h_mu,
-                                                 const double* h_D, const double* h_weights) {
+                                                 const double* h_mu, const double* h_D,
+                                                 const double* h_weights) {
 #ifdef GF_WITH_CUDA
     CudaDeviceBuffers buf;
     buf.n_elem = n_elem;
@@ -74,14 +73,13 @@ inline CudaDeviceBuffers allocate_device_buffers(int n_elem, int ngll,
     // --- Copy read-only data to device ---
     GF_CUDA_CHECK(cudaMemcpy(buf.d_dxi_dx, h_dxi_dx, n_node_total * 9 * sizeof(double),
                              cudaMemcpyHostToDevice));
-    GF_CUDA_CHECK(
-        cudaMemcpy(buf.d_jacobian, h_jacobian, n_node_total * sizeof(double), cudaMemcpyHostToDevice));
+    GF_CUDA_CHECK(cudaMemcpy(buf.d_jacobian, h_jacobian, n_node_total * sizeof(double),
+                             cudaMemcpyHostToDevice));
     GF_CUDA_CHECK(
         cudaMemcpy(buf.d_lambda, h_lambda, n_node_total * sizeof(double), cudaMemcpyHostToDevice));
     GF_CUDA_CHECK(
         cudaMemcpy(buf.d_mu, h_mu, n_node_total * sizeof(double), cudaMemcpyHostToDevice));
-    GF_CUDA_CHECK(
-        cudaMemcpy(buf.d_D, h_D, ngll * ngll * sizeof(double), cudaMemcpyHostToDevice));
+    GF_CUDA_CHECK(cudaMemcpy(buf.d_D, h_D, ngll * ngll * sizeof(double), cudaMemcpyHostToDevice));
     GF_CUDA_CHECK(
         cudaMemcpy(buf.d_weights, h_weights, ngll * sizeof(double), cudaMemcpyHostToDevice));
 
@@ -96,7 +94,9 @@ inline CudaDeviceBuffers allocate_device_buffers(int n_elem, int ngll,
     (void)h_mu;
     (void)h_D;
     (void)h_weights;
-    fprintf(stderr, "CudaDeviceBuffers: CUDA not enabled. Call allocate_device_buffers() only with GF_WITH_CUDA.\n");
+    fprintf(stderr,
+            "CudaDeviceBuffers: CUDA not enabled. Call allocate_device_buffers() only with "
+            "GF_WITH_CUDA.\n");
     std::abort();
 #endif
 }
@@ -124,8 +124,8 @@ inline void free_device_buffers(CudaDeviceBuffers& buf) {
 inline void copy_u_to_device(const CudaDeviceBuffers& buf, const double* h_u) {
 #ifdef GF_WITH_CUDA
     int n_node_total = buf.n_elem * buf.n_node_per_elem;
-    GF_CUDA_CHECK(cudaMemcpy(buf.d_u, h_u, n_node_total * 3 * sizeof(double),
-                             cudaMemcpyHostToDevice));
+    GF_CUDA_CHECK(
+        cudaMemcpy(buf.d_u, h_u, n_node_total * 3 * sizeof(double), cudaMemcpyHostToDevice));
 #else
     (void)buf;
     (void)h_u;
@@ -136,8 +136,8 @@ inline void copy_u_to_device(const CudaDeviceBuffers& buf, const double* h_u) {
 inline void copy_r_to_host(const CudaDeviceBuffers& buf, double* h_r) {
 #ifdef GF_WITH_CUDA
     int n_node_total = buf.n_elem * buf.n_node_per_elem;
-    GF_CUDA_CHECK(cudaMemcpy(h_r, buf.d_r, n_node_total * 3 * sizeof(double),
-                             cudaMemcpyDeviceToHost));
+    GF_CUDA_CHECK(
+        cudaMemcpy(h_r, buf.d_r, n_node_total * 3 * sizeof(double), cudaMemcpyDeviceToHost));
 #else
     (void)buf;
     (void)h_r;

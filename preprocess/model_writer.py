@@ -19,6 +19,8 @@ def compute_element_tile_index(
     pml_ymax: int,
     tilex_elements: list[int],
     tiley_elements: list[int],
+    domain_bounds: dict[str, float] | None = None,
+    record_depth_actual_m: float = 0.0,
 ) -> npt.NDArray[np.int64]:
     """Compute tile index for every element in a structured hex mesh.
 
@@ -27,8 +29,13 @@ def compute_element_tile_index(
     Non-PML interior elements are partitioned into horizontal tiles
     following tilex_elements / tiley_elements.
 
+    When domain_bounds and record_depth_actual_m are provided, elements
+    deeper than the recording depth also get tile_index = -1 (their data
+    is not recorded and they don't need tile output).
+
     Returns:
-        [n_cell] int64 array: tile_index (0..n_tiles-1), with -1 for PML.
+        [n_cell] int64 array: tile_index (0..n_tiles-1), with -1 for PML
+        or elements below recording depth.
     """
     n_tilex = len(tilex_elements)
     n_tiley = len(tiley_elements)
@@ -46,12 +53,23 @@ def compute_element_tile_index(
     n_interior_x = nx_elements - pml_xmin - pml_xmax
     n_interior_y = ny_elements - pml_ymin - pml_ymax
 
+    # Compute nz and depth limit for recording-depth clamping
+    nz_elements = n_cell // (nx_elements * ny_elements)
+    depth_clip = False
+    if domain_bounds is not None and record_depth_actual_m > 0.0:
+        zmin_db = domain_bounds.get("zmin", 0.0)
+        zmax_db = domain_bounds.get("zmax", 0.0)
+        dz_m = (zmax_db - zmin_db) / nz_elements if nz_elements > 0 else 0.0
+        depth_limit_z = zmin_db + record_depth_actual_m
+        depth_clip = True
+
     tile_index = np.full(n_cell, -1, dtype=np.int64)
 
     for elem_idx in range(n_cell):
         # Row-major: x fastest, then y, then z
         i = elem_idx % nx_elements
         j = (elem_idx // nx_elements) % ny_elements
+        k = elem_idx // (nx_elements * ny_elements)
 
         # Interior element index (non-PML region)
         interior_i = i - pml_xmin
@@ -61,6 +79,10 @@ def compute_element_tile_index(
             continue  # PML in x
         if interior_j < 0 or interior_j >= n_interior_y:
             continue  # PML in y
+
+        # Elements deeper than recording depth get -1 (no tile output needed)
+        if depth_clip and (k + 0.5) * dz_m + zmin_db > depth_limit_z:
+            continue
 
         # Find tile in x
         tile_x = -1
@@ -164,6 +186,8 @@ def _extend_mesh_h5(
                 tile_config.get("pml_ymax", 0),
                 tile_config.get("tilex_elements", []),
                 tile_config.get("tiley_elements", []),
+                domain_bounds=tile_config.get("domain_bounds"),
+                record_depth_actual_m=tile_config.get("record_depth_actual_m", 0.0),
             )
             _write_dataset(felem, "tile_index", tile_idx, dtype="int64")
 
@@ -196,7 +220,18 @@ def _write_partition_files(
     if element_to_rank is None:
         element_to_rank = np.zeros(topology.n_cell, dtype=np.int32)
 
-    field_keys = ["coords", "dxi_dx", "jacobian", "mass", "vp", "vs", "density", "lambda", "mu", "damping"]
+    field_keys = [
+        "coords",
+        "dxi_dx",
+        "jacobian",
+        "mass",
+        "vp",
+        "vs",
+        "density",
+        "lambda",
+        "mu",
+        "damping",
+    ]
 
     # Precompute global tile_index if tile config provided
     global_tile_index = None
@@ -211,6 +246,8 @@ def _write_partition_files(
             tile_config.get("pml_ymax", 0),
             tile_config.get("tilex_elements", []),
             tile_config.get("tiley_elements", []),
+            domain_bounds=tile_config.get("domain_bounds"),
+            record_depth_actual_m=tile_config.get("record_depth_actual_m", 0.0),
         )
 
     for r in range(n_ranks):
@@ -237,9 +274,7 @@ def _write_partition_files(
             # Write tile_index to partition file
             if global_tile_index is not None:
                 local_tile = (
-                    global_tile_index[local_zero]
-                    if n_local > 0
-                    else np.array([], dtype=np.int64)
+                    global_tile_index[local_zero] if n_local > 0 else np.array([], dtype=np.int64)
                 )
                 _write_dataset(felem_grp, "tile_index", local_tile, dtype="int64")
 

@@ -38,7 +38,7 @@ struct RankData {
     std::vector<double> dxi_dx;           // d(xi_i)/dx_j per GLL node, 9 values
     std::vector<double> mass;             // lumped mass diagonal per GLL node
     std::vector<double> vp, vs, density;  // material at GLL nodes
-    std::vector<double> lambda_, mu_;  // precomputed elastic coefficients at GLL nodes
+    std::vector<double> lambda_, mu_;     // precomputed elastic coefficients at GLL nodes
     std::vector<double> pml_damping;      // PML damping, 0=interior
 
     // Precomputed exchange patterns (from /partition/rank_{r}/exchange/)

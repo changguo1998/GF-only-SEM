@@ -84,10 +84,11 @@ Preprocess extends `mesh.h5` with geometry used by forward, validation, and vert
 mesh.h5  (preprocessor extensions)
 └── /field/
     └── /element/
-        ├── coords   : float64[n_cell, NGLL, NGLL, NGLL, 3]   — GLL node (x, y, z) per element
-        ├── dxi_dx   : float64[n_cell, NGLL, NGLL, NGLL, 3, 3] — ∂ξ_i/∂x_j per element
-        ├── jacobian : float64[n_cell, NGLL, NGLL, NGLL]      — det(J) per element
-        └── is_pml   : int8[n_cell]                            — 1=PML element, 0=ordinary
+        ├── coords     : float64[n_cell, NGLL, NGLL, NGLL, 3]   — GLL node (x, y, z) per element
+        ├── dxi_dx     : float64[n_cell, NGLL, NGLL, NGLL, 3, 3] — ∂ξ_i/∂x_j per element
+        ├── jacobian   : float64[n_cell, NGLL, NGLL, NGLL]      — det(J) per element
+        ├── is_pml     : int8[n_cell]                            — 1=PML element, 0=ordinary
+        └── tile_index : int64[n_cell]                           — tile ID or -1 (PML / below recording depth)
 ```
 
 These are the only `/field/` groups added to `mesh.h5`. Material, mass, C-PML, partition metadata, and recording maps live in `partition_{r}.h5`.

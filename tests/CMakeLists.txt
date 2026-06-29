@@ -77,14 +77,15 @@ if(GF_DEVICE_BACKEND STREQUAL "CUDA")
 
     add_executable(test_element_cuda test_element_cuda.cu)
     target_include_directories(
-        test_element_cuda PRIVATE ${CMAKE_SOURCE_DIR}/forward/include
-                                  ${CMAKE_SOURCE_DIR}/compress/include ${EIGEN3_INCLUDE_DIR}
-                                  ${HDF5_INCLUDE_DIRS})
+        test_element_cuda
+        PRIVATE ${CMAKE_SOURCE_DIR}/forward/include ${CMAKE_SOURCE_DIR}/compress/include
+                ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
     target_link_libraries(test_element_cuda PRIVATE libgf Catch2::Catch2WithMain MPI::MPI_CXX
-                                                   Eigen3::Eigen ${HDF5_C_LIBRARIES})
+                                                    Eigen3::Eigen ${HDF5_C_LIBRARIES})
     target_compile_features(test_element_cuda PRIVATE cxx_std_17)
     target_compile_definitions(test_element_cuda PRIVATE GF_WITH_CUDA GF_ACTIVE_BACKEND=1)
-    target_compile_options(test_element_cuda PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
+    target_compile_options(test_element_cuda
+                           PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
     set_target_properties(test_element_cuda PROPERTIES CUDA_ARCHITECTURES "80;86;87;90")
     catch_discover_tests(test_element_cuda)
 

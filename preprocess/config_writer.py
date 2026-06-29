@@ -90,6 +90,7 @@ def _write_simulation(
     tilex = getattr(config_module, "tilex_elements", [])
     tiley = getattr(config_module, "tiley_elements", [])
     import numpy as np
+
     if tilex:
         grp.create_dataset("tilex_elements", data=np.array(tilex, dtype=np.int64))
     if tiley:

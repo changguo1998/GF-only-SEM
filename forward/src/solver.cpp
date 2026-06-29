@@ -17,8 +17,8 @@
 
 #include "gf/CompressionFilter.h"
 #include "gf/assembly.hpp"
-#include "gf/element.hpp"
 #include "gf/backend.hpp"
+#include "gf/element.hpp"
 #include "gf/exchange.hpp"
 #include "gf/gll.hpp"
 #include "gf/io.hpp"
@@ -205,11 +205,9 @@ int run_forward(const std::string& direction, bool resume_mode) {
 
             // --- Element residual computation (matrix-free, batched) ---
             compute_element_residual<gf::ActiveBackend>(
-                n_local,
-                part.dxi_dx.data(), part.jacobian.data(),
-                part.lambda_.data(), part.mu_.data(),
-                D_mat.data(), gll_wts.data(), ngll,
-                displacement_tilde.data(), residual.data());
+                n_local, part.dxi_dx.data(), part.jacobian.data(), part.lambda_.data(),
+                part.mu_.data(), D_mat.data(), gll_wts.data(), ngll, displacement_tilde.data(),
+                residual.data());
 
             // --- PML damping ---
             apply_pml_damping(part.pml_damping, displacement_tilde, velocity,

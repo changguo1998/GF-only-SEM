@@ -44,6 +44,7 @@ def _interpolate_local_vertex_field(cell_field, connectivity, n_vert):
             result[vi] = np.mean(cell_field[cells])
     return result
 
+
 _HEX_FACES = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [3, 7, 6, 2], [0, 4, 7, 3], [1, 2, 6, 5]]
 
 

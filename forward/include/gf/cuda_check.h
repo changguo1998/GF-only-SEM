@@ -13,14 +13,14 @@
 #include <cuda_runtime.h>
 
 /// Check a CUDA runtime API call and abort on error with file/line info.
-#define GF_CUDA_CHECK(call)                                                     \
-    do {                                                                        \
-        cudaError_t err = call;                                                 \
-        if (err != cudaSuccess) {                                               \
-            fprintf(stderr, "CUDA error at %s:%d — %s\n", __FILE__, __LINE__,   \
-                    cudaGetErrorString(err));                                   \
-            std::abort();                                                       \
-        }                                                                       \
+#define GF_CUDA_CHECK(call)                                                   \
+    do {                                                                      \
+        cudaError_t err = call;                                               \
+        if (err != cudaSuccess) {                                             \
+            fprintf(stderr, "CUDA error at %s:%d — %s\n", __FILE__, __LINE__, \
+                    cudaGetErrorString(err));                                 \
+            std::abort();                                                     \
+        }                                                                     \
     } while (0)
 
 #else

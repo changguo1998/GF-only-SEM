@@ -115,6 +115,40 @@ def main() -> None:
 
     boundary_tag, is_pml = detect_boundaries(topology, domain_bounds)
 
+    # Expand is_pml to match pml_thickness depth from config
+    # detect_boundaries only tags elements touching absorbing boundaries (1 layer)
+    # The config may specify thicker PML (e.g., 3 layers) — propagate flag inward
+    pml_thickness_cfg = config.pml_thickness
+    nx = int(config.nx_elements)
+    ny = int(config.ny_elements)
+    nz = n_cell // (nx * ny)
+    if nx * ny * nz == n_cell:
+        expanded_is_pml = np.zeros(n_cell, dtype=np.bool_)
+        pml_xmin_cnt = int(pml_thickness_cfg.get("xmin", 0))
+        pml_xmax_cnt = int(pml_thickness_cfg.get("xmax", 0))
+        pml_ymin_cnt = int(pml_thickness_cfg.get("ymin", 0))
+        pml_ymax_cnt = int(pml_thickness_cfg.get("ymax", 0))
+        pml_zmax_cnt = int(pml_thickness_cfg.get("zmax", 0))
+        for elem_idx in range(n_cell):
+            i = elem_idx % nx
+            j = (elem_idx // nx) % ny
+            k = elem_idx // (nx * ny)
+            in_pml = (
+                i < pml_xmin_cnt
+                or i >= nx - pml_xmax_cnt
+                or j < pml_ymin_cnt
+                or j >= ny - pml_ymax_cnt
+                or k >= nz - pml_zmax_cnt
+            )
+            if in_pml:
+                expanded_is_pml[elem_idx] = True
+        is_pml = expanded_is_pml
+        logger.info(
+            f"  Expanded is_pml to thickness={dict(pml_thickness_cfg)}, PML count={int(is_pml.sum())}"
+        )
+    else:
+        logger.info("  Non-structured topology — is_pml from boundary detection only")
+
     # Step: CFL validation — compute solver_dt and snapshot_stride
     # CFL: combine C++ h_min (or compute all-Python) with vp_max
     from preprocess.cfl_validator import compute_cfl_dt as _compute_cfl_dt, compute_solver_dt
@@ -249,8 +283,8 @@ def main() -> None:
 
     # Step: write outputs
     # Precompute elastic coefficients from material properties (constant over time)
-    mu_gll = density_gll * vs_gll ** 2
-    lambda_gll = density_gll * (vp_gll ** 2 - 2.0 * vs_gll ** 2)
+    mu_gll = density_gll * vs_gll**2
+    lambda_gll = density_gll * (vp_gll**2 - 2.0 * vs_gll**2)
 
     fields = {
         "coords": coords,
@@ -280,6 +314,8 @@ def main() -> None:
         "pml_ymax": int(config.pml_thickness.get("ymax", 0)),
         "tilex_elements": list(config.tilex_elements),
         "tiley_elements": list(config.tiley_elements),
+        "domain_bounds": domain_bounds,
+        "record_depth_actual_m": rec_map.get("record_depth_actual_m", 0.0) if rec_map else 0.0,
     }
 
     write_model(

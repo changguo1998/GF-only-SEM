@@ -75,9 +75,7 @@ def test_single_element_no_pml():
     domain = {"xmin": 0.0, "xmax": 1.0, "ymin": 0.0, "ymax": 1.0, "zmin": 0.0, "zmax": 1.0}
     is_pml = np.array([False], dtype=bool)
 
-    result = build_recording_map(
-        topo, domain, is_pml, record_depth_max_m=1.0
-    )
+    result = build_recording_map(topo, domain, is_pml, record_depth_max_m=1.0)
     rec0 = result["per_rank_recording"][0]
     assert len(rec0["vertex_ids"]) == 8
     assert rec0["save_element_mask"] == [True]
@@ -90,9 +88,7 @@ def test_pml_exclusion():
     domain = {"xmin": 0.0, "xmax": 1.0, "ymin": 0.0, "ymax": 1.0, "zmin": 0.0, "zmax": 1.0}
     is_pml = np.array([True], dtype=bool)  # element is PML
 
-    result = build_recording_map(
-        topo, domain, is_pml, record_depth_max_m=1.0
-    )
+    result = build_recording_map(topo, domain, is_pml, record_depth_max_m=1.0)
     rec0 = result["per_rank_recording"][0]
     assert len(rec0["vertex_ids"]) == 0  # no vertices — PML excluded
 
@@ -103,9 +99,7 @@ def test_source_element_local_index_valid():
     domain = {"xmin": 0.0, "xmax": 1.0, "ymin": 0.0, "ymax": 1.0, "zmin": 0.0, "zmax": 1.0}
     is_pml = np.array([False], dtype=bool)
 
-    result = build_recording_map(
-        topo, domain, is_pml, record_depth_max_m=1.0
-    )
+    result = build_recording_map(topo, domain, is_pml, record_depth_max_m=1.0)
     rec0 = result["per_rank_recording"][0]
     for idx in rec0["source_element_local_index"]:
         assert 0 <= idx < 1  # only 1 element
@@ -119,9 +113,7 @@ def test_full_domain_depth():
     domain = {"xmin": 0.0, "xmax": 1.0, "ymin": 0.0, "ymax": 1.0, "zmin": 0.0, "zmax": 1.0}
     is_pml = np.array([False], dtype=bool)
 
-    result = build_recording_map(
-        topo, domain, is_pml, record_depth_max_m=100.0
-    )
+    result = build_recording_map(topo, domain, is_pml, record_depth_max_m=100.0)
     rec0 = result["per_rank_recording"][0]
     assert len(rec0["vertex_ids"]) == 8
     assert result["record_depth_actual_m"] == approx(1.0)
@@ -137,9 +129,7 @@ def test_shallow_depth():
     # Since the element centroid is at z=0.5, and target_z=0, no element centroid
     # is at or above z=0.5... wait, target_z = zmin + 0 = 0. No elements have
     # centroid ≤ 0 since centroid is at 0.5. So 0 vertices selected.
-    result = build_recording_map(
-        topo, domain, is_pml, record_depth_max_m=0.0
-    )
+    result = build_recording_map(topo, domain, is_pml, record_depth_max_m=0.0)
     rec0 = result["per_rank_recording"][0]
     assert len(rec0["vertex_ids"]) == 0
     assert result["record_depth_actual_m"] == approx(0.0)
@@ -151,9 +141,7 @@ def test_save_element_mask_shape():
     domain = {"xmin": 0.0, "xmax": 1.0, "ymin": 0.0, "ymax": 1.0, "zmin": 0.0, "zmax": 1.0}
     is_pml = np.array([False], dtype=bool)
 
-    result = build_recording_map(
-        topo, domain, is_pml, record_depth_max_m=1.0
-    )
+    result = build_recording_map(topo, domain, is_pml, record_depth_max_m=1.0)
     rec0 = result["per_rank_recording"][0]
     assert len(rec0["save_element_mask"]) == 1  # 1 element
     # Save mask should be True since element has recorded vertices
@@ -169,9 +157,7 @@ def test_intermediate_depth_captures_surface():
     domain = {"xmin": 0.0, "xmax": 1.0, "ymin": 0.0, "ymax": 1.0, "zmin": 0.0, "zmax": 1.0}
     is_pml = np.array([False], dtype=bool)
 
-    result = build_recording_map(
-        topo, domain, is_pml, record_depth_max_m=0.5
-    )
+    result = build_recording_map(topo, domain, is_pml, record_depth_max_m=0.5)
     rec0 = result["per_rank_recording"][0]
     # Element centroid is at z=0.5, so centroid z ≤ 0.5 includes the element
     # All 8 vertices are attached to this element
@@ -188,12 +174,8 @@ def test_no_pml_boolean_array():
     is_pml_bool = np.array([False], dtype=bool)
     is_pml_int = np.array([0], dtype=np.int8)
 
-    r_bool = build_recording_map(
-        topo, domain, is_pml_bool, record_depth_max_m=1.0
-    )
-    r_int = build_recording_map(
-        topo, domain, is_pml_int, record_depth_max_m=1.0
-    )
+    r_bool = build_recording_map(topo, domain, is_pml_bool, record_depth_max_m=1.0)
+    r_int = build_recording_map(topo, domain, is_pml_int, record_depth_max_m=1.0)
     assert (
         r_bool["per_rank_recording"][0]["vertex_ids"]
         == r_int["per_rank_recording"][0]["vertex_ids"]

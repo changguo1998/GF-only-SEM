@@ -4,7 +4,9 @@ project(gf_forward LANGUAGES CXX)
 # -----------------------------------------------------------------------
 # Device backend selection
 # -----------------------------------------------------------------------
-set(GF_DEVICE_BACKEND "CPU" CACHE STRING "Device backend: CPU, CUDA")
+set(GF_DEVICE_BACKEND
+    "CPU"
+    CACHE STRING "Device backend: CPU, CUDA")
 set_property(CACHE GF_DEVICE_BACKEND PROPERTY STRINGS CPU CUDA)
 
 # Validate and set backend sources + definitions
@@ -15,10 +17,10 @@ if(GF_DEVICE_BACKEND STREQUAL "CUDA")
     enable_language(CUDA)
     list(APPEND BACKEND_SRCS "src/element_cuda.cu")
     list(APPEND BACKEND_DEFINES GF_WITH_CUDA)
-    list(APPEND BACKEND_DEFINES GF_ACTIVE_BACKEND=1)  # 1 = BackendCUDA
+    list(APPEND BACKEND_DEFINES GF_ACTIVE_BACKEND=1) # 1 = BackendCUDA
     message(STATUS "CUDA backend enabled")
 else()
-    list(APPEND BACKEND_DEFINES GF_ACTIVE_BACKEND=0)  # 0 = BackendCPU
+    list(APPEND BACKEND_DEFINES GF_ACTIVE_BACKEND=0) # 0 = BackendCPU
     message(STATUS "CPU backend enabled (default)")
 endif()
 
@@ -57,8 +59,8 @@ target_compile_features(libgf PUBLIC cxx_std_17)
 
 # CUDA-specific compile options
 if(GF_DEVICE_BACKEND STREQUAL "CUDA")
-    # CUDA 13.2+ supports sm_75+; adjust for your GPU generation
-    # Common: sm_80 (Ampere A100), sm_86 (Ampere RTX30xx), sm_90 (Hopper H100)
+    # CUDA 13.2+ supports sm_75+; adjust for your GPU generation Common: sm_80 (Ampere A100), sm_86
+    # (Ampere RTX30xx), sm_90 (Hopper H100)
     set_target_properties(libgf PROPERTIES CUDA_ARCHITECTURES "80;86;87;90")
     # Relax constexpr for Eigen host/device compatibility
     target_compile_options(libgf PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)

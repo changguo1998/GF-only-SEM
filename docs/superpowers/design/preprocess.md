@@ -303,22 +303,36 @@ For each surface: check face center position
 
 Domain bounds auto-detected from `vertex_to_coord`. Output: `/field/surface/boundary_tag`.
 
-### 7. Compute C-PML Parameters (Layer-Based)
+### 7. Identify PML Elements (Layer-Based)
 
-C-PML elements are identified by layer-based connectivity, not centroid position.
-Classification is independent per direction: for each element, `d_x_active = distance_from_x_boundary < cpml_thickness.xmin OR xmax`.
-Count active directions → 1=face, 2=edge, 3=corner.
-Each direction's damping uses its own distance (can differ between e.g. x and y for a corner element).
+PML elements are the elements closest to each absorbing boundary, up to `pml_thickness`
+layers deep. The `is_pml` flag is computed in two stages:
 
-1. Start from boundary faces with `boundary_tag = 2` (absorbing).
-1. Walk inward through element connectivity: trace N layers of elements from each absorbing boundary face.
-1. For each element, independently check each direction against its respective boundary distance.
-1. Classify each C-PML element as **face** (damped in 1 direction), **edge** (damped in 2 directions), or **corner** (damped in 3 directions).
-1. Compute directional damping profiles `d_x(ξ)`, `d_y(ξ)`, `d_z(ξ)` per GLL node — each direction's damping depends only on that direction's distance from the boundary.
-1. Compute stretched-coordinate functions `K_x(ξ)`, `α_x(ξ)` (and similarly for y, z) per GLL node.
-1. Precompute convolution coefficients `α_c`, `β_c`, `ā` from the damping profiles (second-order convolution scheme, per Wang et al. 2006).
+1. **Surface detection** (`boundary_detector.py`): classify each cell's faces by their
+   center coordinates. Faces at `z ≈ z_min` → free surface (tag=1), faces on domain
+   bounds → absorbing (tag=2), others → interior (tag=0). Cells with any absorbing
+   face get a preliminary 1-layer `is_pml=True`.
+1. **Layer expansion** (`cli.py`): for structured hex meshes, expand `is_pml` by
+   `pml_thickness` using element grid position `(i,j,k)`:
+   ```
+   is_pml ← i < pml_xmin OR i ≥ nx − pml_xmax
+         OR j < pml_ymin OR j ≥ ny − pml_ymax
+         OR k ≥ nz − pml_zmax
+   ```
+   This ensures the PML zone matches the configured thickness. Non-structured
+   topologies fall back to the 1-layer surface detection only.
 
-Output: `/field/element/cpml/{cpml_type, d_x, d_y, d_z, K_x, K_y, K_z, alpha_x, alpha_y, alpha_z, conv_coef_*}`.
+Classification is independent per direction: for each element, the damping ramp
+for a direction is active if the element lies in that direction's PML band.
+
+Each direction's damping uses its own distance (can differ between e.g. x and y
+for a corner element).
+
+Output: `/field/element/is_pml` (int8, 1=PML).
+
+**NOTE:** Full C-PML (d/K/α per direction, convolution coefficients) is deferred.
+Current damping is a simplified linear ramp from 0 at PML entry to 1 at boundary.
+See `pml.py` for details.
 
 ### 8. Pre-Flight Validation
 
@@ -360,19 +374,25 @@ Output: one `partition_{r}.h5` per rank with owned/ghost data, metadata, and `/r
 
 Green output is shallow mesh vertices, not full GLL. Preprocess builds the map once. Forward then writes with no topology search.
 
-1. Read `record_depth_max_m` and `green_tile_size_m` from `config.py`.
+1. Read `record_depth_max_m` and tile sizes (`tilex_elements`, `tiley_elements`) from `config.py`.
 1. Compute `target_z = zmin + record_depth_max_m` (z positive downward).
 1. Set `record_depth_actual_m` to the first horizontal element face at or below `target_z`.
 1. Select non-PML elements fully above that depth; no clipping.
 1. Select unique mesh vertices attached to selected elements.
 1. For each vertex, choose one owned source element and corner so forward writes it once.
 
+`tile_index` is computed per element and stored in `/field/element/tile_index`:
+
+- PML elements → `-1`
+- Non-PML elements below `record_depth_actual_m` → `-1`
+- Non-PML elements above recording depth → `tile_id = tile_y × n_tilex + tile_x`
+
 Output in each `partition_{r}.h5`:
 
 ```
 /recording/
   attrs: basis="mesh_vertices", record_depth_max_m, record_depth_actual_m,
-         green_tile_size_m, excludes_pml=true
+         tilex_elements, tiley_elements, excludes_pml=true
   save_element_mask          bool[n_local_elem]
   vertex_ids                 int64[n_record_vertices]
   source_element_local_index int32[n_record_vertices]

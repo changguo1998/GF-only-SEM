@@ -10,10 +10,11 @@ Add a device-agnostic path for the element residual kernel — the throughput bo
 Newmark, source injection, MPI exchange, and I/O stay on CPU.
 
 Design rules:
+
 1. Zero-cost dispatch for a single compiled backend.
-2. No new dependency in the default CPU build.
-3. Preserve existing CPU numerical behavior.
-4. Each backend in its own source file.
+1. No new dependency in the default CPU build.
+1. Preserve existing CPU numerical behavior.
+1. Each backend in its own source file.
 
 ## Architecture
 
@@ -110,11 +111,12 @@ block:  dim3(NGLL, NGLL, NGLL)      — one thread per GLL node (i,j,k)
 ### Per-Thread Work
 
 Each thread (i,j,k) within element block `e`:
+
 1. Read elastic coefficients (`lambda_`, `mu_`) and geometry (`dxi_dx`, `jacobian`) for node (i,j,k)
-2. Compute displacement gradient in reference space via derivative matrix `D`
-3. Transform to physical gradient via chain rule with `dxi_dx`
-4. Form symmetric strain ε, isotropic stress σ
-5. Scatter force contributions to all `3*NGLL^3` DOFs via `atomicAdd`
+1. Compute displacement gradient in reference space via derivative matrix `D`
+1. Transform to physical gradient via chain rule with `dxi_dx`
+1. Form symmetric strain ε, isotropic stress σ
+1. Scatter force contributions to all `3*NGLL^3` DOFs via `atomicAdd`
 
 ### Persistent Device Memory
 
@@ -180,12 +182,12 @@ identical residual to `1e-12` tolerance.
 ## Limits & Future Work
 
 1. **Device memory:** Large meshes may exceed GPU memory. Streaming (partition into tiles) is deferred.
-2. **Atomics:** `atomicAdd` on double may contend. Future: shared-memory per-element reduction, then atomic per element (not per node).
-3. **MPI:** MPI is always required and always used (CPU-side exchange). After each GPU kernel, residual is copied back to host for `exchange_halo`. CUDA-aware MPI is optional future work — would let exchanged `r` stay on device, eliminating D2H+H2D per timestep.
-4. **Occupancy:** NGLL=4 → 64 threads/block. Low occupancy. Future: launch multiple elements per block or use 2D block with inner k-loop.
-5. **r stays on device:** Residual is copied back to CPU after each step for MPI exchange. If MPI exchange stays on CPU, this is fine. If CUDA-aware MPI is used, `d_r` can persist — eliminating D2H sync.
-6. **HIP/SYCL backends:** Follow the same pattern — add tag struct, add source file, add CMake branch.
-7. **Device cleanup:** `g_cuda_buffers` is not explicitly freed before `MPI_Finalize`. Currently device memory is reclaimed by OS on process exit. For clean MPI shutdown, add explicit `free_device_buffers()` call before `MPI_Finalize`.
+1. **Atomics:** `atomicAdd` on double may contend. Future: shared-memory per-element reduction, then atomic per element (not per node).
+1. **MPI:** MPI is always required and always used (CPU-side exchange). After each GPU kernel, residual is copied back to host for `exchange_halo`. CUDA-aware MPI is optional future work — would let exchanged `r` stay on device, eliminating D2H+H2D per timestep.
+1. **Occupancy:** NGLL=4 → 64 threads/block. Low occupancy. Future: launch multiple elements per block or use 2D block with inner k-loop.
+1. **r stays on device:** Residual is copied back to CPU after each step for MPI exchange. If MPI exchange stays on CPU, this is fine. If CUDA-aware MPI is used, `d_r` can persist — eliminating D2H sync.
+1. **HIP/SYCL backends:** Follow the same pattern — add tag struct, add source file, add CMake branch.
+1. **Device cleanup:** `g_cuda_buffers` is not explicitly freed before `MPI_Finalize`. Currently device memory is reclaimed by OS on process exit. For clean MPI shutdown, add explicit `free_device_buffers()` call before `MPI_Finalize`.
 
 ## File Summary
 

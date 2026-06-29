@@ -66,7 +66,6 @@ and spack-installed `llvm` for clang-format.
 
 ## Project State
 
-
 Implementation complete — 5 modules + tests (144 tests: 96 Python, 48 C++).
 Elastic-only forward solver (SLS/attenuation deferred).
 

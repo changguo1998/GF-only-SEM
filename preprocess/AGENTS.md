@@ -32,10 +32,10 @@ mesh.h5 + config.py
 → material at GLL nodes
 → CFL + solver_dt + strides
 → source + STF
-→ PML masking
+→ PML masking        (1-layer from boundary detection + layer expansion via i,j,k grid)
 → validation
 → METIS partition
-→ recording map
+→ recording map      (snaps depth, builds tile_index clamped to PML + recording depth)
 → write mesh.h5, config.h5, partitions/partition_{r}.h5
 ```
 

@@ -9,7 +9,6 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
-
 #include <cmath>
 #include <cstdlib>
 #include <vector>
@@ -97,15 +96,13 @@ TEST_CASE("CUDA element residual matches CPU — N=3 random", "[element][cuda]")
 
     // CPU reference
     compute_element_residual<BackendCPU>(1, elem.dxi_dx.data(), elem.jacobian.data(),
-                                         elem.lambda_.data(), elem.mu_.data(),
-                                         elem.D.data(), elem.w.data(), elem.ngll, u.data(),
-                                         r_cpu.data());
+                                         elem.lambda_.data(), elem.mu_.data(), elem.D.data(),
+                                         elem.w.data(), elem.ngll, u.data(), r_cpu.data());
 
     // CUDA result
     compute_element_residual<BackendCUDA>(1, elem.dxi_dx.data(), elem.jacobian.data(),
-                                          elem.lambda_.data(), elem.mu_.data(),
-                                          elem.D.data(), elem.w.data(), elem.ngll, u.data(),
-                                          r_cuda.data());
+                                          elem.lambda_.data(), elem.mu_.data(), elem.D.data(),
+                                          elem.w.data(), elem.ngll, u.data(), r_cuda.data());
 
     // Compare with relative tolerance
     // GPU uses atomicAdd which changes summation order vs CPU sequential loop.
@@ -137,14 +134,12 @@ TEST_CASE("CUDA element residual matches CPU — N=5 random", "[element][cuda]")
     std::vector<double> r_cuda(elem.n_node * 3, 0.0);
 
     compute_element_residual<BackendCPU>(1, elem.dxi_dx.data(), elem.jacobian.data(),
-                                         elem.lambda_.data(), elem.mu_.data(),
-                                         elem.D.data(), elem.w.data(), elem.ngll, u.data(),
-                                         r_cpu.data());
+                                         elem.lambda_.data(), elem.mu_.data(), elem.D.data(),
+                                         elem.w.data(), elem.ngll, u.data(), r_cpu.data());
 
     compute_element_residual<BackendCUDA>(1, elem.dxi_dx.data(), elem.jacobian.data(),
-                                          elem.lambda_.data(), elem.mu_.data(),
-                                          elem.D.data(), elem.w.data(), elem.ngll, u.data(),
-                                          r_cuda.data());
+                                          elem.lambda_.data(), elem.mu_.data(), elem.D.data(),
+                                          elem.w.data(), elem.ngll, u.data(), r_cuda.data());
 
     // Compare with relative tolerance
     double max_rel_diff = 0.0;
@@ -172,9 +167,8 @@ TEST_CASE("CUDA element residual — rigid body translation zero", "[element][cu
 
     std::vector<double> r(elem.n_node * 3, 0.0);
     compute_element_residual<BackendCUDA>(1, elem.dxi_dx.data(), elem.jacobian.data(),
-                                          elem.lambda_.data(), elem.mu_.data(),
-                                          elem.D.data(), elem.w.data(), elem.ngll, u.data(),
-                                          r.data());
+                                          elem.lambda_.data(), elem.mu_.data(), elem.D.data(),
+                                          elem.w.data(), elem.ngll, u.data(), r.data());
 
     for (size_t i = 0; i < r.size(); ++i) {
         REQUIRE_THAT(r[i], WithinAbs(0.0, 1e-12));

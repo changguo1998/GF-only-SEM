@@ -2,7 +2,9 @@ cmake_minimum_required(VERSION 3.18)
 project(gf_calculation LANGUAGES CXX)
 
 # ----- Device backend option (must be set before subdirectories) -----
-set(GF_DEVICE_BACKEND "CPU" CACHE STRING "Device backend: CPU, CUDA")
+set(GF_DEVICE_BACKEND
+    "CPU"
+    CACHE STRING "Device backend: CPU, CUDA")
 set_property(CACHE GF_DEVICE_BACKEND PROPERTY STRINGS CPU CUDA)
 
 # ----- Enable testing -----

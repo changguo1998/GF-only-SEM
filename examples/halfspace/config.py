@@ -42,8 +42,14 @@ cfl_safety = 0.5  # CFL safety factor (0 < cfl_safety < 1)
 snapshot_precision = "float32"  # "float32" or "float64" for strain snapshots
 storage_limit_gb = 10.0  # Warn if estimated output exceeds this
 record_depth_max_m = 2000.0  # Record strain at vertices within this depth of free surface [m]
-tilex_elements = [5, 5]  # Horizontal x tile sizes in elements (nx = sum(tilex) + pml_xmin + pml_xmax)
-tiley_elements = [5, 5]  # Horizontal y tile sizes in elements (ny = sum(tiley) + pml_ymin + pml_ymax)
+tilex_elements = [
+    5,
+    5,
+]  # Horizontal x tile sizes in elements (nx = sum(tilex) + pml_xmin + pml_xmax)
+tiley_elements = [
+    5,
+    5,
+]  # Horizontal y tile sizes in elements (ny = sum(tiley) + pml_ymin + pml_ymax)
 
 # ── Parallelism ───
 n_ranks = 16  # Number of MPI ranks (METIS partition)

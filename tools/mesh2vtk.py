@@ -456,9 +456,7 @@ def main():
                 arr = np.zeros(vertex_coords_out.shape[0], dtype=np.float64)
                 # Mesh vertices: interpolate from surrounding elements (point→point)
                 # Use cell-averaged value as estimator for mesh vertex locations
-                cell_avg = np.mean(
-                    gll_fields[name_raw].reshape(n_cell, -1), axis=1
-                )
+                cell_avg = np.mean(gll_fields[name_raw].reshape(n_cell, -1), axis=1)
                 arr[:n_mesh_vert] = _interpolate_mesh_vertex_field(
                     cell_avg, connectivity, n_mesh_vert
                 )
@@ -471,14 +469,10 @@ def main():
 
             # Build GLL topology for detail view
             edge_tmpl, face_tmpl, sub_tmpl = build_gll_cell_template(ngll)
-            edge_arr, face_arr, sub_arr, n_edge, n_face, n_sub, gll_elem_map = (
-                build_all_gll_cells(
-                    edge_tmpl, face_tmpl, sub_tmpl, n_cell, ngll, n_mesh_vert
-                )
+            edge_arr, face_arr, sub_arr, n_edge, n_face, n_sub, gll_elem_map = build_all_gll_cells(
+                edge_tmpl, face_tmpl, sub_tmpl, n_cell, ngll, n_mesh_vert
             )
-            print(
-                f"  GLL per cell: {gll_per_cell}, total GLL: {n_cell * gll_per_cell}"
-            )
+            print(f"  GLL per cell: {gll_per_cell}, total GLL: {n_cell * gll_per_cell}")
             print(
                 f"  Topology: {n_edge}L + {n_face}Q + {n_sub}H = "
                 f"{n_edge + n_face + n_sub} GLL cells"

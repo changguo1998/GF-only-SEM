@@ -1,8 +1,7 @@
 #define GF_ELEMENT_CPU_SOURCE
-#include "gf/element.hpp"
-
 #include <cmath>
 
+#include "gf/element.hpp"
 #include "gf/gll.hpp"
 
 namespace gf {
@@ -18,9 +17,8 @@ static inline int idx(int i, int j, int k, int NGLL) {
 /// contribution and accumulates into r. The per-element logic is
 /// identical to the original single-element function.
 template <>
-void compute_element_residual<BackendCPU>(int n_elem, const double* dxi_dx,
-                                          const double* jacobian, const double* lambda_,
-                                          const double* mu_,
+void compute_element_residual<BackendCPU>(int n_elem, const double* dxi_dx, const double* jacobian,
+                                          const double* lambda_, const double* mu_,
                                           const double* D, const double* weights, int NGLL,
                                           const double* u, double* r) {
     const int n_node = NGLL * NGLL * NGLL;

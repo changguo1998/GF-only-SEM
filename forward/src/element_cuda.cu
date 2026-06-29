@@ -8,13 +8,12 @@
  */
 
 #define GF_ELEMENT_CUDA_SOURCE
-#include "gf/element.hpp"
-
 #include <cstdio>
 #include <cstdlib>
 
 #include "gf/cuda_check.h"
 #include "gf/cuda_device_manager.hpp"
+#include "gf/element.hpp"
 
 namespace gf {
 
@@ -98,12 +97,9 @@ __global__ void element_residual_kernel(const double* __restrict__ dxi_dx,
     // --- Transform to physical gradient ---
     double du_dx[3][3];
     for (int comp = 0; comp < 3; ++comp) {
-        du_dx[comp][0] =
-            dudxi[comp] * dd[0] + dudeta[comp] * dd[1] + dudzeta[comp] * dd[2];
-        du_dx[comp][1] =
-            dudxi[comp] * dd[3] + dudeta[comp] * dd[4] + dudzeta[comp] * dd[5];
-        du_dx[comp][2] =
-            dudxi[comp] * dd[6] + dudeta[comp] * dd[7] + dudzeta[comp] * dd[8];
+        du_dx[comp][0] = dudxi[comp] * dd[0] + dudeta[comp] * dd[1] + dudzeta[comp] * dd[2];
+        du_dx[comp][1] = dudxi[comp] * dd[3] + dudeta[comp] * dd[4] + dudzeta[comp] * dd[5];
+        du_dx[comp][2] = dudxi[comp] * dd[6] + dudeta[comp] * dd[7] + dudzeta[comp] * dd[8];
     }
 
     // --- Symmetric strain tensor ---
@@ -137,9 +133,12 @@ __global__ void element_residual_kernel(const double* __restrict__ dxi_dx,
         double gradN[3] = {Dis * dd[0], Dis * dd[3], Dis * dd[6]};
         int base = 3 * (elem_offset + idx(s, j, k, NGLL));
 
-        double r0 = -(sigma[0][0] * gradN[0] + sigma[0][1] * gradN[1] + sigma[0][2] * gradN[2]) * factor;
-        double r1 = -(sigma[1][0] * gradN[0] + sigma[1][1] * gradN[1] + sigma[1][2] * gradN[2]) * factor;
-        double r2 = -(sigma[2][0] * gradN[0] + sigma[2][1] * gradN[1] + sigma[2][2] * gradN[2]) * factor;
+        double r0 =
+            -(sigma[0][0] * gradN[0] + sigma[0][1] * gradN[1] + sigma[0][2] * gradN[2]) * factor;
+        double r1 =
+            -(sigma[1][0] * gradN[0] + sigma[1][1] * gradN[1] + sigma[1][2] * gradN[2]) * factor;
+        double r2 =
+            -(sigma[2][0] * gradN[0] + sigma[2][1] * gradN[1] + sigma[2][2] * gradN[2]) * factor;
 
         atomicAdd(&r[base + 0], r0);
         atomicAdd(&r[base + 1], r1);
@@ -152,9 +151,12 @@ __global__ void element_residual_kernel(const double* __restrict__ dxi_dx,
         double gradN[3] = {Djs * dd[1], Djs * dd[4], Djs * dd[7]};
         int base = 3 * (elem_offset + idx(i, s, k, NGLL));
 
-        double r0 = -(sigma[0][0] * gradN[0] + sigma[0][1] * gradN[1] + sigma[0][2] * gradN[2]) * factor;
-        double r1 = -(sigma[1][0] * gradN[0] + sigma[1][1] * gradN[1] + sigma[1][2] * gradN[2]) * factor;
-        double r2 = -(sigma[2][0] * gradN[0] + sigma[2][1] * gradN[1] + sigma[2][2] * gradN[2]) * factor;
+        double r0 =
+            -(sigma[0][0] * gradN[0] + sigma[0][1] * gradN[1] + sigma[0][2] * gradN[2]) * factor;
+        double r1 =
+            -(sigma[1][0] * gradN[0] + sigma[1][1] * gradN[1] + sigma[1][2] * gradN[2]) * factor;
+        double r2 =
+            -(sigma[2][0] * gradN[0] + sigma[2][1] * gradN[1] + sigma[2][2] * gradN[2]) * factor;
 
         atomicAdd(&r[base + 0], r0);
         atomicAdd(&r[base + 1], r1);
@@ -167,9 +169,12 @@ __global__ void element_residual_kernel(const double* __restrict__ dxi_dx,
         double gradN[3] = {Dks * dd[2], Dks * dd[5], Dks * dd[8]};
         int base = 3 * (elem_offset + idx(i, j, s, NGLL));
 
-        double r0 = -(sigma[0][0] * gradN[0] + sigma[0][1] * gradN[1] + sigma[0][2] * gradN[2]) * factor;
-        double r1 = -(sigma[1][0] * gradN[0] + sigma[1][1] * gradN[1] + sigma[1][2] * gradN[2]) * factor;
-        double r2 = -(sigma[2][0] * gradN[0] + sigma[2][1] * gradN[1] + sigma[2][2] * gradN[2]) * factor;
+        double r0 =
+            -(sigma[0][0] * gradN[0] + sigma[0][1] * gradN[1] + sigma[0][2] * gradN[2]) * factor;
+        double r1 =
+            -(sigma[1][0] * gradN[0] + sigma[1][1] * gradN[1] + sigma[1][2] * gradN[2]) * factor;
+        double r2 =
+            -(sigma[2][0] * gradN[0] + sigma[2][1] * gradN[1] + sigma[2][2] * gradN[2]) * factor;
 
         atomicAdd(&r[base + 0], r0);
         atomicAdd(&r[base + 1], r1);
@@ -189,9 +194,9 @@ CudaDeviceBuffers g_cuda_buffers;
 template <>
 void compute_element_residual<BackendCUDA>(int n_elem, const double* dxi_dx,
                                            const double* jacobian, const double* lambda_,
-                                           const double* mu_,
-                                           const double* D, const double* weights, int NGLL,
-                                           const double* u, double* r) {
+                                           const double* mu_, const double* D,
+                                           const double* weights, int NGLL, const double* u,
+                                           double* r) {
 #ifdef GF_WITH_CUDA
     const int n_node = NGLL * NGLL * NGLL;
 
@@ -201,8 +206,8 @@ void compute_element_residual<BackendCUDA>(int n_elem, const double* dxi_dx,
         if (g_cuda_buffers.allocated) {
             free_device_buffers(g_cuda_buffers);
         }
-        g_cuda_buffers = allocate_device_buffers(n_elem, NGLL, dxi_dx, jacobian, lambda_, mu_,
-                                                  D, weights);
+        g_cuda_buffers =
+            allocate_device_buffers(n_elem, NGLL, dxi_dx, jacobian, lambda_, mu_, D, weights);
     }
 
     // --- Copy displacement to device ---
@@ -215,10 +220,9 @@ void compute_element_residual<BackendCUDA>(int n_elem, const double* dxi_dx,
     dim3 block(NGLL, NGLL, NGLL);
     dim3 grid(n_elem, 1, 1);
     element_residual_kernel<<<grid, block>>>(g_cuda_buffers.d_dxi_dx, g_cuda_buffers.d_jacobian,
-                                              g_cuda_buffers.d_lambda, g_cuda_buffers.d_mu,
-                                              g_cuda_buffers.d_D,
-                                              g_cuda_buffers.d_weights, NGLL, g_cuda_buffers.d_u,
-                                              g_cuda_buffers.d_r);
+                                             g_cuda_buffers.d_lambda, g_cuda_buffers.d_mu,
+                                             g_cuda_buffers.d_D, g_cuda_buffers.d_weights, NGLL,
+                                             g_cuda_buffers.d_u, g_cuda_buffers.d_r);
 
     // --- Check for launch errors ---
     GF_CUDA_CHECK(cudaGetLastError());

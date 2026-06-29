@@ -59,7 +59,7 @@ TEST_CASE("RecordWriter creates file and writes strain", "[record]") {
     REQUIRE(ndims == 3);
     hsize_t dims[3];
     H5Sget_simple_extent_dims(space, dims, nullptr);
-    REQUIRE(dims[0] == 3);  // 3 steps written
+    REQUIRE(dims[0] == 3);                // 3 steps written
     REQUIRE(dims[1] == (hsize_t)n_elem);  // n_vertices == n_elem in this test
     REQUIRE(dims[2] == 6);
 
