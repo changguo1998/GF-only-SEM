@@ -371,6 +371,93 @@ RankData read_partition_all(const std::string& partition_dir) {
     return merged;
 }
 
+RankData read_partition_range(const std::string& partition_dir, int effective_rank,
+                              int n_effective) {
+    // Count total partitions
+    int n_partitions = 0;
+    for (int r = 0;; ++r) {
+        std::string path = partition_dir + "/partition_" + std::to_string(r) + ".h5";
+        std::error_code ec;
+        if (!std::filesystem::exists(path, ec))
+            break;
+        ++n_partitions;
+    }
+
+    if (n_partitions == 0) {
+        throw std::runtime_error("read_partition_range: no partition files found in " +
+                                 partition_dir);
+    }
+    if (effective_rank >= n_effective) {
+        throw std::runtime_error("read_partition_range: effective_rank=" +
+                                 std::to_string(effective_rank) + " >= n_effective=" +
+                                 std::to_string(n_effective));
+    }
+
+    // Block distribution
+    int base = n_partitions / n_effective;
+    int remainder = n_partitions % n_effective;
+    int start = effective_rank * base + std::min(effective_rank, remainder);
+    int count = base + (effective_rank < remainder ? 1 : 0);
+
+    auto concat_vec = [](auto& dest, const auto& src) {
+        dest.insert(dest.end(), src.begin(), src.end());
+    };
+
+    RankData merged;
+    int cumulative_elements = 0;
+
+    for (int i = 0; i < count; ++i) {
+        int part_rank = start + i;
+        std::string path =
+            partition_dir + "/partition_" + std::to_string(part_rank) + ".h5";
+        RankData part = read_partition(path, part_rank);
+
+        if (i > 0 && part.ngll != merged.ngll) {
+            throw std::runtime_error("read_partition_range: partition " +
+                                     std::to_string(part_rank) + " NGLL=" +
+                                     std::to_string(part.ngll) + " expected " +
+                                     std::to_string(merged.ngll));
+        }
+
+        if (i == 0) {
+            merged = std::move(part);
+            merged.exchange_patterns.clear();
+            merged.ghost_element_ids.clear();
+            merged.ghost_owners.clear();
+            cumulative_elements = merged.n_local_elem;
+        } else {
+            concat_vec(merged.local_element_ids, part.local_element_ids);
+            concat_vec(merged.coords, part.coords);
+            concat_vec(merged.jacobian, part.jacobian);
+            concat_vec(merged.dxi_dx, part.dxi_dx);
+            concat_vec(merged.mass, part.mass);
+            concat_vec(merged.vp, part.vp);
+            concat_vec(merged.vs, part.vs);
+            concat_vec(merged.density, part.density);
+            concat_vec(merged.lambda_, part.lambda_);
+            concat_vec(merged.mu_, part.mu_);
+            concat_vec(merged.pml_damping, part.pml_damping);
+
+            if (part.recording.has_recording) {
+                merged.recording.has_recording = true;
+                concat_vec(merged.recording.vertex_ids, part.recording.vertex_ids);
+                for (int32_t local_idx : part.recording.src_elem_local) {
+                    merged.recording.src_elem_local.push_back(local_idx +
+                                                              cumulative_elements);
+                }
+                concat_vec(merged.recording.src_corner, part.recording.src_corner);
+            }
+
+            cumulative_elements += part.n_local_elem;
+        }
+    }
+
+    merged.n_local_elem = cumulative_elements;
+    merged.n_ghost_elem = 0;
+    merged.n_total_elem = merged.n_local_elem;
+
+    return merged;
+}
 ConfigData read_config(const std::string& path) {
     hid_t fid = open_read(path);
     H5FileGuard guard(fid);

@@ -85,9 +85,12 @@ if(TARGET libgf_cuda_nompi)
         test_element_cuda
         PRIVATE ${CMAKE_SOURCE_DIR}/forward/include ${CMAKE_SOURCE_DIR}/compress/include
                 ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
-    # Eigen3 include for CUDA (nvcc response files don't see CPATH)
+    # Eigen3 include for CUDA (nvcc response files don't see CPATH).
+    # Use COMPILE_LANGUAGE generator expression to ensure nvcc picks it up.
     get_filename_component(_eigen_prefix "${Eigen3_DIR}/../../.." ABSOLUTE)
-    target_include_directories(test_element_cuda PRIVATE "${_eigen_prefix}/include/eigen3")
+    target_include_directories(
+        test_element_cuda PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:${_eigen_prefix}/include/eigen3>)
     target_link_libraries(test_element_cuda PRIVATE libgf_cuda_nompi Catch2::Catch2WithMain
                                                     Eigen3::Eigen ${HDF5_C_LIBRARIES} CUDA::cudart)
     target_compile_features(test_element_cuda PRIVATE cxx_std_17)

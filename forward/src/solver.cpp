@@ -60,7 +60,7 @@ inline void newmark_correct(double solver_dt, double /*beta*/, double gamma,
 
 }  // anonymous namespace
 
-int run_forward(const std::string& direction, bool resume_mode) {
+int run_forward(const std::string& direction, bool resume_mode, int effective_nprocs) {
     // All paths relative to CWD
     std::string config_path = "config.h5";
     std::string partition_dir = "partitions";
@@ -71,12 +71,20 @@ int run_forward(const std::string& direction, bool resume_mode) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 #endif
+    int eff_nprocs = nprocs;
+    if (effective_nprocs > 0 && effective_nprocs < nprocs)
+        eff_nprocs = effective_nprocs;
 
     Logger logger(direction, rank);
 #ifdef GF_NO_MPI
     logger.info("single process, direction=" + direction);
 #else
-    logger.info(std::to_string(nprocs) + " MPI ranks, direction=" + direction);
+    if (eff_nprocs < nprocs) {
+        logger.info(std::to_string(nprocs) + " MPI ranks (reduced to " + std::to_string(eff_nprocs) +
+                    " effective), direction=" + direction);
+    } else {
+        logger.info(std::to_string(nprocs) + " MPI ranks, direction=" + direction);
+    }
 #endif
 
     try {
@@ -97,11 +105,17 @@ int run_forward(const std::string& direction, bool resume_mode) {
         // === Read partition(s) for this rank ===
         t_io = std::chrono::steady_clock::now();
         RankData part;
-        if (nprocs == 1) {
-            // Single-rank mode: read ALL partitions and merge into full domain
+        if (eff_nprocs == 1) {
+            // Single effective rank: merge all partitions into full domain
             part = read_partition_all(partition_dir);
             logger.debug("  merged " + std::to_string(part.n_local_elem) +
                          " elements from all partitions");
+        } else if (eff_nprocs < nprocs) {
+            // Reduced effective ranks: block-distribute partitions
+            int eff_rank = rank % eff_nprocs;
+            part = read_partition_range(partition_dir, eff_rank, eff_nprocs);
+            logger.debug("  effective rank " + std::to_string(eff_rank) + ": " +
+                         std::to_string(part.n_local_elem) + " elements");
         } else {
             std::string partition_path =
                 partition_dir + "/partition_" + std::to_string(rank) + ".h5";

@@ -14,6 +14,7 @@
 #include <cuda_runtime.h>
 #endif
 
+#include <algorithm>
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
@@ -33,31 +34,34 @@ int main(int argc, char** argv) {
 #ifndef GF_NO_MPI
     MPI_Init(&argc, &argv);
 #endif
-    int rank = 0;
+    int rank = 0, nprocs = 1;
 #ifndef GF_NO_MPI
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 #endif
 
+    // --- CUDA device selection + auto-reduce when ranks > GPUs ---
+    int effective_nprocs_pass = 0;  // 0 = solver auto-detects
 #ifdef GF_WITH_CUDA
-    int n_devices = 0;
-    cudaError_t cerr = cudaGetDeviceCount(&n_devices);
-    if (cerr != cudaSuccess)
-        n_devices = 0;
-
-    if (n_devices == 0) {
-        if (rank == 0)
-            std::cerr << "Error: no CUDA-capable GPU found.\n";
-#ifndef GF_NO_MPI
-        MPI_Finalize();
-#endif
-        return 1;
-    }
-
-    cudaSetDevice(rank % n_devices);
-
-#ifndef GF_NO_MPI
-    // Per-node warning: MPI ranks on this node > GPUs
     {
+        int n_devices = 0;
+        cudaError_t cerr = cudaGetDeviceCount(&n_devices);
+        if (cerr != cudaSuccess)
+            n_devices = 0;
+
+        if (n_devices == 0) {
+            if (rank == 0)
+                std::cerr << "Error: no CUDA-capable GPU found.\n";
+#ifndef GF_NO_MPI
+            MPI_Finalize();
+#endif
+            return 1;
+        }
+
+        cudaSetDevice(rank % n_devices);
+
+#ifndef GF_NO_MPI
+        // Count ranks on this shared-memory node
         MPI_Comm shm_comm;
         MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &shm_comm);
         int shm_size = 0, shm_rank = 0;
@@ -65,12 +69,24 @@ int main(int argc, char** argv) {
         MPI_Comm_rank(shm_comm, &shm_rank);
         MPI_Comm_free(&shm_comm);
 
-        if (shm_rank == 0 && shm_size > n_devices) {
-            std::cout << "[WARN] " << shm_size << " MPI ranks on this node but only " << n_devices
-                      << " GPU(s) — ranks share GPU(s), performance degraded.\n";
+        int effective_nprocs = std::min(nprocs, n_devices);
+
+        // Excess ranks (shm_rank >= n_devices) skip solver entirely
+        if (shm_rank >= n_devices) {
+            MPI_Finalize();
+            return 0;
         }
-    }
+
+        if (effective_nprocs < nprocs) {
+            if (rank == 0) {
+                std::cout << "[WARN] " << nprocs << " MPI ranks on this node but only "
+                          << n_devices << " GPU(s) — reducing to " << effective_nprocs
+                          << " effective rank(s).\n";
+            }
+            effective_nprocs_pass = effective_nprocs;
+        }
 #endif
+    }
 #endif
 
     try {
@@ -105,7 +121,7 @@ int main(int argc, char** argv) {
                       << "  output: wavefields/" << direction << "/record_{r}.h5" << std::endl;
         }
 
-        int result = gf::run_forward(direction, resume_mode);
+        int result = gf::run_forward(direction, resume_mode, effective_nprocs_pass);
 
 #ifndef GF_NO_MPI
         MPI_Finalize();

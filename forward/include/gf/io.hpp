@@ -32,6 +32,19 @@ RankData read_partition(const std::string& path, int rank);
 /// \return               Merged RankData for the full domain
 RankData read_partition_all(const std::string& partition_dir);
 
+/// Read a block of partitions assigned to one effective rank (reduced-rank mode).
+///
+/// Distributes partitions among @p n_effective ranks using block assignment.
+/// Each rank reads its block, concatenates element arrays, clears exchange.
+/// Used when MPI ranks exceed GPU count (auto-reduction).
+///
+/// \param partition_dir   Directory containing partition_{r}.h5 files
+/// \param effective_rank  0-based rank in the reduced set (0..n_effective-1)
+/// \param n_effective     Number of effective ranks (≤ total partitions)
+/// \return                Merged RankData for this effective rank's block
+RankData read_partition_range(const std::string& partition_dir, int effective_rank,
+                                int n_effective);
+
 /// Read config.h5 (rank-invariant simulation configuration).
 ///
 /// Reads all simulation parameters from the config file:
