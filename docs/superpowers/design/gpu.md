@@ -45,7 +45,7 @@ template <typename Backend>
 void compute_element_residual(
     int n_elem,            // <-- batched: process all elements in one call
     const double* dxi_dx, const double* jacobian,
-    const double* vp, const double* vs, const double* density,
+    const double* lambda_, const double* mu_,
     const double* D, const double* weights, int NGLL,
     const double* u, double* r);
 
@@ -93,7 +93,7 @@ for (int elem = 0; elem < n_local; ++elem) {
 compute_element_residual<gf::ActiveBackend>(
     n_local,
     part.dxi_dx.data(), part.jacobian.data(),
-    part.vp.data(), part.vs.data(), part.density.data(),
+    part.lambda_.data(), part.mu_.data(),
     D_mat.data(), gll_wts.data(), ngll,
     displacement_tilde.data(), residual.data());
 ```
@@ -110,7 +110,7 @@ block:  dim3(NGLL, NGLL, NGLL)      — one thread per GLL node (i,j,k)
 ### Per-Thread Work
 
 Each thread (i,j,k) within element block `e`:
-1. Read material (`density`, `vp`, `vs`) and geometry (`dxi_dx`, `jacobian`) for node (i,j,k)
+1. Read elastic coefficients (`lambda_`, `mu_`) and geometry (`dxi_dx`, `jacobian`) for node (i,j,k)
 2. Compute displacement gradient in reference space via derivative matrix `D`
 3. Transform to physical gradient via chain rule with `dxi_dx`
 4. Form symmetric strain ε, isotropic stress σ
@@ -122,7 +122,7 @@ Each thread (i,j,k) within element block `e`:
 
 | Data | Lifetime | Transfer |
 |------|----------|----------|
-| `dxi_dx`, `jacobian`, `vp`, `vs`, `density` | Once (first call) | H2D at allocation |
+| `dxi_dx`, `jacobian`, `lambda_`, `mu_` | Once (first call) | H2D at allocation |
 | `D`, `weights` | Once (first call) | H2D at allocation |
 | `u` (predicted displacement) | Each timestep | H2D before kernel |
 | `r` (residual) | Each timestep | D2H after kernel |

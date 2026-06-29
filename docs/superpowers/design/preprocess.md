@@ -265,7 +265,8 @@ Call the user-defined functions from config.py at each GLL node position (comput
 - `vs_m_s(x_m, y_m, z_m)` → shear wave speed
 - `density_kg_m3(x_m, y_m, z_m)` → mass density
 
-Output: `/field/element/vp`, `/field/element/vs`, `/field/element/density`.
+Output: `/field/element/vp`, `/field/element/vs`, `/field/element/density`, plus
+precomputed `/field/element/lambda` and `/field/element/mu` (computed from ρ·(Vp² − 2·Vs²) and ρ·Vs²).
 
 ### 4. Compute Lumped Mass
 

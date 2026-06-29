@@ -96,7 +96,7 @@ Per-rank file from preprocess. Each rank reads only its file. Contains local ele
 | `/field/element/jacobian` | det(J) — integration factor |
 | `/field/element/dxi_dx` | ∂ξ_i/∂x_j — stiffness computation + strain |
 | `/field/element/mass` | Lumped mass diagonal — Newmark solve |
-| `/field/element/vp, vs, density` | Elastic constants per GLL node |
+| `/field/element/vp, vs, density, lambda, mu` | Elastic constants per GLL node (vp, vs, density from config; lambda, mu precomputed) |
 | `/field/element/cpml/*` | All C-PML arrays: cpml_type, d_x/y/z, K_x/y/z, alpha_x/y/z, convolution coefficients (conv_coef_alpha, beta, abar), element type tags (face/edge/corner) |
 | `/field/surface/boundary_tag` | 0=interior, 1=free surface, 2=absorbing |
 **Partition metadata** (`/partition/`):
@@ -175,7 +175,7 @@ struct RankData {
 
 ## Material at GLL Nodes
 
-Material is stored directly at GLL nodes in partition\_{r}.h5 — no runtime interpolation needed. Forward reads `[n_elem, NGLL, NGLL, NGLL]` arrays for vp, vs, density, etc. directly.
+Material is stored directly at GLL nodes in partition\_{r}.h5 — no runtime interpolation needed. Forward reads `[n_elem, NGLL, NGLL, NGLL]` arrays for lambda, mu, etc. directly.
 
 ## Source Injection
 

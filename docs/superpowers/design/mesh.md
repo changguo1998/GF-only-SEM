@@ -154,7 +154,7 @@ partition_{r}.h5
 │   │   ├── jacobian  : float64[n_elem_total, NGLL, NGLL, NGLL]       — det(J)
 │   │   ├── mass      : float64[n_elem_total, NGLL, NGLL, NGLL]       — lumped mass diagonal
 │   │   │
-│   │   ├── vp, vs, density : float64[n_elem_total, NGLL, NGLL, NGLL]
+│   │   ├── vp, vs, density, lambda, mu : float64[n_elem_total, NGLL, NGLL, NGLL]
 │   │   │
 │   │   └── /cpml/                                    — C-PML precomputed arrays
 │   │       ├── cpml_type       : int8[n_cell_local]    — 0=interior, 1=face, 2=edge, 3=corner
