@@ -1,5 +1,9 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.18)
 project(gf_calculation LANGUAGES CXX)
+
+# ----- Device backend option (must be set before subdirectories) -----
+set(GF_DEVICE_BACKEND "CPU" CACHE STRING "Device backend: CPU, CUDA")
+set_property(CACHE GF_DEVICE_BACKEND PROPERTY STRINGS CPU CUDA)
 
 # ----- Enable testing -----
 include(CTest)
@@ -35,3 +39,8 @@ add_custom_target(
             test_source
             test_io
             test_record)
+
+# Add CUDA test target if backend is CUDA
+if(GF_DEVICE_BACKEND STREQUAL "CUDA")
+    add_dependencies(test_all test_element_cuda)
+endif()

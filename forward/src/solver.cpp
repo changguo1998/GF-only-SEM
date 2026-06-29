@@ -18,6 +18,7 @@
 #include "gf/CompressionFilter.h"
 #include "gf/assembly.hpp"
 #include "gf/element.hpp"
+#include "gf/backend.hpp"
 #include "gf/exchange.hpp"
 #include "gf/gll.hpp"
 #include "gf/io.hpp"
@@ -202,19 +203,13 @@ int run_forward(const std::string& direction, bool resume_mode) {
             // --- Zero residual ---
             std::fill(residual.begin(), residual.end(), 0.0);
 
-            // --- Element residual computation (matrix-free) ---
-            for (int elem = 0; elem < n_local; ++elem) {
-                const double* elem_dxi_dx = part.dxi_dx.data() + elem * n_node * 9;
-                const double* elem_jac = part.jacobian.data() + elem * n_node;
-                const double* elem_vp = part.vp.data() + elem * n_node;
-                const double* elem_vs = part.vs.data() + elem * n_node;
-                const double* elem_rho = part.density.data() + elem * n_node;
-                const double* elem_u = displacement_tilde.data() + elem * n_node * 3;
-                double* elem_r = residual.data() + elem * n_node * 3;
-
-                compute_element_residual(elem_dxi_dx, elem_jac, elem_vp, elem_vs, elem_rho,
-                                         D_mat.data(), gll_wts.data(), ngll, elem_u, elem_r);
-            }
+            // --- Element residual computation (matrix-free, batched) ---
+            compute_element_residual<gf::ActiveBackend>(
+                n_local,
+                part.dxi_dx.data(), part.jacobian.data(),
+                part.vp.data(), part.vs.data(), part.density.data(),
+                D_mat.data(), gll_wts.data(), ngll,
+                displacement_tilde.data(), residual.data());
 
             // --- PML damping ---
             apply_pml_damping(part.pml_damping, displacement_tilde, velocity,
