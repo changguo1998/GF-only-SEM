@@ -3,43 +3,63 @@
 #include <cstddef>
 #include <vector>
 
+#include "gf/backend.hpp"
 #include "gf/types.hpp"
 
 namespace gf {
 
-/// Compute the element internal force (stiffness residual): r += K_e * u
-///
-/// Matrix-free: no global stiffness matrix. For each GLL quadrature node (i,j,k):
-///   1. Compute displacement gradient ∂u_l/∂x_m via chain rule with precomputed dξ/dx
-///   2. Form symmetric strain ε_lm = ½(∂u_l/∂x_m + ∂u_m/∂x_l)
-///   3. Compute stress σ_lm = λ·δ_lm·ε_kk + 2μ·ε_lm (isotropic)
-///   4. Accumulate f = ∇N · σ · detJ · w_i · w_j · w_k (contributing to each node's residual)
-///
-/// Precomputed arrays (per element, length NGLL^3):
-///   dxi_dx[9 * n_node]  — per GLL node: [dξ/dx, dη/dx, dζ/dx, dξ/dy, dη/dy, dζ/dy, dξ/dz, dη/dz,
-///   dζ/dz] jacobian[n_node]    — det(J) per GLL node vp, vs, density     — material properties
-///   per GLL node
-///
-/// GLL quadrature:
-///   D[NGLL * NGLL]  — derivative matrix (row-major)
-///   weights[NGLL]   — 1D GLL quadrature weights
-///   NGLL            — N+1
-///
-/// @param[in] dxi_dx   [9 * n_node]  — per GLL node: d(xi_i)/dx_j in row-major order (9 values per
-/// node)
-/// @param[in] jacobian [n_node]      — det(J) per GLL node
-/// @param[in] vp       [n_node]      — P-wave velocity per GLL node
-/// @param[in] vs       [n_node]      — S-wave velocity per GLL node
-/// @param[in] density  [n_node]      — density per GLL node
-/// @param[in] D        [NGLL*NGLL]   — 1D GLL derivative matrix (row-major)
-/// @param[in] weights  [NGLL]        — 1D GLL quadrature weights
-/// @param[in] NGLL     — N+1 (number of GLL points per axis)
-/// @param[in] u        [3 * n_node]  — displacement at all GLL nodes of element (flat x/y/z
-/// interleaved)
-/// @param[out] r       [3 * n_node]  — residual accumulation (internal force with minus sign)
-///
-void compute_element_residual(const double* dxi_dx, const double* jacobian, const double* vp,
-                              const double* vs, const double* density, const double* D,
-                              const double* weights, int NGLL, const double* u, double* r);
+// -----------------------------------------------------------------------
+// compute_element_residual — backend-dispatched kernel
+//
+// Compute the internal force (stiffness residual) for a batch of elements:
+//   r += K_e * u   for e = 0..n_elem-1
+//
+// Matrix-free: no global stiffness matrix. For each GLL quadrature node (i,j,k):
+//   1. Compute displacement gradient ∂u_l/∂x_m via chain rule with precomputed dξ/dx
+//   2. Form symmetric strain ε_lm = ½(∂u_l/∂x_m + ∂u_m/∂x_l)
+//   3. Compute stress σ_lm = λ·δ_lm·ε_kk + 2μ·ε_lm (isotropic)
+//   4. Accumulate f = ∇N · σ · detJ · w_i · w_j · w_k
+//
+// All arrays are element-major contiguous (n_elem blocks of NGLL^3 nodes).
+//
+// @tparam Backend  Tag type selecting the device backend.
+// @param[in]  n_elem      Number of elements in this batch
+// @param[in]  dxi_dx      [n_elem * NGLL^3 * 9]  d(xi_i)/dx_j per GLL node
+// @param[in]  jacobian    [n_elem * NGLL^3]       det(J) per GLL node
+// @param[in]  vp          [n_elem * NGLL^3]       P-wave velocity per GLL node
+// @param[in]  vs          [n_elem * NGLL^3]       S-wave velocity per GLL node
+// @param[in]  density     [n_elem * NGLL^3]       density per GLL node
+// @param[in]  D           [NGLL * NGLL]            1D GLL derivative matrix (row-major)
+// @param[in]  weights     [NGLL]                   1D GLL quadrature weights
+// @param[in]  NGLL        N+1 (number of GLL points per axis)
+// @param[in]  u           [n_elem * NGLL^3 * 3]   displacement (x/y/z interleaved)
+// @param[out] r           [n_elem * NGLL^3 * 3]   residual (internal force, accumulated)
+//
+// -----------------------------------------------------------------------
+
+template <typename Backend>
+void compute_element_residual(int n_elem, const double* dxi_dx, const double* jacobian,
+                              const double* vp, const double* vs, const double* density,
+                              const double* D, const double* weights, int NGLL, const double* u,
+                              double* r);
+
+// --- Explicit instantiation declarations ---
+// Guarded: specialization source files define GF_ELEMENT_{CPU,CUDA}_SOURCE
+// to suppress the extern template declaration and avoid
+// "specialization after instantiation" errors.
+
+#ifndef GF_ELEMENT_CPU_SOURCE
+extern template void compute_element_residual<BackendCPU>(
+    int, const double*, const double*, const double*, const double*, const double*, const double*,
+    const double*, int, const double*, double*);
+#endif
+
+#ifdef GF_WITH_CUDA
+#ifndef GF_ELEMENT_CUDA_SOURCE
+extern template void compute_element_residual<BackendCUDA>(
+    int, const double*, const double*, const double*, const double*, const double*, const double*,
+    const double*, int, const double*, double*);
+#endif
+#endif
 
 }  // namespace gf
