@@ -43,9 +43,8 @@ __device__ static inline int idx(int i, int j, int k, int NGLL) {
  */
 __global__ void element_residual_kernel(const double* __restrict__ dxi_dx,
                                         const double* __restrict__ jacobian,
-                                        const double* __restrict__ vp,
-                                        const double* __restrict__ vs,
-                                        const double* __restrict__ density,
+                                        const double* __restrict__ lambda_,
+                                        const double* __restrict__ mu_,
                                         const double* __restrict__ D,
                                         const double* __restrict__ weights, int NGLL,
                                         const double* __restrict__ u, double* r) {
@@ -63,14 +62,11 @@ __global__ void element_residual_kernel(const double* __restrict__ dxi_dx,
     int elem_offset = e * n_node;
     int n = idx(i, j, k, NGLL);  // local node index within element
 
-    // --- Material properties at this GLL node ---
-    double rho = density[elem_offset + n];
-    if (rho <= 0.0)
+    // --- Precomputed elastic coefficients at this GLL node ---
+    double lambda = lambda_[elem_offset + n];
+    double mu = mu_[elem_offset + n];
+    if (mu <= 0.0)
         return;
-    double vp2 = vp[elem_offset + n] * vp[elem_offset + n];
-    double vs2 = vs[elem_offset + n] * vs[elem_offset + n];
-    double lambda = rho * (vp2 - 2.0 * vs2);
-    double mu = rho * vs2;
 
     // --- Inverse Jacobian at this node ---
     const double* dd = &dxi_dx[9 * (elem_offset + n)];
@@ -192,8 +188,8 @@ CudaDeviceBuffers g_cuda_buffers;
 
 template <>
 void compute_element_residual<BackendCUDA>(int n_elem, const double* dxi_dx,
-                                           const double* jacobian, const double* vp,
-                                           const double* vs, const double* density,
+                                           const double* jacobian, const double* lambda_,
+                                           const double* mu_,
                                            const double* D, const double* weights, int NGLL,
                                            const double* u, double* r) {
 #ifdef GF_WITH_CUDA
@@ -205,7 +201,7 @@ void compute_element_residual<BackendCUDA>(int n_elem, const double* dxi_dx,
         if (g_cuda_buffers.allocated) {
             free_device_buffers(g_cuda_buffers);
         }
-        g_cuda_buffers = allocate_device_buffers(n_elem, NGLL, dxi_dx, jacobian, vp, vs, density,
+        g_cuda_buffers = allocate_device_buffers(n_elem, NGLL, dxi_dx, jacobian, lambda_, mu_,
                                                   D, weights);
     }
 
@@ -219,8 +215,8 @@ void compute_element_residual<BackendCUDA>(int n_elem, const double* dxi_dx,
     dim3 block(NGLL, NGLL, NGLL);
     dim3 grid(n_elem, 1, 1);
     element_residual_kernel<<<grid, block>>>(g_cuda_buffers.d_dxi_dx, g_cuda_buffers.d_jacobian,
-                                              g_cuda_buffers.d_vp, g_cuda_buffers.d_vs,
-                                              g_cuda_buffers.d_density, g_cuda_buffers.d_D,
+                                              g_cuda_buffers.d_lambda, g_cuda_buffers.d_mu,
+                                              g_cuda_buffers.d_D,
                                               g_cuda_buffers.d_weights, NGLL, g_cuda_buffers.d_u,
                                               g_cuda_buffers.d_r);
 
@@ -236,9 +232,8 @@ void compute_element_residual<BackendCUDA>(int n_elem, const double* dxi_dx,
     (void)n_elem;
     (void)dxi_dx;
     (void)jacobian;
-    (void)vp;
-    (void)vs;
-    (void)density;
+    (void)lambda_;
+    (void)mu_;
     (void)D;
     (void)weights;
     (void)NGLL;

@@ -22,6 +22,8 @@ struct UnitCubeElement {
     std::vector<double> vp;
     std::vector<double> vs;
     std::vector<double> density;
+    std::vector<double> lambda_;
+    std::vector<double> mu_;
     std::vector<double> D;      // 1D derivative matrix
     std::vector<double> w;      // 1D GLL weights
     std::vector<double> nodes;  // 1D GLL nodes
@@ -37,6 +39,15 @@ struct UnitCubeElement {
         vp.assign(n_node, 3000.0);
         vs.assign(n_node, 1500.0);
         density.assign(n_node, 2500.0);
+        // Precompute elastic coefficients
+        lambda_.resize(n_node);
+        mu_.resize(n_node);
+        for (int i = 0; i < n_node; ++i) {
+            double vs2 = vs[i] * vs[i];
+            double vp2 = vp[i] * vp[i];
+            mu_[i] = density[i] * vs2;
+            lambda_[i] = density[i] * (vp2 - 2.0 * vs2);
+        }
 
         // Map natural coords (xi,eta,zeta) in [-1,1]^3 to physical [0,1]^3
         for (int k = 0; k < ngll; ++k) {
@@ -81,7 +92,7 @@ TEST_CASE("Rigid-body translation gives zero residual", "[element]") {
     compute_element_residual<gf::BackendCPU>(
         1 /* n_elem */,
         elem.dxi_dx.data(), elem.jacobian.data(),
-        elem.vp.data(), elem.vs.data(), elem.density.data(),
+        elem.lambda_.data(), elem.mu_.data(),
         elem.D.data(), elem.w.data(), elem.ngll,
         u.data(), r.data());
 
@@ -109,7 +120,7 @@ TEST_CASE("Rigid-body rotation gives near-zero residual", "[element]") {
     compute_element_residual<gf::BackendCPU>(
         1 /* n_elem */,
         elem.dxi_dx.data(), elem.jacobian.data(),
-        elem.vp.data(), elem.vs.data(), elem.density.data(),
+        elem.lambda_.data(), elem.mu_.data(),
         elem.D.data(), elem.w.data(), elem.ngll,
         u.data(), r.data());
 
@@ -135,7 +146,7 @@ TEST_CASE("Uniform uniaxial strain produces correct residual", "[element]") {
     compute_element_residual<gf::BackendCPU>(
         1 /* n_elem */,
         elem.dxi_dx.data(), elem.jacobian.data(),
-        elem.vp.data(), elem.vs.data(), elem.density.data(),
+        elem.lambda_.data(), elem.mu_.data(),
         elem.D.data(), elem.w.data(), elem.ngll,
         u.data(), r.data());
 

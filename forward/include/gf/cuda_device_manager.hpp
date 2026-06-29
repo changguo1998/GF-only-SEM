@@ -29,9 +29,8 @@ struct CudaDeviceBuffers {
     // --- Read-only geometry (allocated once, never freed mid-loop) ---
     double* d_dxi_dx = nullptr;   // [n_elem * NGLL^3 * 9]
     double* d_jacobian = nullptr;  // [n_elem * NGLL^3]
-    double* d_vp = nullptr;       // [n_elem * NGLL^3]
-    double* d_vs = nullptr;       // [n_elem * NGLL^3]
-    double* d_density = nullptr;  // [n_elem * NGLL^3]
+    double* d_lambda = nullptr;  // [n_elem * NGLL^3]  precomputed λ
+    double* d_mu = nullptr;       // [n_elem * NGLL^3]  precomputed μ
     double* d_D = nullptr;        // [NGLL * NGLL]
     double* d_weights = nullptr;  // [NGLL]
 
@@ -50,8 +49,8 @@ struct CudaDeviceBuffers {
 /// Copies read-only mesh data to device. Returns initialized CudaDeviceBuffers.
 inline CudaDeviceBuffers allocate_device_buffers(int n_elem, int ngll,
                                                  const double* h_dxi_dx,
-                                                 const double* h_jacobian, const double* h_vp,
-                                                 const double* h_vs, const double* h_density,
+                                                 const double* h_jacobian, const double* h_lambda,
+                                                 const double* h_mu,
                                                  const double* h_D, const double* h_weights) {
 #ifdef GF_WITH_CUDA
     CudaDeviceBuffers buf;
@@ -63,9 +62,8 @@ inline CudaDeviceBuffers allocate_device_buffers(int n_elem, int ngll,
     // --- Allocate read-only geometry ---
     GF_CUDA_CHECK(cudaMalloc(&buf.d_dxi_dx, n_node_total * 9 * sizeof(double)));
     GF_CUDA_CHECK(cudaMalloc(&buf.d_jacobian, n_node_total * sizeof(double)));
-    GF_CUDA_CHECK(cudaMalloc(&buf.d_vp, n_node_total * sizeof(double)));
-    GF_CUDA_CHECK(cudaMalloc(&buf.d_vs, n_node_total * sizeof(double)));
-    GF_CUDA_CHECK(cudaMalloc(&buf.d_density, n_node_total * sizeof(double)));
+    GF_CUDA_CHECK(cudaMalloc(&buf.d_lambda, n_node_total * sizeof(double)));
+    GF_CUDA_CHECK(cudaMalloc(&buf.d_mu, n_node_total * sizeof(double)));
     GF_CUDA_CHECK(cudaMalloc(&buf.d_D, ngll * ngll * sizeof(double)));
     GF_CUDA_CHECK(cudaMalloc(&buf.d_weights, ngll * sizeof(double)));
 
@@ -79,11 +77,9 @@ inline CudaDeviceBuffers allocate_device_buffers(int n_elem, int ngll,
     GF_CUDA_CHECK(
         cudaMemcpy(buf.d_jacobian, h_jacobian, n_node_total * sizeof(double), cudaMemcpyHostToDevice));
     GF_CUDA_CHECK(
-        cudaMemcpy(buf.d_vp, h_vp, n_node_total * sizeof(double), cudaMemcpyHostToDevice));
+        cudaMemcpy(buf.d_lambda, h_lambda, n_node_total * sizeof(double), cudaMemcpyHostToDevice));
     GF_CUDA_CHECK(
-        cudaMemcpy(buf.d_vs, h_vs, n_node_total * sizeof(double), cudaMemcpyHostToDevice));
-    GF_CUDA_CHECK(
-        cudaMemcpy(buf.d_density, h_density, n_node_total * sizeof(double), cudaMemcpyHostToDevice));
+        cudaMemcpy(buf.d_mu, h_mu, n_node_total * sizeof(double), cudaMemcpyHostToDevice));
     GF_CUDA_CHECK(
         cudaMemcpy(buf.d_D, h_D, ngll * ngll * sizeof(double), cudaMemcpyHostToDevice));
     GF_CUDA_CHECK(
@@ -96,9 +92,8 @@ inline CudaDeviceBuffers allocate_device_buffers(int n_elem, int ngll,
     (void)ngll;
     (void)h_dxi_dx;
     (void)h_jacobian;
-    (void)h_vp;
-    (void)h_vs;
-    (void)h_density;
+    (void)h_lambda;
+    (void)h_mu;
     (void)h_D;
     (void)h_weights;
     fprintf(stderr, "CudaDeviceBuffers: CUDA not enabled. Call allocate_device_buffers() only with GF_WITH_CUDA.\n");
@@ -113,9 +108,8 @@ inline void free_device_buffers(CudaDeviceBuffers& buf) {
         return;
     GF_CUDA_CHECK(cudaFree(buf.d_dxi_dx));
     GF_CUDA_CHECK(cudaFree(buf.d_jacobian));
-    GF_CUDA_CHECK(cudaFree(buf.d_vp));
-    GF_CUDA_CHECK(cudaFree(buf.d_vs));
-    GF_CUDA_CHECK(cudaFree(buf.d_density));
+    GF_CUDA_CHECK(cudaFree(buf.d_lambda));
+    GF_CUDA_CHECK(cudaFree(buf.d_mu));
     GF_CUDA_CHECK(cudaFree(buf.d_D));
     GF_CUDA_CHECK(cudaFree(buf.d_weights));
     GF_CUDA_CHECK(cudaFree(buf.d_u));

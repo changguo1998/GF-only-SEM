@@ -248,6 +248,10 @@ def main() -> None:
         logger.info("  recording_map.py not available — skipping")
 
     # Step: write outputs
+    # Precompute elastic coefficients from material properties (constant over time)
+    mu_gll = density_gll * vs_gll ** 2
+    lambda_gll = density_gll * (vp_gll ** 2 - 2.0 * vs_gll ** 2)
+
     fields = {
         "coords": coords,
         "jacobian": jacobian,
@@ -256,6 +260,8 @@ def main() -> None:
         "vp": vp_gll,
         "vs": vs_gll,
         "density": density_gll,
+        "lambda": lambda_gll,
+        "mu": mu_gll,
         "is_pml": is_pml,
         "damping": damping,
     }

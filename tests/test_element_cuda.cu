@@ -97,13 +97,13 @@ TEST_CASE("CUDA element residual matches CPU — N=3 random", "[element][cuda]")
 
     // CPU reference
     compute_element_residual<BackendCPU>(1, elem.dxi_dx.data(), elem.jacobian.data(),
-                                         elem.vp.data(), elem.vs.data(), elem.density.data(),
+                                         elem.lambda_.data(), elem.mu_.data(),
                                          elem.D.data(), elem.w.data(), elem.ngll, u.data(),
                                          r_cpu.data());
 
     // CUDA result
     compute_element_residual<BackendCUDA>(1, elem.dxi_dx.data(), elem.jacobian.data(),
-                                          elem.vp.data(), elem.vs.data(), elem.density.data(),
+                                          elem.lambda_.data(), elem.mu_.data(),
                                           elem.D.data(), elem.w.data(), elem.ngll, u.data(),
                                           r_cuda.data());
 
@@ -137,12 +137,12 @@ TEST_CASE("CUDA element residual matches CPU — N=5 random", "[element][cuda]")
     std::vector<double> r_cuda(elem.n_node * 3, 0.0);
 
     compute_element_residual<BackendCPU>(1, elem.dxi_dx.data(), elem.jacobian.data(),
-                                         elem.vp.data(), elem.vs.data(), elem.density.data(),
+                                         elem.lambda_.data(), elem.mu_.data(),
                                          elem.D.data(), elem.w.data(), elem.ngll, u.data(),
                                          r_cpu.data());
 
     compute_element_residual<BackendCUDA>(1, elem.dxi_dx.data(), elem.jacobian.data(),
-                                          elem.vp.data(), elem.vs.data(), elem.density.data(),
+                                          elem.lambda_.data(), elem.mu_.data(),
                                           elem.D.data(), elem.w.data(), elem.ngll, u.data(),
                                           r_cuda.data());
 
@@ -172,7 +172,7 @@ TEST_CASE("CUDA element residual — rigid body translation zero", "[element][cu
 
     std::vector<double> r(elem.n_node * 3, 0.0);
     compute_element_residual<BackendCUDA>(1, elem.dxi_dx.data(), elem.jacobian.data(),
-                                          elem.vp.data(), elem.vs.data(), elem.density.data(),
+                                          elem.lambda_.data(), elem.mu_.data(),
                                           elem.D.data(), elem.w.data(), elem.ngll, u.data(),
                                           r.data());
 

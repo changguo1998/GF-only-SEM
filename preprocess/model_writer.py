@@ -196,7 +196,7 @@ def _write_partition_files(
     if element_to_rank is None:
         element_to_rank = np.zeros(topology.n_cell, dtype=np.int32)
 
-    field_keys = ["coords", "dxi_dx", "jacobian", "mass", "vp", "vs", "density", "damping"]
+    field_keys = ["coords", "dxi_dx", "jacobian", "mass", "vp", "vs", "density", "lambda", "mu", "damping"]
 
     # Precompute global tile_index if tile config provided
     global_tile_index = None

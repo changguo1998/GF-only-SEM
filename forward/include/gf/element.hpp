@@ -26,9 +26,8 @@ namespace gf {
 // @param[in]  n_elem      Number of elements in this batch
 // @param[in]  dxi_dx      [n_elem * NGLL^3 * 9]  d(xi_i)/dx_j per GLL node
 // @param[in]  jacobian    [n_elem * NGLL^3]       det(J) per GLL node
-// @param[in]  vp          [n_elem * NGLL^3]       P-wave velocity per GLL node
-// @param[in]  vs          [n_elem * NGLL^3]       S-wave velocity per GLL node
-// @param[in]  density     [n_elem * NGLL^3]       density per GLL node
+// @param[in]  lambda_     [n_elem * NGLL^3]       Lamé parameter λ per GLL node (precomputed)
+// @param[in]  mu_         [n_elem * NGLL^3]       Shear modulus μ per GLL node (precomputed)
 // @param[in]  D           [NGLL * NGLL]            1D GLL derivative matrix (row-major)
 // @param[in]  weights     [NGLL]                   1D GLL quadrature weights
 // @param[in]  NGLL        N+1 (number of GLL points per axis)
@@ -39,7 +38,7 @@ namespace gf {
 
 template <typename Backend>
 void compute_element_residual(int n_elem, const double* dxi_dx, const double* jacobian,
-                              const double* vp, const double* vs, const double* density,
+                              const double* lambda_, const double* mu_,
                               const double* D, const double* weights, int NGLL, const double* u,
                               double* r);
 
@@ -50,14 +49,14 @@ void compute_element_residual(int n_elem, const double* dxi_dx, const double* ja
 
 #ifndef GF_ELEMENT_CPU_SOURCE
 extern template void compute_element_residual<BackendCPU>(
-    int, const double*, const double*, const double*, const double*, const double*, const double*,
+    int, const double*, const double*, const double*, const double*, const double*,
     const double*, int, const double*, double*);
 #endif
 
 #ifdef GF_WITH_CUDA
 #ifndef GF_ELEMENT_CUDA_SOURCE
 extern template void compute_element_residual<BackendCUDA>(
-    int, const double*, const double*, const double*, const double*, const double*, const double*,
+    int, const double*, const double*, const double*, const double*, const double*,
     const double*, int, const double*, double*);
 #endif
 #endif

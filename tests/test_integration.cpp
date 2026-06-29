@@ -44,6 +44,8 @@ RankData build_single_element(int ngll) {
     rd.vp.resize(n_node);
     rd.vs.resize(n_node);
     rd.density.resize(n_node);
+    rd.lambda_.resize(n_node);
+    rd.mu_.resize(n_node);
     rd.mass.resize(n_node);
 
     for (int k = 0; k < n; ++k) {
@@ -74,6 +76,11 @@ RankData build_single_element(int ngll) {
                 rd.vp[idx] = 3000.0;
                 rd.vs[idx] = 1500.0;
                 rd.density[idx] = 2500.0;
+                // Precompute elastic coefficients
+                double vs2 = rd.vs[idx] * rd.vs[idx];
+                double vp2 = rd.vp[idx] * rd.vp[idx];
+                rd.mu_[idx] = rd.density[idx] * vs2;
+                rd.lambda_[idx] = rd.density[idx] * (vp2 - 2.0 * vs2);
 
                 // Lumped mass (approximate for unit cube)
                 rd.mass[idx] = 2500.0 * 0.125 * 64.0 / (n_node);  // rough estimate
@@ -132,8 +139,7 @@ TEST_CASE("Single-element forward steps complete without crash", "[integration]"
         std::fill(elem_r.begin(), elem_r.end(), 0.0);
         compute_element_residual<gf::BackendCPU>(
             1 /* n_elem */,
-            rd.dxi_dx.data(), rd.jacobian.data(), rd.vp.data(), rd.vs.data(),
-            rd.density.data(), D.data(), wts.data(), ngll, u_tilde.data(),
+            rd.dxi_dx.data(), rd.jacobian.data(), rd.lambda_.data(), rd.mu_.data(), D.data(), wts.data(), ngll, u_tilde.data(),
             elem_r.data());
 
         // --- Assembly ---
@@ -194,8 +200,8 @@ TEST_CASE("Rigid-body initial condition produces zero residual", "[integration]"
     std::vector<double> r(n_dof, 0.0);
     compute_element_residual<gf::BackendCPU>(
         1 /* n_elem */,
-        rd.dxi_dx.data(), rd.jacobian.data(), rd.vp.data(), rd.vs.data(),
-        rd.density.data(), D.data(), wts.data(), ngll, u.data(), r.data());
+        rd.dxi_dx.data(), rd.jacobian.data(), rd.lambda_.data(), rd.mu_.data(),
+        D.data(), wts.data(), ngll, u.data(), r.data());
 
     // Rigid-body translation → zero residual
     for (int i = 0; i < n_dof; ++i) {

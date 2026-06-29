@@ -220,6 +220,8 @@ RankData read_partition(const std::string& path, int /*rank*/) {
     data.vp = try_read_dataset<double>(fid, "/field/element/vp");
     data.vs = try_read_dataset<double>(fid, "/field/element/vs");
     data.density = try_read_dataset<double>(fid, "/field/element/density");
+    data.lambda_ = try_read_dataset<double>(fid, "/field/element/lambda");
+    data.mu_ = try_read_dataset<double>(fid, "/field/element/mu");
     data.pml_damping = try_read_dataset<double>(fid, "/field/element/damping");
 
     // --- Read exchange patterns ---

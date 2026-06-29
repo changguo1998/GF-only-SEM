@@ -207,7 +207,7 @@ int run_forward(const std::string& direction, bool resume_mode) {
             compute_element_residual<gf::ActiveBackend>(
                 n_local,
                 part.dxi_dx.data(), part.jacobian.data(),
-                part.vp.data(), part.vs.data(), part.density.data(),
+                part.lambda_.data(), part.mu_.data(),
                 D_mat.data(), gll_wts.data(), ngll,
                 displacement_tilde.data(), residual.data());
 
