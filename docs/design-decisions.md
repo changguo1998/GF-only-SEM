@@ -284,7 +284,7 @@ Each tile stores recorded vertices in its x/y bounds for all saved depths. Green
 - **Strain record**: Write L2-smoothed strain at recorded mesh vertices only. float32 default, float64 optional.
 - **3 runs per source**: Run x/y/z force jobs. One shared `config.h5`. Each writes `wavefields/{direction}/`.
 - **Restart/resume**: Restart is separate and latest-only. It stores u/v/a, step/time, and C-PML memory. `--resume` continues from it.
-- **Parallelism**: Pure MPI, one rank per core. GPU/DCU path is deferred; see [`gpu.md`](superpowers/design/gpu.md).
+- **Parallelism**: Pure MPI, one rank per core. GPU/DCU path is implemented (CUDA); see [`gpu.md`](superpowers/design/gpu.md).
 - **ibool/GLL numbering**: `partition_{r}.h5` stores 1-based `/partition/gll_to_global`; 0 = null. Interfaces are precomputed.
 
 ## 9. Testing & Validation

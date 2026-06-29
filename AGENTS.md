@@ -23,7 +23,7 @@ Full math formulation: [`docs/math.md`](docs/math.md)
 
 | Layer | Tool |
 |-------|------|
-| Core compute | C++17, MPI (OpenMPI/MPICH), CUDA (future), Eigen (small matrices) |
+| Core compute | C++17, MPI (OpenMPI/MPICH), CUDA (implemented), Eigen (small matrices) |
 | Build | CMake |
 | I/O | HDF5 |
 | Mesh partitioning | METIS (called from preprocessor) |
@@ -31,7 +31,41 @@ Full math formulation: [`docs/math.md`](docs/math.md)
 | External reference | `external_reference_codes/` (read-only, untracked by git) |
 | Design docs | `docs/design-decisions.md`, `docs/math.md`, `docs/superpowers/design/` |
 
+## Build Environment
+
+### Spack (development machine)
+
+Dependencies managed via Spack. Activate before building:
+
+```bash
+source $HOME/.spack/share/spack/setup-env.sh
+spack load cuda        # CUDA 13.2 — required for CUDA backend
+spack load /zkrqzmds   # OpenMPI 5.0.10 (use hash to disambiguate)
+```
+
+Available packages: `openmpi@5.0.10`, `cuda@13.2.1`, `eigen@3.4.0`.
+System HDF5 at `/usr/include/hdf5/serial/`.
+
+### Building Forward Solver
+
+```bash
+cd forward
+# CPU (default)
+cmake -B build -DGF_DEVICE_BACKEND=CPU
+cmake --build build
+
+# CUDA (requires cuda loaded via spack)
+cmake -B build -DGF_DEVICE_BACKEND=CUDA
+cmake --build build
+```
+
+### Formatting
+
+Run `bash format.sh` before staging/committing. Requires `.venv` (ruff, mdformat)
+and spack-installed `llvm` for clang-format.
+
 ## Project State
+
 
 Implementation complete — 5 modules + tests (144 tests: 96 Python, 48 C++).
 Elastic-only forward solver (SLS/attenuation deferred).

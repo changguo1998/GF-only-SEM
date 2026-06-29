@@ -71,7 +71,7 @@ Preprocess writes all mesh data to per-rank partitions. Rank `R` reads `partitio
 
 **Force direction**: pass `--direction {x,y,z}`. It is not in `config.h5`. Three jobs share one config.
 
-**Parallelism**: pure MPI, one rank per core. GPU/DCU path is in [`gpu.md`](gpu.md). No OpenMP.
+**Parallelism**: pure MPI, one rank per core. GPU/DCU path (CUDA backend implemented) in [`gpu.md`](gpu.md). No OpenMP.
 
 ## Technology
 
@@ -567,7 +567,10 @@ forward/
 ├── include/gf/
 │   ├── types.hpp              — Vec3, Mat33, GLLQuad, RankData
 │   ├── gll.hpp                — GLL quadrature (header-only)
-│   ├── element.hpp            — matrix-free stiffness × displacement
+│   ├── element.hpp            — backend-templated matrix-free stiffness × displacement
+│   ├── backend.hpp            — BackendCPU, BackendCUDA, ActiveBackend tags
+│   ├── cuda_check.h           — GF_CUDA_CHECK() error macro
+│   ├── cuda_device_manager.hpp— persistent CUDA device buffer manager
 │   ├── assembly.hpp           — assemble_residual(), add_source_to_rhs()
 │   ├── pml.hpp                — PML damping application
 │   ├── newmark.hpp            — NewmarkPredictor, NewmarkCorrector
@@ -578,14 +581,15 @@ forward/
 │   ├── io.hpp                 — partition_{r}.h5 + config.h5 reader
 │   └── solver.hpp             — run_forward() loop, --resume support
 ├── src/
-│   ├── element.cpp, assembly.cpp
+│   ├── element_cpu.cpp, element_cuda.cu, assembly.cpp
 │   ├── pml.cpp, newmark.cpp, source.cpp
 │   ├── exchange.cpp, record.cpp, restart.cpp, io.cpp
 │   ├── solver.cpp
 │   └── main.cpp               — gf_solver entry point
 └── tests/
     ├── CMakeLists.txt
-    ├── test_gll.cpp, test_element.cpp, test_assembly.cpp
+    ├── test_gll.cpp, test_element.cpp, test_element_cuda.cu
+    ├── test_assembly.cpp
     ├── test_pml.cpp, test_newmark.cpp
     ├── test_source.cpp, test_record.cpp, test_integration.cpp
 ```

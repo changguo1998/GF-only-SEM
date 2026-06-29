@@ -20,12 +20,28 @@ config.py + mesh.h5 → preprocess → partition_{r}.h5 + config.h5
 uv sync --group dev
 source env_setup.sh
 
-# Build
-cmake -S . -B build && cmake --build build
+# Build (CPU — default)
+cmake -S . -B build -DGF_DEVICE_BACKEND=CPU && cmake --build build
+
+# CUDA backend (requires CUDA toolkit, e.g. via Spack)
+# source $HOME/.spack/share/spack/setup-env.sh
+# spack load cuda
+# cmake -S . -B build -DGF_DEVICE_BACKEND=CUDA && cmake --build build
 
 # Run example
 bash examples/halfspace/run.sh
 ```
+
+## CUDA Backend
+
+The element residual computation (K·u, the throughput bottleneck) supports
+a GPU backend via `compute_element_residual<Backend>` template dispatch.
+
+- **CPU** (default, `-DGF_DEVICE_BACKEND=CPU`): serial loop over elements
+- **CUDA** (`-DGF_DEVICE_BACKEND=CUDA`): one GPU block per element, one thread per GLL node
+- **HIP/SYCL**: deferred — same pattern
+
+Build with `-DGF_DEVICE_BACKEND=CUDA`. See `docs/superpowers/design/gpu.md` for details.
 
 ## Modules
 
@@ -38,6 +54,18 @@ bash examples/halfspace/run.sh
 | `tools/` | Python | GMSH→HDF5 converter, VTK visualization with GLL sub-cell topology |
 
 ## Key Commands
+
+### Build
+
+```bash
+# CPU
+cmake -S . -B build -DGF_DEVICE_BACKEND=CPU && cmake --build build
+
+# CUDA (after: spack load cuda)
+cmake -S . -B build -DGF_DEVICE_BACKEND=CUDA && cmake --build build
+```
+
+### Run
 
 ```bash
 # Preprocess
@@ -87,5 +115,5 @@ bash examples/halfspace/run.sh                      # Full pipeline
 | `docs/design-decisions.md` | Architecture, schemas, rationale |
 | `docs/math.md` | Full mathematical formulation |
 | `preprocess/AGENTS.md` | Preprocess module |
-| `forward/AGENTS.md` | Forward solver |
+| `forward/AGENTS.md` | Forward solver (CPU+GPU backend) |
 | `postprocess/AGENTS.md` | Post-process module |

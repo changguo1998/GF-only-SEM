@@ -12,7 +12,10 @@ Elastic CG-SEM solver. Reads `config.h5` + `partition_{r}.h5`. Computes full vol
 |--------|----------------|----------------|
 | `types.hpp` | — | config and rank data structs |
 | `gll.hpp` | — | GLL nodes, weights, derivative matrices |
-| `element.hpp` | `element.cpp` | element residual and strain |
+| `backend.hpp` | — | device backend tags (`BackendCPU`, `BackendCUDA`, `ActiveBackend`) |
+| `cuda_check.h` | — | `GF_CUDA_CHECK()` error macro |
+| `cuda_device_manager.hpp` | — | persistent CUDA device buffer manager |
+| `element.hpp` | `element_cpu.cpp`, `element_cuda.cu` | backend-templated element residual (K·u) |
 | `assembly.hpp` | `assembly.cpp` | global residual assembly |
 | `newmark.hpp` | `newmark.cpp` | explicit Newmark time step |
 | `source.hpp` | `source.cpp` | point force injection |
@@ -20,8 +23,19 @@ Elastic CG-SEM solver. Reads `config.h5` + `partition_{r}.h5`. Computes full vol
 | `exchange.hpp` | `exchange.cpp` | MPI halo exchange |
 | `io.hpp` | `io.cpp` | HDF5 input |
 | `record.hpp` | `record.cpp` | shallow strain writer |
-| `solver.hpp` | `solver.cpp` | time loop |
+| `solver.hpp` | `solver.cpp` | time loop (backend-agnostic, dispatches via `ActiveBackend`) |
 | — | `main.cpp` | MPI CLI, `--direction` |
+
+### Device Backend
+
+`compute_element_residual` is backend-templated (`BackendCPU` / `BackendCUDA`).
+CMake `GF_DEVICE_BACKEND=CUDA` enables the CUDA path. All other solver components
+(Newmark, PML, source, exchange, I/O) remain on CPU.
+
+- **CPU**: `element_cpu.cpp` — batched loop over elements (default)
+- **CUDA**: `element_cuda.cu` — one block/element, one thread/GLL node, `atomicAdd` scatter
+
+See [`docs/superpowers/design/gpu.md`](../docs/superpowers/design/gpu.md) for full design.
 
 ### Executable
 
@@ -43,7 +57,7 @@ Caller creates directories.
 
 ```
 Newmark predict
-→ residual K·u
+→ residual K·u  [dispatched to active backend]
 → C-PML
 → source
 → MPI exchange
@@ -97,10 +111,35 @@ Datasets:
 - all active C-PML memory variables
 - attrs: `step`, `time_s`, `source_direction`, `ngll`
 
+## Build
+
+### Prerequisites
+
+On the development machine, dependencies are managed via Spack:
+
+```bash
+source $HOME/.spack/share/spack/setup-env.sh
+spack load cuda        # CUDA 13.2 — needed for CUDA backend
+spack load /zkrqzmds   # OpenMPI 5.0.10
+```
+
+### CMake
+
+```bash
+# CPU (default)
+cmake -B build -DGF_DEVICE_BACKEND=CPU
+cmake --build build
+
+# CUDA (requires CUDA toolkit, loaded via spack)
+cmake -B build -DGF_DEVICE_BACKEND=CUDA
+cmake --build build
+```
+
 ## Tests
 
-Catch2 tests cover GLL, element, assembly, Newmark, PML, source, exchange, IO, record, compress, integration.
+Catch2 tests cover GLL, element (CPU + CUDA), assembly, Newmark, PML, source, exchange, IO, record, compress, integration.
 
-## Design Doc
+## Design Docs
 
-[`docs/superpowers/design/forward.md`](../docs/superpowers/design/forward.md)
+- [`docs/superpowers/design/forward.md`](../docs/superpowers/design/forward.md) — solver architecture
+- [`docs/superpowers/design/gpu.md`](../docs/superpowers/design/gpu.md) — GPU backend design

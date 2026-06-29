@@ -93,11 +93,16 @@ ______________________________________________________________________
 
 ## 6. GPU/DCU Device Abstraction
 
-**Status:** Design only.
+**Status:** Implemented (CUDA backend).
 
 - **Design:** `docs/superpowers/design/gpu.md`
+- **Implementation:** `forward/include/gf/backend.hpp`, `forward/src/element_cuda.cu`, `forward/src/element_cpu.cpp`
 
-Needed: template-polymorphic backend for future CUDA/HIP/SYCL element kernels.
+Template-polymorphic `compute_element_residual<Backend>` with CPU and CUDA backends.
+Batched API (`n_elem` parameter) for GPU throughput. Persistent device memory manager
+(`cuda_device_manager.hpp`). See GPU design doc for details and future optimizations.
+
+HIP/SYCL backends deferred — same pattern.
 
 ______________________________________________________________________
 
@@ -110,4 +115,4 @@ ______________________________________________________________________
 | Compress test fixes | compress | Medium | Small |
 | Compress-forward link | forward | Low | Tiny |
 | 3D model format | preprocess | High | Medium |
-| GPU abstraction | forward | Future | Very large |
+| GPU abstraction | forward | Done | Large |

@@ -1,175 +1,203 @@
-# GPU/DCU Device Abstraction — Technical Design
+# GPU/DCU Device Abstraction — Implementation
 
 > Parent: [docs/design-decisions.md](../../design-decisions.md)
 > Precedent: [forward.md](forward.md)
+> Status: **CUDA backend implemented** (CPU+CUDA). HIP/SYCL deferred.
 
 ## Goal
 
-Add a device-agnostic path for the element residual kernel. Support CPU first, then CUDA, HIP/DCU, and future SYCL. Do not change the solver loop.
+Add a device-agnostic path for the element residual kernel — the throughput bottleneck.
+Newmark, source injection, MPI exchange, and I/O stay on CPU.
 
-## Principle
-
-`compute_element_residual` is the throughput kernel. It takes most runtime. Newmark, source injection, MPI exchange, and I/O stay on CPU.
-
-Rules:
-
+Design rules:
 1. Zero-cost dispatch for a single compiled backend.
-1. No new dependency in the default CPU build.
-1. Preserve existing CPU behavior.
-1. Add each backend in its own source file.
+2. No new dependency in the default CPU build.
+3. Preserve existing CPU numerical behavior.
+4. Each backend in its own source file.
 
 ## Architecture
 
-### Backend Tag
+### Backend Tags (`include/gf/backend.hpp`)
 
-Use empty tag types and compile-time dispatch:
+Empty tag types with compile-time dispatch via `ActiveBackend` alias:
 
 ```cpp
 namespace gf {
-struct BackendCPU {};
-struct BackendCUDA {};
-struct BackendHIP {};
-struct BackendSYCL {};
-using ActiveBackend = BackendCPU;  // default, set by CMake in real build
+struct BackendCPU {};    // always available
+struct BackendCUDA {};   // requires GF_WITH_CUDA
+// struct BackendHIP {};    // deferred
+// struct BackendSYCL {};   // deferred
+
+#if defined(GF_ACTIVE_BACKEND) && GF_ACTIVE_BACKEND == 1
+using ActiveBackend = BackendCUDA;
+#else
+using ActiveBackend = BackendCPU;
+#endif
 }
 ```
 
-### Kernel Entry
+### Kernel Entry (`include/gf/element.hpp`)
 
-Make `compute_element_residual` a backend template:
+Backend-templated function with batched element interface:
 
 ```cpp
 template <typename Backend>
-void compute_element_residual(...);
+void compute_element_residual(
+    int n_elem,            // <-- batched: process all elements in one call
+    const double* dxi_dx, const double* jacobian,
+    const double* vp, const double* vs, const double* density,
+    const double* D, const double* weights, int NGLL,
+    const double* u, double* r);
 
 extern template void compute_element_residual<BackendCPU>(...);
 #ifdef GF_WITH_CUDA
 extern template void compute_element_residual<BackendCUDA>(...);
 #endif
-#ifdef GF_WITH_HIP
-extern template void compute_element_residual<BackendHIP>(...);
-#endif
 ```
 
-### Files
+**Why batched?** GPU throughput requires launching all elements in one kernel
+call (grid.x = n_elem). Per-element dispatch would serialize kernel launches
+and H2D/D2H transfers. The CPU backend loops internally — zero overhead
+from batching.
+
+### Support Headers
+
+| Header | Purpose |
+|--------|---------|
+| `include/gf/backend.hpp` | Backend tag types + `ActiveBackend` alias |
+| `include/gf/cuda_check.h` | `GF_CUDA_CHECK()` macro wrapping CUDA runtime API |
+| `include/gf/cuda_device_manager.hpp` | `CudaDeviceBuffers` struct + allocate/free/copy helpers |
+
+### Source Files
 
 ```
 forward/src/
-├── element_cpu.cpp        — CPU specialization, current logic
-├── element_cuda.cu        — CUDA specialization
-├── element_hip.hip.cpp    — HIP specialization
-└── element_sycl.cpp       — future SYCL specialization
+├── element_cpu.cpp        — CPU specialization (loops over n_elem internally)
+├── element_cuda.cu        — CUDA kernel + specialization (grid.x = n_elem)
+├── element_hip.hip.cpp    — deferred
+└── element_sycl.cpp       — deferred
 ```
 
-Each file includes `gf/element.hpp` and specializes `compute_element_residual`.
-GPU files own their device-memory logic.
+### Solver Loop (`src/solver.cpp`)
 
-### Solver Loop
-
-Only template argument changes:
+The per-element loop is removed. One batched call replaces it:
 
 ```cpp
-compute_element_residual<gf::ActiveBackend>(...);
+// Before (CPU-only):
+for (int elem = 0; elem < n_local; ++elem) {
+    /* slice pointers */
+    compute_element_residual(..., elem_u, elem_r);
+}
+
+// After (backend-agnostic):
+compute_element_residual<gf::ActiveBackend>(
+    n_local,
+    part.dxi_dx.data(), part.jacobian.data(),
+    part.vp.data(), part.vs.data(), part.density.data(),
+    D_mat.data(), gll_wts.data(), ngll,
+    displacement_tilde.data(), residual.data());
 ```
 
-Pointer math and loop structure stay the same.
+## CUDA Kernel
 
-## CMake
+### Launch Configuration
 
-Default backend is CPU:
-
-```cmake
-set(GF_DEVICE_BACKEND "CPU" CACHE STRING "Device backend: CPU, CUDA, HIP, SYCL")
-set(BACKEND_SRCS src/element_cpu.cpp)
-
-if(GF_DEVICE_BACKEND STREQUAL "CUDA")
-  enable_language(CUDA)
-  list(APPEND BACKEND_SRCS src/element_cuda.cu)
-  target_compile_definitions(libgf PRIVATE GF_WITH_CUDA)
-elseif(GF_DEVICE_BACKEND STREQUAL "HIP")
-  find_package(HIP REQUIRED)
-  list(APPEND BACKEND_SRCS src/element_hip.hip.cpp)
-  target_compile_definitions(libgf PRIVATE GF_WITH_HIP)
-endif()
-
-target_sources(libgf PRIVATE ${BACKEND_SRCS})
+```
+grid:   dim3(n_elem, 1, 1)          — one block per element
+block:  dim3(NGLL, NGLL, NGLL)      — one thread per GLL node (i,j,k)
 ```
 
-## CUDA/HIP Kernel Shape
+### Per-Thread Work
 
-Start simple: one block per element, one thread per GLL node.
-
-```cuda
-dim3 block(NGLL, NGLL, NGLL);
-dim3 grid(n_elem, 1, 1);
-element_residual_kernel<<<grid, block>>>(...);
-```
-
-Inside the kernel:
-
-1. Map block to element and thread to `(i,j,k)`.
-1. Read `dxi_dx`, `jacobian`, material, `D`, weights, and `u`.
-1. Compute strain and stress.
-1. Scatter residual with `atomicAdd`.
-
-HIP uses the same kernel logic with HIP launch syntax or `<<<>>>`.
-
-## Optimization Notes
+Each thread (i,j,k) within element block `e`:
+1. Read material (`density`, `vp`, `vs`) and geometry (`dxi_dx`, `jacobian`) for node (i,j,k)
+2. Compute displacement gradient in reference space via derivative matrix `D`
+3. Transform to physical gradient via chain rule with `dxi_dx`
+4. Form symmetric strain ε, isotropic stress σ
+5. Scatter force contributions to all `3*NGLL^3` DOFs via `atomicAdd`
 
 ### Persistent Device Memory
 
-Do not copy mesh data each timestep. First call allocates device arrays and copies read-only mesh data. Each timestep copies `u`, runs the kernel, and copies `r` back. Later optimization can keep `r` on device. Then only MPI interface data moves.
+`CudaDeviceBuffers` (file-scope singleton per MPI rank) caches device arrays:
 
-### NGLL Occupancy
+| Data | Lifetime | Transfer |
+|------|----------|----------|
+| `dxi_dx`, `jacobian`, `vp`, `vs`, `density` | Once (first call) | H2D at allocation |
+| `D`, `weights` | Once (first call) | H2D at allocation |
+| `u` (predicted displacement) | Each timestep | H2D before kernel |
+| `r` (residual) | Each timestep | D2H after kernel |
 
-For NGLL=4 or 5, one element block has 64–125 threads. That is correct but may underuse GPUs. Later options:
+Buffers are freed on shape change or at end of run.
 
-1. Multiple elements per block.
-1. One thread per `(i,j)` with an inner `k` loop.
-1. Batched element tiles.
+## CMake Configuration
 
-Correctness comes first.
+### Root `CMakeLists.txt`
 
-## Adding a Backend
-
-1. Add `element_<backend>.cpp`.
-1. Specialize `compute_element_residual<BackendX>`.
-1. Add compiler/toolchain detection in CMake.
-1. Add compile definitions.
-
-## Testing
-
-CPU tests stay in `tests/test_element.cpp`.
-GPU tests build only when that backend is enabled:
-
-```cpp
-TEST_CASE("CUDA element residual matches CPU", "[element][cuda]") {
-  // generate input, run CPU and CUDA, compare residual
-}
+```cmake
+set(GF_DEVICE_BACKEND "CPU" CACHE STRING "Device backend: CPU, CUDA")
 ```
 
-## Limits
+### `forward/CMakeLists.txt`
 
-1. **Device memory:** large meshes may exceed GPU memory. Streaming is deferred.
-1. **Atomics:** residual scatter may bottleneck. Shared-memory reductions can help later.
-1. **MPI:** exchange uses CPU memory. Initial GPU path copies interface data to CPU. CUDA-aware MPI is optional future work.
+```cmake
+if(GF_DEVICE_BACKEND STREQUAL "CUDA")
+    enable_language(CUDA)
+    list(APPEND BACKEND_SRCS src/element_cuda.cu)
+    target_compile_definitions(libgf PRIVATE GF_WITH_CUDA)
+    target_compile_definitions(libgf PRIVATE GF_ACTIVE_BACKEND=1)
+    set_target_properties(libgf PROPERTIES CUDA_ARCHITECTURES "80;86;87;90")
+endif()
+```
+
+### Building
+
+```bash
+# CPU (default)
+cmake -B build -DGF_DEVICE_BACKEND=CPU
+
+# CUDA
+cmake -B build -DGF_DEVICE_BACKEND=CUDA
+cmake --build build
+```
+
+## Tests
+
+| File | Backend | Condition |
+|------|---------|-----------|
+| `tests/test_element.cpp` | CPU | Always built (updated to new batched API) |
+| `tests/test_element_cuda.cu` | CUDA | Built only when `GF_DEVICE_BACKEND=CUDA` |
+
+CUDA tests compare `compute_element_residual<BackendCPU>` vs
+`compute_element_residual<BackendCUDA>` on random input, requiring
+identical residual to `1e-12` tolerance.
+
+## Limits & Future Work
+
+1. **Device memory:** Large meshes may exceed GPU memory. Streaming (partition into tiles) is deferred.
+2. **Atomics:** `atomicAdd` on double may contend. Future: shared-memory per-element reduction, then atomic per element (not per node).
+3. **MPI:** Exchange still uses CPU memory. CUDA-aware MPI is optional future work — would let exchanged data stay on device.
+4. **Occupancy:** NGLL=4 → 64 threads/block. Low occupancy. Future: launch multiple elements per block or use 2D block with inner k-loop.
+5. **r stays on device:** Currently residual is copied back to CPU after each step for MPI exchange. If MPI exchange stays on CPU, this is fine. If CUDA-aware MPI is used, `d_r` can persist.
+6. **HIP/SYCL backends:** Follow the same pattern — add tag struct, add source file, add CMake branch.
 
 ## File Summary
 
 ```
 forward/
 ├── include/gf/
-│   ├── backend.hpp              — backend tags
-│   └── element.hpp              — backend-templated residual
+│   ├── backend.hpp              — backend tags + ActiveBackend
+│   ├── cuda_check.h             — GF_CUDA_CHECK macro
+│   ├── cuda_device_manager.hpp  — persistent device buffer manager
+│   └── element.hpp              — backend-templated batched residual
 ├── src/
-│   ├── element_cpu.cpp          — renamed current element.cpp
-│   ├── element_cuda.cu          — CUDA kernel
-│   ├── element_hip.hip.cpp      — HIP kernel
-│   └── element_sycl.cpp         — future SYCL kernel
-└── tests/
-    ├── test_element.cpp         — CPU
-    ├── test_element_cuda.cu     — CUDA optional
-    └── test_element_hip.hip.cpp — HIP optional
+│   ├── element_cpu.cpp          — CPU specialization (batched)
+│   ├── element_cuda.cu          — CUDA kernel + specialization
+│   ├── element_hip.hip.cpp      — HIP (deferred)
+│   └── element_sycl.cpp         — SYCL (deferred)
+├── CMakeLists.txt               — GF_DEVICE_BACKEND option
+└── solver.cpp                   — single batched call with ActiveBackend
+tests/
+├── test_element.cpp             — CPU tests (updated API)
+├── test_element_cuda.cu         — CUDA-vs-CPU comparison tests
+└── CMakeLists.txt               — conditional CUDA test build
 ```
-
-Only `element.cpp` is renamed to `element_cpu.cpp`. Other solver files stay unchanged.
