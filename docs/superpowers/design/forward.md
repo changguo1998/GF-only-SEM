@@ -71,7 +71,7 @@ Preprocess writes all mesh data to per-rank partitions. Rank `R` reads `partitio
 
 **Force direction**: pass `--direction {x,y,z}`. It is not in `config.h5`. Three jobs share one config.
 
-**Parallelism**: pure MPI, one rank per core. GPU/DCU path (CUDA backend implemented) in [`gpu.md`](gpu.md). No OpenMP.
+**Parallelism**: pure MPI, one rank per core. GPU element residual (CUDA) works alongside MPI — only the element kernel runs on GPU; residual is copied back to CPU for `exchange_halo`. See [`gpu.md`](gpu.md). No OpenMP.
 
 ## Technology
 

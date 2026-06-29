@@ -41,7 +41,8 @@ a GPU backend via `compute_element_residual<Backend>` template dispatch.
 - **CUDA** (`-DGF_DEVICE_BACKEND=CUDA`): one GPU block per element, one thread per GLL node
 - **HIP/SYCL**: deferred — same pattern
 
-Build with `-DGF_DEVICE_BACKEND=CUDA`. See `docs/superpowers/design/gpu.md` for details.
+Build with `-DGF_DEVICE_BACKEND=CUDA`. MPI is always required (GPU replaces only the element kernel;
+residual is copied back to CPU for MPI exchange). See `docs/superpowers/design/gpu.md` for details.
 
 ## Modules
 

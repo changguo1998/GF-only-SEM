@@ -29,6 +29,11 @@ Elastic CG-SEM solver. Reads `config.h5` + `partition_{r}.h5`. Computes full vol
 ### Device Backend
 
 `compute_element_residual` is backend-templated (`BackendCPU` / `BackendCUDA`).
+MPI is always required: `find_package(MPI REQUIRED)` in CMake, `MPI_Init` in `main.cpp`,
+and `exchange_halo` in the solver loop. The GPU backend replaces *only*
+`compute_element_residual` — Newmark, PML, source, exchange, I/O stay on CPU.
+After each GPU kernel, residual is copied back to host for MPI exchange.
+
 CMake `GF_DEVICE_BACKEND=CUDA` enables the CUDA path. All other solver components
 (Newmark, PML, source, exchange, I/O) remain on CPU.
 
@@ -36,6 +41,9 @@ CMake `GF_DEVICE_BACKEND=CUDA` enables the CUDA path. All other solver component
 - **CUDA**: `element_cuda.cu` — one block/element, one thread/GLL node, `atomicAdd` scatter
 
 See [`docs/superpowers/design/gpu.md`](../docs/superpowers/design/gpu.md) for full design.
+
+> **GPU binding:** On multi-GPU nodes, each MPI rank must bind to a distinct device
+> (via `` CUDA_VISIBLE_DEVICES `` or `cudaSetDevice`). Without this, all ranks use GPU 0.
 
 ### Executable
 

@@ -127,7 +127,13 @@ Each thread (i,j,k) within element block `e`:
 | `u` (predicted displacement) | Each timestep | H2D before kernel |
 | `r` (residual) | Each timestep | D2H after kernel |
 
-Buffers are freed on shape change or at end of run.
+Buffers are freed on shape change (reallocation). Cleanup before MPI_Finalize is not yet implemented — device memory is freed by OS on process exit.
+
+> **Multi-GPU per node:** Each MPI rank must bind to a distinct GPU device
+> (e.g., via `CUDA_VISIBLE_DEVICES` or `cudaSetDevice`). The code does not
+> call `cudaSetDevice` — it relies on the MPI launcher or environment to assign
+> devices. On multi-GPU nodes with multiple ranks, all ranks default to GPU 0
+> without this binding, causing contention and memory exhaustion.
 
 ## CMake Configuration
 
@@ -175,10 +181,11 @@ identical residual to `1e-12` tolerance.
 
 1. **Device memory:** Large meshes may exceed GPU memory. Streaming (partition into tiles) is deferred.
 2. **Atomics:** `atomicAdd` on double may contend. Future: shared-memory per-element reduction, then atomic per element (not per node).
-3. **MPI:** Exchange still uses CPU memory. CUDA-aware MPI is optional future work — would let exchanged data stay on device.
+3. **MPI:** MPI is always required and always used (CPU-side exchange). After each GPU kernel, residual is copied back to host for `exchange_halo`. CUDA-aware MPI is optional future work — would let exchanged `r` stay on device, eliminating D2H+H2D per timestep.
 4. **Occupancy:** NGLL=4 → 64 threads/block. Low occupancy. Future: launch multiple elements per block or use 2D block with inner k-loop.
-5. **r stays on device:** Currently residual is copied back to CPU after each step for MPI exchange. If MPI exchange stays on CPU, this is fine. If CUDA-aware MPI is used, `d_r` can persist.
+5. **r stays on device:** Residual is copied back to CPU after each step for MPI exchange. If MPI exchange stays on CPU, this is fine. If CUDA-aware MPI is used, `d_r` can persist — eliminating D2H sync.
 6. **HIP/SYCL backends:** Follow the same pattern — add tag struct, add source file, add CMake branch.
+7. **Device cleanup:** `g_cuda_buffers` is not explicitly freed before `MPI_Finalize`. Currently device memory is reclaimed by OS on process exit. For clean MPI shutdown, add explicit `free_device_buffers()` call before `MPI_Finalize`.
 
 ## File Summary
 

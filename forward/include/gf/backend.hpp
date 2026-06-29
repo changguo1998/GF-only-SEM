@@ -33,12 +33,13 @@ struct BackendCUDA {};
 // -----------------------------------------------------------------------
 //
 // Default: BackendCPU. When GF_DEVICE_BACKEND=CUDA is configured, CMake
-// adds -DGF_ACTIVE_BACKEND=CUDA and the alias below resolves to
+// adds -DGF_ACTIVE_BACKEND=1 and the alias below resolves to
 // BackendCUDA. The same pattern applies for HIP, SYCL, etc.
 //
 // The define GF_ACTIVE_BACKEND is set by CMakeLists.txt.
 
 #if defined(GF_ACTIVE_BACKEND) && GF_ACTIVE_BACKEND == 1  // CUDA
+// Future: GF_ACTIVE_BACKEND==2 → BackendHIP, 3 → BackendSYCL
 using ActiveBackend = BackendCUDA;
 #else
 using ActiveBackend = BackendCPU;
