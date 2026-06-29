@@ -139,10 +139,21 @@ int run_forward(const std::string& direction, bool resume_mode) {
                             use_float32, cfg.record_depth_max_m, cfg.record_depth_actual_m);
         logger.debug("  record vertices: " + std::to_string(record.n_vertices()));
 
-        // === Locate source element ===
-        // Search for element containing source; for now use element 0
-        int src_elem = 0;
-        int src_node = 0;  // target GLL node within element
+        // === Build source element lookup table ===
+        // Map precomputed source element IDs (from config.h5) to local element indices.
+        // -1 means the source element is not on this rank.
+        std::vector<int> src_elem_to_local(cfg.n_src_elements, -1);
+        for (int si = 0; si < cfg.n_src_elements; ++si) {
+            for (int e = 0; e < n_local; ++e) {
+                if (part.local_element_ids[e] == cfg.src_element_ids[si]) {
+                    src_elem_to_local[si] = e;
+                    break;
+                }
+            }
+        }
+        if (cfg.n_src_elements > 0) {
+            logger.debug("  source elements: " + std::to_string(cfg.n_src_elements));
+        }
 
         // === Newmark parameters ===
         double beta = 0.0;  // explicit central difference
@@ -214,19 +225,37 @@ int run_forward(const std::string& direction, bool resume_mode) {
                               static_cast<int>(velocity.size()));
 
             // --- Source injection ---
-            // Distribute STF * source_weights at source_node
+            // Distribute STF * Lagrange weights across all GLL nodes of containing elements.
+            // Precomputed weights from source_locator.py handle arbitrary source positions
+            // (vertex, edge, face, or interior) within 1 or more elements.
             {
                 int dir = (direction == "x") ? 0 : ((direction == "y") ? 1 : 2);
                 double stf_val = 0.0;
                 if (step < static_cast<int>(cfg.stf_t.size())) {
                     stf_val = cfg.stf_values[step];
                 }
-                int dof_idx = src_elem * n_node * 3 + src_node * 3 + dir;
-                if (dof_idx < n_local_dof) {
-                    residual[dof_idx] += stf_val;
+                if (stf_val != 0.0) {
+                    for (int si = 0; si < cfg.n_src_elements; ++si) {
+                        int elem_idx = src_elem_to_local[si];
+                        if (elem_idx < 0)
+                            continue;
+                        int weight_off = si * n_node;
+                        int dof_base_elem = elem_idx * n_node * 3;
+                        for (int k = 0; k < ngll; ++k) {
+                            for (int j = 0; j < ngll; ++j) {
+                                for (int i = 0; i < ngll; ++i) {
+                                    double w =
+                                        cfg.src_weights[weight_off + (i * ngll + j) * ngll + k];
+                                    if (w == 0.0)
+                                        continue;
+                                    int node_off = (i * ngll + j) * ngll + k;
+                                    residual[dof_base_elem + node_off * 3 + dir] += stf_val * w;
+                                }
+                            }
+                        }
+                    }
                 }
             }
-
             // --- MPI halo exchange (CG-SEM assembly) ---
             // Exchange residual r at shared interface nodes so that contributions
             // from neighbor ranks are summed (accumulate, not overwrite).

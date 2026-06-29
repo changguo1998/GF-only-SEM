@@ -104,6 +104,11 @@ struct ConfigData {
     std::vector<double> stf_t;
     std::vector<double> stf_values;
     double source_x = 0.0, source_y = 0.0, source_z = 0.0;
+
+    // Source elements (precomputed by preprocess/source_locator.py)
+    std::vector<int64_t> src_element_ids;  // global 1-based element IDs containing source
+    std::vector<double> src_weights;       // flat [n_src_elem, NGLL, NGLL, NGLL] Lagrange weights
+    int n_src_elements = 0;                // convenience count
 };
 
 }  // namespace gf

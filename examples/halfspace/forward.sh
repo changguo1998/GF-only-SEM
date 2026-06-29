@@ -23,7 +23,11 @@ for DIR in x y z; do
     ${MPIRUN} -n ${N_RANKS} "${SOLVER}" --direction "${DIR}"
     cd "${SCRIPT_DIR}"
 done
-
+echo ""
+echo "--- wavefield2vtk (cell-corner strain) ---"
+cd "${WORK_DIR}"
+wavefield2vtk
+cd "${SCRIPT_DIR}"
 echo ""
 echo "=== Forward outputs ==="
 for DIR in x y z; do

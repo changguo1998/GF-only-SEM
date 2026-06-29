@@ -418,6 +418,10 @@ ConfigData read_config(const std::string& path) {
             cfg.source_z = src_z[0];
     }
 
+    // Source element location data (precomputed by source_locator.py)
+    cfg.src_element_ids = try_read_dataset<int64_t>(fid, "/source/elements/element_ids");
+    cfg.src_weights = try_read_dataset<double>(fid, "/source/elements/weights");
+    cfg.n_src_elements = static_cast<int>(cfg.src_element_ids.size());
     return cfg;
 }
 
