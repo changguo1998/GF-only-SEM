@@ -27,6 +27,7 @@ def config_dict():
         "nz_elements": 8,
         "tilex_elements": [5, 5],
         "tiley_elements": [5, 5],
+        "log_stride": 1,
     }
 
 

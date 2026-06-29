@@ -341,6 +341,7 @@ ConfigData read_config(const std::string& path) {
         cfg.tiley_elements = read_dataset_int(sim_grp, "tiley_elements");
         read_attr_double(sim_grp, "restart_dt_s", cfg.restart_dt_s);
         read_attr_int(sim_grp, "restart_stride", cfg.restart_stride);
+        read_attr_int(sim_grp, "log_stride", cfg.log_stride);
     } else {
         // Legacy flat-dataset fallback for old C++ tests/files.
         auto poly_order = try_read_dataset<double>(fid, "polynomial_order");

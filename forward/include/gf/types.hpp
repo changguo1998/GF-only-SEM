@@ -96,6 +96,7 @@ struct ConfigData {
     int pml_xmin = 0, pml_xmax = 0, pml_ymin = 0, pml_ymax = 0, pml_zmin = 0, pml_zmax = 0;
     std::vector<int> tilex_elements;
     std::vector<int> tiley_elements;
+    int log_stride = 1;         // Progress-report interval (steps)
     double restart_dt_s = 0.0;  // 0 = no restart
     int restart_stride = 0;     // 0 = no restart
 

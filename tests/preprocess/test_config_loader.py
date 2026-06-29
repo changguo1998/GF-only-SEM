@@ -68,6 +68,7 @@ ny_elements = 16
 nz_elements = 8
 tilex_elements = [5, 5]
 tiley_elements = [5, 5]
+log_stride = 1
 def stf_func(t): return 1.0
 def vp_m_s(x, y, z): return 3000.0
 def vs_m_s(x, y, z): return 1500.0
@@ -96,6 +97,7 @@ ny_elements = 16
 nz_elements = 8
 tilex_elements = [5, 5]
 tiley_elements = [5, 5]
+log_stride = 1
 def vp_m_s(x, y, z): return 3000.0
 def vs_m_s(x, y, z): return 1500.0
 def density_kg_m3(x, y, z): return 2500.0
@@ -123,6 +125,7 @@ ny_elements = 16
 nz_elements = 8
 tilex_elements = [5, 5]
 tiley_elements = [5, 5]
+log_stride = 1
 def stf_func(t): return 1.0
 def vp_m_s(x, y, z): return 3000.0
 def vs_m_s(x, y, z): return 1500.0
@@ -151,6 +154,7 @@ ny_elements = 16
 nz_elements = 8
 tilex_elements = [5, 5]
 tiley_elements = [5, 5]
+log_stride = 1
 def stf_func(t): return 1.0
 def vp_m_s(x, y, z): return 3000.0
 def vs_m_s(x, y, z): return 1500.0

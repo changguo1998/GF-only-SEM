@@ -37,6 +37,7 @@ polynomial_order = 4  # GLL quadrature order (N=4 → 5 GLL nodes/axis)
 output_dt_s = 0.01  # Desired snapshot interval [s]
 total_duration_s = 5.0  # Total simulation duration [s]
 cfl_safety = 0.5  # CFL safety factor (0 < cfl_safety < 1)
+log_stride = 1  # Progress-report interval in solver steps (1 = every step)
 
 # ── I/O ───
 snapshot_precision = "float32"  # "float32" or "float64" for strain snapshots

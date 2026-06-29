@@ -211,6 +211,7 @@ config.h5
 │   ├── nx_elements, ny_elements, nz_elements  : int64   — mesh grid dims
 │   ├── pml_{x,y,z}{min,max}  : int64                — PML thickness in elements
 │   ├── tilex_elements, tiley_elements : int64[n_tiles] — horizontal tile sizes in elements
+│   ├── log_stride             : int32              — progress-report interval in solver steps
 │   └── storage_limit_gb       : int32              — abort if estimated storage exceeds this
 │
 ├── /domain/

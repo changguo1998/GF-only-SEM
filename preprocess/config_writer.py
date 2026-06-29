@@ -86,6 +86,7 @@ def _write_simulation(
     grp.attrs["pml_ymax"] = int(pml.get("ymax", 0))
     grp.attrs["pml_zmin"] = int(pml.get("zmin", 0))
     grp.attrs["pml_zmax"] = int(pml.get("zmax", 0))
+    grp.attrs["log_stride"] = int(getattr(config_module, "log_stride", 1))
     # Tile sizes (element counts)
     tilex = getattr(config_module, "tilex_elements", [])
     tiley = getattr(config_module, "tiley_elements", [])

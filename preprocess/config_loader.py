@@ -21,6 +21,7 @@ REQUIRED_KEYS = {
     "record_depth_max_m": (int, float),
     "tilex_elements": (list,),
     "tiley_elements": (list,),
+    "log_stride": (int,),
 }
 
 REQUIRED_CALLABLES = ["stf_func", "vp_m_s", "vs_m_s", "density_kg_m3"]
@@ -129,6 +130,9 @@ def _validate_range(mod: ModuleType) -> None:
 
     if mod.n_ranks < 1:
         errors.append(f"n_ranks must be >= 1, got {mod.n_ranks}")
+
+    if mod.log_stride < 1:
+        errors.append(f"log_stride must be >= 1, got {mod.log_stride}")
 
     if errors:
         raise ConfigValidationError("; ".join(errors))

@@ -213,6 +213,7 @@ def stf_func(t_s):
 | stf_func | callable, signature `(float) -> float`, returns finite non-NaN values for t ∈ [0, nsteps×solver_dt] |
 | vp_m_s, vs_m_s, density_kg_m3 | callable, each signature `(float, float, float) -> float`, returns positive values |
 | n_ranks | ≥ 1, integer |
+| log_stride | ≥ 1, integer (progress-report interval in solver steps) |
 | pml_thickness | dict with keys xmin, xmax, ymin, ymax, zmin, zmax; values ≥ 0 integers |
 | strict_validation | bool, default True |
 

@@ -371,8 +371,8 @@ int run_forward(const std::string& direction, bool resume_mode) {
 
                 record.write_step(step, rec_strain.data());
 
-                // --- Progress report ---
-                {
+                // --- Progress report (every log_stride steps, plus last) ---
+                if ((step + 1) % cfg.log_stride == 0 || step == cfg.nsteps - 1) {
                     auto t_now = std::chrono::steady_clock::now();
                     double elapsed = std::chrono::duration<double>(t_now - t_start).count();
                     int pct = (step + 1) * 100 / cfg.nsteps;
