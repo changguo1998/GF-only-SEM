@@ -153,7 +153,7 @@ def _extend_mesh_h5(
 
         # Write tile_index to mesh.h5 if tile config is available
         if tile_config is not None:
-            n_cell = topology.n_cell
+            n_cell = int(f["topology"].attrs["n_cell"])
             tile_idx = compute_element_tile_index(
                 n_cell,
                 tile_config.get("nx_elements", 0),
