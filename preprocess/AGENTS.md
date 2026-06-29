@@ -19,7 +19,7 @@ Read `mesh.h5` + `config.py`. Write extended `mesh.h5`, `config.h5`, and per-ran
 | `partition.py` | METIS partition, GLL numbering, MPI exchange |
 | `config_loader.py` | import and validate `config.py` |
 | `config_writer.py` | write `config.h5` |
-| `model_writer.py` | write mesh fields and partition files, including `/recording/` |
+| `model_writer.py` | write mesh fields and partition files, including `/recording/`; precomputes λ, μ from Vp, Vs, density |
 | `accelerator.py` | optional C++ subprocess for GLL geometry, CFL, PML damping |
 | `cli.py` | run full pipeline from CWD |
 

@@ -156,7 +156,7 @@ Each partition file holds a local subset of all element data needed by one MPI r
 ```
 partition_{r}.h5
 ├── /topology/                  ← local subset of topology
-├── /field/element/*            ← local subset: coords, dxi_dx, jacobian, mass, vp, vs, density, cpml/*
+├── /field/element/*            ← local subset: coords, dxi_dx, jacobian, mass, vp, vs, density, lambda, mu, cpml/*
 │
 └── /partition/
     ├── n_ranks                 : attr int32

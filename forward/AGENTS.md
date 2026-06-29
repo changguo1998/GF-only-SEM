@@ -29,6 +29,9 @@ Elastic CG-SEM solver. Reads `config.h5` + `partition_{r}.h5`. Computes full vol
 ### Device Backend
 
 `compute_element_residual` is backend-templated (`BackendCPU` / `BackendCUDA`).
+Elastic coefficients λ and μ are precomputed at GLL nodes during preprocessing
+and read from partition files — the kernel receives λ, μ directly instead of
+computing them from Vp, Vs, density every timestep.
 MPI is always required: `find_package(MPI REQUIRED)` in CMake, `MPI_Init` in `main.cpp`,
 and `exchange_halo` in the solver loop. The GPU backend replaces *only*
 `compute_element_residual` — Newmark, PML, source, exchange, I/O stay on CPU.
