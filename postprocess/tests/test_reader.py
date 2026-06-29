@@ -66,9 +66,14 @@ class TestGeometryReader:
 
 
 class TestConfigReader:
-    def test_green_tile_size(self, synthetic_config_path):
+    def test_tile_fields(self, synthetic_config_path):
         cfg = ConfigReader(synthetic_config_path)
-        assert cfg.green_tile_size_m == 0.5
+        assert cfg.nx_elements == 16
+        assert cfg.ny_elements == 16
+        assert cfg.tilex_elements == [5, 5]
+        assert cfg.tiley_elements == [5, 5]
+        assert cfg.pml_thickness["xmin"] == 3
+        assert cfg.pml_thickness["xmax"] == 3
         assert cfg.solver_dt == 0.01
         assert cfg.nsteps == 2
         cfg.close()

@@ -22,7 +22,11 @@ def config_dict():
         "source_x_m": 500.0,
         "source_y_m": 500.0,
         "record_depth_max_m": 500.0,
-        "green_tile_size_m": 100.0,
+        "nx_elements": 16,
+        "ny_elements": 16,
+        "nz_elements": 8,
+        "tilex_elements": [5, 5],
+        "tiley_elements": [5, 5],
     }
 
 

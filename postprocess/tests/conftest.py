@@ -52,7 +52,17 @@ def synthetic_config_path(tmp_path):
         sim.attrs["solver_dt"] = 0.01
         sim.attrs["output_dt_s"] = 0.01
         sim.attrs["nsteps"] = 2
-        sim.attrs["green_tile_size_m"] = 0.5
+        sim.attrs["nx_elements"] = 16
+        sim.attrs["ny_elements"] = 16
+        sim.attrs["nz_elements"] = 8
+        sim.attrs["pml_xmin"] = 3
+        sim.attrs["pml_xmax"] = 3
+        sim.attrs["pml_ymin"] = 3
+        sim.attrs["pml_ymax"] = 3
+        sim.attrs["pml_zmin"] = 0
+        sim.attrs["pml_zmax"] = 3
+        sim.create_dataset("tilex_elements", data=np.array([5, 5], dtype=np.int64))
+        sim.create_dataset("tiley_elements", data=np.array([5, 5], dtype=np.int64))
         sim.attrs["record_depth_max_m"] = 1.0
         sim.attrs["record_depth_actual_m"] = 1.0
     return path

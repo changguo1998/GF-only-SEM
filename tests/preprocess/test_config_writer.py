@@ -24,7 +24,12 @@ def _make_mock_config():
     mod.snapshot_precision = "float32"
     mod.storage_limit_gb = 100.0
     mod.record_depth_max_m = 500.0
-    mod.green_tile_size_m = 100.0
+    mod.nx_elements = 16
+    mod.ny_elements = 16
+    mod.nz_elements = 8
+    mod.pml_thickness = {"xmin": 3, "xmax": 3, "ymin": 3, "ymax": 3, "zmin": 0, "zmax": 3}
+    mod.tilex_elements = [5, 5]
+    mod.tiley_elements = [5, 5]
     return mod
 
 
@@ -53,6 +58,18 @@ class TestConfigWriter:
                 assert sim.attrs["cfl_safety"] == 0.5
                 assert sim.attrs["snapshot_precision"] == "float32"
                 assert sim.attrs["storage_limit_gb"] == 100.0
+                # New element-based tile fields
+                assert sim.attrs["nx_elements"] == 16
+                assert sim.attrs["ny_elements"] == 16
+                assert sim.attrs["nz_elements"] == 8
+                assert sim.attrs["pml_xmin"] == 3
+                assert sim.attrs["pml_xmax"] == 3
+                assert sim.attrs["pml_ymin"] == 3
+                assert sim.attrs["pml_ymax"] == 3
+                assert sim.attrs["pml_zmin"] == 0
+                assert sim.attrs["pml_zmax"] == 3
+                assert list(sim["tilex_elements"][:]) == [5, 5]
+                assert list(sim["tiley_elements"][:]) == [5, 5]
 
     def test_writes_domain_group(self):
         config = _make_mock_config()
