@@ -415,10 +415,12 @@ def main():
         gll_points = np.concatenate(gll_pt_list, axis=0) if gll_pt_list else np.empty((0, 3))
         vertex_coords_out = np.concatenate([vertex_to_coord, gll_points], axis=0)
 
-        # Build point data: interpolate cell fields to mesh vertices,
-        # then copy cell-averaged value to all GLL points of that cell.
+        # Build point data: continuous material fields only (not categorical flags)
+        point_data_fields = {"Vp_m_s", "Vs_m_s", "Density_kg_m3", "Mass", "PML_Damping"}
         point_fields = {}
         for name, data in cell_fields.items():
+            if name not in point_data_fields:
+                continue
             arr = np.zeros(vertex_coords_out.shape[0], dtype=np.float64)
             # Mesh vertices: average from surrounding elements
             arr[:n_mesh_vert] = _interpolate_mesh_vertex_field(data, connectivity, n_mesh_vert)
