@@ -27,7 +27,7 @@ Postprocess outputs strain only. It does not integrate displacement.
 
 ```
 mesh.h5 (/topology/vertex_to_coord) ───────────────┐
-config.h5 (/simulation timing + green_tile_size_m) ┤
+config.h5 (/simulation timing + tile elements) ┤
 wavefields/x/record_{r}.h5 ────────────────────────┤
 wavefields/y/record_{r}.h5 ────────────────────────┤
 wavefields/z/record_{r}.h5 ────────────────────────┤
@@ -80,7 +80,10 @@ Postprocess does not need GLL geometry, `dxi_dx`, or element search.
 | `/simulation/nsteps` | total steps |
 | `/simulation/record_depth_max_m` | requested depth |
 | `/simulation/record_depth_actual_m` | snapped depth |
-| `/simulation/green_tile_size_m` | x/y tile width |
+| `/simulation/tilex_elements` | x tile sizes in elements (int64 array) |
+| `/simulation/tiley_elements` | y tile sizes in elements (int64 array) |
+| `/simulation/nx_elements` | total elements in x |
+| `/simulation/pml_{x,y,z}{min,max}` | PML thickness in elements |
 
 ### Record files
 

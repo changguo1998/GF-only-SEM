@@ -157,7 +157,9 @@ snapshot_precision = "float32"  # "float32" or "float64"
 storage_limit_gb = 100           # abort if estimated output exceeds this
 record_depth_max_m = 50_000.0    # requested max recorded depth below free surface
 restart_dt_s = 60.0              # overwrite latest restart every 60 s
-green_tile_size_m = 50_000.0     # horizontal x/y Green-function tile width
+tilex_elements = [5, 5]          # horizontal x tile sizes in elements
+ny_elements = 16
+tiley_elements = [5, 5]          # horizontal y tile sizes in elements
 strict_validation = True
 
 # Material — callable functions evaluated at each GLL node
@@ -204,7 +206,8 @@ def stf_func(t_s):
 | snapshot_precision | "float32" or "float64" |
 | restart_dt_s | > 0 |
 | record_depth_max_m | ≥ 0 and within domain depth |
-| green_tile_size_m | > 0 |
+| tilex_elements | list[int], positive, sum(tilex)+pml_xmin+pml_xmax==nx_elements |
+| tiley_elements | list[int], positive, sum(tiley)+pml_ymin+pml_ymax==ny_elements |
 | storage_limit_gb | > 0 |
 | source position | source_x_m and source_y_m within xy domain bounds (auto-detected from mesh), z auto-placed on free surface |
 | stf_func | callable, signature `(float) -> float`, returns finite non-NaN values for t ∈ [0, nsteps×solver_dt] |
@@ -443,7 +446,10 @@ config.h5
 │   ├── restart_stride         : int32            — solver steps per restart write
 │   ├── record_depth_max_m     : float64          — requested shallow recording depth
 │   ├── record_depth_actual_m  : float64          — snapped horizontal element-face depth
-│   ├── green_tile_size_m      : float64          — horizontal postprocess tile width
+│   ├── tilex_elements         : int64[n_tiles]    — horizontal x tile sizes in elements
+    │   ├── tiley_elements         : int64[n_tiles]    — horizontal y tile sizes in elements
+    │   ├── nx_elements, ny_elements, nz_elements — mesh grid dims
+    │   ├── pml_{x,y,z}{min,max}     — PML thickness in elements
 │   └── storage_limit_gb       : int32            — abort if estimated storage exceeds this
 │
 ├── /domain/

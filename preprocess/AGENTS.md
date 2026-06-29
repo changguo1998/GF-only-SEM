@@ -53,14 +53,14 @@ Preprocess selects non-PML mesh vertices in the shallow output volume:
 
 - requested bottom: `record_depth_max_m`
 - actual bottom: `record_depth_actual_m`, snapped to element face
-- tile width: `green_tile_size_m`
+- tile sizes (elements): `tilex_elements`, `tiley_elements`
 
 Each rank writes:
 
 ```
 /recording/
   attrs: basis="mesh_vertices", record_depth_max_m,
-         record_depth_actual_m, green_tile_size_m, excludes_pml=true
+         record_depth_actual_m, excludes_pml=true
   save_element_mask
   vertex_ids
   source_element_local_index

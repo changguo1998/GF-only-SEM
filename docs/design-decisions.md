@@ -208,7 +208,9 @@ config.h5
 │   ├── restart_stride         : int32              — solver steps per restart write
 │   ├── record_depth_max_m     : float64            — requested shallow recording depth
 │   ├── record_depth_actual_m  : float64            — snapped spectral-element face depth
-│   ├── green_tile_size_m      : float64            — horizontal postprocess tile width
+│   ├── nx_elements, ny_elements, nz_elements  : int64   — mesh grid dims
+│   ├── pml_{x,y,z}{min,max}  : int64                — PML thickness in elements
+│   ├── tilex_elements, tiley_elements : int64[n_tiles] — horizontal tile sizes in elements
 │   └── storage_limit_gb       : int32              — abort if estimated storage exceeds this
 │
 ├── /domain/
@@ -229,7 +231,7 @@ Notes: no `/attenuation/`; SLS is deferred. No `direction`; runtime CLI sets it.
 
 ### Green's Function Output
 
-Green library stores strain, not displacement. Tiles use x/y bins from `green_tile_size_m`:
+Green library stores strain, not displacement. Tiles use element-index bins from `tilex_elements`/`tiley_elements`:
 
 ```
 greenfun/
@@ -317,5 +319,5 @@ Both are untracked (`*.gitignore`). Changes to them do not affect the repo.
 - **Single source location**: One source position per GF computation. Multiple source locations require separate preprocessor + 3×N forward runs.
 - **Postprocess alignment**: Validate timing, basis, depth, and merged `vertex_ids` across x/y/z before assembly.
 - **PML exclusion**: PML elements/vertices are excluded by the preprocessing recording map — only physical-domain shallow vertices contribute.
-- **Spatial tiling**: `green_tile_size_m` defines x/y tiles. Each tile stores mesh-vertex Green tensors for all recorded depths.
+- **Element tiling**: `tilex_elements`/`tiley_elements` define x/y tile sizes in elements. Tiles partition the non-PML interior. Each tile stores mesh-vertex Green tensors for all recorded depths.
 - **Reciprocity**: Source is on the top free surface. Strain records cover the configured shallow output volume.

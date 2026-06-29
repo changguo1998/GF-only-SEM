@@ -90,7 +90,7 @@ export OMP_NUM_THREADS=8   # default: all available CPUs
 
 Key fields: `polynomial_order`, `output_dt_s`, `total_duration_s`, `cfl_safety`,
 `n_ranks`, `pml_thickness`, `source_x_m`/`source_y_m`, `record_depth_max_m`,
-`green_tile_size_m`, `stf_func(t_s)`, `vp_m_s`/`vs_m_s`/`density_kg_m3` callables.
+`tilex_elements`, `tiley_elements`, `stf_func(t_s)`, `vp_m_s`/`vs_m_s`/`density_kg_m3` callables.
 
 ## Design Highlights
 
