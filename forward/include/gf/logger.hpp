@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 
 #include <chrono>
+#include <cstdio>
 #include <ctime>
 #include <fstream>
 #include <iomanip>
@@ -60,7 +61,8 @@ public:
     }
 
     void progress(const std::string& msg) {
-        // In-place progress line: write timestamped to file, \r-clear/update stdout.
+        // Log file: full timestamped line (no in-place).
+        // No carriage-return or ANSI escape sequences here — just clean lines.
         if (file_.is_open()) {
             auto now = std::chrono::system_clock::now();
             auto t = std::chrono::system_clock::to_time_t(now);
@@ -72,15 +74,36 @@ public:
             file_ << time_buf << "." << std::setw(3) << std::setfill('0') << ms.count()
                   << " [PROG] " << msg << std::endl;
         }
+        // Terminal: in-place update directly to the controlling terminal.
+        //
+        // MPI I/O forwarding (orte/iof) reads rank output from pipe/socket pairs
+        // in a line-buffered fashion — \r without \n is never flushed to the
+        // terminal.  Switching between stdout and stderr doesn't help; MPI's IOF
+        // layer wraps both.
+        //
+        // Writing to /dev/tty bypasses MPI's output pipes entirely.  Data goes
+        // straight to the terminal device, so \r and ANSI escape sequences work
+        // as expected.  If /dev/tty is unavailable (batch job, CI, no terminal),
+        // progress is still captured in the log file.
         if (rank_ == 0) {
-            std::cout << "\r\x1b[K" << msg << std::flush;
+            FILE* tty = fopen("/dev/tty", "w");
+            if (tty) {
+                fwrite("\r\x1b[K", 1, 4, tty);
+                fwrite(msg.data(), 1, msg.size(), tty);
+                fflush(tty);
+                fclose(tty);
+            }
         }
     }
 
     void progress_done() {
-        // Finalise progress line (move to next line on stdout).
+        // Write newline to /dev/tty so subsequent output starts on a fresh line.
         if (rank_ == 0) {
-            std::cout << std::endl;
+            FILE* tty = fopen("/dev/tty", "w");
+            if (tty) {
+                fputc('\n', tty);
+                fclose(tty);
+            }
         }
     }
 

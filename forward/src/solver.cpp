@@ -370,35 +370,33 @@ int run_forward(const std::string& direction, bool resume_mode) {
                 }
 
                 record.write_step(step, rec_strain.data());
+            }
 
-                // --- Progress report (every log_stride steps, plus last) ---
-                if ((step + 1) % cfg.log_stride == 0 || step == cfg.nsteps - 1) {
-                    auto t_now = std::chrono::steady_clock::now();
-                    double elapsed = std::chrono::duration<double>(t_now - t_start).count();
-                    int pct = (step + 1) * 100 / cfg.nsteps;
-                    double eta = (step + 1 < cfg.nsteps)
-                                     ? elapsed * (cfg.nsteps - step - 1) / (step + 1)
-                                     : 0.0;
+            // --- Progress report (every log_stride steps, plus last) ---
+            if ((step + 1) % cfg.log_stride == 0 || step == cfg.nsteps - 1) {
+                auto t_now = std::chrono::steady_clock::now();
+                double elapsed = std::chrono::duration<double>(t_now - t_start).count();
+                int pct = (step + 1) * 100 / cfg.nsteps;
+                double eta =
+                    (step + 1 < cfg.nsteps) ? elapsed * (cfg.nsteps - step - 1) / (step + 1) : 0.0;
 
-                    // Estimated finish time = now + eta
-                    auto finish_tp =
-                        std::chrono::system_clock::now() +
-                        std::chrono::duration_cast<std::chrono::system_clock::duration>(
-                            std::chrono::duration<double>(eta));
-                    auto finish_t = std::chrono::system_clock::to_time_t(finish_tp);
-                    char finish_buf[20];
-                    std::strftime(finish_buf, sizeof(finish_buf), "%Y-%m-%d %H:%M:%S",
-                                  std::localtime(&finish_t));
+                // Estimated finish time = now + eta
+                auto finish_tp = std::chrono::system_clock::now() +
+                                 std::chrono::duration_cast<std::chrono::system_clock::duration>(
+                                     std::chrono::duration<double>(eta));
+                auto finish_t = std::chrono::system_clock::to_time_t(finish_tp);
+                char finish_buf[20];
+                std::strftime(finish_buf, sizeof(finish_buf), "%Y-%m-%d %H:%M:%S",
+                              std::localtime(&finish_t));
 
-                    std::ostringstream prog;
-                    prog << std::setw(7) << std::left
-                         << (std::to_string(step + 1) + "/" + std::to_string(cfg.nsteps)) << " "
-                         << std::setw(4) << pct << "%"
-                         << " elapsed=" << std::fixed << std::setprecision(1) << std::setw(6)
-                         << elapsed << "s  eta=" << std::setw(6) << eta << "s"
-                         << "  finish~" << finish_buf;
-                    logger.progress(prog.str());
-                }
+                std::ostringstream prog;
+                prog << std::setw(7) << std::left
+                     << (std::to_string(step + 1) + "/" + std::to_string(cfg.nsteps)) << " "
+                     << std::setw(4) << pct << "%"
+                     << " elapsed=" << std::fixed << std::setprecision(1) << std::setw(6)
+                     << elapsed << "s  eta=" << std::setw(6) << eta << "s"
+                     << "  finish~" << finish_buf;
+                logger.progress(prog.str());
             }
         }
 

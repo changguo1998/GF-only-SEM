@@ -87,9 +87,11 @@ On each snapshot write (rank 0 only), an in-place progress line is printed:
 ```
 
 Fields: step/total, percentage, wall-clock elapsed, estimated remaining time,
-estimated finish time (yyyy-mm-dd HH:MM:SS). Updated in-place via carriage return
+estimated finish time (yyyy-mm-dd HH:MM:SS). Updated in-place via carriage return + ANSI clear-line.
 
-- ANSI clear-line (`\r\x1b[K`, no newline). Finalised with newline on completion.
+- Writes directly to /dev/tty (controlling terminal) to bypass MPI I/O
+  forwarding (orte/iof), which line-buffers rank output pipes.
+- Log file gets full timestamped lines without escape sequences (no in-place).
 
 Some ranks may have zero recorded vertices (no shallow elements). These ranks
 write an empty record file with `vertex_ids (0,)` and `strain (0,0,6)` and skip
