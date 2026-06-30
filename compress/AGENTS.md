@@ -26,4 +26,4 @@ Link with `target_link_libraries(gf PRIVATE gf_compress)`.
 
 ## Design
 
-See `docs/superpowers/design/compress.md`.
+See [`../docs/design/compress.md`](../docs/design/compress.md).

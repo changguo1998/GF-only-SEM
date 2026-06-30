@@ -17,7 +17,7 @@ Build a shallow mesh-vertex recording map in preprocess. The map selects non-PML
 
 ## Design
 
-From `docs/superpowers/design/preprocess.md` §10:
+From [`../../docs/design/preprocess.md`](../../preprocess/design.md) §10:
 
 ### Config fields (new required)
 

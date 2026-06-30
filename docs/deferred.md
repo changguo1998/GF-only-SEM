@@ -13,7 +13,7 @@ SLS spans preprocess and forward.
 ### Preprocess
 
 - **Plan:** initial implementation complete — SLS Task 7 not started
-- **Design:** `docs/superpowers/design/preprocess.md` → SLS fitting
+- **Design:** [`design/preprocess.md`](design/preprocess.md) → SLS fitting
 - **Source:** `preprocess/sls.py` — missing
 - **Tests:** `tests/preprocess/test_sls.py` — missing
 
@@ -30,7 +30,7 @@ Needed:
 ### Forward
 
 - **Plan:** initial implementation complete — SLS Task 5 not started
-- **Design:** `docs/superpowers/design/forward.md`
+- **Design:** [`design/forward.md`](design/forward.md)
 - **Source:** `forward/src/viscoelastic.cpp` — missing
 - **Tests:** `forward/tests/test_viscoelastic.cpp` — missing
 
@@ -46,8 +46,8 @@ ______________________________________________________________________
 
 **Status:** Not implemented.
 
-- **Plan:** `docs/superpowers/plans/2026-06-08-compress.md` → Task 7
-- **Design:** `docs/superpowers/design/compress.md`
+- **Plan:** ~~`docs/superpowers/plans/2026-06-08-compress.md`~~ (deleted)
+- **Design:** [`design/compress.md`](design/compress.md)
 - **Source:** `compress/benchmark/CompressionBenchmark.cpp` — missing
 - **CMake:** `compress/benchmark/CMakeLists.txt` — missing
 
@@ -59,8 +59,8 @@ ______________________________________________________________________
 
 **Status:** `tests/test_compress.cpp` exists, but tests fail due to tolerance/API mismatch.
 
-- **Plan:** `docs/superpowers/plans/2026-06-08-compress.md` → Task 6
-- **Design:** `docs/superpowers/design/compress.md`
+- **Plan:** ~~`docs/superpowers/plans/2026-06-08-compress.md`~~ (deleted)
+- **Design:** [`design/compress.md`](design/compress.md)
 
 Needed: rewrite round-trip tests to match `CheckpointWriter.h` and current `write_checkpoint()` signatures.
 
@@ -70,8 +70,8 @@ ______________________________________________________________________
 
 **Status:** Not integrated. `gf_compress` is not linked in `forward/CMakeLists.txt`.
 
-- **Plan:** `docs/superpowers/plans/2026-06-08-compress.md` → Task 8
-- **Design:** `docs/superpowers/design/compress.md`
+- **Plan:** ~~`docs/superpowers/plans/2026-06-08-compress.md`~~ (deleted)
+- **Design:** [`design/compress.md`](design/compress.md)
 
 Needed:
 
@@ -85,7 +85,7 @@ ______________________________________________________________________
 **Status:** Placeholder. `model_loader.py` returns constants.
 
 - **Plan:** initial implementation complete — binary format deferred
-- **Design:** `docs/superpowers/design/preprocess.md`
+- **Design:** [`design/preprocess.md`](design/preprocess.md)
 
 Needed: define a binary model format. Read gridded Vp, Vs, density, Qκ, and Qμ. Interpolate them to GLL nodes.
 
@@ -95,7 +95,7 @@ ______________________________________________________________________
 
 **Status:** Implemented (CUDA backend).
 
-- **Design:** `docs/superpowers/design/gpu.md`
+- **Design:** [`design/gpu.md`](design/gpu.md)
 - **Implementation:** `forward/include/gf/backend.hpp`, `forward/src/element_cuda.cu`, `forward/src/element_cpu.cpp`
 
 Template-polymorphic `compute_element_residual<Backend>` with CPU and CUDA backends.

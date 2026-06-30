@@ -73,8 +73,7 @@ Each rank writes:
 
 ## Design Doc
 
-[`docs/superpowers/design/preprocess.md`](../docs/superpowers/design/preprocess.md)
-
+[`../docs/design/preprocess.md`](../docs/design/preprocess.md)
 ## C++ Accelerator
 
 Heavy numerical loops (GLL geometry, CFL h_min, PML damping ramps) can be

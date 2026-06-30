@@ -1,7 +1,7 @@
 # Preprocess Module — Technical Design
 
-> Parent: [docs/design-decisions.md](../../design-decisions.md)
-> Implementation plan: [docs/superpowers/plans/2026-06-08-preprocess.md](../plans/2026-06-08-preprocess.md)
+> Parent: [../design-decisions.md](../design-decisions.md)
+> Implementation plan: ~~`docs/superpowers/plans/2026-06-08-preprocess.md`~~ (deleted)
 
 ## Goal
 

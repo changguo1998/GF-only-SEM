@@ -1,7 +1,7 @@
 # Postprocess Module — Technical Design
 
-> Parent: [docs/design-decisions.md](../../design-decisions.md)
-> Plan: [docs/superpowers/plans/2026-06-08-postprocess.md](../plans/2026-06-08-postprocess.md)
+> Parent: [../design-decisions.md](../design-decisions.md)
+> Plan: ~~`docs/superpowers/plans/2026-06-08-postprocess.md`~~ (deleted)
 
 ## Goal
 

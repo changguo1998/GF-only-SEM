@@ -1,7 +1,7 @@
 # Forward Solver — Technical Design
 
-> Parent: [docs/design-decisions.md](../../design-decisions.md)
-> Implementation plan: [docs/superpowers/plans/2026-06-08-forward.md](../plans/2026-06-08-forward.md)
+> Parent: [../design-decisions.md](../design-decisions.md)
+> Implementation plan: ~~`docs/superpowers/plans/2026-06-08-forward.md`~~ (deleted)
 
 ## Goal
 

@@ -47,8 +47,7 @@ CMake `GF_DEVICE_BACKEND=CUDA` enables the CUDA path. All other solver component
 - **CPU**: `element_cpu.cpp` — batched loop over elements (default)
 - **CUDA**: `element_cuda.cu` — one block/element, one thread/GLL node, `atomicAdd` scatter
 
-See [`docs/superpowers/design/gpu.md`](../docs/superpowers/design/gpu.md) for full design.
-
+See [`../docs/design/gpu.md`](../docs/design/gpu.md) for full design.
 > **GPU auto-binding:** `gf_solver_cuda` and `gf_solver_mpi_cuda` automatically detect
 > available GPUs via `cudaGetDeviceCount()` and assign `cudaSetDevice(rank % n_devices)`.
 > If MPI ranks on a shared-memory node exceed GPUs, the solver warns and reduces to
@@ -188,5 +187,5 @@ Catch2 tests cover GLL, element (CPU + CUDA), assembly, Newmark, PML, source, ex
 
 ## Design Docs
 
-- [`docs/superpowers/design/forward.md`](../docs/superpowers/design/forward.md) — solver architecture
-- [`docs/superpowers/design/gpu.md`](../docs/superpowers/design/gpu.md) — GPU backend design
+- [`../docs/design/forward.md`](../docs/design/forward.md) — solver architecture
+- [`../docs/design/gpu.md`](../docs/design/gpu.md) — GPU backend design

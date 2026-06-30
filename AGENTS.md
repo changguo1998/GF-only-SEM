@@ -29,8 +29,7 @@ Full math formulation: [`docs/math.md`](docs/math.md)
 | Mesh partitioning | METIS (called from preprocessor) |
 | Pre/post | Python + C++17 (accelerator, OpenMP) |
 | External reference | `external_reference_codes/` (read-only, untracked by git) |
-| Design docs | `docs/design-decisions.md`, `docs/math.md`, `docs/superpowers/design/` |
-
+| Design docs | `docs/design-decisions.md`, `docs/math.md`, `docs/design/` — per-module design docs in `docs/design/` |
 ## Build Environment
 
 ### Spack (development machine)

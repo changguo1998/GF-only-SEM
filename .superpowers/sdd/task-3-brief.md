@@ -15,7 +15,7 @@ Change postprocess tiling from element-count-based to spatial `green_tile_size_m
 
 ## Design
 
-From `docs/superpowers/design/postprocess.md` "Horizontal Tiling":
+From [`../../docs/design/postprocess.md`](../../postprocess/design.md) "Horizontal Tiling":
 
 ### Tiling algorithm
 

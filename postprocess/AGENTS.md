@@ -47,4 +47,4 @@ Tile sizes come from `config.h5` (`/simulation/tilex_elements`, `tiley_elements`
 
 ## Design Doc
 
-[`docs/superpowers/design/postprocess.md`](../docs/superpowers/design/postprocess.md)
+[`../docs/design/postprocess.md`](../docs/design/postprocess.md)
