@@ -32,8 +32,9 @@ def setup_logging(log_dir: str = "log") -> logging.Logger:
     logger.setLevel(logging.DEBUG)
     fh = logging.FileHandler(log_path, mode="w")
     fh.setLevel(logging.DEBUG)
-    fh.setFormatter(logging.Formatter(
-        "%(asctime)s [%(levelname)-7s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+    fh.setFormatter(
+        logging.Formatter("%(asctime)s [%(levelname)-7s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+    )
     logger.addHandler(fh)
     ch = logging.StreamHandler(sys.stdout)
     ch.setLevel(logging.INFO)
@@ -81,8 +82,9 @@ def _init_accelerators() -> None:
     _STAGE2_BINARY = _find_binary("gf_preprocess_stage2")
 
 
-def _run_binary(binary: str, args: list[str],
-                timeout: int = 600, desc: str = "") -> subprocess.CompletedProcess | None:
+def _run_binary(
+    binary: str, args: list[str], timeout: int = 600, desc: str = ""
+) -> subprocess.CompletedProcess | None:
     cmd = [binary] + args
     if desc:
         logger.info(f"Running {desc}: {' '.join(shlex.quote(str(x)) for x in cmd)}")
@@ -110,24 +112,29 @@ def _run_binary(binary: str, args: list[str],
 
 
 def step_gll_geometry(
-    model_path: str, topology: object, config: object, domain_bounds: dict[str, float],
+    model_path: str, topology: object, config: object, domain_bounds: dict[str, float]
 ) -> dict:
     N = int(config.polynomial_order)
     """Compute GLL geometry + CFL h_min. C++ accelerator if available."""
     if _STAGE1_BINARY is not None:
         # Ensure domain attrs for C++
         from preprocess.accelerator import _ensure_domain_attrs
+
         _ensure_domain_attrs(model_path, domain_bounds)
 
         pml = getattr(config, "pml_thickness", {}) or {}
         args = [
             os.path.abspath(model_path),
-            str(N), str(float(config.cfl_safety)),
+            str(N),
+            str(float(config.cfl_safety)),
             str(int(getattr(config, "nx_elements", 0))),
             str(int(getattr(config, "ny_elements", 0))),
-            str(int(pml.get("xmin", 0))), str(int(pml.get("xmax", 0))),
-            str(int(pml.get("ymin", 0))), str(int(pml.get("ymax", 0))),
-            str(int(pml.get("zmin", 0))), str(int(pml.get("zmax", 0))),
+            str(int(pml.get("xmin", 0))),
+            str(int(pml.get("xmax", 0))),
+            str(int(pml.get("ymin", 0))),
+            str(int(pml.get("ymax", 0))),
+            str(int(pml.get("zmin", 0))),
+            str(int(pml.get("zmax", 0))),
         ]
         proc = _run_binary(_STAGE1_BINARY, args, desc="C++ stage1 (GLL+CFL)")
         if proc is not None:
@@ -151,28 +158,41 @@ def step_gll_geometry(
                     mass = np.array(fld["mass"], dtype=np.float64)
                 logger.info(f"  C++ GLL: coords={coords.shape}, h_min={h_min:.4e}")
                 return {
-                    "coords": coords, "jacobian": jacobian, "dxi_dx": dxi_dx,
-                    "mass": mass, "h_min": h_min, "used_cpp": True,
+                    "coords": coords,
+                    "jacobian": jacobian,
+                    "dxi_dx": dxi_dx,
+                    "mass": mass,
+                    "h_min": h_min,
+                    "used_cpp": True,
                 }
 
     # Python fallback
     logger.info("Computing GLL geometry (Python)...")
     from preprocess.gll_geometry import compute_gll_geometry
+
     t0 = time.time()
     coords, jacobian, dxi_dx, mass = compute_gll_geometry(topology, N)
     # Compute h_min via compute_cfl_dt with unit vp (isolates h_min)
     from preprocess.cfl_validator import compute_cfl_dt
+
     unit_vp = np.ones(coords.shape[:-1], dtype=np.float64)
     h_min = compute_cfl_dt(coords, unit_vp, 1.0)  # cfl_safety=1, vp=1 => cfl_dt = h_min
     logger.info(f"  Python GLL: {time.time() - t0:.2f}s, h_min={h_min:.4e}")
     return {
-        "coords": coords, "jacobian": jacobian, "dxi_dx": dxi_dx,
-        "mass": mass, "h_min": h_min, "used_cpp": False,
+        "coords": coords,
+        "jacobian": jacobian,
+        "dxi_dx": dxi_dx,
+        "mass": mass,
+        "h_min": h_min,
+        "used_cpp": False,
     }
 
 
 def step_boundary_detection(
-    model_path: str, topology: object, config: object, domain_bounds: dict[str, float],
+    model_path: str,
+    topology: object,
+    config: object,
+    domain_bounds: dict[str, float],
     gll_result: dict,
 ) -> np.ndarray:
     """Detect free/absorbing boundaries. C++ accelerator result if available."""
@@ -187,13 +207,18 @@ def step_boundary_detection(
     # Python fallback
     logger.info("Detecting boundaries (Python)...")
     from preprocess.boundary_detector import detect_boundaries
+
     boundary_tag, _ = detect_boundaries(topology, domain_bounds)
     return boundary_tag
 
 
 def step_pml(
-    model_path: str, topology: object, config: object, domain_bounds: dict[str, float],
-    coords: np.ndarray, gll_result: dict,
+    model_path: str,
+    topology: object,
+    config: object,
+    domain_bounds: dict[str, float],
+    coords: np.ndarray,
+    gll_result: dict,
 ) -> tuple[np.ndarray, np.ndarray]:
     """PML expansion + damping. C++ accelerator result if available."""
     n_cell = topology.n_cell
@@ -230,18 +255,24 @@ def step_pml(
             i = e % nx
             j = (e // nx) % ny
             k = e // (nx * ny)
-            if (i < cnt["xmin"] or i >= nx - cnt["xmax"] or
-                j < cnt["ymin"] or j >= ny - cnt["ymax"] or
-                k >= nz - cnt["zmax"]):
+            if (
+                i < cnt["xmin"]
+                or i >= nx - cnt["xmax"]
+                or j < cnt["ymin"]
+                or j >= ny - cnt["ymax"]
+                or k >= nz - cnt["zmax"]
+            ):
                 is_pml[e] = True
     else:
         from preprocess.boundary_detector import detect_boundaries
+
         _, is_pml = detect_boundaries(topology, domain_bounds)
 
     # PML damping (Python)
     logger.info("Computing PML damping (Python)...")
     try:
         from preprocess.pml import compute_pml_damping
+
         damping = compute_pml_damping(topology, coords, pml_thickness_cfg, domain_bounds, is_pml)
     except ImportError:
         damping = np.zeros((n_cell, n_gll, n_gll, n_gll), dtype=np.float64)
@@ -256,15 +287,20 @@ def step_material_interpolation(config: object, coords: np.ndarray) -> tuple:
     logger.info("Loading material model (Python)...")
     t0 = time.time()
     from preprocess.model_loader import load_and_interpolate
+
     vp, vs, density = load_and_interpolate(material_model_path, coords, config=config)
     logger.info(f"  material interpolation: {time.time() - t0:.2f}s")
     return vp, vs, density
 
 
 def step_lame_and_cfl(
-    model_path: str, config: object,
-    vp: np.ndarray, vs: np.ndarray, density: np.ndarray,
-    coords: np.ndarray, h_min: float,
+    model_path: str,
+    config: object,
+    vp: np.ndarray,
+    vs: np.ndarray,
+    density: np.ndarray,
+    coords: np.ndarray,
+    h_min: float,
 ) -> dict:
     N = int(config.polynomial_order)
     """Compute λ/μ, CFL solver_dt, nsteps. C++ stage2 if available."""
@@ -295,6 +331,7 @@ def step_lame_and_cfl(
                 cfg.attrs[key] = val
 
         from preprocess.stage2_runner import run_stage2
+
         try:
             stats = run_stage2(model_path)
         except RuntimeError as e:
@@ -321,9 +358,13 @@ def step_lame_and_cfl(
             logger.info(f"  C++ λ/μ: solver_dt={solver_dt:.6e}, nsteps={nsteps}")
             logger.info(f"  C++ stats: λ min={stats.get('STAT_LAM_MIN', '?')}")
             return {
-                "lam": lam, "mu": mu, "solver_dt": solver_dt,
-                "snapshot_stride": snapshot_stride, "nsteps": nsteps,
-                "cfl_dt": cfl_dt, "used_cpp": True,
+                "lam": lam,
+                "mu": mu,
+                "solver_dt": solver_dt,
+                "snapshot_stride": snapshot_stride,
+                "nsteps": nsteps,
+                "cfl_dt": cfl_dt,
+                "used_cpp": True,
             }
 
     # Python fallback
@@ -333,6 +374,7 @@ def step_lame_and_cfl(
 
     logger.info("Computing CFL (Python)...")
     from preprocess.cfl_validator import compute_cfl_dt, compute_solver_dt
+
     vp_max = float(vp.max())
     cfl_dt = float(config.cfl_safety) * h_min / vp_max
     solver_dt, snapshot_stride = compute_solver_dt(float(config.output_dt_s), cfl_dt)
@@ -340,9 +382,13 @@ def step_lame_and_cfl(
     logger.info(f"  cfl_dt={cfl_dt:.6e}, solver_dt={solver_dt:.6e}, nsteps={nsteps}")
 
     return {
-        "lam": lam, "mu": mu, "solver_dt": solver_dt,
-        "snapshot_stride": snapshot_stride, "nsteps": nsteps,
-        "cfl_dt": cfl_dt, "used_cpp": False,
+        "lam": lam,
+        "mu": mu,
+        "solver_dt": solver_dt,
+        "snapshot_stride": snapshot_stride,
+        "nsteps": nsteps,
+        "cfl_dt": cfl_dt,
+        "used_cpp": False,
     }
 
 
@@ -368,9 +414,12 @@ def main() -> None:
 
     v2c = topology.vertex_to_coord
     domain_bounds = {
-        "xmin": float(v2c[:, 0].min()), "xmax": float(v2c[:, 0].max()),
-        "ymin": float(v2c[:, 1].min()), "ymax": float(v2c[:, 1].max()),
-        "zmin": float(v2c[:, 2].min()), "zmax": float(v2c[:, 2].max()),
+        "xmin": float(v2c[:, 0].min()),
+        "xmax": float(v2c[:, 0].max()),
+        "ymin": float(v2c[:, 1].min()),
+        "ymax": float(v2c[:, 1].max()),
+        "zmin": float(v2c[:, 2].min()),
+        "zmax": float(v2c[:, 2].max()),
     }
     logger.info(f"Domain bounds: {domain_bounds}")
 
@@ -410,16 +459,20 @@ def main() -> None:
     # ── Step 6: Source location ──
     logger.info("Locating source on free surface...")
     from preprocess.source_locator import locate_source
+
     source_z = float(domain_bounds["zmin"])
     source_xyz_arr = np.array([config.source_x_m, config.source_y_m, source_z], dtype=np.float64)
     src_result = locate_source(topology, source_xyz_arr, coords, boundary_tag, N)
-    logger.info(f"  Source at ({config.source_x_m}, {config.source_y_m}, {source_z}), "
-                f"in {src_result['n_src_elem']} element(s)")
+    logger.info(
+        f"  Source at ({config.source_x_m}, {config.source_y_m}, {source_z}), "
+        f"in {src_result['n_src_elem']} element(s)"
+    )
 
     # ── Step 7: STF ──
     logger.info("Evaluating STF...")
     try:
         from preprocess.stf_evaluator import evaluate_stf
+
         stf_t, stf_values = evaluate_stf(config.stf_func, solver_dt, nsteps)
     except ImportError:
         stf_t = np.arange(nsteps) * solver_dt
@@ -430,6 +483,7 @@ def main() -> None:
     logger.info(f"Partitioning into {n_ranks} ranks...")
     try:
         from preprocess.partition import partition
+
         partition_result = partition(topology, coords, n_ranks)
     except ImportError:
         partition_result = None
@@ -439,12 +493,17 @@ def main() -> None:
     logger.info("Building recording map...")
     try:
         from preprocess.recording_map import build_recording_map
+
         rd_max = float(config.record_depth_max_m)
         element_to_rank = partition_result.get("element_to_rank") if partition_result else None
         per_rank = partition_result.get("per_rank") if partition_result else None
         rec_map = build_recording_map(
-            topology, domain_bounds, is_pml, rd_max,
-            element_to_rank=element_to_rank, per_rank=per_rank,
+            topology,
+            domain_bounds,
+            is_pml,
+            rd_max,
+            element_to_rank=element_to_rank,
+            per_rank=per_rank,
         )
         logger.info(f"  record_depth_actual_m={rec_map['record_depth_actual_m']}")
     except ImportError:
@@ -453,9 +512,17 @@ def main() -> None:
 
     # ── Step 10: Write outputs ──
     fields = {
-        "coords": coords, "jacobian": jacobian, "dxi_dx": dxi_dx,
-        "mass": mass, "vp": vp, "vs": vs, "density": density,
-        "lambda": lam, "mu": mu, "is_pml": is_pml, "damping": damping,
+        "coords": coords,
+        "jacobian": jacobian,
+        "dxi_dx": dxi_dx,
+        "mass": mass,
+        "vp": vp,
+        "vs": vs,
+        "density": density,
+        "lambda": lam,
+        "mu": mu,
+        "is_pml": is_pml,
+        "damping": damping,
     }
     tile_config = {
         "nx_elements": int(config.nx_elements),
@@ -473,18 +540,37 @@ def main() -> None:
     logger.info(f"Writing model to: {model_path}")
     t0 = time.time()
     from preprocess.model_writer import write_model
-    write_model(model_path, topology, fields, boundary_tag, domain_bounds,
-                partition_result, recording_map=rec_map, tile_config=tile_config)
+
+    write_model(
+        model_path,
+        topology,
+        fields,
+        boundary_tag,
+        domain_bounds,
+        partition_result,
+        recording_map=rec_map,
+        tile_config=tile_config,
+    )
     logger.info(f"  model write: {time.time() - t0:.2f}s")
 
     config_h5 = os.path.join(os.path.dirname(model_path), "config.h5")
     logger.info(f"Writing config to: {config_h5}")
     t0 = time.time()
     from preprocess.config_writer import write_config
-    write_config(config_h5, config, domain_bounds, stf_t, stf_values,
-                 source_xyz_arr, source_loc_result=src_result,
-                 solver_dt=solver_dt, snapshot_stride=snapshot_stride,
-                 nsteps=nsteps, recording_map=rec_map)
+
+    write_config(
+        config_h5,
+        config,
+        domain_bounds,
+        stf_t,
+        stf_values,
+        source_xyz_arr,
+        source_loc_result=src_result,
+        solver_dt=solver_dt,
+        snapshot_stride=snapshot_stride,
+        nsteps=nsteps,
+        recording_map=rec_map,
+    )
     logger.info(f"  config write: {time.time() - t0:.2f}s")
 
     elapsed = time.time() - start

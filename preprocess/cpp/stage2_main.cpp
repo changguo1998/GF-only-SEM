@@ -42,20 +42,29 @@ static const int MAX_STRIDE = 100;
 
 static hid_t open_or_fail(const char* path, unsigned flags) {
     hid_t fid = H5Fopen(path, flags, H5P_DEFAULT);
-    if (fid < 0) { fprintf(stderr, "ERROR: cannot open %s\n", path); exit(1); }
+    if (fid < 0) {
+        fprintf(stderr, "ERROR: cannot open %s\n", path);
+        exit(1);
+    }
     return fid;
 }
 
 static void read_attr_double(hid_t loc, const char* name, double& val) {
     hid_t attr = H5Aopen(loc, name, H5P_DEFAULT);
-    if (attr < 0) { val = 0.0; return; }
+    if (attr < 0) {
+        val = 0.0;
+        return;
+    }
     H5Aread(attr, H5T_NATIVE_DOUBLE, &val);
     H5Aclose(attr);
 }
 
 static void read_attr_int64(hid_t loc, const char* name, int64_t& val) {
     hid_t attr = H5Aopen(loc, name, H5P_DEFAULT);
-    if (attr < 0) { val = 0; return; }
+    if (attr < 0) {
+        val = 0;
+        return;
+    }
     H5Aread(attr, H5T_NATIVE_INT64, &val);
     H5Aclose(attr);
 }
@@ -63,7 +72,8 @@ static void read_attr_int64(hid_t loc, const char* name, int64_t& val) {
 static void read_attr_str(hid_t loc, const char* name, char* buf, size_t bufsz) {
     buf[0] = 0;
     hid_t attr = H5Aopen(loc, name, H5P_DEFAULT);
-    if (attr < 0) return;
+    if (attr < 0)
+        return;
     hid_t atype = H5Aget_type(attr);
     // If variable-length string, read as fixed-size
     hid_t mem_type = H5Tcopy(H5T_C_S1);
@@ -76,13 +86,14 @@ static void read_attr_str(hid_t loc, const char* name, char* buf, size_t bufsz) 
 }
 
 // Read a 4-D double array [n_cell, NGLL, NGLL, NGLL]
-static std::vector<double> read_4d_double(hid_t loc, const char* name, 
-                                           hsize_t& n_cell, hsize_t& ngll) {
+static std::vector<double> read_4d_double(hid_t loc, const char* name, hsize_t& n_cell,
+                                          hsize_t& ngll) {
     hid_t ds = H5Dopen2(loc, name, H5P_DEFAULT);
     hid_t space = H5Dget_space(ds);
     hsize_t dims[4];
     H5Sget_simple_extent_dims(space, dims, nullptr);
-    n_cell = dims[0]; ngll = dims[1];
+    n_cell = dims[0];
+    ngll = dims[1];
     size_t total = (size_t)(dims[0] * dims[1] * dims[2] * dims[3]);
     std::vector<double> buf(total);
     H5Dread(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, buf.data());
@@ -92,13 +103,15 @@ static std::vector<double> read_4d_double(hid_t loc, const char* name,
 }
 
 // Read a 5-D double array [n_cell, NGLL, NGLL, NGLL, D]
-static std::vector<double> read_5d_double(hid_t loc, const char* name,
-                                           hsize_t& n_cell, hsize_t& ngll, hsize_t& last_dim) {
+static std::vector<double> read_5d_double(hid_t loc, const char* name, hsize_t& n_cell,
+                                          hsize_t& ngll, hsize_t& last_dim) {
     hid_t ds = H5Dopen2(loc, name, H5P_DEFAULT);
     hid_t space = H5Dget_space(ds);
     hsize_t dims[5];
     H5Sget_simple_extent_dims(space, dims, nullptr);
-    n_cell = dims[0]; ngll = dims[1]; last_dim = dims[4];
+    n_cell = dims[0];
+    ngll = dims[1];
+    last_dim = dims[4];
     size_t total = (size_t)(dims[0] * dims[1] * dims[2] * dims[3] * dims[4]);
     std::vector<double> buf(total);
     H5Dread(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, buf.data());
@@ -126,7 +139,8 @@ static void write_4d_double(hid_t loc, const char* name, hsize_t n_cell, hsize_t
                             const double* data) {
     hsize_t dims[4] = {n_cell, ngll, ngll, ngll};
     hid_t space = H5Screate_simple(4, dims, nullptr);
-    hid_t ds = H5Dcreate2(loc, name, H5T_NATIVE_DOUBLE, space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    hid_t ds =
+        H5Dcreate2(loc, name, H5T_NATIVE_DOUBLE, space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
     H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, data);
     H5Dclose(ds);
     H5Sclose(space);
@@ -149,7 +163,8 @@ int main(int argc, char** argv) {
     // ---- Read topology ----
     hid_t topo_gid = H5Gopen2(fid, "topology", H5P_DEFAULT);
     int64_t n_cell;
-    {   hsize_t tmp;
+    {
+        hsize_t tmp;
         read_attr_int64(topo_gid, "n_cell", n_cell);
         if (n_cell <= 0) {
             // fallback: infer from dataset size
@@ -186,7 +201,8 @@ int main(int argc, char** argv) {
     std::vector<double> coords = read_5d_double(elem_gid, "coords", nc, ng, ld);
     if (nc != (hsize_t)n_cell || ng != (hsize_t)ngll) {
         fprintf(stderr, "ERROR: coords shape mismatch %llu %llu vs %lld %lld\n",
-                (unsigned long long)nc, (unsigned long long)ng, (long long)n_cell, (long long)ngll);
+                (unsigned long long)nc, (unsigned long long)ng, (long long)n_cell,
+                (long long)ngll);
         return 1;
     }
 
@@ -228,7 +244,8 @@ int main(int argc, char** argv) {
     // Find vp_max
     double vp_max = 0;
     for (size_t i = 0; i < n_total; ++i)
-        if (vp[i] > vp_max) vp_max = vp[i];
+        if (vp[i] > vp_max)
+            vp_max = vp[i];
 
     double cfl_dt = (vp_max > 0 && h_min > 0) ? cfl_safety * h_min / vp_max : 0;
     double solver_dt = 0;
@@ -236,10 +253,14 @@ int main(int argc, char** argv) {
     if (cfl_dt > 0 && output_dt_s > 0) {
         for (int stride = 1; stride <= MAX_STRIDE; ++stride) {
             solver_dt = output_dt_s / stride;
-            if (solver_dt <= cfl_dt) { snapshot_stride = stride; break; }
+            if (solver_dt <= cfl_dt) {
+                snapshot_stride = stride;
+                break;
+            }
         }
     }
-    if (solver_dt <= 0) solver_dt = cfl_dt;
+    if (solver_dt <= 0)
+        solver_dt = cfl_dt;
     int64_t nsteps = (total_duration_s > 0 && solver_dt > 0)
                          ? (int64_t)std::ceil(total_duration_s / solver_dt)
                          : 0;
@@ -250,26 +271,38 @@ int main(int argc, char** argv) {
     double vp_max2 = -1e30, vs_max = -1e30, density_max = -1e30;
 
     for (size_t i = 0; i < n_total; ++i) {
-        if (jacobian[i] < detJ_min) detJ_min = jacobian[i];
-        if (jacobian[i] > detJ_max) detJ_max = jacobian[i];
-        if (vp[i] < vp_min) vp_min = vp[i];
-        if (vp[i] > vp_max2) vp_max2 = vp[i];
-        if (vs[i] < vs_min) vs_min = vs[i];
-        if (vs[i] > vs_max) vs_max = vs[i];
-        if (density[i] < density_min) density_min = density[i];
-        if (density[i] > density_max) density_max = density[i];
-        if (lam[i] < lam_min) lam_min = lam[i];
+        if (jacobian[i] < detJ_min)
+            detJ_min = jacobian[i];
+        if (jacobian[i] > detJ_max)
+            detJ_max = jacobian[i];
+        if (vp[i] < vp_min)
+            vp_min = vp[i];
+        if (vp[i] > vp_max2)
+            vp_max2 = vp[i];
+        if (vs[i] < vs_min)
+            vs_min = vs[i];
+        if (vs[i] > vs_max)
+            vs_max = vs[i];
+        if (density[i] < density_min)
+            density_min = density[i];
+        if (density[i] > density_max)
+            density_max = density[i];
+        if (lam[i] < lam_min)
+            lam_min = lam[i];
     }
 
     int n_free = 0, n_absorbing = 0;
     for (hsize_t i = 0; i < ns; ++i) {
-        if (boundary_tag[i] == 1) ++n_free;
-        else if (boundary_tag[i] == 2) ++n_absorbing;
+        if (boundary_tag[i] == 1)
+            ++n_free;
+        else if (boundary_tag[i] == 2)
+            ++n_absorbing;
     }
 
     // Storage estimate
     int bytes_per = (std::strcmp(snapshot_precision, "float32") == 0) ? 4 : 8;
-    int64_t n_snapshots = (snapshot_stride > 0) ? (nsteps + snapshot_stride - 1) / snapshot_stride : 0;
+    int64_t n_snapshots =
+        (snapshot_stride > 0) ? (nsteps + snapshot_stride - 1) / snapshot_stride : 0;
     int64_t n_gll_per_elem = ngll * ngll * ngll;
     double strain_one_run = (double)n_snapshots * n_cell * n_gll_per_elem * 6 * bytes_per;
     double restart_one_run = (double)n_cell * n_gll_per_elem * 3 * 3 * 8;
@@ -316,7 +349,7 @@ int main(int argc, char** argv) {
     printf("STAT_N_RANKS=%lld\n", (long long)n_ranks);
     fflush(stdout);
 
-    fprintf(stderr, "Stage2 done: λ/μ, solver_dt=%.6e, nsteps=%lld, nsnapshots=%lld\n",
-            solver_dt, (long long)nsteps, (long long)n_snapshots);
+    fprintf(stderr, "Stage2 done: λ/μ, solver_dt=%.6e, nsteps=%lld, nsnapshots=%lld\n", solver_dt,
+            (long long)nsteps, (long long)n_snapshots);
     return 0;
 }

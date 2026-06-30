@@ -250,7 +250,9 @@ def main(verbose: bool = False):
                 else:
                     vertex_strain[di][vid] = np.zeros(6, dtype=np.float64)
                 # Replace remaining NaN/Inf (should not happen after clean filter)
-                vertex_strain[di][vid] = np.nan_to_num(vertex_strain[di][vid], nan=0.0, posinf=0.0, neginf=0.0)
+                vertex_strain[di][vid] = np.nan_to_num(
+                    vertex_strain[di][vid], nan=0.0, posinf=0.0, neginf=0.0
+                )
         # For each element, look up strain at its 8 corner vertices.
         # Average available corners to produce cell strain.
         # Only elements with at least 1 recorded corner get non-zero data.
@@ -297,7 +299,11 @@ def main(verbose: bool = False):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Convert strain snapshots to per-timestep VTK files.")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed processing messages")
+    parser = argparse.ArgumentParser(
+        description="Convert strain snapshots to per-timestep VTK files."
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Show detailed processing messages"
+    )
     args = parser.parse_args()
     raise SystemExit(main(verbose=args.verbose))

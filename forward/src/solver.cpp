@@ -80,8 +80,8 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
     logger.info("single process, direction=" + direction);
 #else
     if (eff_nprocs < nprocs) {
-        logger.info(std::to_string(nprocs) + " MPI ranks (reduced to " + std::to_string(eff_nprocs) +
-                    " effective), direction=" + direction);
+        logger.info(std::to_string(nprocs) + " MPI ranks (reduced to " +
+                    std::to_string(eff_nprocs) + " effective), direction=" + direction);
     } else {
         logger.info(std::to_string(nprocs) + " MPI ranks, direction=" + direction);
     }

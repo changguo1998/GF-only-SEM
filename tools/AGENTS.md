@@ -3,9 +3,13 @@
 ## Purpose
 
 Convert GMSH meshes to HDF5. Write VTK files for mesh, partitions, and wavefields.
-Tools install as root `pyproject.toml` console scripts. After sourcing `examples/halfspace/setenv.sh`, they are on `PATH`.
+Python scripts install as root `pyproject.toml` console scripts. C++ accelerated
+binaries build via CMake and land in `bin/` (`gf_model2vtk`, `gf_partition2vtk`,
+`gf_wavefield2vtk`).
 
 ## Files
+
+### Python (always available)
 
 | File | Script | Role |
 |------|--------|------|
@@ -14,6 +18,17 @@ Tools install as root `pyproject.toml` console scripts. After sourcing `examples
 | `partition2vtk.py` | `partition2vtk` | Write `partition_{r}.vtk` for METIS partitions. |
 | `wavefield2vtk.py` | `wavefield2vtk` | Write per-step VTK with cell-corner strain. |
 | `wavefield2vtk_detail.py` | `wavefield2vtk_detail` | Write per-step VTK with full GLL point strain. |
+
+### C++ accelerated (built via CMake, `bin/gf_*2vtk`)
+
+| Binary | Equivalent Python | Speed-up via |
+|--------|------------------|--------------|
+| `gf_model2vtk` | `model2vtk.py` | OpenMP (cells, vertices, GLL sub-cells) |
+| `gf_partition2vtk` | `partition2vtk.py` | OpenMP (parallel VTK write per rank) |
+| `gf_wavefield2vtk` | `wavefield2vtk.py` | OpenMP (per-vertex strain accumulation) |
+
+C++ tools produce byte-identical VTK output. Fall back to Python if binary not found.
+HDF5 C library is not thread-safe → all HDF5 reads serial, compute inside parallel regions.
 
 ## VTK Format
 
@@ -59,13 +74,28 @@ If GLL coords are absent, write mesh vertices only (non-detail mode).
 
 ```bash
 cd examples/halfspace/
+# Python (always available)
 model2vtk
 partition2vtk
 wavefield2vtk
-wavefield2vtk_detail
+
+# C++ accelerated (after cmake --build, in PATH from setenv.sh)
+gf_model2vtk
+gf_partition2vtk
+gf_wavefield2vtk
 ```
 
 Outputs go under `vtk/`.
+
+## Build
+
+Built automatically as part of the project CMake:
+
+```bash
+cd build
+cmake ..           # configures tools/cpp/
+cmake --build .    # builds gf_model2vtk, gf_partition2vtk, gf_wavefield2vtk
+```
 
 ## model.h5 Topology Schema
 

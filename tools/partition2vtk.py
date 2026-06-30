@@ -462,6 +462,8 @@ def main(verbose: bool = False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert partition files to per-rank VTK files.")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed processing messages")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Show detailed processing messages"
+    )
     args = parser.parse_args()
     raise SystemExit(main(verbose=args.verbose))

@@ -12,6 +12,7 @@ from collections.abc import Callable
 import numpy as np
 import numpy.typing as npt
 
+
 def load_and_interpolate(
     model_path: str | None,
     gll_coords: npt.NDArray[np.float64],
@@ -56,10 +57,9 @@ def load_and_interpolate(
 
     return vp, vs, density
 
+
 def _evaluate_field(
-    flat_coords: npt.NDArray[np.float64],
-    func: Callable,
-    shape: tuple[int, ...],
+    flat_coords: npt.NDArray[np.float64], func: Callable, shape: tuple[int, ...]
 ) -> npt.NDArray[np.float64]:
     """Evaluate a material callable at all GLL nodes.
 
@@ -75,9 +75,9 @@ def _evaluate_field(
             return np.full(shape, arr.item())
         return arr.reshape(shape)
     except (TypeError, ValueError):
-        return np.array(
-            [func(x, y, z) for x, y, z in flat_coords], dtype=np.float64
-        ).reshape(shape)
+        return np.array([func(x, y, z) for x, y, z in flat_coords], dtype=np.float64).reshape(
+            shape
+        )
 
 
 def _resolve_callable(

@@ -1,6 +1,5 @@
-# tools/cpp/CMakeLists.txt — C++ VTK conversion tools
-# Built with OpenMP multithreading. Requires HDF5 C library.
-# Keep Python editions in tools/*.py — these are accelerated alternatives.
+# tools/cpp/CMakeLists.txt — C++ VTK conversion tools Built with OpenMP multithreading. Requires
+# HDF5 C library. Keep Python editions in tools/*.py — these are accelerated alternatives.
 
 cmake_minimum_required(VERSION 3.16)
 project(gf_vtk_tools LANGUAGES CXX)
@@ -39,6 +38,5 @@ endif()
 
 foreach(tgt gf_model2vtk gf_partition2vtk gf_wavefield2vtk)
     target_compile_features(${tgt} PRIVATE cxx_std_17)
-    set_target_properties(${tgt} PROPERTIES RUNTIME_OUTPUT_DIRECTORY
-                         "${CMAKE_SOURCE_DIR}/bin")
+    set_target_properties(${tgt} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
 endforeach()

@@ -18,7 +18,6 @@ namespace gf {
 ///                          MPI ranks exceed GPUs — solver reduces effective
 ///                          rank count and redistributes partitions.
 /// \return 0 on success, non-zero on failure
-int run_forward(const std::string& direction, bool resume_mode = false,
-                int effective_nprocs = 0);
+int run_forward(const std::string& direction, bool resume_mode = false, int effective_nprocs = 0);
 
 }  // namespace gf

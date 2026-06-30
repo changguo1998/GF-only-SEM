@@ -78,16 +78,19 @@ Each rank writes:
 ## Design Doc
 
 [`../docs/design/preprocess.md`](../docs/design/preprocess.md)
+
 ## C++ Accelerator
 
 Two binaries:
 
 - **`gf_preprocess_cpp`** (stage1): GLL geometry, CFL h_min, PML expansion + damping, boundary tagging.
+
   - Source: `cpp/main.cpp`, built to `bin/gf_preprocess_cpp`
   - CLI: `gf_preprocess_cpp <model.h5> <N> <cfl_safety> <nx> <ny> [pml_thickness...]`
   - OpenMP multi-threading; logs `H_MIN`, `CFL_DT`, `OMP_THREADS` to stdout
 
 - **`gf_preprocess_stage2`** (stage2): λ/μ from Vp/Vs/density, CFL solver_dt, snapshot_stride, nsteps, pre-flight stats.
+
   - Source: `cpp/stage2_main.cpp`, built to `bin/gf_preprocess_stage2`
   - CLI: `gf_preprocess_stage2 <model.h5>`
   - Reads `/field/element/{vp,vs,density}` + `/config/` attrs; writes `/field/element/{lambda,mu}`

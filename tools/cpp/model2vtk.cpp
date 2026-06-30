@@ -3,9 +3,7 @@
 // Uses OpenMP for parallel field assembly and cell connectivity resolution.
 // Keep Python edition in tools/model2vtk.py for reference.
 
-#include "vtk_writer.hh"
-#include "topology.hh"
-#include "h5io.hh"
+#include <omp.h>
 
 #include <algorithm>
 #include <cmath>
@@ -17,13 +15,15 @@
 #include <string>
 #include <vector>
 
-#include <omp.h>
+#include "h5io.hh"
+#include "topology.hh"
+#include "vtk_writer.hh"
 
 using namespace gf_topology;
 using namespace gf_h5io;
 
 // ── CLI ────────────────────────────────────────────────────────────
-static void print_usage(const char *prog) {
+static void print_usage(const char* prog) {
     std::fprintf(stderr, "Usage: %s [--verbose] [--model MODEL.H5] [--vtk-dir DIR]\n", prog);
     std::fprintf(stderr, "  Reads model.h5 (and partitions/ if present), writes vtk/model.vtk\n");
 }
@@ -31,17 +31,18 @@ static void print_usage(const char *prog) {
 // ── Mesh vertex interpolation (cell-averaged → vertex) ────────────
 struct VertexToCell {
     std::vector<int32_t> v2c;
-    std::vector<int32_t> offsets; // size n_vert+1
+    std::vector<int32_t> offsets;  // size n_vert+1
 };
 
-static VertexToCell build_vertex_to_cell(const std::vector<int64_t> &connectivity_flat,
-                                          int64_t n_cell, int64_t n_vert) {
+static VertexToCell build_vertex_to_cell(const std::vector<int64_t>& connectivity_flat,
+                                         int64_t n_cell, int64_t n_vert) {
     VertexToCell vtc;
     std::vector<int32_t> counts(n_vert, 0);
     for (int64_t ci = 0; ci < n_cell; ++ci) {
         for (int j = 0; j < 8; ++j) {
             int64_t v = connectivity_flat[ci * 8 + j];
-            if (v >= 0 && v < n_vert) counts[v]++;
+            if (v >= 0 && v < n_vert)
+                counts[v]++;
         }
     }
     vtc.offsets.resize(n_vert + 1, 0);
@@ -67,12 +68,10 @@ static VertexToCell build_vertex_to_cell(const std::vector<int64_t> &connectivit
 }
 
 // Interpolate cell-centered field onto mesh vertices.
-static std::vector<float> interpolate_mesh_vertex_field(
-    const std::vector<double> &cell_field,
-    const VertexToCell &vtc, int64_t n_vert)
-{
+static std::vector<float> interpolate_mesh_vertex_field(const std::vector<double>& cell_field,
+                                                        const VertexToCell& vtc, int64_t n_vert) {
     std::vector<float> result(n_vert, 0.0f);
-    #pragma omp parallel for
+#pragma omp parallel for
     for (int64_t vi = 0; vi < n_vert; ++vi) {
         int32_t start = vtc.offsets[vi];
         int32_t end = vtc.offsets[vi + 1];
@@ -88,7 +87,7 @@ static std::vector<float> interpolate_mesh_vertex_field(
 }
 
 // ── Main ───────────────────────────────────────────────────────────
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     bool verbose = false;
     std::string model_path = "model.h5";
     std::string vtk_dir = "vtk";
@@ -97,11 +96,16 @@ int main(int argc, char **argv) {
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "--verbose" || arg == "-v") verbose = true;
-        else if (arg == "--model" && i+1 < argc) model_path = argv[++i];
-        else if (arg == "--vtk-dir" && i+1 < argc) vtk_dir = argv[++i];
-        else if (arg == "--help" || arg == "-h") { print_usage(argv[0]); return 0; }
-        else {
+        if (arg == "--verbose" || arg == "-v")
+            verbose = true;
+        else if (arg == "--model" && i + 1 < argc)
+            model_path = argv[++i];
+        else if (arg == "--vtk-dir" && i + 1 < argc)
+            vtk_dir = argv[++i];
+        else if (arg == "--help" || arg == "-h") {
+            print_usage(argv[0]);
+            return 0;
+        } else {
             std::cerr << "Unknown option: " << arg << "\n";
             print_usage(argv[0]);
             return 1;
@@ -123,7 +127,10 @@ int main(int argc, char **argv) {
 
     H5File fm(model_path);
     hid_t topo_gid = H5Gopen2(fm.id(), "topology", H5P_DEFAULT);
-    if (topo_gid < 0) { std::cerr << "Error: no /topology group\n"; return 1; }
+    if (topo_gid < 0) {
+        std::cerr << "Error: no /topology group\n";
+        return 1;
+    }
 
     auto vertex_to_coord = read_float64_2d(topo_gid, "vertex_to_coord");
     int64_t n_vert = (int64_t)vertex_to_coord.size();
@@ -160,11 +167,13 @@ int main(int argc, char **argv) {
     std::cout << "  Cells: " << n_cell << ", Vertices: " << n_vert << "\n";
 
     // ── Resolve connectivity ─────────────────────────────────────
-    if (verbose) std::cout << "[model_to_vtk] Resolving hexahedral connectivity...\n";
+    if (verbose)
+        std::cout << "[model_to_vtk] Resolving hexahedral connectivity...\n";
     std::vector<int64_t> connectivity(n_cell * 8, -1);
-    #pragma omp parallel for
+#pragma omp parallel for
     for (int64_t ci = 0; ci < n_cell; ++ci) {
-        auto conn = resolve_cell_vertices(cell_to_surface[ci].data(), surface_to_edge, edge_to_vertex);
+        auto conn =
+            resolve_cell_vertices(cell_to_surface[ci].data(), surface_to_edge, edge_to_vertex);
         for (int j = 0; j < 8; ++j)
             connectivity[ci * 8 + j] = conn[j];
     }
@@ -172,9 +181,9 @@ int main(int argc, char **argv) {
     // Convert vertex coords to float32 for VTK
     std::vector<float> vtx_coords(n_vert * 3);
     for (int64_t i = 0; i < n_vert; ++i) {
-        vtx_coords[i*3+0] = (float)vertex_to_coord[i][0];
-        vtx_coords[i*3+1] = (float)vertex_to_coord[i][1];
-        vtx_coords[i*3+2] = (float)vertex_to_coord[i][2];
+        vtx_coords[i * 3 + 0] = (float)vertex_to_coord[i][0];
+        vtx_coords[i * 3 + 1] = (float)vertex_to_coord[i][1];
+        vtx_coords[i * 3 + 2] = (float)vertex_to_coord[i][2];
     }
 
     // ── Cell fields ──────────────────────────────────────────────
@@ -203,10 +212,11 @@ int main(int argc, char **argv) {
         std::map<std::string, std::vector<double>> gll_fields;
 
         if (has_partitions) {
-            if (verbose) std::cout << "[model_to_vtk] Reading partitions/...\n";
+            if (verbose)
+                std::cout << "[model_to_vtk] Reading partitions/...\n";
             // Read from partition files
             // (simplified: just read from model.h5 if available)
-            for (const auto &name : gll_field_names) {
+            for (const auto& name : gll_field_names) {
                 std::string path = "field/element/" + name;
                 if (dataset_exists(fm.id(), path)) {
                     std::vector<hsize_t> sh;
@@ -214,8 +224,9 @@ int main(int argc, char **argv) {
                 }
             }
         } else {
-            if (verbose) std::cout << "[model_to_vtk] Reading fields from model.h5...\n";
-            for (const auto &name : gll_field_names) {
+            if (verbose)
+                std::cout << "[model_to_vtk] Reading fields from model.h5...\n";
+            for (const auto& name : gll_field_names) {
                 std::string path = "field/element/" + name;
                 if (dataset_exists(fm.id(), path)) {
                     std::vector<hsize_t> sh;
@@ -226,12 +237,11 @@ int main(int argc, char **argv) {
 
         // Read source coefficient from config.h5
         std::vector<double> source_coeff(n_cell * gll_per_cell, 0.0);
-        if (dataset_exists(H5Fopen(config_path.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT), "source/elements/element_ids"))
-        {
+        if (dataset_exists(H5Fopen(config_path.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT),
+                           "source/elements/element_ids")) {
             H5File fc(config_path);
             if (dataset_exists(fc.id(), "source/elements/element_ids") &&
-                dataset_exists(fc.id(), "source/elements/weights"))
-            {
+                dataset_exists(fc.id(), "source/elements/weights")) {
                 auto eids = read_int64_1d(fc.id(), "source/elements/element_ids");
                 std::vector<hsize_t> wsh;
                 auto weights = read_float64_nd(fc.id(), "source/elements/weights", wsh);
@@ -239,7 +249,7 @@ int main(int argc, char **argv) {
                 if (wsh.size() >= 4 && (int)wsh[1] == ngll) {
                     int64_t src_gll = (int64_t)ngll * ngll * ngll;
                     for (size_t si = 0; si < eids.size(); ++si) {
-                        int64_t idx = eids[si] - 1; // 1-based → 0-based
+                        int64_t idx = eids[si] - 1;  // 1-based → 0-based
                         if (idx >= 0 && idx < n_cell) {
                             for (int64_t gp = 0; gp < src_gll; ++gp)
                                 source_coeff[idx * gll_per_cell + gp] = weights[si * src_gll + gp];
@@ -252,13 +262,14 @@ int main(int argc, char **argv) {
         // Assemble GLL point coordinates
         int64_t n_gll_pt = n_cell * gll_per_cell;
         std::vector<float> gll_points(n_gll_pt * 3, 0.0f);
-        #pragma omp parallel for collapse(3)
+#pragma omp parallel for collapse(3)
         for (int64_t ci = 0; ci < n_cell; ++ci) {
             for (int i = 0; i < ngll; ++i) {
                 for (int j = 0; j < ngll; ++j) {
                     for (int k = 0; k < ngll; ++k) {
-                        int64_t src_off = ((ci * (int64_t)ngll + i) * (int64_t)ngll + j) * (int64_t)ngll + k;
-                        int64_t dst_off = (ci * gll_per_cell + gll_idx(i,j,k,ngll)) * 3;
+                        int64_t src_off =
+                            ((ci * (int64_t)ngll + i) * (int64_t)ngll + j) * (int64_t)ngll + k;
+                        int64_t dst_off = (ci * gll_per_cell + gll_idx(i, j, k, ngll)) * 3;
                         gll_points[dst_off + 0] = (float)gll_coords_flat[src_off * 3 + 0];
                         gll_points[dst_off + 1] = (float)gll_coords_flat[src_off * 3 + 1];
                         gll_points[dst_off + 2] = (float)gll_coords_flat[src_off * 3 + 2];
@@ -275,25 +286,29 @@ int main(int argc, char **argv) {
         VertexToCell vtc = build_vertex_to_cell(connectivity, n_cell, n_vert);
 
         // Build point fields
-        if (verbose) std::cout << "[model_to_vtk] Building GLL point data and topology...\n";
-        struct FieldSpec { const char *vtk_name; const char *raw_name; };
-        FieldSpec fields[] = {
-            {"Vp_m_s", "vp"}, {"Vs_m_s", "vs"}, {"Density_kg_m3", "density"},
-            {"Mass", "mass"}, {"PML_Damping", "damping"}, {"Source_Coeff", "source_coeff"}
+        if (verbose)
+            std::cout << "[model_to_vtk] Building GLL point data and topology...\n";
+        struct FieldSpec {
+            const char* vtk_name;
+            const char* raw_name;
         };
+        FieldSpec fields[] = {
+            {"Vp_m_s", "vp"}, {"Vs_m_s", "vs"},           {"Density_kg_m3", "density"},
+            {"Mass", "mass"}, {"PML_Damping", "damping"}, {"Source_Coeff", "source_coeff"}};
 
-        for (const auto &fs : fields) {
+        for (const auto& fs : fields) {
             std::string rname(fs.raw_name);
             auto it = gll_fields.find(rname);
-            const std::vector<double> *raw_ptr = nullptr;
-            if (it != gll_fields.end()) raw_ptr = &it->second;
+            const std::vector<double>* raw_ptr = nullptr;
+            if (it != gll_fields.end())
+                raw_ptr = &it->second;
 
             std::vector<float> arr(vertex_coords_out.size() / 3, 0.0f);
 
             // Mesh vertex part: interpolate cell average
             if (raw_ptr) {
                 std::vector<double> cell_avg(n_cell, 0.0);
-                #pragma omp parallel for
+#pragma omp parallel for
                 for (int64_t ci = 0; ci < n_cell; ++ci) {
                     double sum = 0.0;
                     for (int64_t gp = 0; gp < gll_per_cell; ++gp)
@@ -307,14 +322,14 @@ int main(int argc, char **argv) {
 
             // GLL point part: raw values
             if (rname == "source_coeff") {
-                #pragma omp parallel for
+#pragma omp parallel for
                 for (int64_t ci = 0; ci < n_cell; ++ci) {
                     int64_t s = n_vert + ci * gll_per_cell;
                     for (int64_t gp = 0; gp < gll_per_cell; ++gp)
                         arr[s + gp] = (float)source_coeff[ci * gll_per_cell + gp];
                 }
             } else if (raw_ptr) {
-                #pragma omp parallel for
+#pragma omp parallel for
                 for (int64_t ci = 0; ci < n_cell; ++ci) {
                     int64_t s = n_vert + ci * gll_per_cell;
                     for (int64_t gp = 0; gp < gll_per_cell; ++gp)
@@ -332,9 +347,10 @@ int main(int argc, char **argv) {
 
         if (verbose) {
             std::cout << "  Point fields: ";
-            for (const auto &pf : point_fields) std::cout << pf.first << " ";
-            std::cout << "\n  GLL per cell: " << gll_per_cell
-                      << ", total GLL: " << n_gll_pt << "\n";
+            for (const auto& pf : point_fields)
+                std::cout << pf.first << " ";
+            std::cout << "\n  GLL per cell: " << gll_per_cell << ", total GLL: " << n_gll_pt
+                      << "\n";
         }
     }
 
@@ -353,14 +369,14 @@ int main(int argc, char **argv) {
 
     // Build hex cell array
     std::vector<int32_t> hex_cells(n_hex * 9);
-    #pragma omp parallel for
+#pragma omp parallel for
     for (int64_t ci = 0; ci < n_hex; ++ci) {
         int64_t off = ci * 9;
         hex_cells[off] = 8;
         for (int j = 0; j < 8; ++j)
             hex_cells[off + 1 + j] = (int32_t)connectivity[ci * 8 + j];
     }
-    std::vector<int32_t> hex_types(n_hex, 12); // VTK_HEXAHEDRON
+    std::vector<int32_t> hex_types(n_hex, 12);  // VTK_HEXAHEDRON
 
     if (has_gll && ngll > 0) {
         // Combine: hex cells + GLL cells
@@ -372,7 +388,8 @@ int main(int argc, char **argv) {
         std::vector<int32_t> all_types;
         all_types.reserve(hex_types.size() + gll_cells.cell_types.size());
         all_types.insert(all_types.end(), hex_types.begin(), hex_types.end());
-        all_types.insert(all_types.end(), gll_cells.cell_types.begin(), gll_cells.cell_types.end());
+        all_types.insert(all_types.end(), gll_cells.cell_types.begin(),
+                         gll_cells.cell_types.end());
 
         vtk.write_cells(all_cells, all_types);
     } else {
@@ -381,7 +398,7 @@ int main(int argc, char **argv) {
 
     // Cell Data
     vtk.begin_cell_data(total_cells);
-    for (auto &kv : cell_fields) {
+    for (auto& kv : cell_fields) {
         std::vector<float> padded(total_cells, 0.0f);
         std::copy(kv.second.begin(), kv.second.end(), padded.begin());
         // GLL cells get parent element value via elem_map
@@ -396,7 +413,7 @@ int main(int argc, char **argv) {
     // Point Data
     if (!point_fields.empty()) {
         vtk.begin_point_data(vertex_coords_out.size() / 3);
-        for (auto &kv : point_fields) {
+        for (auto& kv : point_fields) {
             vtk.write_scalar_field(kv.first, kv.second);
         }
     }

@@ -388,9 +388,9 @@ RankData read_partition_range(const std::string& partition_dir, int effective_ra
                                  partition_dir);
     }
     if (effective_rank >= n_effective) {
-        throw std::runtime_error("read_partition_range: effective_rank=" +
-                                 std::to_string(effective_rank) + " >= n_effective=" +
-                                 std::to_string(n_effective));
+        throw std::runtime_error(
+            "read_partition_range: effective_rank=" + std::to_string(effective_rank) +
+            " >= n_effective=" + std::to_string(n_effective));
     }
 
     // Block distribution
@@ -408,15 +408,13 @@ RankData read_partition_range(const std::string& partition_dir, int effective_ra
 
     for (int i = 0; i < count; ++i) {
         int part_rank = start + i;
-        std::string path =
-            partition_dir + "/partition_" + std::to_string(part_rank) + ".h5";
+        std::string path = partition_dir + "/partition_" + std::to_string(part_rank) + ".h5";
         RankData part = read_partition(path, part_rank);
 
         if (i > 0 && part.ngll != merged.ngll) {
-            throw std::runtime_error("read_partition_range: partition " +
-                                     std::to_string(part_rank) + " NGLL=" +
-                                     std::to_string(part.ngll) + " expected " +
-                                     std::to_string(merged.ngll));
+            throw std::runtime_error(
+                "read_partition_range: partition " + std::to_string(part_rank) +
+                " NGLL=" + std::to_string(part.ngll) + " expected " + std::to_string(merged.ngll));
         }
 
         if (i == 0) {
@@ -442,8 +440,7 @@ RankData read_partition_range(const std::string& partition_dir, int effective_ra
                 merged.recording.has_recording = true;
                 concat_vec(merged.recording.vertex_ids, part.recording.vertex_ids);
                 for (int32_t local_idx : part.recording.src_elem_local) {
-                    merged.recording.src_elem_local.push_back(local_idx +
-                                                              cumulative_elements);
+                    merged.recording.src_elem_local.push_back(local_idx + cumulative_elements);
                 }
                 concat_vec(merged.recording.src_corner, part.recording.src_corner);
             }

@@ -43,7 +43,7 @@ RankData read_partition_all(const std::string& partition_dir);
 /// \param n_effective     Number of effective ranks (≤ total partitions)
 /// \return                Merged RankData for this effective rank's block
 RankData read_partition_range(const std::string& partition_dir, int effective_rank,
-                                int n_effective);
+                              int n_effective);
 
 /// Read config.h5 (rank-invariant simulation configuration).
 ///

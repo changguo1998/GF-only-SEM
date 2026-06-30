@@ -48,6 +48,7 @@ CMake `GF_DEVICE_BACKEND=CUDA` enables the CUDA path. All other solver component
 - **CUDA**: `element_cuda.cu` — one block/element, one thread/GLL node, `atomicAdd` scatter
 
 See [`../docs/design/gpu.md`](../docs/design/gpu.md) for full design.
+
 > **GPU auto-binding:** `gf_solver_cuda` and `gf_solver_mpi_cuda` automatically detect
 > available GPUs via `cudaGetDeviceCount()` and assign `cudaSetDevice(rank % n_devices)`.
 > If MPI ranks on a shared-memory node exceed GPUs, the solver warns and reduces to

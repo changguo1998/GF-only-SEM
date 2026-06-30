@@ -20,6 +20,7 @@ _HEX_FACES = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [3, 7, 6, 2], [0, 4, 7, 
 
 # ── Source coefficient reader ────────────────────────────────────────────
 
+
 def read_source_coeff_gll(config_path: str, n_cell: int, ngll: int) -> np.ndarray:
     """Read source-element weights from config.h5, return [n_cell, NGLL, NGLL, NGLL].
 
@@ -34,7 +35,7 @@ def read_source_coeff_gll(config_path: str, n_cell: int, ngll: int) -> np.ndarra
             if "source/elements/element_ids" not in f or "source/elements/weights" not in f:
                 return coeff
             eids = f["source/elements/element_ids"][:]  # 1-based GMSH IDs
-            weights = f["source/elements/weights"][:]     # [n_src, NGLL, NGLL, NGLL]
+            weights = f["source/elements/weights"][:]  # [n_src, NGLL, NGLL, NGLL]
             if weights.shape[1:] != (ngll, ngll, ngll):
                 return coeff
             for i, eid in enumerate(eids):
@@ -44,6 +45,7 @@ def read_source_coeff_gll(config_path: str, n_cell: int, ngll: int) -> np.ndarra
     except Exception:
         pass
     return coeff
+
 
 def resolve_cell_vertices(cell_to_surface, surface_to_edge, edge_to_vertex, cell_idx):
     signed_surfaces = cell_to_surface[cell_idx]
@@ -450,8 +452,6 @@ def main(verbose: bool = False):
     n_vert = vertex_to_coord.shape[0]
     print(f"  Cells: {n_cell}, Vertices: {n_vert}")
 
-
-
     if verbose:
         print("[model_to_vtk] Resolving hexahedral connectivity...")
     connectivity = build_cell_connectivity(cell_to_surface, surface_to_edge, edge_to_vertex)
@@ -624,6 +624,8 @@ def main(verbose: bool = False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert model.h5 to model.vtk for ParaView.")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed processing messages")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Show detailed processing messages"
+    )
     args = parser.parse_args()
     main(verbose=args.verbose)

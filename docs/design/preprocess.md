@@ -114,6 +114,7 @@ cmake --build build
 ```
 
 Or manually:
+
 ```sh
 g++ -std=c++17 -O2 -march=native -fopenmp \
     -I<eigen3>/include/eigen3 \
@@ -288,6 +289,7 @@ final output step.
 
 λ and μ are NOT computed here — they are derived in Step 5 (λ/μ + CFL) by either C++ stage2
 or Python numpy.
+
 ### 4. Compute Lumped Mass
 
 Using the density from step 3, compute lumped mass diagonal at each GLL node:
@@ -301,26 +303,30 @@ Compute Lamé parameters λ and μ from material properties, then derive solver 
 This step uses C++ stage2 (`gf_preprocess_stage2`) if available; otherwise Python fallback.
 
 **λ/μ:**
+
 ```
 μ = ρ · vs²
 λ = ρ · (vp² − 2·vs²)
 ```
+
 Output: `/field/element/lambda`, `/field/element/mu`.
 
 **CFL derivation:**
+
 1. Compute minimum GLL node spacing `h_min` across all elements (from stage1 or gll_geometry.py)
-2. Compute `vp_max = max(vp)` across all GLL nodes
-3. Compute `cfl_dt = cfl_safety × h_min / vp_max`
-4. Search `stride = 1..MAX_STRIDE` for the first value where `output_dt_s / stride ≤ cfl_dt`
-5. Set `solver_dt = output_dt_s / stride` and `snapshot_stride = stride`
-6. Set `nsteps = ceil(total_duration_s / solver_dt)`
-7. Run pre-flight checks (λ > 0, μ ≥ 0, CFL satisfied, storage estimate)
+1. Compute `vp_max = max(vp)` across all GLL nodes
+1. Compute `cfl_dt = cfl_safety × h_min / vp_max`
+1. Search `stride = 1..MAX_STRIDE` for the first value where `output_dt_s / stride ≤ cfl_dt`
+1. Set `solver_dt = output_dt_s / stride` and `snapshot_stride = stride`
+1. Set `nsteps = ceil(total_duration_s / solver_dt)`
+1. Run pre-flight checks (λ > 0, μ ≥ 0, CFL satisfied, storage estimate)
 
 When C++ stage2 is used, vp/vs/density are written temporarily to HDF5, stage2 reads
 them, computes λ/μ + CFL, writes λ/μ back, and Python reads them before deleting the
 temporary material arrays.
 
 Store time fields in `/simulation`. Forward integrates with `solver_dt`, writes strain every `snapshot_stride`, and overwrites restart every `restart_stride`.
+
 ### 6. Auto-Detect Boundary Tags
 
 No GMSH physical groups. Boundary tags computed from surface face center geometry:

@@ -16,7 +16,7 @@ Full math formulation: [`docs/math.md`](docs/math.md)
 | `forward/` | C++17 | Elastic SEM solver (libgf) + MPI executable | [`forward/AGENTS.md`](forward/AGENTS.md) |
 | `compress/` | C++17 | HDF5 compression utilities (header-only) | [`compress/AGENTS.md`](compress/AGENTS.md) |
 | `postprocess/` | Python | Strain Green's function extraction | [`postprocess/AGENTS.md`](postprocess/AGENTS.md) |
-| `tools/` | Python | Mesh conversion (GMSH→HDF5) + VTK visualization tools | [`tools/AGENTS.md`](tools/AGENTS.md) |
+| `tools/` | Python + C++17 | Mesh conversion (GMSH→HDF5) + VTK visualization tools; C++ accelerated VTK writers (OpenMP) | [`tools/AGENTS.md`](tools/AGENTS.md) |
 | `tests/` | Python + C++ | Shared test infrastructure (pytest + Catch2) | [`tests/AGENTS.md`](tests/AGENTS.md) |
 
 ## Tech Stack
@@ -27,9 +27,10 @@ Full math formulation: [`docs/math.md`](docs/math.md)
 | Build | CMake |
 | I/O | HDF5 |
 | Mesh partitioning | METIS (called from preprocessor) |
-| Pre/post | Python + C++17 (accelerator, OpenMP) |
+| Pre/post + VTK | Python + C++17 (OpenMP for preprocessor, VTK converters) |
 | External reference | `external_reference_codes/` (read-only, untracked by git) |
 | Design docs | `docs/design-decisions.md`, `docs/math.md`, `docs/design/` — per-module design docs in `docs/design/` |
+
 ## Build Environment
 
 ### Spack (development machine)

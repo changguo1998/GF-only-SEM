@@ -2,8 +2,8 @@
 #include "gf/restart.hpp"
 
 #include <hdf5.h>
-
 #include <sys/stat.h>
+
 #include <cstring>
 #include <stdexcept>
 #include <string>

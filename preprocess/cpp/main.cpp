@@ -107,10 +107,10 @@ static void write_scalar_attr(hid_t loc, const char* name, double val) {
     H5Awrite(attr, H5T_NATIVE_DOUBLE, &val);
     H5Aclose(attr);
     H5Sclose(space);
-    }
+}
 
-        // Write a 1-D int64 array
-    static void write_int64_1d(hid_t loc, const char* name, hsize_t n, const int64_t* data) {
+// Write a 1-D int64 array
+static void write_int64_1d(hid_t loc, const char* name, hsize_t n, const int64_t* data) {
     hsize_t dims[1] = {n};
     hid_t space = H5Screate_simple(1, dims, nullptr);
     hid_t ds =
@@ -160,8 +160,8 @@ static void gll_quadrature(int N, std::vector<double>& pts, std::vector<double>&
     int n_int = N - 1;
     Eigen::MatrixXd J = Eigen::MatrixXd::Zero(n_int, n_int);
     for (int i = 1; i <= n_int - 1; ++i) {
-        double beta = std::sqrt(static_cast<double>(i * (i + 2))
-                                / ((2.0 * i + 1.0) * (2.0 * i + 3.0)));
+        double beta =
+            std::sqrt(static_cast<double>(i * (i + 2)) / ((2.0 * i + 1.0) * (2.0 * i + 3.0)));
         J(i - 1, i) = beta;
         J(i, i - 1) = beta;
     }
@@ -408,11 +408,9 @@ struct ComputeResult {
 // -----------------------------------------------------------------------
 // Boundary detection: tag surfaces as free (1), absorbing (2), interior (0)
 // -----------------------------------------------------------------------
-static void detect_boundaries(
-    const Topology& topo,
-    const double domain_bounds[6],
-    int64_t* boundary_tag_out,  // [n_surface]
-    int64_t* is_pml_out         // [n_cell] 0/1 — 1-layer from topology
+static void detect_boundaries(const Topology& topo, const double domain_bounds[6],
+                              int64_t* boundary_tag_out,  // [n_surface]
+                              int64_t* is_pml_out         // [n_cell] 0/1 — 1-layer from topology
 ) {
     int64_t n_surface = topo.n_surface;
     int64_t n_cell = topo.n_cell;
@@ -421,9 +419,9 @@ static void detect_boundaries(
     const int64_t* e2v = topo.edge_to_vertex.data();
     const int64_t* c2s = topo.cell_to_surface.data();
 
-    double tol = 1e-6 * std::max({domain_bounds[1] - domain_bounds[0],
-                                   domain_bounds[3] - domain_bounds[2],
-                                   domain_bounds[5] - domain_bounds[4], 1.0});
+    double tol =
+        1e-6 * std::max({domain_bounds[1] - domain_bounds[0], domain_bounds[3] - domain_bounds[2],
+                         domain_bounds[5] - domain_bounds[4], 1.0});
     double zmin = domain_bounds[4];
 
     for (int64_t s = 0; s < n_surface; ++s) {
@@ -436,9 +434,16 @@ static void detect_boundaries(
             int64_t v0 = e2v[ae * 2 + 0];
             int64_t v1 = e2v[ae * 2 + 1];
             bool h0 = false, h1 = false;
-            for (int k = 0; k < nv; ++k) { if (vids[k] == v0) h0 = true; if (vids[k] == v1) h1 = true; }
-            if (!h0 && nv < 8) vids[nv++] = v0;
-            if (!h1 && nv < 8) vids[nv++] = v1;
+            for (int k = 0; k < nv; ++k) {
+                if (vids[k] == v0)
+                    h0 = true;
+                if (vids[k] == v1)
+                    h1 = true;
+            }
+            if (!h0 && nv < 8)
+                vids[nv++] = v0;
+            if (!h1 && nv < 8)
+                vids[nv++] = v1;
         }
         // Compute face center
         double cx = 0, cy = 0, cz = 0;
@@ -448,17 +453,18 @@ static void detect_boundaries(
             cy += v2c[vid * 3 + 1];
             cz += v2c[vid * 3 + 2];
         }
-        cx /= nv; cy /= nv; cz /= nv;
+        cx /= nv;
+        cy /= nv;
+        cz /= nv;
 
         // Classify
         if (std::abs(cz - zmin) < tol) {
             boundary_tag_out[s] = 1;  // free surface
-        } else if (
-            std::abs(cx - domain_bounds[0]) < tol ||
-            std::abs(cx - domain_bounds[1]) < tol ||
-            std::abs(cy - domain_bounds[2]) < tol ||
-            std::abs(cy - domain_bounds[3]) < tol ||
-            std::abs(cz - domain_bounds[5]) < tol) {
+        } else if (std::abs(cx - domain_bounds[0]) < tol ||
+                   std::abs(cx - domain_bounds[1]) < tol ||
+                   std::abs(cy - domain_bounds[2]) < tol ||
+                   std::abs(cy - domain_bounds[3]) < tol ||
+                   std::abs(cz - domain_bounds[5]) < tol) {
             boundary_tag_out[s] = 2;  // absorbing
         } else {
             boundary_tag_out[s] = 0;  // interior
@@ -480,7 +486,7 @@ static void detect_boundaries(
 
 static ComputeResult compute_all(
     const Topology& topo, int N, double cfl_safety,
-    double pml_thickness[6],       // xmin, xmax, ymin, ymax, zmin, zmax
+    double pml_thickness[6],        // xmin, xmax, ymin, ymax, zmin, zmax
     const double domain_bounds[6],  // xmin, xmax, ymin, ymax, zmin, zmax
     int64_t nx_elements, int64_t ny_elements) {
     int64_t n_cell = topo.n_cell;
@@ -502,11 +508,10 @@ static ComputeResult compute_all(
     gll_quadrature(N, pts, w);
 
     // Compute expanded is_pml from grid position (structured mesh only)
-    int64_t nz_elements = (nx_elements > 0 && ny_elements > 0)
-                              ? n_cell / (nx_elements * ny_elements)
-                              : 0;
-    bool structured_mesh = (nx_elements > 0 && ny_elements > 0 &&
-                            nx_elements * ny_elements * nz_elements == n_cell);
+    int64_t nz_elements =
+        (nx_elements > 0 && ny_elements > 0) ? n_cell / (nx_elements * ny_elements) : 0;
+    bool structured_mesh =
+        (nx_elements > 0 && ny_elements > 0 && nx_elements * ny_elements * nz_elements == n_cell);
     if (structured_mesh) {
         int64_t nx = nx_elements, ny = ny_elements, nz = nz_elements;
         for (int64_t e = 0; e < n_cell; ++e) {
@@ -708,32 +713,38 @@ static ComputeResult compute_all(
                         // Face 0: xmin
                         if (pml_width[0] > 0 && x < pml_start[0]) {
                             double r = (pml_start[0] - x) / pml_width[0];
-                            if (r > damp_val) damp_val = r;
+                            if (r > damp_val)
+                                damp_val = r;
                         }
                         // Face 1: xmax
                         if (pml_width[1] > 0 && x > pml_start[1]) {
                             double r = (x - pml_start[1]) / pml_width[1];
-                            if (r > damp_val) damp_val = r;
+                            if (r > damp_val)
+                                damp_val = r;
                         }
                         // Face 2: ymin
                         if (pml_width[2] > 0 && y < pml_start[2]) {
                             double r = (pml_start[2] - y) / pml_width[2];
-                            if (r > damp_val) damp_val = r;
+                            if (r > damp_val)
+                                damp_val = r;
                         }
                         // Face 3: ymax
                         if (pml_width[3] > 0 && y > pml_start[3]) {
                             double r = (y - pml_start[3]) / pml_width[3];
-                            if (r > damp_val) damp_val = r;
+                            if (r > damp_val)
+                                damp_val = r;
                         }
                         // Face 4: zmin
                         if (pml_width[4] > 0 && z < pml_start[4]) {
                             double r = (pml_start[4] - z) / pml_width[4];
-                            if (r > damp_val) damp_val = r;
+                            if (r > damp_val)
+                                damp_val = r;
                         }
                         // Face 5: zmax
                         if (pml_width[5] > 0 && z > pml_start[5]) {
                             double r = (z - pml_start[5]) / pml_width[5];
-                            if (r > damp_val) damp_val = r;
+                            if (r > damp_val)
+                                damp_val = r;
                         }
                         damp_val = std::min(damp_val, 1.0);
                     }
@@ -954,8 +965,8 @@ int main(int argc, char** argv) {
             (long long)std::count(boundary_tag.begin(), boundary_tag.end(), 1),
             (long long)std::count(boundary_tag.begin(), boundary_tag.end(), 2));
 
-    ComputeResult res = compute_all(topo, N, cfl_safety, pml_thickness, domain_bounds,
-                                    nx_elements, ny_elements);
+    ComputeResult res =
+        compute_all(topo, N, cfl_safety, pml_thickness, domain_bounds, nx_elements, ny_elements);
 
     fprintf(stderr, "Computation done. h_min=%.15e\n", res.cfl_dt);
 

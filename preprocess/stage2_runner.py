@@ -85,9 +85,7 @@ def run_stage2(model_path: str) -> dict[str, str]:
                 pass
 
     if not stats:
-        raise RuntimeError(
-            f"stage2 produced no STAT_* output:\n  stdout: {proc.stdout[:300]}"
-        )
+        raise RuntimeError(f"stage2 produced no STAT_* output:\n  stdout: {proc.stdout[:300]}")
 
     n_cell = int(stats.get("STAT_NCELL", "0"))
     ngll = int(stats.get("STAT_NGLL", "0"))

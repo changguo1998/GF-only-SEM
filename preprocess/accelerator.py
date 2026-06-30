@@ -230,11 +230,7 @@ def run_accelerator(
             damping = np.array(fld["damping"], dtype=np.float64) if has_damping else None
 
             has_is_pml = "is_pml" in fld
-            is_pml = (
-                np.array(fld["is_pml"], dtype=np.bool_)
-                if has_is_pml
-                else None
-            )
+            is_pml = np.array(fld["is_pml"], dtype=np.bool_) if has_is_pml else None
 
             has_boundary_tag = "boundary_tag" in f.get("field/surface", {})
             boundary_tag = (
