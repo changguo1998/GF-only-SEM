@@ -53,6 +53,7 @@ FetchContent_MakeAvailable(Catch2)
 add_subdirectory(compress)
 add_subdirectory(forward)
 add_subdirectory(preprocess/cpp)
+add_subdirectory(tools/cpp)
 add_subdirectory(tests)
 
 # -----------------------------------------------------------------------
