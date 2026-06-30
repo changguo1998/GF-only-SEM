@@ -80,18 +80,7 @@ Needed:
 
 ______________________________________________________________________
 
-## 5. 3D Model Binary Format
-
-**Status:** Placeholder. `model_loader.py` returns constants.
-
-- **Plan:** initial implementation complete — binary format deferred
-- **Design:** [`design/preprocess.md`](design/preprocess.md)
-
-Needed: define a binary model format. Read gridded Vp, Vs, density, Qκ, and Qμ. Interpolate them to GLL nodes.
-
-______________________________________________________________________
-
-## 6. GPU/DCU Device Abstraction
+## 5. GPU/DCU Device Abstraction
 
 **Status:** Implemented (CUDA backend).
 
@@ -114,5 +103,4 @@ ______________________________________________________________________
 | Compression benchmark | compress | Low | Small |
 | Compress test fixes | compress | Medium | Small |
 | Compress-forward link | forward | Low | Tiny |
-| 3D model format | preprocess | High | Medium |
 | GPU abstraction | forward | Done | Large |
