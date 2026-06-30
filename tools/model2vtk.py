@@ -14,9 +14,34 @@ import argparse
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 
 _HEX_FACES = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [3, 7, 6, 2], [0, 4, 7, 3], [1, 2, 6, 5]]
 
+# ── Source coefficient reader ────────────────────────────────────────────
+
+def read_source_coeff(config_path: str, n_cell: int) -> np.ndarray:
+    """Read source-element weights from config.h5, return per-element array [n_cell].
+
+    Non-source elements get 0.0; source elements get the sum of their GLL weights
+    (total across all GLL points = 1.0, divided among containing elements).
+    """
+    coeff = np.zeros(n_cell, dtype=np.float64)
+    if not os.path.isfile(config_path):
+        return coeff
+    try:
+        with h5py.File(config_path, "r") as f:
+            if "source/elements/element_ids" not in f or "source/elements/weights" not in f:
+                return coeff
+            eids = f["source/elements/element_ids"][:]  # 1-based GMSH IDs
+            weights = f["source/elements/weights"][:]     # [n_src, NGLL, NGLL, NGLL]
+    except Exception:
+        return coeff
+    for i, eid in enumerate(eids):
+        idx = int(eid) - 1  # 1-based → 0-based
+        if 0 <= idx < n_cell:
+            coeff[idx] = float(weights[i].sum())
+    return coeff
 
 def resolve_cell_vertices(cell_to_surface, surface_to_edge, edge_to_vertex, cell_idx):
     signed_surfaces = cell_to_surface[cell_idx]
@@ -401,6 +426,7 @@ def main(verbose: bool = False):
     vtk_dir = os.path.join(cwd, "vtk")
     out_path = os.path.join(vtk_dir, "model.vtk")
     part_dir = os.path.join(cwd, "partitions")
+    config_path = os.path.join(cwd, "config.h5")
 
     has_partitions = os.path.isdir(part_dir)
 
@@ -421,6 +447,8 @@ def main(verbose: bool = False):
     n_cell = cell_to_surface.shape[0]
     n_vert = vertex_to_coord.shape[0]
     print(f"  Cells: {n_cell}, Vertices: {n_vert}")
+
+    source_coeff = read_source_coeff(config_path, n_cell)
 
     if verbose:
         print("[model_to_vtk] Resolving hexahedral connectivity...")
@@ -447,6 +475,7 @@ def main(verbose: bool = False):
         # ── Cell-root fields (stay as CELL_DATA, no broadcast to points) ──
         cell_fields["PML_flag"] = is_pml.astype(np.float64)
         cell_fields["Tile_Index"] = fields.get("tile_index", np.full(n_cell, -1.0))
+        cell_fields["Source_Coeff"] = source_coeff
         if verbose:
             print("  Cell fields: " + ", ".join(cell_fields.keys()))
 
@@ -509,6 +538,7 @@ def main(verbose: bool = False):
 
         cell_fields["PML_flag"] = is_pml.astype(np.float64)
         cell_fields["Tile_Index"] = np.full(n_cell, -1.0)
+        cell_fields["Source_Coeff"] = source_coeff
 
         if "field/element/tile_index" in h5py.File(model_path, "r"):
             with h5py.File(model_path, "r") as f:
