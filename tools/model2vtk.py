@@ -20,13 +20,13 @@ _HEX_FACES = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [3, 7, 6, 2], [0, 4, 7, 
 
 # ── Source coefficient reader ────────────────────────────────────────────
 
-def read_source_coeff(config_path: str, n_cell: int) -> np.ndarray:
-    """Read source-element weights from config.h5, return per-element array [n_cell].
+def read_source_coeff_gll(config_path: str, n_cell: int, ngll: int) -> np.ndarray:
+    """Read source-element weights from config.h5, return [n_cell, NGLL, NGLL, NGLL].
 
-    Non-source elements get 0.0; source elements get the sum of their GLL weights
-    (total across all GLL points = 1.0, divided among containing elements).
+    Source elements get their Lagrange interpolation weights at each GLL point;
+    non-source elements get 0. Returns all-zeros if config.h5 missing or no source data.
     """
-    coeff = np.zeros(n_cell, dtype=np.float64)
+    coeff = np.zeros((n_cell, ngll, ngll, ngll), dtype=np.float64)
     if not os.path.isfile(config_path):
         return coeff
     try:
@@ -35,12 +35,14 @@ def read_source_coeff(config_path: str, n_cell: int) -> np.ndarray:
                 return coeff
             eids = f["source/elements/element_ids"][:]  # 1-based GMSH IDs
             weights = f["source/elements/weights"][:]     # [n_src, NGLL, NGLL, NGLL]
+            if weights.shape[1:] != (ngll, ngll, ngll):
+                return coeff
+            for i, eid in enumerate(eids):
+                idx = int(eid) - 1  # 1-based → 0-based
+                if 0 <= idx < n_cell:
+                    coeff[idx] = weights[i].astype(np.float64)
     except Exception:
-        return coeff
-    for i, eid in enumerate(eids):
-        idx = int(eid) - 1  # 1-based → 0-based
-        if 0 <= idx < n_cell:
-            coeff[idx] = float(weights[i].sum())
+        pass
     return coeff
 
 def resolve_cell_vertices(cell_to_surface, surface_to_edge, edge_to_vertex, cell_idx):
@@ -448,7 +450,7 @@ def main(verbose: bool = False):
     n_vert = vertex_to_coord.shape[0]
     print(f"  Cells: {n_cell}, Vertices: {n_vert}")
 
-    source_coeff = read_source_coeff(config_path, n_cell)
+
 
     if verbose:
         print("[model_to_vtk] Resolving hexahedral connectivity...")
@@ -475,7 +477,6 @@ def main(verbose: bool = False):
         # ── Cell-root fields (stay as CELL_DATA, no broadcast to points) ──
         cell_fields["PML_flag"] = is_pml.astype(np.float64)
         cell_fields["Tile_Index"] = fields.get("tile_index", np.full(n_cell, -1.0))
-        cell_fields["Source_Coeff"] = source_coeff
         if verbose:
             print("  Cell fields: " + ", ".join(cell_fields.keys()))
 
@@ -484,6 +485,10 @@ def main(verbose: bool = False):
             gll_fields = read_partition_gll_fields(
                 part_dir, n_cell, (ngll_dim, ngll_dim, ngll_dim)
             )
+            # Add source coefficient from config.h5 as a GLL point field
+            src = read_source_coeff_gll(config_path, n_cell, ngll_dim)
+            if src is not None:
+                gll_fields["source_coeff"] = read_source_coeff_gll(config_path, n_cell, ngll_dim)
             ngll = ngll_dim
             gll_per_cell = ngll**3
             n_mesh_vert = n_vert
@@ -503,6 +508,7 @@ def main(verbose: bool = False):
                 ("Density_kg_m3", "density"),
                 ("Mass", "mass"),
                 ("PML_Damping", "damping"),
+                ("Source_Coeff", "source_coeff"),
             ]:
                 arr = np.zeros(vertex_coords_out.shape[0], dtype=np.float64)
                 # Mesh vertices: interpolate from surrounding elements (point→point)
@@ -538,7 +544,6 @@ def main(verbose: bool = False):
 
         cell_fields["PML_flag"] = is_pml.astype(np.float64)
         cell_fields["Tile_Index"] = np.full(n_cell, -1.0)
-        cell_fields["Source_Coeff"] = source_coeff
 
         if "field/element/tile_index" in h5py.File(model_path, "r"):
             with h5py.File(model_path, "r") as f:
@@ -552,6 +557,7 @@ def main(verbose: bool = False):
             n_mesh_vert = n_vert
 
             gll_fields = read_model_h5_fields(model_path, n_cell, (ngll, ngll, ngll))
+            gll_fields["source_coeff"] = read_source_coeff_gll(config_path, n_cell, ngll)
 
             gll_pt_list = []
             for ci in range(n_cell):
@@ -568,6 +574,7 @@ def main(verbose: bool = False):
                 ("Density_kg_m3", "density"),
                 ("Mass", "mass"),
                 ("PML_Damping", "damping"),
+                ("Source_Coeff", "source_coeff"),
             ]:
                 arr = np.zeros(vertex_coords_out.shape[0], dtype=np.float64)
                 cell_avg = np.mean(gll_fields[name_raw].reshape(n_cell, -1), axis=1)
