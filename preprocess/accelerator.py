@@ -83,12 +83,12 @@ def _find_binary() -> str | None:
 
 
 def run_accelerator(
-    mesh_path: str, config: types.ModuleType, domain_bounds: dict[str, float]
+    model_path: str, config: types.ModuleType, domain_bounds: dict[str, float]
 ) -> dict[str, any]:
     """Run gf_preprocess_cpp if available, return precomputed data.
 
     Args:
-        mesh_path: Path to mesh.h5 (with /topology/ group).
+        model_path: Path to model.h5 (with /topology/ group).
         config: Loaded config module.
         domain_bounds: Dict with xmin, xmax, ymin, ymax, zmin, zmax.
 
@@ -129,13 +129,13 @@ def run_accelerator(
     if pml is None:
         pml = {"xmin": 0, "xmax": 0, "ymin": 0, "ymax": 0, "zmin": 0, "zmax": 0}
 
-    # Ensure domain attrs exist in mesh.h5 (C++ reads them from /domain/ attrs)
-    _ensure_domain_attrs(mesh_path, domain_bounds)
+    # Ensure domain attrs exist in model.h5 (C++ reads them from /domain/ attrs)
+    _ensure_domain_attrs(model_path, domain_bounds)
 
     # Build command
     cmd = [
         binary,
-        os.path.abspath(mesh_path),
+        os.path.abspath(model_path),
         str(N),
         str(cfl_safety),
         str(int(pml.get("xmin", 0))),
@@ -199,7 +199,7 @@ def run_accelerator(
 
     # Read precomputed fields from HDF5
     try:
-        with h5py.File(mesh_path, "r") as f:
+        with h5py.File(model_path, "r") as f:
             fld = f.get("field/element")
             if fld is None:
                 logger.warning("C++ accelerator didn't write field/element — falling back")
@@ -248,13 +248,13 @@ def run_accelerator(
     return result
 
 
-def _ensure_domain_attrs(mesh_path: str, domain_bounds: dict[str, float]) -> None:
-    """Ensure /domain/ attributes exist in mesh.h5 (C++ reads them)."""
+def _ensure_domain_attrs(model_path: str, domain_bounds: dict[str, float]) -> None:
+    """Ensure /domain/ attributes exist in model.h5 (C++ reads them)."""
     try:
-        with h5py.File(mesh_path, "a") as f:
+        with h5py.File(model_path, "a") as f:
             dom = f.require_group("domain")
             for key in ("xmin", "xmax", "ymin", "ymax", "zmin", "zmax"):
                 if key not in dom.attrs:
                     dom.attrs[key] = float(domain_bounds[key])
     except Exception:
-        logger.warning("Could not write domain attrs to mesh.h5", exc_info=True)
+        logger.warning("Could not write domain attrs to model.h5", exc_info=True)

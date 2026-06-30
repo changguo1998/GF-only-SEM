@@ -21,7 +21,7 @@ From [`../../docs/design/postprocess.md`](../../postprocess/design.md) "Horizont
 
 Read `green_tile_size_m` from `config.h5` `/simulation/` attrs.
 
-For each mesh vertex (from mesh.h5 `/topology/vertex_to_coord`):
+For each mesh vertex (from model.h5 `/topology/vertex_to_coord`):
 
 ```
 tile_x = floor((x - xmin) / green_tile_size_m)
@@ -60,7 +60,7 @@ Key differences from current:
 
 - Tile naming: `tile_x{i}_y{j}.h5` instead of `tile_{idx}.h5`
 - Tiling by spatial bin, not element range
-- `vertex_ids` dataset instead of `coords` — consumers read coordinates from `mesh.h5`
+- `vertex_ids` dataset instead of `coords` — consumers read coordinates from `model.h5`
 - Tensor order: `[nt, n_vertices, 6, 3]` — vertices only, no GLL dimensions
 - Rich attrs with spatial bounds and recording params
 
@@ -107,7 +107,7 @@ class GFWriter:
     @staticmethod
     def write(
         output_dir: str | Path,
-        vertex_coords: npt.NDArray[np.float64],  # [n_vertex, 3] from mesh.h5
+        vertex_coords: npt.NDArray[np.float64],  # [n_vertex, 3] from model.h5
         vertex_ids: npt.NDArray[np.int64],        # [n_vertex] global vertex IDs
         time: npt.NDArray[np.float64],            # [nt]
         dt: float,
@@ -123,7 +123,7 @@ class GFWriter:
 
 ## Constraints
 
-- Tiles do not duplicate coordinates — consumers read from `mesh.h5` via `vertex_ids`
+- Tiles do not duplicate coordinates — consumers read from `model.h5` via `vertex_ids`
 - Tile naming uses zero-padded 3-digit indices: `tile_x000_y000.h5`
 - Empty bins produce no file (skip bins with 0 vertices)
 - Postprocess still reads full per-rank record files and merges them — the tiling change is only in the output stage

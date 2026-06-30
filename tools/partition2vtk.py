@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Convert partitioned mesh (partitions/partition_{r}.h5) to per-rank VTK files.
 
-Reads mesh.h5 topology and each partition file from the partitions/ directory
+Reads model.h5 topology and each partition file from the partitions/ directory
 in CWD, resolves hexahedral cell connectivity for local elements, and writes
 partition_{r}.vtk per rank with cell-averaged Vp, Vs, density, mass, damping,
 PML flag, and rank assignment.
@@ -321,7 +321,7 @@ def write_vtu(
 
 def main():
     cwd = os.getcwd()
-    mesh_path = os.path.join(cwd, "mesh.h5")
+    model_path = os.path.join(cwd, "model.h5")
     part_dir = os.path.join(cwd, "partitions")
     vtk_dir = os.path.join(cwd, "vtk")
 
@@ -329,8 +329,8 @@ def main():
         print("[partition_to_vtk] Error: no partitions/ directory found in CWD")
         return 1
 
-    print(f"[partition_to_vtk] Reading {mesh_path}")
-    with h5py.File(mesh_path, "r") as f:
+    print(f"[partition_to_vtk] Reading {model_path}")
+    with h5py.File(model_path, "r") as f:
         topo = f["topology"]
         vertex_to_coord = topo["vertex_to_coord"][:]
         edge_to_vertex = topo["edge_to_vertex"][:]

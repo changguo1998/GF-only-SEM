@@ -1,4 +1,4 @@
-"""Topology reader — read mesh.h5 /topology/ datasets."""
+"""Topology reader — read model.h5 /topology/ datasets."""
 
 from dataclasses import dataclass
 

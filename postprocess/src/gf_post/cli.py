@@ -1,7 +1,7 @@
 """CLI entry point for the postprocessing pipeline.
 
 Usage:
-    gf-postprocess mesh.h5 config.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ -o greenfun/
+    gf-postprocess model.h5 config.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ -o greenfun/
 """
 
 import glob

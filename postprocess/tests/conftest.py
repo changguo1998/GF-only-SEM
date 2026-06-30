@@ -8,9 +8,9 @@ import pytest
 
 
 @pytest.fixture
-def synthetic_mesh_path(tmp_path):
-    """Create a minimal mesh.h5 with vertex coordinates."""
-    path = tmp_path / "mesh.h5"
+def synthetic_model_path(tmp_path):
+    """Create a minimal model.h5 with vertex coordinates."""
+    path = tmp_path / "model.h5"
     n_vertex = 8  # unit cube corners
 
     with h5py.File(path, "w") as f:
@@ -94,7 +94,7 @@ def synthetic_record_path(tmp_path):
 
 
 @pytest.fixture
-def synthetic_multirank_records(tmp_path, synthetic_mesh_path):
+def synthetic_multirank_records(tmp_path, synthetic_model_path):
     """Create per-rank record files for a 2-rank case, each with 1 vertex."""
     n_checkpoints = 2
     rank_list = [0, 1]

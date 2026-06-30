@@ -7,20 +7,20 @@ with open("preprocess/model_writer.py", "r") as f:
 
 # 1. Update write_model signature + docstring
 content = content.replace(
-    'def write_model(\n    mesh_path: str,\n    topology: TopologyData,\n    fields: dict[str, npt.NDArray],\n    boundary_tag: npt.NDArray[np.int64],\n    domain_bounds: dict[str, float],\n    partition_result: dict | None = None,\n) -> None:\n    """Extend mesh.h5 with field data and write partition files.',
-    'def write_model(\n    mesh_path: str,\n    topology: TopologyData,\n    fields: dict[str, npt.NDArray],\n    boundary_tag: npt.NDArray[np.int64],\n    domain_bounds: dict[str, float],\n    partition_result: dict | None = None,\n    recording_map: dict | None = None,\n) -> None:\n    """Extend mesh.h5 with field data and write partition files.',
+    'def write_model(\n    model_path: str,\n    topology: TopologyData,\n    fields: dict[str, npt.NDArray],\n    boundary_tag: npt.NDArray[np.int64],\n    domain_bounds: dict[str, float],\n    partition_result: dict | None = None,\n) -> None:\n    """Extend model.h5 with field data and write partition files.',
+    'def write_model(\n    model_path: str,\n    topology: TopologyData,\n    fields: dict[str, npt.NDArray],\n    boundary_tag: npt.NDArray[np.int64],\n    domain_bounds: dict[str, float],\n    partition_result: dict | None = None,\n    recording_map: dict | None = None,\n) -> None:\n    """Extend model.h5 with field data and write partition files.',
 )
 
 # 2. Update call to _write_partition_files
 content = content.replace(
-    "    if partition_result is not None:\n        _write_partition_files(mesh_path, topology, fields, boundary_tag, partition_result)",
-    "    if partition_result is not None:\n        _write_partition_files(mesh_path, topology, fields, boundary_tag, partition_result,\n                                recording_map=recording_map)",
+    "    if partition_result is not None:\n        _write_partition_files(model_path, topology, fields, boundary_tag, partition_result)",
+    "    if partition_result is not None:\n        _write_partition_files(model_path, topology, fields, boundary_tag, partition_result,\n                                recording_map=recording_map)",
 )
 
 # 3. Update _write_partition_files signature
 content = content.replace(
-    "def _write_partition_files(\n    mesh_path: str,\n    topology: TopologyData,\n    fields: dict[str, npt.NDArray],\n    boundary_tag: npt.NDArray[np.int64],\n    partition_result: dict,\n) -> None:",
-    "def _write_partition_files(\n    mesh_path: str,\n    topology: TopologyData,\n    fields: dict[str, npt.NDArray],\n    boundary_tag: npt.NDArray[np.int64],\n    partition_result: dict,\n    recording_map: dict | None = None,\n) -> None:",
+    "def _write_partition_files(\n    model_path: str,\n    topology: TopologyData,\n    fields: dict[str, npt.NDArray],\n    boundary_tag: npt.NDArray[np.int64],\n    partition_result: dict,\n) -> None:",
+    "def _write_partition_files(\n    model_path: str,\n    topology: TopologyData,\n    fields: dict[str, npt.NDArray],\n    boundary_tag: npt.NDArray[np.int64],\n    partition_result: dict,\n    recording_map: dict | None = None,\n) -> None:",
 )
 
 # 4. Add recording map writing after exchange patterns

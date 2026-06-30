@@ -11,7 +11,7 @@ Usage:
     wavefield2vtk
 
 Reads:
-    mesh.h5
+    model.h5
     config.h5                          — snapshot stride, nsteps
     wavefields/{x,y,z}/record_{r}.h5   — strain at recorded vertices
 
@@ -132,13 +132,13 @@ def write_vtu(path, vertex_coords, connectivity, cell_fields):
 
 def main():
     cwd = os.getcwd()
-    mesh_path = os.path.join(cwd, "mesh.h5")
+    model_path = os.path.join(cwd, "model.h5")
     config_path = os.path.join(cwd, "config.h5")
     parts_dir = os.path.join(cwd, "partitions")
 
     # ── Read mesh topology ──
-    print(f"[wavefield2vtk] Reading {mesh_path}")
-    with h5py.File(mesh_path, "r") as f:
+    print(f"[wavefield2vtk] Reading {model_path}")
+    with h5py.File(model_path, "r") as f:
         topo = f["topology"]
         vertex_to_coord = topo["vertex_to_coord"][:]
         edge_to_vertex = topo["edge_to_vertex"][:]

@@ -31,7 +31,7 @@ bash examples/halfspace/run.sh
 ```bash
 cd examples/halfspace/
 source setenv.sh          # set PATH to include tool entry points
-mesh2vtk                  # → vtk/mesh.vtk (material fields + GLL points)
+model2vtk                  # → vtk/model.vtk (material fields + GLL points)
 partition2vtk             # → vtk/partition_{r}.vtk (per-rank view)
 ```
 
@@ -70,7 +70,7 @@ source env_setup.sh
 
 ```
 examples/halfspace/
-├── mesh.h5                  # Extended mesh (topology + GLL + materials + PML)
+├── model.h5                  # Extended mesh (topology + GLL + materials + PML)
 ├── config.h5                # Simulation parameters + STF
 ├── partitions/
 │   ├── partition_0.h5       # Rank 0: local elements + exchange patterns

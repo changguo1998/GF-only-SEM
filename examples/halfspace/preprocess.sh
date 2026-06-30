@@ -20,7 +20,7 @@ python -m preprocess
 
 echo ""
 echo "=== Preprocess outputs ==="
-echo "mesh.h5:      $(du -sh mesh.h5 | cut -f1)"
+echo "model.h5:      $(du -sh model.h5 | cut -f1)"
 echo "config.h5:    $(du -sh config.h5 | cut -f1)"
 showdir "${WORK_DIR}/partitions/"
 echo ""
@@ -29,8 +29,8 @@ cat "${WORK_DIR}/log/preprocess.log" 2>/dev/null | tail -20 || true
 echo ""
 echo "=== VTK output ==="
 cd "${WORK_DIR}"
-echo "--- mesh2vtk ---"
-python -m tools.mesh2vtk
+echo "--- model2vtk ---"
+python -m tools.model2vtk
 echo ""
 echo "--- partition2vtk ---"
 python -m tools.partition2vtk

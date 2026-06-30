@@ -1,4 +1,4 @@
-"""Model writer — extend mesh.h5 and write partition_{r}.h5 files."""
+"""Model writer — extend model.h5 and write partition_{r}.h5 files."""
 
 import os
 
@@ -108,7 +108,7 @@ def compute_element_tile_index(
 
 
 def write_model(
-    mesh_path: str,
+    model_path: str,
     topology: TopologyData,
     fields: dict[str, npt.NDArray],
     boundary_tag: npt.NDArray[np.int64],
@@ -117,11 +117,13 @@ def write_model(
     recording_map: dict | None = None,
     tile_config: dict | None = None,
 ) -> None:
-    """Extend mesh.h5 with field data and write partition files.
+    """Extend model.h5 with field data and write partition files.
 
-    mesh.h5 is extended (append mode) with:
+    model.h5 is extended (append mode) with:
       /field/element/coords, /field/element/dxi_dx, /field/element/jacobian
-      /field/element/is_pml
+      /field/element/mass, /field/element/vp, /field/element/vs
+      /field/element/density, /field/element/lambda, /field/element/mu
+      /field/element/damping, /field/element/is_pml
       /field/element/tile_index
       /field/surface/boundary_tag
 
@@ -130,7 +132,7 @@ def write_model(
     and partition metadata.
 
     Args:
-        mesh_path: Path to mesh.h5 (extended in-place).
+        model_path: Path to model.h5 (extended in-place).
         topology: Mesh topology (used for partition files).
         fields: Dict with keys: coords, jacobian, dxi_dx, mass, vp, vs,
                 density, is_pml, damping.
@@ -141,11 +143,11 @@ def write_model(
                      pml_xmin, pml_xmax, pml_ymin, pml_ymax,
                      tilex_elements, tiley_elements.
     """
-    _extend_mesh_h5(mesh_path, fields, boundary_tag, domain_bounds, tile_config=tile_config)
+    _extend_model_h5(model_path, fields, boundary_tag, domain_bounds, tile_config=tile_config)
 
     if partition_result is not None:
         _write_partition_files(
-            mesh_path,
+            model_path,
             topology,
             fields,
             boundary_tag,
@@ -155,25 +157,32 @@ def write_model(
         )
 
 
-def _extend_mesh_h5(
-    mesh_path: str,
+def _extend_model_h5(
+    model_path: str,
     fields: dict[str, npt.NDArray],
     boundary_tag: npt.NDArray[np.int64],
     domain_bounds: dict[str, float],
     tile_config: dict | None = None,
 ) -> None:
-    with h5py.File(mesh_path, "a") as f:
+    with h5py.File(model_path, "a") as f:
         fld = f.require_group("field")
         felem = fld.require_group("element")
 
         _write_dataset(felem, "coords", fields.get("coords"), dtype="float64")
         _write_dataset(felem, "dxi_dx", fields.get("dxi_dx"), dtype="float64")
         _write_dataset(felem, "jacobian", fields.get("jacobian"), dtype="float64")
+        _write_dataset(felem, "mass", fields.get("mass"), dtype="float64")
+        _write_dataset(felem, "vp", fields.get("vp"), dtype="float64")
+        _write_dataset(felem, "vs", fields.get("vs"), dtype="float64")
+        _write_dataset(felem, "density", fields.get("density"), dtype="float64")
+        _write_dataset(felem, "lambda", fields.get("lambda"), dtype="float64")
+        _write_dataset(felem, "mu", fields.get("mu"), dtype="float64")
+        _write_dataset(felem, "damping", fields.get("damping"), dtype="float64")
 
         is_pml = fields.get("is_pml", np.array([], dtype=np.bool_))
         _write_dataset(felem, "is_pml", is_pml.astype(np.int8), dtype="int8")
 
-        # Write tile_index to mesh.h5 if tile config is available
+        # Write tile_index to model.h5 if tile config is available
         if tile_config is not None:
             n_cell = int(f["topology"].attrs["n_cell"])
             tile_idx = compute_element_tile_index(
@@ -201,7 +210,7 @@ def _extend_mesh_h5(
 
 
 def _write_partition_files(
-    mesh_path: str,
+    model_path: str,
     topology: TopologyData,
     fields: dict[str, npt.NDArray],
     boundary_tag: npt.NDArray[np.int64],
@@ -209,7 +218,7 @@ def _write_partition_files(
     recording_map: dict | None = None,
     tile_config: dict | None = None,
 ) -> None:
-    mesh_dir = os.path.dirname(os.path.abspath(mesh_path))
+    mesh_dir = os.path.dirname(os.path.abspath(model_path))
     parts_dir = os.path.join(mesh_dir, "partitions")
     os.makedirs(parts_dir, exist_ok=True)
 

@@ -9,8 +9,8 @@ Tools install as root `pyproject.toml` console scripts. After sourcing `examples
 
 | File | Script | Role |
 |------|--------|------|
-| `gmsh_to_hdf5.py` | — | Read `.msh`; write `mesh.h5` topology. |
-| `mesh2vtk.py` | `mesh2vtk` | Write `mesh.vtk` with mesh and material fields. |
+| `gmsh_to_hdf5.py` | — | Read `.msh`; write `model.h5` topology. |
+| `model2vtk.py` | `model2vtk` | Write `model.vtk` with mesh and material fields. |
 | `partition2vtk.py` | `partition2vtk` | Write `partition_{r}.vtk` for METIS partitions. |
 | `wavefield2vtk.py` | `wavefield2vtk` | Write per-step VTK with cell-corner strain. |
 | `wavefield2vtk_detail.py` | `wavefield2vtk_detail` | Write per-step VTK with full GLL point strain. |
@@ -59,7 +59,7 @@ If GLL coords are absent, write mesh vertices only (non-detail mode).
 
 ```bash
 cd examples/halfspace/
-mesh2vtk
+model2vtk
 partition2vtk
 wavefield2vtk
 wavefield2vtk_detail
@@ -67,7 +67,7 @@ wavefield2vtk_detail
 
 Outputs go under `vtk/`.
 
-## mesh.h5 Topology Schema
+## model.h5 Topology Schema
 
 | Dataset | Shape | Description |
 |---------|-------|-------------|
@@ -78,7 +78,7 @@ Outputs go under `vtk/`.
 
 Attributes: `n_vertex`, `n_edge`, `n_surface`, `n_cell`.
 
-Preprocess extends `mesh.h5` with `/field/element/coords`, `dxi_dx`, `jacobian`, and `is_pml`.
+Preprocess extends `model.h5` with `/field/element/coords`, `dxi_dx`, `jacobian`, and `is_pml`.
 
 ## Tests
 

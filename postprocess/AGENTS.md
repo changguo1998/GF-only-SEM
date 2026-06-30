@@ -18,7 +18,7 @@ No receivers. Output is the configured shallow mesh-vertex field.
 ## Data Flow
 
 ```
-mesh.h5 (/topology/vertex_to_coord) ───┐
+model.h5 (/topology/vertex_to_coord) ───┐
 config.h5 (timing + tile size) ────────┤
 wavefields/{x,y,z}/record_{r}.h5 ──────┤
                                        ↓
@@ -31,7 +31,7 @@ merge by global vertex_id
 ## CLI
 
 ```bash
-gf-postprocess mesh.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ -o greenfun/
+gf-postprocess model.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ -o greenfun/
 ```
 
 Tile sizes come from `config.h5` (`/simulation/tilex_elements`, `tiley_elements`).

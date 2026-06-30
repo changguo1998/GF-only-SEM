@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Read `mesh.h5` + `config.py`. Write extended `mesh.h5`, `config.h5`, and per-rank `partition_{r}.h5`. Also build shallow mesh-vertex recording maps.
+Read `model.h5` + `config.py`. Write extended `model.h5`, `config.h5`, and per-rank `partition_{r}.h5`. Also build shallow mesh-vertex recording maps.
 
 ## Files
 
@@ -26,7 +26,7 @@ Read `mesh.h5` + `config.py`. Write extended `mesh.h5`, `config.h5`, and per-ran
 ## Pipeline
 
 ```
-mesh.h5 + config.py
+model.h5 + config.py
 → load config
 → [C++ accelerator: GLL geometry, CFL h_min, PML damping ramps]
 → material at GLL nodes
@@ -36,7 +36,7 @@ mesh.h5 + config.py
 → validation
 → METIS partition
 → recording map      (snaps depth, builds tile_index clamped to PML + recording depth)
-→ write mesh.h5, config.h5, partitions/partition_{r}.h5
+→ write model.h5, config.h5, partitions/partition_{r}.h5
 ```
 
 ## Config Rules

@@ -70,7 +70,7 @@ class RecordReader:
 
 
 class GeometryReader:
-    """Reads mesh vertex coordinates from mesh.h5."""
+    """Reads mesh vertex coordinates from model.h5."""
 
     def __init__(self, path: str):
         self.path = path

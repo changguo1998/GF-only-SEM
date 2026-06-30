@@ -2,10 +2,10 @@
 """Convert GMSH v4.1 .msh to internal HDF5 topology format.
 
 Reads GMSH mesh, extracts topology only (vertices, edges, surfaces, cells),
-writes mesh.h5 with /topology/ group. 1-based indexing, signed direction.
+writes model.h5 with /topology/ group. 1-based indexing, signed direction.
 
 Usage:
-    python tools/gmsh_to_hdf5.py input.msh [-o mesh.h5]
+    python tools/gmsh_to_hdf5.py input.msh [-o model.h5]
 """
 
 import argparse
@@ -143,7 +143,7 @@ def extract_topology(mesh):
 
 
 def write_topology(path, topology):
-    """Write mesh.h5 with /topology/ group."""
+    """Write model.h5 with /topology/ group."""
     with h5py.File(path, "w") as f:
         topo = f.create_group("topology")
         v2c = topology["vertex_to_coord"]
@@ -188,7 +188,7 @@ def _build_csr(pairs, n_rows):
 
 
 def write_auxiliary(path, topology):
-    """Write mesh_auxiliary.h5 with CSR adjacency relations."""
+    """Write model_auxiliary.h5 with CSR adjacency relations."""
     e2v = topology["edge_to_vertex"]
     s2e = topology["surface_to_edge"]
     c2s = topology["cell_to_surface"]
@@ -272,7 +272,7 @@ def main():
     parser = argparse.ArgumentParser(description="GMSH to HDF5 topology converter")
     parser.add_argument("input", help="Input GMSH .msh file (v4.1)")
     parser.add_argument(
-        "-o", "--output", default="mesh.h5", help="Output mesh.h5 (default: mesh.h5)"
+        "-o", "--output", default="model.h5", help="Output model.h5 (default: model.h5)"
     )
     parser.add_argument("--aux", help="Optional auxiliary CSR file")
     args = parser.parse_args()

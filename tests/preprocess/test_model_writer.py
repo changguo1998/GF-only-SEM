@@ -49,7 +49,7 @@ def _make_unit_cube_topo():
     return TopologyData(verts, e2v, s2e, c2s, 8, 12, 6, 1)
 
 
-def _make_mesh_h5(path):
+def _make_model_h5(path):
     topo = _make_unit_cube_topo()
     with h5py.File(path, "w") as f:
         grp = f.create_group("topology")
@@ -93,17 +93,17 @@ def _make_synthetic_fields(n_cell=1, ngll=4):
 
 
 class TestModelWriter:
-    def test_mesh_h5_extension(self):
+    def test_model_h5_extension(self):
         with tempfile.TemporaryDirectory() as td:
-            mesh_path = os.path.join(td, "mesh.h5")
-            topo = _make_mesh_h5(mesh_path)
+            model_path = os.path.join(td, "model.h5")
+            topo = _make_model_h5(model_path)
             fields = _make_synthetic_fields(n_cell=1, ngll=4)
             boundary_tag = np.array([1, 2, 2, 2, 2, 2], dtype=np.int64)
             domain_bounds = {"xmin": 0, "xmax": 1, "ymin": 0, "ymax": 1, "zmin": 0, "zmax": 1}
 
-            write_model(mesh_path, topo, fields, boundary_tag, domain_bounds)
+            write_model(model_path, topo, fields, boundary_tag, domain_bounds)
 
-            with h5py.File(mesh_path, "r") as f:
+            with h5py.File(model_path, "r") as f:
                 assert "topology" in f
                 assert "field" in f
                 assert "domain" in f
@@ -122,25 +122,25 @@ class TestModelWriter:
                 assert f["domain"].attrs["xmin"] == 0.0
                 assert f["domain"].attrs["xmax"] == 1.0
 
-    def test_mesh_h5_preserves_topology(self):
+    def test_model_h5_preserves_topology(self):
         with tempfile.TemporaryDirectory() as td:
-            mesh_path = os.path.join(td, "mesh.h5")
-            topo = _make_mesh_h5(mesh_path)
+            model_path = os.path.join(td, "model.h5")
+            topo = _make_model_h5(model_path)
             fields = _make_synthetic_fields(n_cell=1, ngll=4)
             boundary_tag = np.array([1, 2, 2, 2, 2, 2], dtype=np.int64)
             domain_bounds = {"xmin": 0, "xmax": 1, "ymin": 0, "ymax": 1, "zmin": 0, "zmax": 1}
 
-            write_model(mesh_path, topo, fields, boundary_tag, domain_bounds)
+            write_model(model_path, topo, fields, boundary_tag, domain_bounds)
 
-            with h5py.File(mesh_path, "r") as f:
+            with h5py.File(model_path, "r") as f:
                 topo_grp = f["topology"]
                 assert np.array_equal(topo_grp["vertex_to_coord"][:], topo.vertex_to_coord)
                 assert np.array_equal(topo_grp["cell_to_surface"][:], topo.cell_to_surface)
 
     def test_partition_files_created(self):
         with tempfile.TemporaryDirectory() as td:
-            mesh_path = os.path.join(td, "mesh.h5")
-            topo = _make_mesh_h5(mesh_path)
+            model_path = os.path.join(td, "model.h5")
+            topo = _make_model_h5(model_path)
             fields = _make_synthetic_fields(n_cell=1, ngll=4)
             boundary_tag = np.array([1, 2, 2, 2, 2, 2], dtype=np.int64)
             domain_bounds = {"xmin": 0, "xmax": 1, "ymin": 0, "ymax": 1, "zmin": 0, "zmax": 1}
@@ -158,7 +158,7 @@ class TestModelWriter:
                 },
             }
 
-            write_model(mesh_path, topo, fields, boundary_tag, domain_bounds, partition_result)
+            write_model(model_path, topo, fields, boundary_tag, domain_bounds, partition_result)
 
             part_dir = os.path.join(td, "partitions")
             assert os.path.isdir(part_dir)
@@ -185,8 +185,8 @@ class TestModelWriter:
 
     def test_partition_multi_rank(self):
         with tempfile.TemporaryDirectory() as td:
-            mesh_path = os.path.join(td, "mesh.h5")
-            topo = _make_mesh_h5(mesh_path)
+            model_path = os.path.join(td, "model.h5")
+            topo = _make_model_h5(model_path)
             fields = _make_synthetic_fields(n_cell=1, ngll=4)
             boundary_tag = np.array([1, 2, 2, 2, 2, 2], dtype=np.int64)
             domain_bounds = {"xmin": 0, "xmax": 1, "ymin": 0, "ymax": 1, "zmin": 0, "zmax": 1}
@@ -204,7 +204,7 @@ class TestModelWriter:
                 },
             }
 
-            write_model(mesh_path, topo, fields, boundary_tag, domain_bounds, partition_result)
+            write_model(model_path, topo, fields, boundary_tag, domain_bounds, partition_result)
 
             part_path = os.path.join(td, "partitions", "partition_0.h5")
             with h5py.File(part_path, "r") as f:
@@ -216,30 +216,30 @@ class TestModelWriter:
 
     def test_is_pml_int8_written(self):
         with tempfile.TemporaryDirectory() as td:
-            mesh_path = os.path.join(td, "mesh.h5")
-            topo = _make_mesh_h5(mesh_path)
+            model_path = os.path.join(td, "model.h5")
+            topo = _make_model_h5(model_path)
             fields = _make_synthetic_fields(n_cell=1, ngll=4)
             fields["is_pml"] = np.array([True], dtype=np.bool_)
             boundary_tag = np.array([1, 2, 2, 2, 2, 2], dtype=np.int64)
             domain_bounds = {"xmin": 0, "xmax": 1, "ymin": 0, "ymax": 1, "zmin": 0, "zmax": 1}
 
-            write_model(mesh_path, topo, fields, boundary_tag, domain_bounds)
+            write_model(model_path, topo, fields, boundary_tag, domain_bounds)
 
-            with h5py.File(mesh_path, "r") as f:
+            with h5py.File(model_path, "r") as f:
                 is_pml_data = f["field/element/is_pml"][:]
                 assert is_pml_data.dtype == np.int8
                 assert is_pml_data[0] == 1
 
     def test_no_partition_no_partition_dir(self):
         with tempfile.TemporaryDirectory() as td:
-            mesh_path = os.path.join(td, "mesh.h5")
-            topo = _make_mesh_h5(mesh_path)
+            model_path = os.path.join(td, "model.h5")
+            topo = _make_model_h5(model_path)
             fields = _make_synthetic_fields(n_cell=1, ngll=4)
             boundary_tag = np.array([1, 2, 2, 2, 2, 2], dtype=np.int64)
             domain_bounds = {"xmin": 0, "xmax": 1, "ymin": 0, "ymax": 1, "zmin": 0, "zmax": 1}
 
             write_model(
-                mesh_path, topo, fields, boundary_tag, domain_bounds, partition_result=None
+                model_path, topo, fields, boundary_tag, domain_bounds, partition_result=None
             )
 
             part_dir = os.path.join(td, "partitions")

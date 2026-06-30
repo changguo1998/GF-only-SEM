@@ -7,7 +7,7 @@ Python pre/post-processing, C++17 MPI compute, HDF5 I/O, METIS partitioning.
 ## Pipeline
 
 ```
-config.py + mesh.h5 → preprocess → partition_{r}.h5 + config.h5
+config.py + model.h5 → preprocess → partition_{r}.h5 + config.h5
                                    → forward solver (x3 directions)
                                    → wavefields/{x,y,z}/record_{r}.h5
                                    → postprocess → greenfun/tile*.h5
@@ -69,7 +69,7 @@ cmake --build build --target gf_solver_mpi_cuda    # MPI + CUDA multi-GPU
 
 ```bash
 # Preprocess
-python -m preprocess                          # reads config.py + mesh.h5 from CWD
+python -m preprocess                          # reads config.py + model.h5 from CWD
 
 # Forward (3 directions) — choose your binary:
 mpirun -n $N_RANKS bin/gf_solver_mpi --direction x
@@ -83,7 +83,7 @@ bin/gf_solver_cuda --direction x
 mpirun -n $N_RANKS bin/gf_solver_mpi_cuda --direction x
 
 # Post-process
-gf-postprocess mesh.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/
+gf-postprocess model.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/
 
 # C++ accelerator thread count
 export OMP_NUM_THREADS=8   # default: all available CPUs

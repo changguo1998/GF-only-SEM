@@ -10,7 +10,7 @@ Usage:
     python ../../tools/wavefield2vtk_detail.py
 
 Reads:
-    mesh.h5
+    model.h5
     wavefields/{x,y,z}/record_{r}.h5  (all ranks r)
     config.h5                       — for snapshot stride
 
@@ -313,11 +313,11 @@ def find_record_files(wave_dir):
 
 def main():
     cwd = os.getcwd()
-    mesh_path = os.path.join(cwd, "mesh.h5")
+    model_path = os.path.join(cwd, "model.h5")
     config_path = os.path.join(cwd, "config.h5")
 
-    print(f"[wavefield2vtk_detail] Reading {mesh_path}")
-    with h5py.File(mesh_path, "r") as f:
+    print(f"[wavefield2vtk_detail] Reading {model_path}")
+    with h5py.File(model_path, "r") as f:
         topo = f["topology"]
         vertex_to_coord = topo["vertex_to_coord"][:]
         edge_to_vertex = topo["edge_to_vertex"][:]

@@ -1,4 +1,4 @@
-"""python -m preprocess — reads mesh.h5 + config.py from CWD."""
+"""python -m preprocess — reads model.h5 + config.py from CWD."""
 
 from preprocess.cli import main
 

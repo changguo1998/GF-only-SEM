@@ -49,16 +49,16 @@ class TestRecordReader:
 
 
 class TestGeometryReader:
-    def test_context_manager(self, synthetic_mesh_path):
-        with GeometryReader(synthetic_mesh_path) as gr:
+    def test_context_manager(self, synthetic_model_path):
+        with GeometryReader(synthetic_model_path) as gr:
             assert gr.n_vertex == 8
 
-    def test_vertex_coords_shape(self, synthetic_mesh_path):
-        with GeometryReader(synthetic_mesh_path) as gr:
+    def test_vertex_coords_shape(self, synthetic_model_path):
+        with GeometryReader(synthetic_model_path) as gr:
             assert gr.vertex_coords.shape == (8, 3)
 
-    def test_domain_bounds(self, synthetic_mesh_path):
-        with GeometryReader(synthetic_mesh_path) as gr:
+    def test_domain_bounds(self, synthetic_model_path):
+        with GeometryReader(synthetic_model_path) as gr:
             bounds = gr.domain_bounds
             assert bounds["xmin"] == 0.0
             assert bounds["xmax"] == 1.0

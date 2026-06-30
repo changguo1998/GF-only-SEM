@@ -1,4 +1,4 @@
-"""End-to-end integration tests: GMSH .msh → mesh.h5 → verify HDF5 schema."""
+"""End-to-end integration tests: GMSH .msh → model.h5 → verify HDF5 schema."""
 
 import os
 import sys
@@ -79,7 +79,7 @@ def make_2x2x1_mesh():
 
 
 class TestFullPipeline:
-    """Run full GMSH .msh → mesh.h5 pipeline and verify outputs."""
+    """Run full GMSH .msh → model.h5 pipeline and verify outputs."""
 
     def test_4hex_mesh_hdf5_schema(self):
         """Generate 4-hex mesh, convert to HDF5, verify groups and attributes."""
@@ -87,7 +87,7 @@ class TestFullPipeline:
         topo = extract_topology(mesh)
 
         with tempfile.TemporaryDirectory() as td:
-            path = os.path.join(td, "mesh.h5")
+            path = os.path.join(td, "model.h5")
             write_topology(path, topo)
 
             with h5py.File(path, "r") as f:
@@ -149,7 +149,7 @@ class TestFullPipeline:
         topo = extract_topology(mesh)
 
         with tempfile.TemporaryDirectory() as td:
-            path = os.path.join(td, "mesh_auxiliary.h5")
+            path = os.path.join(td, "model_auxiliary.h5")
             write_auxiliary(path, topo)
 
             with h5py.File(path, "r") as f:
@@ -185,7 +185,7 @@ class TestGmshRoundtrip:
 
         with tempfile.TemporaryDirectory() as td:
             msh_path = os.path.join(td, "test.msh")
-            h5_path = os.path.join(td, "mesh.h5")
+            h5_path = os.path.join(td, "model.h5")
 
             meshio.write(msh_path, mesh, file_format="gmsh")
             mesh_back = meshio.read(msh_path)

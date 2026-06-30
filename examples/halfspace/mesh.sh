@@ -40,6 +40,6 @@ echo "--- mesh_gen.py ---"
 python "${EXAMPLE_DIR}/mesh_gen.py"
 
 echo ""
-echo "mesh.h5:      $(du -sh mesh.h5 | cut -f1)"
+echo "model.h5:      $(du -sh model.h5 | cut -f1)"
 echo ""
 echo "=== Stage 1 complete ==="

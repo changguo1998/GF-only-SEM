@@ -5,17 +5,17 @@
 
 ## Goal
 
-Python module. Reads mesh topology and `config.py`. Computes derived model data and the shallow recording map. Writes `mesh.h5`, `partition_{r}.h5`, and `config.h5`.
+Python module. Reads mesh topology and `config.py`. Computes derived model data and the shallow recording map. Writes `model.h5`, `partition_{r}.h5`, and `config.h5`.
 
 ## Data Flow
 
 ```
-mesh.h5 (/topology/) ─────────┐
+model.h5 (/topology/) ─────────┐
 config.py (script, importable) ─┤
                                 ↓
                           preprocessor (Python [+ optional C++ accelerator])
                           ├── import config.py
-                          ├── read mesh.h5 topology
+                          ├── read model.h5 topology
                           ├── [C++ accelerator: GLL node coords, J, dξ/dx, mass, CFL h_min, PML ramp]
                           ├── compute GLL node coords per element (Python fallback)
                           ├── compute geometric quantities (J, dξ/dx) (Python fallback)
@@ -31,21 +31,21 @@ config.py (script, importable) ─┤
                           ├── partition (METIS) + GLL node global numbering + exchange patterns
                           ├── evaluate STF over time range
                           ├── locate source elements (free surface only), compute Lagrange interpolation weights
-                          ├── write GLL geometry + is_pml BACK to mesh.h5 (extends it)
+                          ├── write GLL geometry + is_pml BACK to model.h5 (extends it)
                           ↓
-                     mesh.h5 (extended) + partition_{r}.h5 + config.h5
+                     model.h5 (extended) + partition_{r}.h5 + config.h5
                           │
                           ↓
                      forward solver (C++)
 ```
 
-Optional output: `mesh_auxiliary.h5` (CSR adjacency for validation/acceleration).
+Optional output: `model_auxiliary.h5` (CSR adjacency for validation/acceleration).
 
 ## Architecture
 
-Single Python CLI. Reads `mesh.h5` and `config.py` from CWD. No CLI args. No YAML/TOML. Loads config with `importlib`.
+Single Python CLI. Reads `model.h5` and `config.py` from CWD. No CLI args. No YAML/TOML. Loads config with `importlib`.
 
-Outputs: extend `mesh.h5` and write one `partition_{r}.h5` per rank. No monolithic `model.h5`.
+Outputs: extend `model.h5` and write one `partition_{r}.h5` per rank. No monolithic `model.h5`.
 
 ```
 preprocess/
@@ -53,7 +53,7 @@ preprocess/
 ├── cli.py              — CLI entry point
 ├── accelerator.py      — optional C++ subprocess runner (GLL geom, CFL, PML)
 ├── config_loader.py     — importlib load config.py, validate
-├── topology_reader.py   — read mesh.h5 /topology/
+├── topology_reader.py   — read model.h5 /topology/
 ├── gll_geometry.py      — compute GLL node coords, jacobian, dξ/dx per element (Python fallback)
 ├── material.py          — evaluate config vp_m_s(x_m,y_m,z_m), vs_m_s(x_m,y_m,z_m), density_kg_m3(x_m,y_m,z_m) at GLL nodes
 ├── mass.py              — compute lumped mass (requires ρ from material step)
@@ -81,7 +81,7 @@ can be offloaded to a standalone C++ executable via subprocess:
 
 - **Dependencies**: HDF5, Eigen3 (same as forward solver)
 
-- **Data flow**: reads mesh.h5 `/topology/`, writes results to `/field/element/`
+- **Data flow**: reads model.h5 `/topology/`, writes results to `/field/element/`
 
 - **Integration**: `accelerator.py` runs the binary, parses `H_MIN` from stdout,
   reads precomputed arrays from HDF5. Falls back to pure Python if binary absent.
@@ -89,7 +89,7 @@ can be offloaded to a standalone C++ executable via subprocess:
 - **CLI signature**:
 
   ```
-  gf_preprocess_cpp <mesh.h5> <N> <cfl_safety> \
+  gf_preprocess_cpp <model.h5> <N> <cfl_safety> \
       <pml_xmin> <pml_xmax> <pml_ymin> <pml_ymax> <pml_zmin> <pml_zmax>
   ```
 
@@ -126,17 +126,17 @@ OpenMP is auto-detected — single-thread fallback if unavailable. The C++ accel
 python -m preprocess
 ```
 
-No arguments — reads `mesh.h5` and `config.py` from the current working directory.
+No arguments — reads `model.h5` and `config.py` from the current working directory.
 
 | File | Description |
 |------|-------------|
-| `mesh.h5` | Converter output in CWD — read topology, write extended geometry + is_pml back |
+| `model.h5` | Converter output in CWD — read topology, write extended geometry + is_pml back |
 | `config.py` | User's Python config script in CWD |
 Output files are placed alongside the inputs:
 
 - `config.h5` — single rank-invariant config
 - `partitions/partition_{r}.h5` — per-rank partition files
-- `mesh.h5` is extended in-place with `/field/element/` geometry and `is_pml`
+- `model.h5` is extended in-place with `/field/element/` geometry and `is_pml`
 
 ## Config Script (`config.py`)
 
@@ -242,7 +242,7 @@ Before writing output files, the preprocessor runs comprehensive validation:
 
 ### 1. Load Topology
 
-Read mesh.h5 `/topology/` datasets into memory. All datasets follow X2Y naming, 1-based indexing, signed direction.
+Read model.h5 `/topology/` datasets into memory. All datasets follow X2Y naming, 1-based indexing, signed direction.
 
 ### 2. Compute GLL Node Geometry
 
@@ -424,16 +424,16 @@ residual — no runtime Newton iteration or element search needed.
 
 ### 13. Write Output Files
 
-- **mesh.h5** — extended in-place with GLL geometry, `is_pml`, and boundary tags.
+- **model.h5** — extended in-place with GLL geometry, `is_pml`, and boundary tags.
 - **partition\_{r}.h5** — per-rank element data, GLL numbering, exchange patterns, metadata, and `/recording/` map
 - **config.h5** — simulation, domain, source, weights, and STF. No force direction.
-- **mesh_auxiliary.h5** (optional) — CSR adjacency relations
+- **model_auxiliary.h5** (optional) — CSR adjacency relations
 
 ## HDF5 Output
 
-### mesh.h5 (extended)
+### model.h5 (extended)
 
-The preprocessor reads topology from `mesh.h5` and writes back:
+The preprocessor reads topology from `model.h5` and writes back:
 
 - `/field/element/coords`, `/field/element/dxi_dx`, `/field/element/jacobian` — GLL geometry
 - `/field/element/is_pml` — int8 flag per element (1=PML, 0=ordinary); preprocessing also uses it to build `/recording/` maps

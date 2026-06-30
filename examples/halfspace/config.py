@@ -14,7 +14,7 @@ Run with:
     cd /path/to/workdir
     python -m preprocess
 
-(Preprocess reads mesh.h5 + config.py from the current working directory.)
+(Preprocess reads model.h5 + config.py from the current working directory.)
 """
 
 import numpy as np

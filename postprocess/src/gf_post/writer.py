@@ -2,7 +2,7 @@
 
 Output tiles partition the non-PML interior by element count.
 Each tile contains vertex_ids + greens_tensor for all vertices in that
-element-range bin. Consumers read coordinates from mesh.h5 via vertex_ids.
+element-range bin. Consumers read coordinates from model.h5 via vertex_ids.
 """
 
 from pathlib import Path

@@ -14,7 +14,7 @@ from preprocess.topology_reader import read_topology
 
 
 def _make_mock_mesh(path, n_cell=2):
-    """Create a synthetic mesh.h5 for testing."""
+    """Create a synthetic model.h5 for testing."""
     with h5py.File(path, "w") as f:
         topo = f.create_group("topology")
 
@@ -111,21 +111,21 @@ def _make_mock_mesh(path, n_cell=2):
 
 class TestReadTopology:
     def test_reads_vertex_to_coord_shape(self, tmp_dir):
-        path = tmp_dir / "mesh.h5"
+        path = tmp_dir / "model.h5"
         _make_mock_mesh(path)
         topo = read_topology(str(path))
         assert topo.vertex_to_coord.shape[1] == 3
         assert topo.n_vertex == 16
 
     def test_reads_n_vertex_attr(self, tmp_dir):
-        path = tmp_dir / "mesh.h5"
+        path = tmp_dir / "model.h5"
         _make_mock_mesh(path)
         topo = read_topology(str(path))
         assert topo.n_vertex == 16
         assert topo.n_cell == 2
 
     def test_edge_to_vertex_signed(self, tmp_dir):
-        path = tmp_dir / "mesh.h5"
+        path = tmp_dir / "model.h5"
         _make_mock_mesh(path)
         topo = read_topology(str(path))
         assert topo.edge_to_vertex.shape[1] == 2
@@ -133,14 +133,14 @@ class TestReadTopology:
         assert np.all(topo.edge_to_vertex > 0)
 
     def test_surface_to_edge_ccw(self, tmp_dir):
-        path = tmp_dir / "mesh.h5"
+        path = tmp_dir / "model.h5"
         _make_mock_mesh(path)
         topo = read_topology(str(path))
         assert topo.surface_to_edge.shape[1] == 4
         assert topo.n_surface == 10
 
     def test_cell_to_surface_signed(self, tmp_dir):
-        path = tmp_dir / "mesh.h5"
+        path = tmp_dir / "model.h5"
         _make_mock_mesh(path)
         topo = read_topology(str(path))
         assert topo.cell_to_surface.shape[1] == 6

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Generate a regular hexahedral mesh and write mesh.h5.
+"""Generate a regular hexahedral mesh and write model.h5.
 
 Creates a rectilinear grid of hex elements and writes the standard
-mesh.h5 topology format used by the preprocessor.
+model.h5 topology format used by the preprocessor.
 
 Mesh dimensions (nx_elements, ny_elements, nz_elements, lx, ly, lz) are read
 from config.py in the same directory.
@@ -97,8 +97,8 @@ def main() -> None:
 
     mesh = create_regular_hex_mesh(nx, ny, nz, lx, ly, lz)
     topology = extract_topology(mesh)
-    write_topology("mesh.h5", topology)
-    print("[mesh_gen] Wrote mesh.h5")
+    write_topology("model.h5", topology)
+    print("[mesh_gen] Wrote model.h5")
     print(f"            Elements: {nx * ny * nz} ({nx}×{ny}×{nz})")
     print(f"            Vertices: {topology['vertex_to_coord'].shape[0]}")
     print(f"            Domain:   {lx}×{ly}×{lz} m")

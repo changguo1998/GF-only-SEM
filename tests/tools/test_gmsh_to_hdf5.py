@@ -133,7 +133,7 @@ class TestWriteTopology:
         topo = extract_topology(mesh)
 
         with tempfile.TemporaryDirectory() as td:
-            path = os.path.join(td, "mesh.h5")
+            path = os.path.join(td, "model.h5")
             write_topology(path, topo)
 
             with h5py.File(path, "r") as f:
@@ -160,7 +160,7 @@ class TestWriteTopology:
         topo = extract_topology(mesh)
 
         with tempfile.TemporaryDirectory() as td:
-            path = os.path.join(td, "mesh.h5")
+            path = os.path.join(td, "model.h5")
             write_topology(path, topo)
 
             with h5py.File(path, "r") as f:

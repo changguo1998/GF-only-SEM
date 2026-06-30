@@ -26,7 +26,7 @@ Postprocess outputs strain only. It does not integrate displacement.
 ## Data Flow
 
 ```
-mesh.h5 (/topology/vertex_to_coord) ───────────────┐
+model.h5 (/topology/vertex_to_coord) ───────────────┐
 config.h5 (/simulation timing + tile elements) ┤
 wavefields/x/record_{r}.h5 ────────────────────────┤
 wavefields/y/record_{r}.h5 ────────────────────────┤
@@ -62,7 +62,7 @@ GFWriter       — write horizontal x/y tiles
 
 ## Inputs
 
-### `mesh.h5`
+### `model.h5`
 
 | Dataset | Shape | Use |
 |---------|-------|-----|
@@ -164,17 +164,17 @@ tile_x{i}_y{j}.h5
 └── /field/greens_tensor : float32[nt, n_tile_vertices, 6, 3]
 ```
 
-Tiles do not duplicate coordinates. Consumers read coordinates from `mesh.h5` by `vertex_ids`.
+Tiles do not duplicate coordinates. Consumers read coordinates from `model.h5` by `vertex_ids`.
 
 ## CLI
 
 ```
-gf-postprocess mesh.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ -o greenfun/
+gf-postprocess model.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ -o greenfun/
 ```
 
 | Arg | Meaning |
 |-----|---------|
-| `mesh.h5` | topology file with `/topology/vertex_to_coord` |
+| `model.h5` | topology file with `/topology/vertex_to_coord` |
 | `--fx dir` | x-force records |
 | `--fy dir` | y-force records |
 | `--fz dir` | z-force records |

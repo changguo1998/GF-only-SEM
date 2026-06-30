@@ -54,7 +54,7 @@ Mathematical formulation for all methods below: [`docs/math.md`](math.md)
 - **Glue language**: Python
 - **Project structure**:
   ```
-  tools/           — GMSH → mesh.h5 converter + VTK visualization tools (Python)
+  tools/           — GMSH → model.h5 converter + VTK visualization tools (Python)
   preprocess/      — Python: GLL geometry, material interpolation, partition, config
   forward/         — C++: core physics library (libgf) + MPI solver executable (elastic only)
   compress/        — C++: header-only checkpoint compression utilities
@@ -68,13 +68,13 @@ Mathematical formulation for all methods below: [`docs/math.md`](math.md)
 ### File Pipeline
 
 ```
-GMSH .msh → converter → mesh.h5 (topology only)
+GMSH .msh → converter → model.h5 (topology only)
                          ↓
-  mesh.h5 ─────────────────────┤
+  model.h5 ─────────────────────┤
   config.py ───────────────────┤
                          ↓
                     preprocessor
-                    ├── GLL geometry, dξ/dx → write back to mesh.h5 (extend)
+                    ├── GLL geometry, dξ/dx → write back to model.h5 (extend)
                     ├── Material at GLL nodes
                     ├── lumped mass
                     ├── PML damping profiles
@@ -84,7 +84,7 @@ GMSH .msh → converter → mesh.h5 (topology only)
                     ├── METIS partition
                     ├── STF time series
                     ↓
-              mesh.h5 (extended: +coords +dxi_dx)
+              model.h5 (extended: +coords +dxi_dx)
                partition_{0,1,...}.h5 (per-rank, local subset)
                config.h5 (single, no direction)
                           ↓
@@ -103,12 +103,12 @@ GMSH .msh → converter → mesh.h5 (topology only)
 
 | File | Producer | Consumer | Content |
 |------|----------|----------|---------|
-| mesh.h5 | converter → preprocessor | preprocessor, postprocess | Topology + GLL geometry + `is_pml`. No material. Postprocess uses `/topology/vertex_to_coord`. |
+| model.h5 | converter → preprocessor | preprocessor, postprocess | Topology + GLL geometry + `is_pml`. No material. Postprocess uses `/topology/vertex_to_coord`. |
 | partition\_{r}.h5 | preprocessor | forward | Per-rank element data, C-PML, partition metadata, and `/recording/` map |
 | config.h5 | preprocessor | forward, postprocess | Simulation params, cadence, record depth, tile size, domain, source, STF, weights. No direction. |
 | wavefields/{direction}/record\_{r}.h5 | forward | postprocess | L2-smoothed strain at recorded vertices; extendible time axis |
 | restart/{direction}/restart\_{r}.h5 | forward | forward (`--resume`) | Latest full-volume restart: u, v, a, C-PML memory, step/time |
-| mesh_auxiliary.h5 | preprocessor (optional) | validation | CSR adjacency relations |
+| model_auxiliary.h5 | preprocessor (optional) | validation | CSR adjacency relations |
 | greenfun/tile_x{i}\_y{j}.h5 | postprocess | user | Mesh-vertex strain Green tensors, x/y tiled |
 
 ### Design Rules
@@ -130,12 +130,12 @@ vertex → edge → surface → cell
          (2 vertices)   (4 edges, quad)   (6 surfaces, hex)
 ```
 
-### mesh.h5 Schema (Extended Geometry)
+### model.h5 Schema (Extended Geometry)
 
-mesh.h5 holds topology and geometry only — no material, no partition data:
+model.h5 holds topology, geometry, and full material/field data at GLL nodes:
 
 ```
-mesh.h5
+model.h5
 ├── /topology/                  ← copied from converter
 │   ├── n_vertex, n_edge, n_surface, n_cell  : attr int64
 │   ├── vertex_to_coord         : float64[n_vertex, 3]
@@ -146,8 +146,16 @@ mesh.h5
 └── /field/element/             ← GLL-node level [n_cell, NGLL, NGLL, NGLL, ...]
     ├── coords                  : float64[..., 3]   — GLL node (x,y,z)
     ├── jacobian                : float64[...]       — det(J)
-    └── dxi_dx                  : float64[..., 3,3]  — ∂ξ_i/∂x_j
+    ├── dxi_dx                  : float64[..., 3,3]  — ∂ξ_i/∂x_j
+    ├── mass                    : float64[...]       — lumped mass diagonal
+    ├── vp, vs, density         : float64[...]       — material at GLL nodes
+    ├── lambda, mu              : float64[...]       — elastic constants
+    ├── damping                 : float64[...]       — PML damping profile
+    ├── is_pml                  : int8[n_cell]       — PML flag
+    └── tile_index              : int64[n_cell]      — tile ID or -1
 ```
+
+These same field datasets are also written to `partition_{r}.h5` per rank.
 
 ### partition\_{r}.h5 Schema (Per-Rank)
 
@@ -241,7 +249,7 @@ greenfun/
 └── ...
 ```
 
-Each tile stores recorded vertices in its x/y bounds for all saved depths. Green files store `vertex_ids`; coordinates stay in `mesh.h5`.
+Each tile stores recorded vertices in its x/y bounds for all saved depths. Green files store `vertex_ids`; coordinates stay in `model.h5`.
 
 ## 7. Preprocessor Decisions
 
@@ -258,7 +266,7 @@ Each tile stores recorded vertices in its x/y bounds for all saved depths. Green
   - Source: x_m, y_m within domain bounds; stf_func returns finite non-NaN values over [0, nsteps×solver_dt]
   - Storage: estimated disk usage ≤ storage_limit_gb, abort if exceeded
   - Snapshot/restart cadence: nsteps % snapshot_stride == 0; restart_stride >= 1
-- **Mesh output**: Preprocess adds GLL geometry and `is_pml` to `mesh.h5`. Rank-local data and `/recording/` go to `partition_{r}.h5`.
+- **Mesh output**: Preprocess adds GLL geometry and `is_pml` to `model.h5`. Rank-local data and `/recording/` go to `partition_{r}.h5`.
 - **STF precompute**: Preprocess samples `stf_func(t_s)` at `solver_dt` and writes an array. Forward does no STF eval.
 - **Mass computation**: After material interpolation (ρ needed for lumped mass).
 - **CPML precompute**: Trace layers inward, tag face/edge/corner elements, and write damping, stretch, convolution, and type arrays to `/field/element/cpml/`.

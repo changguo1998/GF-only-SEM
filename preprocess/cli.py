@@ -1,6 +1,6 @@
 """Preprocessor entry point.
 
-Reads mesh.h5 + config.py from the current working directory.
+Reads model.h5 + config.py from the current working directory.
 """
 
 import math
@@ -45,11 +45,11 @@ def setup_logging(log_dir: str = "log") -> logging.Logger:
 
 
 def main() -> None:
-    """Run the full preprocessor pipeline using mesh.h5 + config.py in CWD."""
+    """Run the full preprocessor pipeline using model.h5 + config.py in CWD."""
     logger = setup_logging()
     start = time.time()
 
-    mesh_path = os.path.abspath("mesh.h5")
+    model_path = os.path.abspath("model.h5")
     config_path = os.path.abspath("config.py")
 
     logger.info(f"Loading config: {config_path}")
@@ -61,8 +61,8 @@ def main() -> None:
         f"  snapshot_precision={config.snapshot_precision}, storage_limit_gb={config.storage_limit_gb}"
     )
 
-    logger.info(f"Reading topology from: {mesh_path}")
-    topology = read_topology(mesh_path)
+    logger.info(f"Reading topology from: {model_path}")
+    topology = read_topology(model_path)
     n_cell = topology.n_cell
     n_surface = topology.n_surface
     n_vertex = topology.n_vertex
@@ -84,7 +84,7 @@ def main() -> None:
     n_gll = N + 1
 
     # Try C++ accelerator for GLL geometry, CFL, and PML damping
-    accel_result = run_accelerator(mesh_path, config, domain_bounds)
+    accel_result = run_accelerator(model_path, config, domain_bounds)
 
     if accel_result["used_cpp"]:
         logger.info("Using C++-accelerated GLL geometry")
@@ -300,11 +300,11 @@ def main() -> None:
         "damping": damping,
     }
 
-    logger.info(f"Writing model to: {mesh_path}")
+    logger.info(f"Writing model to: {model_path}")
     t0 = time.time()
     from preprocess.model_writer import write_model
 
-    # Build tile config for model writer (tile_index in partition files + mesh.h5)
+    # Build tile config for model writer (tile_index in partition files + model.h5)
     tile_config = {
         "nx_elements": int(config.nx_elements),
         "ny_elements": int(config.ny_elements),
@@ -319,7 +319,7 @@ def main() -> None:
     }
 
     write_model(
-        mesh_path,
+        model_path,
         topology,
         fields,
         boundary_tag,
@@ -330,7 +330,7 @@ def main() -> None:
     )
     logger.debug(f"  model write: {time.time() - t0:.2f}s")
 
-    config_h5 = os.path.join(os.path.dirname(mesh_path), "config.h5")
+    config_h5 = os.path.join(os.path.dirname(model_path), "config.h5")
     logger.info(f"Writing config to: {config_h5}")
     t0 = time.time()
     from preprocess.config_writer import write_config
