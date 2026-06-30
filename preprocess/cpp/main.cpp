@@ -152,18 +152,18 @@ static void gll_quadrature(int N, std::vector<double>& pts, std::vector<double>&
     // We compute roots of P'_N(x) = 0 using the Jacobi matrix approach
     // For GLL nodes: -1, roots of P'_N, 1
 
-    // Use the tridiagonal Jacobi matrix for Legendre polynomials
-    // Beta_j = j / sqrt(4*j^2 - 1) for j=1..N-1
-    // Eigenvalues of this (N-1)x(N-1) matrix are the interior GLL nodes
+    // Use symmetric tridiagonal Jacobi matrix for GLL points.
+    // Interior GLL nodes are eigenvalues of this (N-1)x(N-1) matrix.
+    // Beta_i = sqrt( i * (i+2) / ((2*i+1) * (2*i+3)) ) for i=1..N-2
+    // (This differs from the Legendre polynomial Jacobi matrix which uses
+    //  beta_i = i / sqrt(4*i^2 - 1) for the roots of P_N.)
     int n_int = N - 1;
     Eigen::MatrixXd J = Eigen::MatrixXd::Zero(n_int, n_int);
-    for (int j = 1; j <= n_int; ++j) {
-        double beta = j / std::sqrt(4.0 * j * j - 1.0);
-        if (j > 1)
-            J(j - 1, j - 2) = beta;
-        J(j - 1, j - 1) = 0.0;
-        if (j < n_int)
-            J(j - 1, j) = beta;
+    for (int i = 1; i <= n_int - 1; ++i) {
+        double beta = std::sqrt(static_cast<double>(i * (i + 2))
+                                / ((2.0 * i + 1.0) * (2.0 * i + 3.0)));
+        J(i - 1, i) = beta;
+        J(i, i - 1) = beta;
     }
 
     Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigensolver(J);
