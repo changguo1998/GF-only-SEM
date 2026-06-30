@@ -11,7 +11,7 @@ source "$HOME/.spack/share/spack/setup-env.sh"
 spack load llvm
 
 # find target files
-SKIP_DIRS=(.venv build .git .pytest_cache __pycache__)
+SKIP_DIRS=(.venv build .git .pytest_cache __pycache__ .ruff_cache)
 SKIP_EXPR=()
 for d in "${SKIP_DIRS[@]}"; do SKIP_EXPR+=(-path "*/$d" -prune -o); done
 ALL_TMP=$(mktemp)
