@@ -13,25 +13,19 @@ Python module. Reads mesh topology and `config.py`. Computes derived model data 
 model.h5 (/topology/) ─────────┐
 config.py (script, importable) ─┤
                                 ↓
-                          preprocessor (Python [+ optional C++ accelerator])
+                          preprocessor (Python + adaptive C++ acceleration)
                           ├── import config.py
                           ├── read model.h5 topology
-                          ├── [C++ accelerator: GLL node coords, J, dξ/dx, mass, CFL h_min, PML ramp]
-                          ├── compute GLL node coords per element (Python fallback)
-                          ├── compute geometric quantities (J, dξ/dx) (Python fallback)
-                          ├── call config.py material functions → GLL nodes
-                          ├── compute lumped mass
-                          ├── auto-detect boundary tags (surface level), set is_pml flags
-                          ├── compute C-PML damping profiles, stretched-coordinate functions,
-                          │   convolution coefficients (layer-based, face/edge/corner classification)
-                          ├── compute cfl_dt = cfl_safety × h_min / vp_max (minimum GLL node spacing)
-                          ├── derive solver_dt + snapshot_stride from output_dt_s and CFL
-                          ├── derive nsteps = ceil(total_duration_s / solver_dt)
-                          ├── pre-flight validation (mesh, material, CFL-derived stride, boundary, source, STF, storage)
-                          ├── partition (METIS) + GLL node global numbering + exchange patterns
-                          ├── evaluate STF over time range
-                          ├── locate source elements (free surface only), compute Lagrange interpolation weights
-                          ├── write GLL geometry + is_pml BACK to model.h5 (extends it)
+                          ├── [C++ stage1: GLL coords, J, dξ/dx, mass, CFL h_min, PML mask, damping, boundary]
+                          │   └── fallback: Python gll_geometry.py + boundary_detector.py + pml.py
+                          ├── call config.py material functions → GLL nodes (Python model_loader.py)
+                          ├── [C++ stage2: λ/μ, CFL solver_dt, snapshot_stride, nsteps, pre-flight]
+                          │   └── fallback: Python numpy + cfl_validator.py
+                          ├── source + STF (Python)
+                          ├── validate (Python preflight.py)
+                          ├── partition (METIS) + GLL global numbering + exchange patterns
+                          ├── build shallow recording map
+                          ├── write model.h5, config.h5, partition_{r}.h5
                           ↓
                      model.h5 (extended) + partition_{r}.h5 + config.h5
                           │
@@ -50,23 +44,27 @@ Outputs: extend `model.h5` and write one `partition_{r}.h5` per rank. No monolit
 ```
 preprocess/
 ├── __init__.py
-├── cli.py              — CLI entry point
-├── accelerator.py      — optional C++ subprocess runner (GLL geom, CFL, PML)
-├── config_loader.py     — importlib load config.py, validate
-├── topology_reader.py   — read model.h5 /topology/
-├── gll_geometry.py      — compute GLL node coords, jacobian, dξ/dx per element (Python fallback)
-├── material.py          — evaluate config vp_m_s(x_m,y_m,z_m), vs_m_s(x_m,y_m,z_m), density_kg_m3(x_m,y_m,z_m) at GLL nodes
-├── mass.py              — compute lumped mass (requires ρ from material step)
+├── cli.py              — adaptive pipeline entry point (step functions check C++ first)
+├── accelerator.py      — legacy; `_ensure_domain_attrs()` only; `run_accelerator` superseded
+├── stage2_runner.py    — wrap `gf_preprocess_stage2` for λ/μ, solver_dt, nsteps
+├── config_loader.py    — importlib load config.py, validate
+├── config_writer.py    — write config.h5
+├── topology_reader.py  — read model.h5 /topology/
+├── gll_geometry.py     — compute GLL node coords, jacobian, dξ/dx per element (Python fallback)
+├── model_loader.py     — evaluate config vp/vs/density at GLL nodes
+├── model_writer.py     — write model.h5 fields + partition files + /recording/ map
 ├── boundary_detector.py — auto boundary tagging (surface level), set is_pml flags
-├── cpml.py              — C-PML: element type classification (face/edge/corner), damping profiles,
-│                          stretched-coordinate functions (K, α), convolution coefficients
-├── partition.py          — METIS partitioning + GLL node global numbering + exchange pattern precomputation
-├── stf_evaluator.py     — evaluate stf_func() → time series array
-├── source_locator.py    — locate source elements, compute natural coords + Lagrange interpolation weights
-├── cfl_validator.py      — compute cfl_dt, derive solver_dt and snapshot_stride
-├── preflight.py          — comprehensive pre-flight validation
-├── partition_writer.py   — write partition_{r}.h5
-└── config_writer.py     — write single config.h5 (rank-invariant, no direction)
+├── pml.py              — C-PML: element type classification, damping profiles (simplified linear ramp)
+├── partition.py        — METIS partitioning + GLL node global numbering + exchange pattern
+├── stf_evaluator.py    — evaluate stf_func() → time series array
+├── source_locator.py   — locate source elements, compute natural coords + Lagrange weights
+├── cfl_validator.py    — compute cfl_dt, derive solver_dt and snapshot_stride
+├── preflight.py        — comprehensive pre-flight validation
+├── recording_map.py    — build shallow mesh-vertex recording map
+├── cpp/
+│   ├── CMakeLists.txt  — builds both targets
+│   ├── main.cpp        — stage1: GLL geom, CFL h_min, PML damping, boundary tag
+│   └── stage2_main.cpp — stage2: λ/μ, solver_dt, nsteps, pre-flight stats
 ├── cpp/
 │   ├── CMakeLists.txt   — build target
 │   └── main.cpp         — GLL geometry, CFL h_min, PML damping (no MPI)
@@ -74,42 +72,58 @@ preprocess/
 
 ## C++ Accelerator
 
-The heaviest numerical computations (GLL geometry, CFL h_min, PML damping ramps)
-can be offloaded to a standalone C++ executable via subprocess:
+Two binaries produced from a single `cpp/CMakeLists.txt`. Adaptive integration: each CLI
+step function checks binary availability independently and falls back to Python.
 
-- **Binary**: `bin/gf_preprocess_cpp` (built by CMake to `bin/`, or g++ — see Build below)
+### Stage1: `gf_preprocess_cpp`
 
-- **Dependencies**: HDF5, Eigen3 (same as forward solver)
+- **Source**: `preprocess/cpp/main.cpp`
+- **Dependencies**: HDF5, Eigen3
+- **Data flow**: reads `/topology/`, writes `/field/element/{coords,dxi_dx,jacobian,mass,is_pml,damping}` + `/field/surface/boundary_tag`
+- **CLI**: `gf_preprocess_cpp <model.h5> <N> <cfl_safety> <nx> <ny> [pml_xmin pml_xmax pml_ymin pml_ymax pml_zmin pml_zmax]`
+- **stdout**: prints `H_MIN=...`, `CFL_DT=...`, `OMP_THREADS=...`
+- **OpenMP**: auto-detected; single-thread fallback if unavailable
 
-- **Data flow**: reads model.h5 `/topology/`, writes results to `/field/element/`
+### Stage2: `gf_preprocess_stage2`
 
-- **Integration**: `accelerator.py` runs the binary, parses `H_MIN` from stdout,
-  reads precomputed arrays from HDF5. Falls back to pure Python if binary absent.
+- **Source**: `preprocess/cpp/stage2_main.cpp`
+- **Dependencies**: HDF5 (no Eigen3 needed)
+- **Data flow**: reads `/field/element/{coords,jacobian,vp,vs,density}` + `/config/` attrs +
+  `/field/surface/boundary_tag`; writes `/field/element/{lambda,mu}`
+- **CLI**: `gf_preprocess_stage2 <model.h5>`
+- **stdout**: prints `STAT_NCELL`, `STAT_NGLL`, `STAT_SOLVER_DT`, `STAT_NSTEPS`, `STAT_SNAPSHOT_STRIDE`,
+  `STAT_CFL_DT`, `STAT_LAM_MIN` etc. — parsed by `stage2_runner.py`
+- **Single-thread** (no OpenMP needed)
 
-- **CLI signature**:
+### Integration
 
-  ```
-  gf_preprocess_cpp <model.h5> <N> <cfl_safety> \
-      <pml_xmin> <pml_xmax> <pml_ymin> <pml_ymax> <pml_zmin> <pml_zmax>
-  ```
+`cli.py` discovers both binaries at startup (`_init_accelerators()`). Each step function
+either reads precomputed HDF5 results (if C++ ran a previous step) or invokes the C++
+binary. Falls back to pure Python per step if binary absent or fails.
 
-- **Build** (example):
+`accelerator.py` (legacy) provides `_ensure_domain_attrs()` only. The old `run_accelerator()`
+function is superseded by the per-step adaptive approach in `cli.py`.
 
-  ```sh
-  g++ -std=c++17 -O2 -march=native -fopenmp \
-      -I<eigen3>/include/eigen3 \
-      -I/usr/include/hdf5/serial -L/usr/lib/x86_64-linux-gnu/hdf5/serial \
-      -o bin/gf_preprocess_cpp preprocess/cpp/main.cpp -lhdf5 -lm
-  ```
+### Build
 
-  Or via CMake:
+```sh
+cd preprocess/cpp
+cmake -B build
+cmake --build build
+# binaries at: bin/gf_preprocess_cpp, bin/gf_preprocess_stage2
+```
 
-  ```sh
-  cmake -S . -B build && cmake --build build --target gf_preprocess_cpp
-  # binary at bin/gf_preprocess_cpp
-  ```
+Or manually:
+```sh
+g++ -std=c++17 -O2 -march=native -fopenmp \
+    -I<eigen3>/include/eigen3 \
+    -I/usr/include/hdf5/serial -L/usr/lib/x86_64-linux-gnu/hdf5/serial \
+    -o bin/gf_preprocess_cpp preprocess/cpp/main.cpp -lhdf5 -lm
 
-OpenMP is auto-detected — single-thread fallback if unavailable. The C++ accelerator is used by default when the binary is present; pure Python fallback if absent.
+g++ -std=c++17 -O2 -march=native \
+    -I/usr/include/hdf5/serial -L/usr/lib/x86_64-linux-gnu/hdf5/serial \
+    -o bin/gf_preprocess_stage2 preprocess/cpp/stage2_main.cpp -lhdf5 -lm
+```
 
 ## Technology
 
@@ -266,9 +280,14 @@ Call the user-defined functions from config.py at each GLL node position (comput
 - `vs_m_s(x_m, y_m, z_m)` → shear wave speed
 - `density_kg_m3(x_m, y_m, z_m)` → mass density
 
-Output: `/field/element/vp`, `/field/element/vs`, `/field/element/density`, plus
-precomputed `/field/element/lambda` and `/field/element/mu` (computed from ρ·(Vp² − 2·Vs²) and ρ·Vs²).
+Output: `/field/element/vp`, `/field/element/vs`, `/field/element/density`.
 
+These three arrays are written temporarily to HDF5 for C++ stage2, then deleted after λ/μ
+are read back (see Step 5). They are re-written permanently by `model_writer.py` in the
+final output step.
+
+λ and μ are NOT computed here — they are derived in Step 5 (λ/μ + CFL) by either C++ stage2
+or Python numpy.
 ### 4. Compute Lumped Mass
 
 Using the density from step 3, compute lumped mass diagonal at each GLL node:
@@ -276,21 +295,32 @@ Using the density from step 3, compute lumped mass diagonal at each GLL node:
 
 Output: `/field/element/mass`.
 
-### 5. CFL Validation
+### 5. Compute λ/μ and CFL Validation (Stage2)
 
-After GLL geometry and material are known, derive the solver timestep from the user-facing snapshot interval:
+Compute Lamé parameters λ and μ from material properties, then derive solver timestep.
+This step uses C++ stage2 (`gf_preprocess_stage2`) if available; otherwise Python fallback.
 
-1. Compute minimum GLL node spacing `h_min` across all elements (minimum Euclidean distance between adjacent GLL nodes in physical space)
-1. Compute `vp_max = max(vp)` across all GLL nodes
-1. Compute `cfl_dt = cfl_safety × h_min / vp_max`
-1. Search `stride = 1..MAX_STRIDE` for the first value where `output_dt_s / stride ≤ cfl_dt`
-1. Set `solver_dt = output_dt_s / stride` and `snapshot_stride = stride`
-1. Set `restart_stride = round(restart_dt_s / solver_dt)` and validate `restart_stride >= 1`
-1. Set `nsteps = ceil(total_duration_s / solver_dt)`
-1. Print computed `cfl_dt`, `solver_dt`, `snapshot_stride`, `restart_stride`, and `nsteps` to stdout
+**λ/μ:**
+```
+μ = ρ · vs²
+λ = ρ · (vp² − 2·vs²)
+```
+Output: `/field/element/lambda`, `/field/element/mu`.
+
+**CFL derivation:**
+1. Compute minimum GLL node spacing `h_min` across all elements (from stage1 or gll_geometry.py)
+2. Compute `vp_max = max(vp)` across all GLL nodes
+3. Compute `cfl_dt = cfl_safety × h_min / vp_max`
+4. Search `stride = 1..MAX_STRIDE` for the first value where `output_dt_s / stride ≤ cfl_dt`
+5. Set `solver_dt = output_dt_s / stride` and `snapshot_stride = stride`
+6. Set `nsteps = ceil(total_duration_s / solver_dt)`
+7. Run pre-flight checks (λ > 0, μ ≥ 0, CFL satisfied, storage estimate)
+
+When C++ stage2 is used, vp/vs/density are written temporarily to HDF5, stage2 reads
+them, computes λ/μ + CFL, writes λ/μ back, and Python reads them before deleting the
+temporary material arrays.
 
 Store time fields in `/simulation`. Forward integrates with `solver_dt`, writes strain every `snapshot_stride`, and overwrites restart every `restart_stride`.
-
 ### 6. Auto-Detect Boundary Tags
 
 No GMSH physical groups. Boundary tags computed from surface face center geometry:

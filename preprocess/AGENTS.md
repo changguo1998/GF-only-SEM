@@ -20,6 +20,9 @@ Read `model.h5` + `config.py`. Write extended `model.h5`, `config.h5`, and per-r
 | `config_loader.py` | import and validate `config.py` |
 | `config_writer.py` | write `config.h5` |
 | `model_writer.py` | write mesh fields and partition files, including `/recording/`; precomputes λ, μ from Vp, Vs, density |
+| `stage2_runner.py` | wrap `gf_preprocess_stage2` for λ/μ, solver_dt, nsteps |
+| `topology_reader.py` | read `/topology/` group from model.h5 |
+| `recording_map.py` | build shallow mesh-vertex recording map |
 | `accelerator.py` | optional C++ subprocess for GLL geometry, CFL, PML damping |
 | `cli.py` | run full pipeline from CWD |
 
@@ -28,10 +31,11 @@ Read `model.h5` + `config.py`. Write extended `model.h5`, `config.h5`, and per-r
 ```
 model.h5 + config.py
 → load config
-→ [C++ accelerator: GLL geometry, CFL h_min, PML damping ramps]
-→ material at GLL nodes
-→ CFL + solver_dt + strides
-→ source + STF
+→ C++ stage1? → GLL geometry + CFL h_min + PML + boundary
+→ else → Python gll_geometry + boundary_detector + PML
+→ material at GLL nodes (Python model_loader.py)
+→ C++ stage2? → λ/μ + CFL solver_dt + nsteps
+→ else → Python numpy + cfl_validator
 → PML masking        (1-layer from boundary detection + layer expansion via i,j,k grid)
 → validation
 → METIS partition
@@ -76,12 +80,21 @@ Each rank writes:
 [`../docs/design/preprocess.md`](../docs/design/preprocess.md)
 ## C++ Accelerator
 
-Heavy numerical loops (GLL geometry, CFL h_min, PML damping ramps) can be
-offloaded to a compiled C++ executable. See `cpp/main.cpp`.
+Two binaries:
 
-- Binary: `bin/gf_preprocess_cpp` (built by CMake to `bin/`, or g++ — see docs)
-- Threading: OpenMP multi-threading enabled by default (single-thread without OpenMP).
-  Set `OMP_NUM_THREADS` to control; accelerator logs actual thread count at INFO.
-- Fallback: pure Python if binary absent or CFL info cannot be parsed.
-- Integration: `accelerator.py` → runs subprocess, reads results from HDF5
-- Diagnostics: C++ stdout prints `H_MIN`, `CFL_DT`, `CFL_SAFETY`, `OMP_THREADS` for Python to capture and log.
+- **`gf_preprocess_cpp`** (stage1): GLL geometry, CFL h_min, PML expansion + damping, boundary tagging.
+  - Source: `cpp/main.cpp`, built to `bin/gf_preprocess_cpp`
+  - CLI: `gf_preprocess_cpp <model.h5> <N> <cfl_safety> <nx> <ny> [pml_thickness...]`
+  - OpenMP multi-threading; logs `H_MIN`, `CFL_DT`, `OMP_THREADS` to stdout
+
+- **`gf_preprocess_stage2`** (stage2): λ/μ from Vp/Vs/density, CFL solver_dt, snapshot_stride, nsteps, pre-flight stats.
+  - Source: `cpp/stage2_main.cpp`, built to `bin/gf_preprocess_stage2`
+  - CLI: `gf_preprocess_stage2 <model.h5>`
+  - Reads `/field/element/{vp,vs,density}` + `/config/` attrs; writes `/field/element/{lambda,mu}`
+  - Prints `STAT_*` lines parsed by `stage2_runner.py`
+
+Integration: `cli.py` discovers both binaries at startup, runs each step via subprocess when
+the binary exists. Falls back to pure Python per step independently. `accelerator.py` provides
+`_ensure_domain_attrs()` helper (legacy; `run_accelerator` superseded by `stage2_runner.py`).
+
+Both binaries built from single `cpp/CMakeLists.txt`. CPU only (no MPI, no CUDA).

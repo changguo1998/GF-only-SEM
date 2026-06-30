@@ -1,8 +1,7 @@
-"""Accelerator — wraps gf_preprocess_cpp C++ executable for heavy computations.
+"""Legacy accelerator module — `_ensure_domain_attrs()` only.
 
-Checks for the compiled binary, runs it as a subprocess, reads precomputed
-GLL geometry + CFL data from HDF5, and passes results back to the Python
-pipeline.  Falls back to pure Python if the binary is unavailable.
+`run_accelerator()` is superseded by the per-step adaptive pattern in `cli.py`
+(stage1 via `_run_binary`, stage2 via `stage2_runner.py`).
 """
 
 from __future__ import annotations
@@ -111,7 +110,9 @@ def run_accelerator(
         "jacobian": None,
         "mass": None,
         "damping": None,
+        "is_pml": None,
         "cfl_dt": None,
+        "boundary_tag": None,
         "h_min": None,
         "solver_dt": None,
         "snapshot_stride": None,
@@ -132,12 +133,18 @@ def run_accelerator(
     # Ensure domain attrs exist in model.h5 (C++ reads them from /domain/ attrs)
     _ensure_domain_attrs(model_path, domain_bounds)
 
+    # Grid dimensions for structured PML expansion
+    nx = int(getattr(config, "nx_elements", 0))
+    ny = int(getattr(config, "ny_elements", 0))
+
     # Build command
     cmd = [
         binary,
         os.path.abspath(model_path),
         str(N),
         str(cfl_safety),
+        str(nx),
+        str(ny),
         str(int(pml.get("xmin", 0))),
         str(int(pml.get("xmax", 0))),
         str(int(pml.get("ymin", 0))),
@@ -222,6 +229,20 @@ def run_accelerator(
             has_damping = "damping" in fld
             damping = np.array(fld["damping"], dtype=np.float64) if has_damping else None
 
+            has_is_pml = "is_pml" in fld
+            is_pml = (
+                np.array(fld["is_pml"], dtype=np.bool_)
+                if has_is_pml
+                else None
+            )
+
+            has_boundary_tag = "boundary_tag" in f.get("field/surface", {})
+            boundary_tag = (
+                np.array(f["field/surface/boundary_tag"], dtype=np.int64)
+                if has_boundary_tag
+                else None
+            )
+
     except Exception as e:
         logger.warning(f"Failed to read C++ results from HDF5: {e}")
         return result
@@ -234,8 +255,10 @@ def run_accelerator(
             "jacobian": jacobian,
             "mass": mass,
             "damping": damping,
+            "is_pml": is_pml,
             "cfl_dt": cfl_dt,
             "h_min": h_min,
+            "boundary_tag": boundary_tag,
         }
     )
 

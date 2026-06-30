@@ -28,6 +28,9 @@ endif()
 # Required dependencies
 find_package(HDF5 REQUIRED COMPONENTS C)
 find_package(Eigen3 REQUIRED)
+# Propagate Eigen3 include path to subdirectories (same logic as forward/CMakeLists.txt)
+get_filename_component(_eigen_prefix "${Eigen3_DIR}/../../.." ABSOLUTE)
+set(EIGEN3_INCLUDE_DIR "${_eigen_prefix}/include/eigen3")
 
 # -----------------------------------------------------------------------
 # Enable testing

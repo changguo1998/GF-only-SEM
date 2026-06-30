@@ -55,14 +55,14 @@ Needed: CLI that writes and reads HDF5 datasets with none, LZF, and zlib 1–9, 
 
 ______________________________________________________________________
 
-## 3. Compress Test Fixes
+## 3. Compress Test Fixes (Resolved)
 
-**Status:** `tests/test_compress.cpp` exists, but tests fail due to tolerance/API mismatch.
+**Status:** All compress tests pass (21,546 assertions, 9 test cases). Only issue: HDF5 LZF
+filter 32000 not registered, so LZF round-trip is not exercised — the filter is expected to
+be registered by the HDF5 runtime (plugin path). No test failures.
 
-- **Plan:** ~~`docs/superpowers/plans/2026-06-08-compress.md`~~ (deleted)
-- **Design:** [`design/compress.md`](design/compress.md)
-
-Needed: rewrite round-trip tests to match `CheckpointWriter.h` and current `write_checkpoint()` signatures.
+**Resolution:** Tests now match `CheckpointWriter.h` and current `write_checkpoint()`
+signatures. Defect was fixed in a prior commit.
 
 ______________________________________________________________________
 
@@ -101,6 +101,6 @@ ______________________________________________________________________
 |------|--------|----------|--------|
 | SLS attenuation | preprocess + forward | High | Large |
 | Compression benchmark | compress | Low | Small |
-| Compress test fixes | compress | Medium | Small |
-| Compress-forward link | forward | Low | Tiny |
+|| Compress test fixes | compress | Resolved | — |
+|| Compress-forward link | forward | Low | Tiny |
 | GPU abstraction | forward | Done | Large |

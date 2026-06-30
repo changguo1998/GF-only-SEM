@@ -17,7 +17,6 @@
 #endif
 
 #include <hdf5.h>
-#include <hdf5_hl.h>
 
 #include <Eigen/Dense>
 #include <cmath>
@@ -107,6 +106,17 @@ static void write_scalar_attr(hid_t loc, const char* name, double val) {
     }
     H5Awrite(attr, H5T_NATIVE_DOUBLE, &val);
     H5Aclose(attr);
+    H5Sclose(space);
+    }
+
+        // Write a 1-D int64 array
+    static void write_int64_1d(hid_t loc, const char* name, hsize_t n, const int64_t* data) {
+    hsize_t dims[1] = {n};
+    hid_t space = H5Screate_simple(1, dims, nullptr);
+    hid_t ds =
+        H5Dcreate2(loc, name, H5T_NATIVE_INT64, space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    H5Dwrite(ds, H5T_NATIVE_INT64, H5S_ALL, H5S_ALL, H5P_DEFAULT, data);
+    H5Dclose(ds);
     H5Sclose(space);
 }
 
@@ -383,22 +393,96 @@ static void get_cell_vertex_ids(int64_t e,
 }
 
 // -----------------------------------------------------------------------
-// Main computation: GLL geometry, CFL min spacing, PML damping
+// Main computation: GLL geometry, CFL min spacing, PML damping + masking
 // -----------------------------------------------------------------------
 struct ComputeResult {
     std::vector<double> coords;    // [n_cell, NGLL, NGLL, NGLL, 3]
     std::vector<double> dxi_dx;    // [n_cell, NGLL, NGLL, NGLL, 9]
     std::vector<double> jacobian;  // [n_cell, NGLL, NGLL, NGLL]
     std::vector<double> mass;      // [n_cell, NGLL, NGLL, NGLL]
-    std::vector<double> damping;   // [n_cell, NGLL, NGLL, NGLL]
+    std::vector<double> damping;   // [n_cell, NGLL, NGLL, NGLL] (masked by is_pml)
+    std::vector<int64_t> is_pml;   // [n_cell] 0/1 — expanded PML flag from grid
     double cfl_dt;                 // CFL-limited timestep
 };
+
+// -----------------------------------------------------------------------
+// Boundary detection: tag surfaces as free (1), absorbing (2), interior (0)
+// -----------------------------------------------------------------------
+static void detect_boundaries(
+    const Topology& topo,
+    const double domain_bounds[6],
+    int64_t* boundary_tag_out,  // [n_surface]
+    int64_t* is_pml_out         // [n_cell] 0/1 — 1-layer from topology
+) {
+    int64_t n_surface = topo.n_surface;
+    int64_t n_cell = topo.n_cell;
+    const double* v2c = topo.vertex_to_coord.data();
+    const int64_t* s2e = topo.surface_to_edge.data();
+    const int64_t* e2v = topo.edge_to_vertex.data();
+    const int64_t* c2s = topo.cell_to_surface.data();
+
+    double tol = 1e-6 * std::max({domain_bounds[1] - domain_bounds[0],
+                                   domain_bounds[3] - domain_bounds[2],
+                                   domain_bounds[5] - domain_bounds[4], 1.0});
+    double zmin = domain_bounds[4];
+
+    for (int64_t s = 0; s < n_surface; ++s) {
+        // Collect unique vertex IDs for this face
+        int64_t vids[8];
+        int nv = 0;
+        for (int ei = 0; ei < 4; ++ei) {
+            int64_t se = s2e[s * 4 + ei];
+            int64_t ae = (se < 0) ? -se - 1 : se - 1;
+            int64_t v0 = e2v[ae * 2 + 0];
+            int64_t v1 = e2v[ae * 2 + 1];
+            bool h0 = false, h1 = false;
+            for (int k = 0; k < nv; ++k) { if (vids[k] == v0) h0 = true; if (vids[k] == v1) h1 = true; }
+            if (!h0 && nv < 8) vids[nv++] = v0;
+            if (!h1 && nv < 8) vids[nv++] = v1;
+        }
+        // Compute face center
+        double cx = 0, cy = 0, cz = 0;
+        for (int k = 0; k < nv; ++k) {
+            int64_t vid = vids[k] - 1;
+            cx += v2c[vid * 3 + 0];
+            cy += v2c[vid * 3 + 1];
+            cz += v2c[vid * 3 + 2];
+        }
+        cx /= nv; cy /= nv; cz /= nv;
+
+        // Classify
+        if (std::abs(cz - zmin) < tol) {
+            boundary_tag_out[s] = 1;  // free surface
+        } else if (
+            std::abs(cx - domain_bounds[0]) < tol ||
+            std::abs(cx - domain_bounds[1]) < tol ||
+            std::abs(cy - domain_bounds[2]) < tol ||
+            std::abs(cy - domain_bounds[3]) < tol ||
+            std::abs(cz - domain_bounds[5]) < tol) {
+            boundary_tag_out[s] = 2;  // absorbing
+        } else {
+            boundary_tag_out[s] = 0;  // interior
+        }
+    }
+
+    // is_pml: 1-layer from absorbing surfaces
+    for (int64_t e = 0; e < n_cell; ++e) {
+        for (int fi = 0; fi < 6; ++fi) {
+            int64_t ss = c2s[e * 6 + fi];
+            int64_t as = (ss < 0) ? -ss - 1 : ss - 1;
+            if (boundary_tag_out[as] == 2) {
+                is_pml_out[e] = 1;
+                break;
+            }
+        }
+    }
+}
 
 static ComputeResult compute_all(
     const Topology& topo, int N, double cfl_safety,
     double pml_thickness[6],       // xmin, xmax, ymin, ymax, zmin, zmax
-    const double domain_bounds[6]  // xmin, xmax, ymin, ymax, zmin, zmax
-) {
+    const double domain_bounds[6],  // xmin, xmax, ymin, ymax, zmin, zmax
+    int64_t nx_elements, int64_t ny_elements) {
     int64_t n_cell = topo.n_cell;
     int ngll = N + 1;
     int64_t n_node = ngll * ngll * ngll;
@@ -410,21 +494,34 @@ static ComputeResult compute_all(
     res.jacobian.resize(n_total, 0.0);
     res.mass.resize(n_total, 0.0);
     res.damping.resize(n_total, 0.0);
+    res.is_pml.resize(n_cell, 0);
     res.cfl_dt = 1e30;
 
     // GLL quadrature points and weights
     std::vector<double> pts, w;
     gll_quadrature(N, pts, w);
 
-    // Domain extents for PML width estimate
-    double dx_ext = domain_bounds[1] - domain_bounds[0];
-    double dy_ext = domain_bounds[3] - domain_bounds[2];
-    double dz_ext = domain_bounds[5] - domain_bounds[4];
-    double n_cells_axis = std::max(1.0, std::pow(static_cast<double>(n_cell), 1.0 / 3.0));
-    double cell_size_est = std::max({dx_ext, dy_ext, dz_ext}) / n_cells_axis;
-
-    // Temporary storage for corner coordinates
-    double cv[8][3];
+    // Compute expanded is_pml from grid position (structured mesh only)
+    int64_t nz_elements = (nx_elements > 0 && ny_elements > 0)
+                              ? n_cell / (nx_elements * ny_elements)
+                              : 0;
+    bool structured_mesh = (nx_elements > 0 && ny_elements > 0 &&
+                            nx_elements * ny_elements * nz_elements == n_cell);
+    if (structured_mesh) {
+        int64_t nx = nx_elements, ny = ny_elements, nz = nz_elements;
+        for (int64_t e = 0; e < n_cell; ++e) {
+            int64_t i = e % nx;
+            int64_t j = (e / nx) % ny;
+            int64_t k = e / (nx * ny);
+            if (i < static_cast<int64_t>(pml_thickness[0]) ||
+                i >= nx - static_cast<int64_t>(pml_thickness[1]) ||
+                j < static_cast<int64_t>(pml_thickness[2]) ||
+                j >= ny - static_cast<int64_t>(pml_thickness[3]) ||
+                k >= nz - static_cast<int64_t>(pml_thickness[5])) {
+                res.is_pml[e] = 1;
+            }
+        }
+    }
 
     // vp_max for CFL (we don't have vp yet — user provides as Python callable)
     // Instead we compute h_min only and let Python combine with vp_max
@@ -438,11 +535,13 @@ static ComputeResult compute_all(
             for (int k = 0; k < ngll; ++k)
                 w3[(i * ngll + j) * ngll + k] = w[i] * w[j] * w[k];
 
-    // Read is_pml from mesh.h5 if it exists (written by Python boundary_detector)
-    // Otherwise compute it later from PML thickness (we'll skip per-element PML check)
+    // Domain extents for PML width estimate
+    double dx_ext = domain_bounds[1] - domain_bounds[0];
+    double dy_ext = domain_bounds[3] - domain_bounds[2];
+    double dz_ext = domain_bounds[5] - domain_bounds[4];
+    double n_cells_axis = std::max(1.0, std::pow(static_cast<double>(n_cell), 1.0 / 3.0));
+    double cell_size_est = std::max({dx_ext, dy_ext, dz_ext}) / n_cells_axis;
 
-    // We'll compute damping without is_pml flag — the Python side sets it.
-    // Here we compute the spatial ramp for ALL elements, Python multiplies by is_pml.
     // PML ramp parameters
     double pml_width[6];
     for (int f = 0; f < 6; ++f)
@@ -485,7 +584,7 @@ static ComputeResult compute_all(
     }
 
 #pragma omp parallel for schedule(dynamic, 1) reduction(min : h_min) \
-    shared(res, elem_data, pts, w, w3, pml_width) firstprivate(ngll)
+    shared(res, elem_data, pts, w, w3, pml_width, pml_start) firstprivate(ngll)
     for (int64_t e = 0; e < n_cell; ++e) {
         const double (*cv)[3] = elem_data[e].coords;
 
@@ -601,46 +700,44 @@ static ComputeResult compute_all(
                     res.coords[coord_off + 1] = x_phys[1];
                     res.coords[coord_off + 2] = x_phys[2];
 
-                    // PML damping ramp (compute for all nodes, Python masks with is_pml)
+                    // PML damping ramp — only compute for PML elements
                     double damp_val = 0.0;
-                    double x = x_phys[0], y = x_phys[1], z = x_phys[2];
-                    // Face 0: xmin
-                    if (pml_width[0] > 0 && x < pml_start[0]) {
-                        double r = (pml_start[0] - x) / pml_width[0];
-                        if (r > damp_val)
-                            damp_val = r;
+                    bool elem_is_pml = (res.is_pml[e] != 0);
+                    if (elem_is_pml) {
+                        double x = x_phys[0], y = x_phys[1], z = x_phys[2];
+                        // Face 0: xmin
+                        if (pml_width[0] > 0 && x < pml_start[0]) {
+                            double r = (pml_start[0] - x) / pml_width[0];
+                            if (r > damp_val) damp_val = r;
+                        }
+                        // Face 1: xmax
+                        if (pml_width[1] > 0 && x > pml_start[1]) {
+                            double r = (x - pml_start[1]) / pml_width[1];
+                            if (r > damp_val) damp_val = r;
+                        }
+                        // Face 2: ymin
+                        if (pml_width[2] > 0 && y < pml_start[2]) {
+                            double r = (pml_start[2] - y) / pml_width[2];
+                            if (r > damp_val) damp_val = r;
+                        }
+                        // Face 3: ymax
+                        if (pml_width[3] > 0 && y > pml_start[3]) {
+                            double r = (y - pml_start[3]) / pml_width[3];
+                            if (r > damp_val) damp_val = r;
+                        }
+                        // Face 4: zmin
+                        if (pml_width[4] > 0 && z < pml_start[4]) {
+                            double r = (pml_start[4] - z) / pml_width[4];
+                            if (r > damp_val) damp_val = r;
+                        }
+                        // Face 5: zmax
+                        if (pml_width[5] > 0 && z > pml_start[5]) {
+                            double r = (z - pml_start[5]) / pml_width[5];
+                            if (r > damp_val) damp_val = r;
+                        }
+                        damp_val = std::min(damp_val, 1.0);
                     }
-                    // Face 1: xmax
-                    if (pml_width[1] > 0 && x > pml_start[1]) {
-                        double r = (x - pml_start[1]) / pml_width[1];
-                        if (r > damp_val)
-                            damp_val = r;
-                    }
-                    // Face 2: ymin
-                    if (pml_width[2] > 0 && y < pml_start[2]) {
-                        double r = (pml_start[2] - y) / pml_width[2];
-                        if (r > damp_val)
-                            damp_val = r;
-                    }
-                    // Face 3: ymax
-                    if (pml_width[3] > 0 && y > pml_start[3]) {
-                        double r = (y - pml_start[3]) / pml_width[3];
-                        if (r > damp_val)
-                            damp_val = r;
-                    }
-                    // Face 4: zmin
-                    if (pml_width[4] > 0 && z < pml_start[4]) {
-                        double r = (pml_start[4] - z) / pml_width[4];
-                        if (r > damp_val)
-                            damp_val = r;
-                    }
-                    // Face 5: zmax
-                    if (pml_width[5] > 0 && z > pml_start[5]) {
-                        double r = (z - pml_start[5]) / pml_width[5];
-                        if (r > damp_val)
-                            damp_val = r;
-                    }
-                    res.damping[base] = std::min(damp_val, 1.0);
+                    res.damping[base] = damp_val;
                 }
             }
         }
@@ -729,6 +826,10 @@ static void write_results(const char* mesh_path, int64_t n_cell, int ngll,
     write_4d_double(elem_gid, "jacobian", nc, ng, res.jacobian.data());
     write_4d_double(elem_gid, "mass", nc, ng, res.mass.data());
     write_4d_double(elem_gid, "damping", nc, ng, res.damping.data());
+    // Write is_pml (1D int64)
+    if (H5Lexists(elem_gid, "is_pml", H5P_DEFAULT))
+        H5Ldelete(elem_gid, "is_pml", H5P_DEFAULT);
+    write_int64_1d(elem_gid, "is_pml", nc, res.is_pml.data());
 
     H5Gclose(elem_gid);
     H5Gclose(fld_gid);
@@ -766,9 +867,9 @@ static void print_cfl_info(double h_min, double cfl_safety) {
 // main
 // -----------------------------------------------------------------------
 int main(int argc, char** argv) {
-    if (argc < 4) {
+    if (argc < 6) {
         fprintf(stderr,
-                "Usage: gf_preprocess_cpp <mesh.h5> <N> <cfl_safety>\n"
+                "Usage: gf_preprocess_cpp <mesh.h5> <N> <cfl_safety> <nx> <ny>\n"
                 "       [pml_xmin pml_xmax pml_ymin pml_ymax pml_zmin pml_zmax]\n");
         return 1;
     }
@@ -776,13 +877,14 @@ int main(int argc, char** argv) {
     const char* mesh_path = argv[1];
     int N = std::atoi(argv[2]);
     double cfl_safety = std::atof(argv[3]);
+    int64_t nx_elements = static_cast<int64_t>(std::atol(argv[4]));
+    int64_t ny_elements = static_cast<int64_t>(std::atol(argv[5]));
 
     double pml_thickness[6] = {0, 0, 0, 0, 0, 0};
-    if (argc >= 10) {
+    if (argc >= 12) {
         for (int f = 0; f < 6; ++f)
-            pml_thickness[f] = std::atof(argv[4 + f]);
+            pml_thickness[f] = std::atof(argv[6 + f]);
     }
-
     if (N < 1) {
         fprintf(stderr, "ERROR: N must be >= 1, got %d\n", N);
         return 1;
@@ -842,14 +944,47 @@ int main(int argc, char** argv) {
     fprintf(stderr, "PML thickness: [%g %g %g %g %g %g]\n", pml_thickness[0], pml_thickness[1],
             pml_thickness[2], pml_thickness[3], pml_thickness[4], pml_thickness[5]);
 
-    // Compute
-    ComputeResult res = compute_all(topo, N, cfl_safety, pml_thickness, domain_bounds);
+    // Step: boundary detection (pure topology, no material needed)
+    int64_t n_surface = topo.n_surface;
+    int64_t n_cell = topo.n_cell;
+    std::vector<int64_t> boundary_tag(n_surface, 0);
+    std::vector<int64_t> bd_is_pml(n_cell, 0);  // 1-layer (not used if grid PML active)
+    detect_boundaries(topo, domain_bounds, boundary_tag.data(), bd_is_pml.data());
+    fprintf(stderr, "Boundary: %lld free, %lld absorbing\n",
+            (long long)std::count(boundary_tag.begin(), boundary_tag.end(), 1),
+            (long long)std::count(boundary_tag.begin(), boundary_tag.end(), 2));
+
+    ComputeResult res = compute_all(topo, N, cfl_safety, pml_thickness, domain_bounds,
+                                    nx_elements, ny_elements);
 
     fprintf(stderr, "Computation done. h_min=%.15e\n", res.cfl_dt);
 
     // Write results to HDF5
     write_results(mesh_path, topo.n_cell, N + 1, res, cfl_safety, res.cfl_dt);
 
+    // Write boundary_tag to /field/surface/
+    {
+        hid_t fid = open_or_fail(mesh_path, H5F_ACC_RDWR);
+        hid_t fld_gid;
+        if (H5Lexists(fid, "field", H5P_DEFAULT)) {
+            fld_gid = H5Gopen2(fid, "field", H5P_DEFAULT);
+        } else {
+            fld_gid = H5Gcreate2(fid, "field", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        }
+        hid_t surf_gid;
+        if (H5Lexists(fld_gid, "surface", H5P_DEFAULT)) {
+            surf_gid = H5Gopen2(fld_gid, "surface", H5P_DEFAULT);
+        } else {
+            surf_gid = H5Gcreate2(fld_gid, "surface", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        }
+        if (H5Lexists(surf_gid, "boundary_tag", H5P_DEFAULT))
+            H5Ldelete(surf_gid, "boundary_tag", H5P_DEFAULT);
+        hsize_t ns = static_cast<hsize_t>(n_surface);
+        write_int64_1d(surf_gid, "boundary_tag", ns, boundary_tag.data());
+        H5Gclose(surf_gid);
+        H5Gclose(fld_gid);
+        H5Fclose(fid);
+    }
     // Print CFL info for Python
     print_cfl_info(res.cfl_dt, cfl_safety);
 

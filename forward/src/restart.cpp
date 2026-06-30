@@ -3,6 +3,7 @@
 
 #include <hdf5.h>
 
+#include <sys/stat.h>
 #include <cstring>
 #include <stdexcept>
 #include <string>
@@ -75,6 +76,9 @@ RestartWriter::RestartWriter(const std::string& output_dir, const std::string& s
     : file_id_(-1), n_elem_local_(n_local_elem), ngll_(ngll), source_direction_(source_direction) {
     std::string restart_dir = output_dir + "/" + source_direction;
     filepath_ = restart_dir + "/restart_" + std::to_string(rank) + ".h5";
+
+    // Create directory if needed
+    mkdir(restart_dir.c_str(), 0755);
 
     // Create or truncate file
     file_id_ = H5Fcreate(filepath_.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
