@@ -20,6 +20,7 @@ Writes:
 """
 
 import glob
+import argparse
 import os
 import re
 
@@ -130,12 +131,11 @@ def write_vtu(path, vertex_coords, connectivity, cell_fields):
             f.write(b"\n")
 
 
-def main():
+def main(verbose: bool = False):
     cwd = os.getcwd()
     model_path = os.path.join(cwd, "model.h5")
     config_path = os.path.join(cwd, "config.h5")
     parts_dir = os.path.join(cwd, "partitions")
-
     # ── Read mesh topology ──
     print(f"[wavefield2vtk] Reading {model_path}")
     with h5py.File(model_path, "r") as f:
@@ -150,8 +150,8 @@ def main():
     n_cell = cell_to_surface.shape[0]
     print(f"  Global cells: {n_cell}, vertices: {vertex_to_coord.shape[0]}")
 
-    # ── Build element → vertex connectivity [n_cell, 8] ──
-    print("[wavefield2vtk] Resolving hexahedral connectivity...")
+    if verbose:
+        print("[wavefield2vtk] Resolving hexahedral connectivity...")
     connectivity = build_element_vertex_map(cell_to_surface, surface_to_edge, edge_to_vertex)
 
     # ── Find record files per direction ──
@@ -163,7 +163,8 @@ def main():
             print(f"[wavefield2vtk] Error: no record_*.h5 files in {wave_dir}")
             return 1
         record_paths[d] = files
-        print(f"  wavefields/{d}/: {len(files)} rank files")
+        if verbose:
+            print(f"  wavefields/{d}/: {len(files)} rank files")
 
     # ── Read metadata — find first rank with recording data ──
     n_snapshots = 0
@@ -183,10 +184,11 @@ def main():
     if os.path.isfile(config_path):
         try:
             with h5py.File(config_path, "r") as f:
-                stride = int(f["simulation"].attrs.get("snapshot_stride", 1))
+                stride = int(f["config"].attrs["snapshot_stride"])
         except Exception:
             pass
-    print(f"  Snapshot stride: {stride}")
+    if verbose:
+        print(f"  Snapshot stride: {stride}")
 
     # ── Pre-read vertex IDs per rank file (must match across directions) ──
     vertex_id_list = []
@@ -273,7 +275,9 @@ def main():
         cell_fields["n_recorded_corners"] = n_corners.astype(np.float64)
 
         out_path = os.path.join(out_dir, f"wavefield_{step_num}.vtk")
-        print(f"[wavefield2vtk] Writing {out_path}")
+
+        if verbose:
+            print(f"[wavefield2vtk] Writing {out_path}")
         write_vtu(out_path, vertex_to_coord, connectivity, cell_fields)
 
     # ── Cleanup ──
@@ -286,4 +290,7 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    parser = argparse.ArgumentParser(description="Convert strain snapshots to per-timestep VTK files.")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed processing messages")
+    args = parser.parse_args()
+    raise SystemExit(main(verbose=args.verbose))
