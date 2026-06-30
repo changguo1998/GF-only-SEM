@@ -13,10 +13,10 @@ spack load llvm
 # find target files
 SKIP_DIRS=(.venv build .git .pytest_cache __pycache__)
 SKIP_EXPR=()
-for d in "${SKIP_DIRS[@]}"; do SKIP_EXPR+=(-not -path "*/$d/*"); done
+for d in "${SKIP_DIRS[@]}"; do SKIP_EXPR+=(-path "*/$d" -prune -o); done
 ALL_TMP=$(mktemp)
 trap 'rm -rf "$ALL_TMP"' EXIT
-find . -type f "${SKIP_EXPR[@]}" >"$ALL_TMP"
+find . "${SKIP_EXPR[@]}" -type f -print >"$ALL_TMP"
 
 # per-file dispatch
 fmt() {
