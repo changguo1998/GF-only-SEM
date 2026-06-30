@@ -25,7 +25,7 @@ echo "plan to format $(cat "$ALL_TMP" | wc -l) files"
 fmt() {
     local p="$1"
     [ ! -f "$p" ] && return
-    echo "formatting $p ..."
+    # echo "formatting $p ..."
     case "$(basename "$p")" in
         *.py) ruff format "$p" > /dev/null ;;
         *.md) mdformat "$p" > /dev/null ;;
