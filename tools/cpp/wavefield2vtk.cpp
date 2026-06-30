@@ -4,6 +4,7 @@
 
 #include <dirent.h>
 #include <omp.h>
+#include <sys/stat.h>
 
 #include <algorithm>
 #include <cmath>
@@ -79,7 +80,12 @@ int main(int argc, char** argv) {
         }
     }
 
-    system(("mkdir -p " + vtk_dir).c_str());
+    struct stat st = {};
+    if (stat(vtk_dir.c_str(), &st) != 0) {
+        if (mkdir(vtk_dir.c_str(), 0755) != 0) {
+            std::cerr << "Warning: could not create " << vtk_dir << "\n";
+        }
+    }
 
     // ── Read mesh topology ──────────────────────────────────────
     std::cout << "[wavefield2vtk] Reading " << model_path << "\n";

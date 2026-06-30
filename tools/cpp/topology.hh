@@ -84,25 +84,6 @@ inline GllTemplate build_gll_template(int ngll) {
     auto idx = [ngll](int i, int j, int k) { return gll_idx(i, j, k, ngll); };
 
     // 12 edges × (ngll-1) LINEs
-    for (int jk = 0; jk < 4; ++jk) {
-        int j = (jk == 0 || jk == 1) ? 0 : ngll - 1;
-        int k = (jk == 0 || jk == 2) ? 0 : ngll - 1;
-        // Edge along i
-        for (int i = 0; i < ngll - 1; ++i)
-            t.edge_lines.push_back({idx(i, j, k), idx(i+1, j, k)});
-        // Edge along j
-        int i2 = (jk == 0 || jk == 1) ? 0 : ngll - 1;
-        int k2 = (jk == 0 || jk == 2) ? 0 : ngll - 1;
-        for (int j2 = 0; j2 < ngll - 1; ++j2)
-            t.edge_lines.push_back({idx(i2, j2, k2), idx(i2, j2+1, k2)});
-        // Edge along k
-        int i3 = (jk == 0 || jk == 1) ? 0 : ngll - 1;
-        int j3 = (jk == 0 || jk == 2) ? 0 : ngll - 1;
-        for (int k3 = 0; k3 < ngll - 1; ++k3)
-            t.edge_lines.push_back({idx(i3, j3, k3), idx(i3, j3, k3+1)});
-    }
-    // Actually the above loop counts wrong. Let me be explicit:
-    t.edge_lines.clear();
     // Edge 0-1: along i, j=0, k=0
     for (int i = 0; i < ngll - 1; ++i) t.edge_lines.push_back({idx(i,0,0), idx(i+1,0,0)});
     // Edge 2-3: along i, j=ngll-1, k=0

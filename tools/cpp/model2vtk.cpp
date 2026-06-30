@@ -4,6 +4,7 @@
 // Keep Python edition in tools/model2vtk.py for reference.
 
 #include <omp.h>
+#include <sys/stat.h>
 
 #include <algorithm>
 #include <cmath>
@@ -114,7 +115,14 @@ int main(int argc, char** argv) {
 
     // Create output directory
     std::string mkdir_cmd = "mkdir -p " + vtk_dir;
-    system(mkdir_cmd.c_str());
+    // mkdir -p already created vtk_dir
+    // If mkdir fails, we will catch it when trying to write the file
+    struct stat st = {};
+    if (stat(vtk_dir.c_str(), &st) != 0) {
+        if (mkdir(vtk_dir.c_str(), 0755) != 0) {
+            std::cerr << "Warning: could not create " << vtk_dir << "\n";
+        }
+    }
 
     bool has_partitions = false;
     {
@@ -193,6 +201,12 @@ int main(int argc, char** argv) {
         cell_fields["PML_flag"][i] = (float)is_pml[i];
 
     cell_fields["Tile_Index"].assign(n_cell, -1.0f);
+    // Try to read tile_index from model.h5
+    if (dataset_exists(fm.id(), "field/element/tile_index")) {
+        auto tile_raw = read_int64_1d(fm.id(), "field/element/tile_index");
+        for (size_t i = 0; i < tile_raw.size() && i < (size_t)n_cell; ++i)
+            cell_fields["Tile_Index"][i] = (float)tile_raw[i];
+    }
 
     // ── Point fields & GLL detail ────────────────────────────────
     std::map<std::string, std::vector<float>> point_fields;
