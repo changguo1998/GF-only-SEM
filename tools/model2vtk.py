@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Convert mesh.h5 (+ partitions/) in CWD to mesh.vtk.
+"""Convert model.h5 (with optional partitions/) in CWD to model.vtk.
 
-Reads mesh.h5 topology and partition material fields from the current
-working directory, resolves hexahedral cell connectivity, and writes
-mesh.vtk with hex cells + GLL-derived edge (LINE), face (QUAD), and
-sub-volume (HEX) cells with cell-averaged Vp, Vs, density, mass, PML
-damping.  Viewable in ParaView / VisIt.
+Reads model.h5 topology and material fields (from model.h5 directly, or
+from partition files if the partitions/ directory exists). Resolves
+hexahedral cell connectivity, and writes model.vtk with hex cells +
+GLL-derived edge (LINE), face (QUAD), and sub-volume (HEX) cells with
+cell-averaged Vp, Vs, density, mass, PML damping.  Viewable in
+ParaView / VisIt.
 """
 
 import os
@@ -104,6 +105,23 @@ def read_partition_gll_fields(partition_dir, n_cell, gll_shape):
                 data = f[f"field/element/{name}"][:].astype(np.float64)
                 for li, gid in enumerate(local_ids):
                     fields[name][gid] = data[li]
+    return fields
+
+
+def read_model_h5_fields(model_path, n_cell, gll_shape, field_names=None):
+    """Read raw GLL-point fields directly from model.h5.
+
+    Returns dict of 4-D arrays [n_cell, ngll, ngll, ngll].
+    All fields are in model.h5 /field/element/ after preprocessing.
+    """
+    if field_names is None:
+        field_names = ["vp", "vs", "density", "mass", "damping"]
+    fields = {name: np.zeros((n_cell, *gll_shape), dtype=np.float64) for name in field_names}
+    with h5py.File(model_path, "r") as f:
+        for name in field_names:
+            dset_path = f"field/element/{name}"
+            if dset_path in f:
+                fields[name][:] = f[dset_path][:].astype(np.float64)
     return fields
 
 
@@ -281,7 +299,7 @@ def write_vtu(
 
     with open(path, "wb") as f:
         f.write(b"# vtk DataFile Version 3.0\n")
-        f.write(b"mesh.h5 converted to VTK\n")
+        f.write(b"model.h5 converted to VTK\n")
         f.write(b"BINARY\n")
         f.write(b"DATASET UNSTRUCTURED_GRID\n")
 
@@ -378,15 +396,15 @@ def _interpolate_mesh_vertex_field(cell_field, connectivity, n_vert):
 
 def main():
     cwd = os.getcwd()
-    mesh_path = os.path.join(cwd, "mesh.h5")
+    model_path = os.path.join(cwd, "model.h5")
     vtk_dir = os.path.join(cwd, "vtk")
-    out_path = os.path.join(vtk_dir, "mesh.vtk")
+    out_path = os.path.join(vtk_dir, "model.vtk")
     part_dir = os.path.join(cwd, "partitions")
 
     has_partitions = os.path.isdir(part_dir)
 
-    print(f"[mesh_to_vtk] Reading {mesh_path}")
-    with h5py.File(mesh_path, "r") as f:
+    print(f"[model_to_vtk] Reading {model_path}")
+    with h5py.File(model_path, "r") as f:
         topo = f["topology"]
         vertex_to_coord = topo["vertex_to_coord"][:]
         edge_to_vertex = topo["edge_to_vertex"][:]
@@ -403,7 +421,7 @@ def main():
     n_vert = vertex_to_coord.shape[0]
     print(f"  Cells: {n_cell}, Vertices: {n_vert}")
 
-    print("[mesh_to_vtk] Resolving hexahedral connectivity...")
+    print("[model_to_vtk] Resolving hexahedral connectivity...")
     connectivity = build_cell_connectivity(cell_to_surface, surface_to_edge, edge_to_vertex)
 
     cell_fields = {}
@@ -420,7 +438,7 @@ def main():
         if gll_coords is not None:
             ngll_dim = gll_coords.shape[1]
 
-        print("[mesh_to_vtk] Reading partitions/...")
+        print("[model_to_vtk] Reading partitions/...")
         fields = read_partition_fields(part_dir, n_cell)
 
         # ── Cell-root fields (stay as CELL_DATA, no broadcast to points) ──
@@ -443,7 +461,7 @@ def main():
             gll_points = np.concatenate(gll_pt_list, axis=0) if gll_pt_list else np.empty((0, 3))
             vertex_coords_out = np.concatenate([vertex_to_coord, gll_points], axis=0)
 
-            print("[mesh_to_vtk] Building GLL point data and topology...")
+            print("[model_to_vtk] Building GLL point data and topology...")
             # Point fields from raw GLL data — no cell averaging, no broadcast
             point_fields = {}
             for name_h5, name_raw in [
@@ -478,22 +496,66 @@ def main():
                 f"{n_edge + n_face + n_sub} GLL cells"
             )
     else:
-        # No partitions — PML_flag and Tile_Index only as cell fields
+        # No partitions — read fields directly from model.h5 (all fields now stored there)
+        ngll_dim = None
+        if gll_coords is not None:
+            ngll_dim = gll_coords.shape[1]
+
         cell_fields["PML_flag"] = is_pml.astype(np.float64)
         cell_fields["Tile_Index"] = np.full(n_cell, -1.0)
-        print("  Fields: PML_flag only (no partitions/)")
 
-        edge_tmpl, face_tmpl, sub_tmpl = build_gll_cell_template(ngll)
-        edge_arr, face_arr, sub_arr, n_edge, n_face, n_sub, gll_elem_map = build_all_gll_cells(
-            edge_tmpl, face_tmpl, sub_tmpl, n_cell, ngll, n_mesh_vert
-        )
-        print(f"  GLL per cell: {gll_per_cell}, total GLL: {n_cell * gll_per_cell}")
-        print(
-            f"  Topology: {n_edge}L + {n_face}Q + {n_sub}H = {n_edge + n_face + n_sub} GLL cells"
-        )
+        if "field/element/tile_index" in h5py.File(model_path, "r"):
+            with h5py.File(model_path, "r") as f:
+                cell_fields["Tile_Index"] = f["field/element/tile_index"][:].astype(np.float64)
+
+        if ngll_dim is not None and gll_coords is not None:
+            print("[model_to_vtk] Reading fields from model.h5...")
+            ngll = ngll_dim
+            gll_per_cell = ngll**3
+            n_mesh_vert = n_vert
+
+            gll_fields = read_model_h5_fields(model_path, n_cell, (ngll, ngll, ngll))
+
+            gll_pt_list = []
+            for ci in range(n_cell):
+                gll_pt_list.append(gll_coords[ci].reshape(-1, 3))
+            gll_points = np.concatenate(gll_pt_list, axis=0) if gll_pt_list else np.empty((0, 3))
+            vertex_coords_out = np.concatenate([vertex_to_coord, gll_points], axis=0)
+
+            print("[model_to_vtk] Building GLL point data and topology...")
+            point_fields = {}
+            for name_h5, name_raw in [
+                ("Vp_m_s", "vp"),
+                ("Vs_m_s", "vs"),
+                ("Density_kg_m3", "density"),
+                ("Mass", "mass"),
+                ("PML_Damping", "damping"),
+            ]:
+                arr = np.zeros(vertex_coords_out.shape[0], dtype=np.float64)
+                cell_avg = np.mean(gll_fields[name_raw].reshape(n_cell, -1), axis=1)
+                arr[:n_mesh_vert] = _interpolate_mesh_vertex_field(
+                    cell_avg, connectivity, n_mesh_vert
+                )
+                for ci in range(n_cell):
+                    s = n_mesh_vert + ci * gll_per_cell
+                    arr[s : s + gll_per_cell] = gll_fields[name_raw][ci].ravel()
+                point_fields[name_h5] = arr
+            print("  Point fields: " + ", ".join(point_fields.keys()))
+
+            edge_tmpl, face_tmpl, sub_tmpl = build_gll_cell_template(ngll)
+            edge_arr, face_arr, sub_arr, n_edge, n_face, n_sub, gll_elem_map = build_all_gll_cells(
+                edge_tmpl, face_tmpl, sub_tmpl, n_cell, ngll, n_mesh_vert
+            )
+            print(f"  GLL per cell: {gll_per_cell}, total GLL: {n_cell * gll_per_cell}")
+            print(
+                f"  Topology: {n_edge}L + {n_face}Q + {n_sub}H = "
+                f"{n_edge + n_face + n_sub} GLL cells"
+            )
+        else:
+            print("  Fields: PML_flag, Tile_Index (no GLL detail)")
 
     os.makedirs(vtk_dir, exist_ok=True)
-    print(f"[mesh_to_vtk] Writing {out_path}")
+    print(f"[model_to_vtk] Writing {out_path}")
     write_vtu(
         out_path,
         vertex_coords_out,

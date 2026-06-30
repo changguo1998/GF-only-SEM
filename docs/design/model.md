@@ -5,7 +5,7 @@
 
 ## Goal
 
-External mesh conversion to internal HDF5 topology format. GMSH .msh → mesh.h5 (topology only, format transport).
+External mesh conversion to internal HDF5 topology format. GMSH .msh → model.h5 (topology only, format transport).
 
 Partitioning and all derived data are done by the preprocessor, not the mesh module.
 
@@ -17,11 +17,11 @@ GMSH .msh v4.1
       ▼
   converter (Python, format transport only — no computation)
       │
-  mesh.h5  (/topology/ only — converter output)
+  model.h5  (/topology/ only — converter output)
       │
       ▼
   preprocessor  (interpolation, boundaries, geometric precompute, partition)
-      │              extends mesh.h5 with /field/element/coords,
+      │              extends model.h5 with /field/element/coords,
       │              /field/element/dxi_dx, /field/element/jacobian,
       │              /field/element/is_pml (PML flag for preprocess recording map)
   partition_{0}.h5, partition_{1}.h5, …  (per-rank partition files)
@@ -36,7 +36,7 @@ GMSH .msh v4.1
 ```
 working_dir/
 ├── config.py                    — user's config script
-├── mesh.h5                      — converter output + preprocessor extensions
+├── model.h5                      — converter output + preprocessor extensions
 ├── configs/
 │   └── config.h5                — single config file (rank-invariant, no direction)
 ├── partitions/
@@ -70,7 +70,7 @@ Partitioning was moved to the preprocessor so all derived data (GLL node positio
 - Python 3 + meshio (GMSH v4.1 reader)
 - HDF5
 
-## HDF5 Format — `mesh.h5` (converter + preprocessor output)
+## HDF5 Format — `model.h5` (converter + preprocessor output)
 
 ### Converter phase
 
@@ -78,24 +78,35 @@ The converter does NO computation. It reads GMSH and writes `/topology/` only.
 
 ### Preprocessor phase (extension)
 
-Preprocess extends `mesh.h5` with geometry used by forward, validation, and vertex lookup:
+Preprocess extends `model.h5` with geometry used by forward, validation, and vertex lookup:
 
 ```
-mesh.h5  (preprocessor extensions)
+model.h5  (preprocessor extensions)
 └── /field/
-    └── /element/
-        ├── coords     : float64[n_cell, NGLL, NGLL, NGLL, 3]   — GLL node (x, y, z) per element
-        ├── dxi_dx     : float64[n_cell, NGLL, NGLL, NGLL, 3, 3] — ∂ξ_i/∂x_j per element
-        ├── jacobian   : float64[n_cell, NGLL, NGLL, NGLL]      — det(J) per element
-        ├── is_pml     : int8[n_cell]                            — 1=PML element, 0=ordinary
-        └── tile_index : int64[n_cell]                           — tile ID or -1 (PML / below recording depth)
+    ├── /element/
+    │   ├── coords     : float64[n_cell, NGLL, NGLL, NGLL, 3]   — GLL node (x, y, z) per element
+    │   ├── dxi_dx     : float64[n_cell, NGLL, NGLL, NGLL, 3, 3] — ∂ξ_i/∂x_j per element
+    │   ├── jacobian   : float64[n_cell, NGLL, NGLL, NGLL]      — det(J) per element
+    │   ├── mass       : float64[n_cell, NGLL, NGLL, NGLL]      — lumped mass diagonal
+    │   ├── vp         : float64[n_cell, NGLL, NGLL, NGLL]      — P-wave speed at GLL nodes
+    │   ├── vs         : float64[n_cell, NGLL, NGLL, NGLL]      — S-wave speed at GLL nodes
+    │   ├── density    : float64[n_cell, NGLL, NGLL, NGLL]      — density at GLL nodes
+    │   ├── lambda     : float64[n_cell, NGLL, NGLL, NGLL]      — 1st Lamé parameter
+    │   ├── mu         : float64[n_cell, NGLL, NGLL, NGLL]      — 2nd Lamé parameter (shear modulus)
+    │   ├── damping    : float64[n_cell, NGLL, NGLL, NGLL]      — PML damping profile
+    │   ├── is_pml     : int8[n_cell]                            — 1=PML element, 0=ordinary
+    │   └── tile_index : int64[n_cell]                           — tile ID or -1 (PML / below recording depth)
+    │
+    └── /surface/
+        └── boundary_tag : int64[n_surface]                     — 0=interior, 1=free surface, 2=absorbing
 ```
 
-These are the only `/field/` groups added to `mesh.h5`. Material, mass, C-PML, partition metadata, and recording maps live in `partition_{r}.h5`.
+These `/field/` groups are written to both `model.h5` and `partition_{r}.h5`.
+Material, C-PML metadata, per-rank partition metadata, and recording maps also live in `partition_{r}.h5`.
 
 **`is_pml` flag**: preprocess marks absorbing-layer elements. Recording map excludes them.
 
-### Design Rules (shared by mesh.h5 and partition\_{r}.h5)
+### Design Rules (shared by model.h5 and partition\_{r}.h5)
 
 | Rule | Example |
 |------|---------|
@@ -107,7 +118,7 @@ These are the only `/field/` groups added to `mesh.h5`. Material, mass, C-PML, p
 ### Schema — converter phase
 
 ```
-mesh.h5  (converter writes /topology/ only)
+model.h5  (converter writes /topology/ only)
 └── /topology/
     ├── n_vertex         : attr int64
     ├── n_edge           : attr int64
@@ -141,7 +152,7 @@ Each MPI rank gets one partition file with local topology, element fields, and m
 
 ```
 partition_{r}.h5
-├── /topology/              ← local subset of mesh.h5 /topology/
+├── /topology/              ← local subset of model.h5 /topology/
 │   ├── n_vertex, n_edge, n_surface, n_cell  : attr int64
 │   ├── vertex_to_coord  : float64[n_vertex_local, 3]
 │   ├── edge_to_vertex   : int64[n_edge_local, 2]
@@ -216,7 +227,7 @@ Boundary detection is auto, by geometry. No GMSH physical groups needed. One fre
 
 ## Design Notes
 
-- **mesh.h5** gives postprocess vertex coordinates by `vertex_ids`. Converter writes `/topology/`; preprocess adds `/field/element/*` for forward checks.
+- **model.h5** gives postprocess vertex coordinates by `vertex_ids`. Converter writes `/topology/`; preprocess adds `/field/element/*` for forward checks.
 - **partition\_{r}.h5** serves forward: field data, C-PML, metadata, and per-rank `/recording/` map.
 - Postprocess does no element search or interpolation.
 
@@ -224,7 +235,7 @@ Boundary detection is auto, by geometry. No GMSH physical groups needed. One fre
 
 ```
 tools/
-└── gmsh_to_hdf5.py          — GMSH v4.1 → mesh.h5 converter (Python, format transport only)
+└── gmsh_to_hdf5.py          — GMSH v4.1 → model.h5 converter (Python, format transport only)
 ```
 
 The mesh module is a Python converter only. All topology manipulation happens in the preprocessor.
