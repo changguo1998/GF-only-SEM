@@ -10,6 +10,7 @@ ParaView / VisIt.
 """
 
 import os
+import argparse
 
 import h5py
 import numpy as np
@@ -394,7 +395,7 @@ def _interpolate_mesh_vertex_field(cell_field, connectivity, n_vert):
 # ── Main ───────────────────────────────────────────────────────────────
 
 
-def main():
+def main(verbose: bool = False):
     cwd = os.getcwd()
     model_path = os.path.join(cwd, "model.h5")
     vtk_dir = os.path.join(cwd, "vtk")
@@ -421,7 +422,8 @@ def main():
     n_vert = vertex_to_coord.shape[0]
     print(f"  Cells: {n_cell}, Vertices: {n_vert}")
 
-    print("[model_to_vtk] Resolving hexahedral connectivity...")
+    if verbose:
+        print("[model_to_vtk] Resolving hexahedral connectivity...")
     connectivity = build_cell_connectivity(cell_to_surface, surface_to_edge, edge_to_vertex)
 
     cell_fields = {}
@@ -438,13 +440,15 @@ def main():
         if gll_coords is not None:
             ngll_dim = gll_coords.shape[1]
 
-        print("[model_to_vtk] Reading partitions/...")
+        if verbose:
+            print("[model_to_vtk] Reading partitions/...")
         fields = read_partition_fields(part_dir, n_cell)
 
         # ── Cell-root fields (stay as CELL_DATA, no broadcast to points) ──
         cell_fields["PML_flag"] = is_pml.astype(np.float64)
         cell_fields["Tile_Index"] = fields.get("tile_index", np.full(n_cell, -1.0))
-        print("  Cell fields: " + ", ".join(cell_fields.keys()))
+        if verbose:
+            print("  Cell fields: " + ", ".join(cell_fields.keys()))
 
         # ── Point-root fields (stay as POINT_DATA, no averaging to cells) ──
         if ngll_dim is not None and gll_coords is not None:
@@ -461,8 +465,8 @@ def main():
             gll_points = np.concatenate(gll_pt_list, axis=0) if gll_pt_list else np.empty((0, 3))
             vertex_coords_out = np.concatenate([vertex_to_coord, gll_points], axis=0)
 
-            print("[model_to_vtk] Building GLL point data and topology...")
-            # Point fields from raw GLL data — no cell averaging, no broadcast
+            if verbose:
+                print("[model_to_vtk] Building GLL point data and topology...")
             point_fields = {}
             for name_h5, name_raw in [
                 ("Vp_m_s", "vp"),
@@ -483,18 +487,20 @@ def main():
                     s = n_mesh_vert + ci * gll_per_cell
                     arr[s : s + gll_per_cell] = gll_fields[name_raw][ci].ravel()
                 point_fields[name_h5] = arr
-            print("  Point fields: " + ", ".join(point_fields.keys()))
+            if verbose:
+                print("  Point fields: " + ", ".join(point_fields.keys()))
 
             # Build GLL topology for detail view
             edge_tmpl, face_tmpl, sub_tmpl = build_gll_cell_template(ngll)
             edge_arr, face_arr, sub_arr, n_edge, n_face, n_sub, gll_elem_map = build_all_gll_cells(
                 edge_tmpl, face_tmpl, sub_tmpl, n_cell, ngll, n_mesh_vert
             )
-            print(f"  GLL per cell: {gll_per_cell}, total GLL: {n_cell * gll_per_cell}")
-            print(
-                f"  Topology: {n_edge}L + {n_face}Q + {n_sub}H = "
-                f"{n_edge + n_face + n_sub} GLL cells"
-            )
+            if verbose:
+                print(f"  GLL per cell: {gll_per_cell}, total GLL: {n_cell * gll_per_cell}")
+                print(
+                    f"  Topology: {n_edge}L + {n_face}Q + {n_sub}H = "
+                    f"{n_edge + n_face + n_sub} GLL cells"
+                )
     else:
         # No partitions — read fields directly from model.h5 (all fields now stored there)
         ngll_dim = None
@@ -509,7 +515,8 @@ def main():
                 cell_fields["Tile_Index"] = f["field/element/tile_index"][:].astype(np.float64)
 
         if ngll_dim is not None and gll_coords is not None:
-            print("[model_to_vtk] Reading fields from model.h5...")
+            if verbose:
+                print("[model_to_vtk] Reading fields from model.h5...")
             ngll = ngll_dim
             gll_per_cell = ngll**3
             n_mesh_vert = n_vert
@@ -522,7 +529,8 @@ def main():
             gll_points = np.concatenate(gll_pt_list, axis=0) if gll_pt_list else np.empty((0, 3))
             vertex_coords_out = np.concatenate([vertex_to_coord, gll_points], axis=0)
 
-            print("[model_to_vtk] Building GLL point data and topology...")
+            if verbose:
+                print("[model_to_vtk] Building GLL point data and topology...")
             point_fields = {}
             for name_h5, name_raw in [
                 ("Vp_m_s", "vp"),
@@ -540,19 +548,22 @@ def main():
                     s = n_mesh_vert + ci * gll_per_cell
                     arr[s : s + gll_per_cell] = gll_fields[name_raw][ci].ravel()
                 point_fields[name_h5] = arr
-            print("  Point fields: " + ", ".join(point_fields.keys()))
+            if verbose:
+                print("  Point fields: " + ", ".join(point_fields.keys()))
 
             edge_tmpl, face_tmpl, sub_tmpl = build_gll_cell_template(ngll)
             edge_arr, face_arr, sub_arr, n_edge, n_face, n_sub, gll_elem_map = build_all_gll_cells(
                 edge_tmpl, face_tmpl, sub_tmpl, n_cell, ngll, n_mesh_vert
             )
-            print(f"  GLL per cell: {gll_per_cell}, total GLL: {n_cell * gll_per_cell}")
-            print(
-                f"  Topology: {n_edge}L + {n_face}Q + {n_sub}H = "
-                f"{n_edge + n_face + n_sub} GLL cells"
-            )
+            if verbose:
+                print(f"  GLL per cell: {gll_per_cell}, total GLL: {n_cell * gll_per_cell}")
+                print(
+                    f"  Topology: {n_edge}L + {n_face}Q + {n_sub}H = "
+                    f"{n_edge + n_face + n_sub} GLL cells"
+                )
         else:
-            print("  Fields: PML_flag, Tile_Index (no GLL detail)")
+            if verbose:
+                print("  Fields: PML_flag, Tile_Index (no GLL detail)")
 
     os.makedirs(vtk_dir, exist_ok=True)
     print(f"[model_to_vtk] Writing {out_path}")
@@ -575,4 +586,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Convert model.h5 to model.vtk for ParaView.")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed processing messages")
+    args = parser.parse_args()
+    main(verbose=args.verbose)

@@ -14,6 +14,7 @@ distribution in ParaView / VisIt.
 """
 
 import os
+import argparse
 import re
 
 import h5py
@@ -319,12 +320,11 @@ def write_vtu(
 # ── Main ───────────────────────────────────────────────────────────────
 
 
-def main():
+def main(verbose: bool = False):
     cwd = os.getcwd()
     model_path = os.path.join(cwd, "model.h5")
     part_dir = os.path.join(cwd, "partitions")
     vtk_dir = os.path.join(cwd, "vtk")
-
     if not os.path.isdir(part_dir):
         print("[partition_to_vtk] Error: no partitions/ directory found in CWD")
         return 1
@@ -354,7 +354,8 @@ def main():
         print("[partition_to_vtk] Error: no partition_*.h5 files in partitions/")
         return 1
 
-    print(f"[partition_to_vtk] Found {len(part_files)} partition files")
+    if verbose:
+        print(f"[partition_to_vtk] Found {len(part_files)} partition files")
 
     if gll_coords is not None:
         ngll = gll_coords.shape[1]
@@ -437,7 +438,8 @@ def main():
                 edge_tmpl, face_tmpl, sub_tmpl, n_local, ngll, n_mesh_vert
             )
 
-        print(f"  [{pf}] {n_local} cells → {out_path}")
+        if verbose:
+            print(f"  [{pf}] {n_local} cells → {out_path}")
         write_vtu(
             out_path,
             vertex_coords_out,
@@ -459,4 +461,7 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    parser = argparse.ArgumentParser(description="Convert partition files to per-rank VTK files.")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed processing messages")
+    args = parser.parse_args()
+    raise SystemExit(main(verbose=args.verbose))
