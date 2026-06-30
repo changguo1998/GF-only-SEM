@@ -242,8 +242,15 @@ def main(verbose: bool = False):
         for di in range(3):
             for vid in vertex_strain[di]:
                 arr = np.array(vertex_strain[di][vid], dtype=np.float64)
-                vertex_strain[di][vid] = arr.mean(axis=0)  # (6,)
-
+                # Manual nan-mean: exclude rows with NaN or Inf (both contaminate sum)
+                bad = np.isnan(arr).any(axis=1) | np.isinf(arr).any(axis=1)
+                clean = arr[~bad]
+                if clean.shape[0] > 0:
+                    vertex_strain[di][vid] = clean.mean(axis=0)
+                else:
+                    vertex_strain[di][vid] = np.zeros(6, dtype=np.float64)
+                # Replace remaining NaN/Inf (should not happen after clean filter)
+                vertex_strain[di][vid] = np.nan_to_num(vertex_strain[di][vid], nan=0.0, posinf=0.0, neginf=0.0)
         # For each element, look up strain at its 8 corner vertices.
         # Average available corners to produce cell strain.
         # Only elements with at least 1 recorded corner get non-zero data.
