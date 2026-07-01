@@ -14,6 +14,7 @@
 #include "gf/cuda_check.h"
 #include "gf/cuda_device_manager.hpp"
 #include "gf/element.hpp"
+#include "gf/cuda_step.hpp"
 
 namespace gf {
 
@@ -248,6 +249,20 @@ void compute_element_residual<BackendCUDA>(int n_elem, const double* dxi_dx,
             "Recompile with -DGF_WITH_CUDA and CUDA toolkit.\n");
     std::abort();
 #endif
+}
+
+// Element residual kernel launch using pre-existing device pointers (GPU-native mode).
+// Skips H2D/D2H copies — uses geometry buffers already resident on device.
+void cuda_launch_element_residual(const CudaDeviceState& state, int ngll, int n_elem) {
+    const int n_node = ngll * ngll * ngll;
+    dim3 block(ngll, ngll, ngll);
+    dim3 grid(n_elem, 1, 1);
+    GF_CUDA_CHECK(cudaMemset(state.d_residual, 0, n_elem * n_node * 3 * sizeof(double)));
+    element_residual_kernel<<<grid, block>>>(g_cuda_buffers.d_dxi_dx, g_cuda_buffers.d_jacobian,
+                                             g_cuda_buffers.d_lambda, g_cuda_buffers.d_mu,
+                                             g_cuda_buffers.d_D, g_cuda_buffers.d_weights, ngll,
+                                             state.d_displacement_tilde, state.d_residual);
+    GF_CUDA_CHECK(cudaGetLastError());
 }
 
 }  // namespace gf

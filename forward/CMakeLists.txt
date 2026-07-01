@@ -69,7 +69,8 @@ endif()
 
 if(CUDAToolkit_FOUND)
     add_library(libgf_cuda_nompi STATIC ${COMMON_SRCS} src/exchange_noop.cpp src/element_cpu.cpp
-                                        src/element_cuda.cu)
+                                        src/element_cuda.cu
+                                        src/cuda_step.cu)
     target_include_directories(libgf_cuda_nompi PUBLIC ${COMMON_INCLUDES})
     # Eigen3 include for CUDA: nvcc uses response files and doesn't see CPATH, so
     # target_link_libraries propagation may not reach CUDA.
@@ -98,7 +99,8 @@ endif()
 
 if(CUDAToolkit_FOUND AND MPI_FOUND)
     add_library(libgf_cuda STATIC ${COMMON_SRCS} src/exchange.cpp src/element_cpu.cpp
-                                  src/element_cuda.cu)
+                                  src/element_cuda.cu
+                                  src/cuda_step.cu)
     target_include_directories(libgf_cuda PUBLIC ${COMMON_INCLUDES})
     # Eigen3 include for CUDA: nvcc uses response files and doesn't see CPATH, so
     # target_link_libraries propagation may not reach CUDA.

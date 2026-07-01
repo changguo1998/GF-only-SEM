@@ -19,6 +19,9 @@
 #include "gf/CompressionFilter.h"
 #include "gf/assembly.hpp"
 #include "gf/backend.hpp"
+#ifdef GF_WITH_CUDA
+#include "gf/cuda_step.hpp"
+#endif
 #include "gf/element.hpp"
 #include "gf/exchange.hpp"
 #include "gf/gll.hpp"
@@ -151,6 +154,9 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         std::vector<double> acceleration(n_local_dof, 0.0);
         std::vector<double> residual(n_local_dof, 0.0);            // residual
         std::vector<double> displacement_tilde(n_local_dof, 0.0);  // predicted displacement
+#ifdef GF_WITH_CUDA
+        CudaDeviceState gpu_state;
+#endif
 
         // === Use precomputed exchange patterns from partition file ===
         // These contain send_dof and recv_dof indices for shared interface nodes.
@@ -186,6 +192,22 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         if (cfg.n_src_elements > 0) {
             logger.debug("  source elements: " + std::to_string(cfg.n_src_elements));
         }
+
+#ifdef GF_WITH_CUDA
+        // === Allocate GPU state (single-GPU native path) ===
+        {
+            gpu_state = cuda_allocate_state(n_local, ngll, part.mass, part.pml_damping,
+                                            part.dxi_dx, cfg, part.recording, n_local_dof);
+            // Copy source element offsets to device
+            std::vector<int> src_offsets(cfg.n_src_elements, -1);
+            for (int si = 0; si < cfg.n_src_elements; ++si) {
+                src_offsets[si] = src_elem_to_local[si];
+            }
+            GF_CUDA_CHECK(cudaMemcpy(gpu_state.d_src_elem_offsets, src_offsets.data(),
+                                     cfg.n_src_elements * sizeof(int),
+                                     cudaMemcpyHostToDevice));
+        }
+#endif
 
         // === Newmark parameters ===
         double beta = 0.0;  // explicit central difference
@@ -239,7 +261,51 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             }
         }
         for (int step = start_step; step < cfg.nsteps; ++step) {
-            // --- Newmark predict ---
+#ifdef GF_WITH_CUDA
+            // === GPU-native path (single-GPU, no MPI) ===
+            // All state vectors live on device. Only copy for I/O.
+            cuda_newmark_predict(gpu_state, solver_dt, beta);
+            cuda_zero_residual(gpu_state);
+            cuda_launch_element_residual(gpu_state, ngll, n_local);
+            cuda_pml_damping(gpu_state);
+            {
+                int dir = (direction == "x") ? 0 : ((direction == "y") ? 1 : 2);
+                double stf_val = 0.0;
+                if (step < static_cast<int>(cfg.stf_t.size())) {
+                    stf_val = cfg.stf_values[step];
+                }
+                if (stf_val != 0.0) {
+                    cuda_source_injection(gpu_state, dir, stf_val,
+                                          cfg.src_weights.data(), cfg.n_src_elements);
+                }
+            }
+            // No exchange_halo needed — single process (exchange_noop.cpp)
+            cuda_newmark_correct(gpu_state, solver_dt, gamma);
+
+            // --- Write restart (every restart_stride solver steps) ---
+            if (do_restart && step > 0 && step % restart_stride == 0) {
+                cuda_copy_state_to_host(gpu_state, displacement, velocity, acceleration);
+                restart_writer.write(step, step * solver_dt, displacement, velocity, acceleration,
+                                     part.pml_damping);
+            }
+
+            // --- Write snapshot (every snapshot_stride solver steps) ---
+            if (cfg.snapshot_stride > 0 && step % cfg.snapshot_stride == 0) {
+                std::vector<double> rec_strain;
+                bool recording_mode = cfg.record_depth_max_m > 0.0;
+                bool has_recording =
+                    part.recording.has_recording && !part.recording.vertex_ids.empty();
+
+                if (has_recording) {
+                    size_t n_vertices = part.recording.vertex_ids.size();
+                    rec_strain.resize(n_vertices * 6, 0.0);
+                    cuda_compute_strain(gpu_state, D_mat.data(), ngll, part.dxi_dx);
+                    cuda_copy_strain_to_host(gpu_state, rec_strain.data());
+                }
+                record.write_step(step, rec_strain.data());
+            }
+#else
+            // --- CPU path ---
             newmark_predict(solver_dt, beta, displacement, velocity, acceleration,
                             displacement_tilde);
 
@@ -257,9 +323,6 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                               static_cast<int>(velocity.size()));
 
             // --- Source injection ---
-            // Distribute STF * Lagrange weights across all GLL nodes of containing elements.
-            // Precomputed weights from source_locator.py handle arbitrary source positions
-            // (vertex, edge, face, or interior) within 1 or more elements.
             {
                 int dir = (direction == "x") ? 0 : ((direction == "y") ? 1 : 2);
                 double stf_val = 0.0;
@@ -289,9 +352,6 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 }
             }
             // --- MPI halo exchange (CG-SEM assembly) ---
-            // Exchange residual r at shared interface nodes so that contributions
-            // from neighbor ranks are summed (accumulate, not overwrite).
-            // After this, r has all contributions at shared nodes across all ranks.
             exchange_halo(exchange_patterns, residual, 3);
 
             // --- Newmark correct ---
@@ -306,10 +366,6 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
 
             // --- Write snapshot (every snapshot_stride solver steps) ---
             if (cfg.snapshot_stride > 0 && step % cfg.snapshot_stride == 0) {
-                // Compute strain: in normal recording mode, write only shallow
-                // mesh-vertex records. Some ranks legitimately have zero recorded
-                // vertices; they must write empty record files, not full-GLL data.
-                // Full-volume GLL strain is only for legacy runs without recording.
                 std::vector<double> rec_strain;
                 bool recording_mode = cfg.record_depth_max_m > 0.0;
                 bool has_recording =
@@ -375,7 +431,6 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                         out[5] = 0.5 * (du_dx[1][2] + du_dx[2][1]);  // εyz
                     }
                 } else if (!recording_mode) {
-                    // Full GLL strain computation (no recording map)
                     rec_strain.resize(n_local * n_node * 6, 0.0);
                     for (int elem = 0; elem < n_local; ++elem) {
                         for (int i = 0; i < ngll; ++i) {
@@ -429,9 +484,10 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                         }
                     }
                 }
-
+                record.write_step(step, rec_strain.data());
                 record.write_step(step, rec_strain.data());
             }
+#endif
 
             // --- Progress report (every log_stride steps, plus last) ---
             if ((step + 1) % cfg.log_stride == 0 || step == cfg.nsteps - 1) {
@@ -462,6 +518,10 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         }
 
         logger.progress_done();
+
+#ifdef GF_WITH_CUDA
+        cuda_free_state(gpu_state);
+#endif
 
         // === Finalize ===
         record.close();
