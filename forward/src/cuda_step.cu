@@ -160,6 +160,7 @@ void cuda_newmark_predict(CudaDeviceState& state, double dt, double beta) {
                                             state.d_acceleration,
                                             dt, beta_factor, state.n_dof);
     GF_CUDA_CHECK(cudaGetLastError());
+    GF_CUDA_CHECK(cudaDeviceSynchronize());
 }
 
 void cuda_zero_residual(CudaDeviceState& state) {
@@ -178,9 +179,7 @@ void cuda_source_injection(CudaDeviceState& state, int direction, double stf_val
                            const double* h_src_weights, int n_src_elements) {
     if (stf_val == 0.0 || n_src_elements == 0) return;
 
-    // Upload source weights to device (small, do on-demand)
-    // In steady state, weights are constant and could be kept resident.
-    // For now, upload each step — source injection is rare (few elements).
+    // Upload source weights to device (cached)
     static double* d_src_weights = nullptr;
     static int d_src_weights_size = 0;
     int total_weights = n_src_elements * state.n_node;
@@ -211,14 +210,12 @@ void cuda_newmark_correct(CudaDeviceState& state, double dt, double gamma) {
                                             state.d_mass, dt, gamma,
                                             state.n_dof, state.n_total_nodes);
     GF_CUDA_CHECK(cudaGetLastError());
+    GF_CUDA_CHECK(cudaDeviceSynchronize());
 }
 
 void cuda_compute_strain(CudaDeviceState& state, const double* h_D, int ngll,
                          const std::vector<double>& /*dxi_dx*/) {
-    if (state.n_vertices == 0) {
-        state.n_vertices = 0;
-        return;
-    }
+    if (state.n_vertices == 0) return;
     int block = 256;
     int grid = (state.n_vertices + block - 1) / block;
     // Upload D matrix to device (cached across calls)
@@ -267,6 +264,10 @@ CudaDeviceState cuda_allocate_state(int n_local_elem, int ngll,
                                     const std::vector<double>& mass,
                                     const std::vector<double>& pml_damping,
                                     const std::vector<double>& dxi_dx,
+                                    const std::vector<double>& jacobian,
+                                    const std::vector<double>& lambda_,
+                                    const std::vector<double>& mu_,
+                                    const double* h_D, const double* h_weights,
                                     const ConfigData& cfg,
                                     const RankData::RecordingMap& rec_map,
                                     int n_local_dof) {
@@ -288,6 +289,12 @@ CudaDeviceState cuda_allocate_state(int n_local_elem, int ngll,
     alloc_d(state.d_mass, state.n_total_nodes * sizeof(double));
     alloc_d(state.d_pml, state.n_total_nodes * sizeof(double));
     alloc_d(state.d_dxi_dx, state.n_total_nodes * 9 * sizeof(double));
+    alloc_d(state.d_jacobian, state.n_total_nodes * sizeof(double));
+    alloc_d(state.d_lambda_, state.n_total_nodes * sizeof(double));
+    alloc_d(state.d_mu_, state.n_total_nodes * sizeof(double));
+    int D_bytes = ngll * ngll * sizeof(double);
+    alloc_d(state.d_D, D_bytes);
+    alloc_d(state.d_weights, ngll * sizeof(double));
     alloc_d(state.d_rec_src_elem, state.n_vertices * sizeof(int));
     alloc_d(state.d_rec_corner, state.n_vertices * sizeof(int));
     alloc_d(state.d_src_elem_offsets, state.n_src_elements * sizeof(int));
@@ -295,6 +302,11 @@ CudaDeviceState cuda_allocate_state(int n_local_elem, int ngll,
     upload(state.d_mass, mass.data(), state.n_total_nodes * sizeof(double));
     upload(state.d_pml, pml_damping.data(), state.n_total_nodes * sizeof(double));
     upload(state.d_dxi_dx, dxi_dx.data(), state.n_total_nodes * 9 * sizeof(double));
+    upload(state.d_jacobian, jacobian.data(), state.n_total_nodes * sizeof(double));
+    upload(state.d_lambda_, lambda_.data(), state.n_total_nodes * sizeof(double));
+    upload(state.d_mu_, mu_.data(), state.n_total_nodes * sizeof(double));
+    upload(state.d_D, h_D, D_bytes);
+    upload(state.d_weights, h_weights, ngll * sizeof(double));
 
     if (state.n_vertices > 0) {
         upload(state.d_rec_src_elem, rec_map.src_elem_local.data(),
@@ -337,6 +349,11 @@ void cuda_free_state(CudaDeviceState& state) {
     f(state.d_mass);
     f(state.d_pml);
     f(state.d_dxi_dx);
+    f(state.d_jacobian);
+    f(state.d_lambda_);
+    f(state.d_mu_);
+    f(state.d_D);
+    f(state.d_weights);
     f(state.d_rec_src_elem);
     f(state.d_rec_corner);
     f(state.d_src_elem_offsets);

@@ -258,11 +258,12 @@ void cuda_launch_element_residual(const CudaDeviceState& state, int ngll, int n_
     dim3 block(ngll, ngll, ngll);
     dim3 grid(n_elem, 1, 1);
     GF_CUDA_CHECK(cudaMemset(state.d_residual, 0, n_elem * n_node * 3 * sizeof(double)));
-    element_residual_kernel<<<grid, block>>>(g_cuda_buffers.d_dxi_dx, g_cuda_buffers.d_jacobian,
-                                             g_cuda_buffers.d_lambda, g_cuda_buffers.d_mu,
-                                             g_cuda_buffers.d_D, g_cuda_buffers.d_weights, ngll,
+    element_residual_kernel<<<grid, block>>>(state.d_dxi_dx, state.d_jacobian,
+                                             state.d_lambda_, state.d_mu_,
+                                             state.d_D, state.d_weights, ngll,
                                              state.d_displacement_tilde, state.d_residual);
     GF_CUDA_CHECK(cudaGetLastError());
+    GF_CUDA_CHECK(cudaDeviceSynchronize());
 }
 
 }  // namespace gf

@@ -197,7 +197,9 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         // === Allocate GPU state (single-GPU native path) ===
         {
             gpu_state = cuda_allocate_state(n_local, ngll, part.mass, part.pml_damping,
-                                            part.dxi_dx, cfg, part.recording, n_local_dof);
+                                            part.dxi_dx, part.jacobian, part.lambda_, part.mu_,
+                                            D_mat.data(), gll_wts.data(),
+                                            cfg, part.recording, n_local_dof);
             // Copy source element offsets to device
             std::vector<int> src_offsets(cfg.n_src_elements, -1);
             for (int si = 0; si < cfg.n_src_elements; ++si) {

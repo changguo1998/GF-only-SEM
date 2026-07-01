@@ -20,11 +20,11 @@ source "${SCRIPT_DIR}/preprocess.sh"
 PROJECT_BIN="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}/bin"
 
 # (A) CPU + MPI (default)
-SOLVER="${PROJECT_BIN}/gf_solver_mpi"
+# SOLVER="${PROJECT_BIN}/gf_solver_mpi"
 
 # (B) CUDA single-GPU, no MPI
-# SOLVER="${PROJECT_BIN}/gf_solver_cuda"
-# SOLVER_FLAGS=""        # no MPI needed
+SOLVER="${PROJECT_BIN}/gf_solver_cuda"
+SOLVER_FLAGS="" # no MPI needed
 
 # (C) CUDA + MPI (multi-GPU cluster)
 # SOLVER="${PROJECT_BIN}/gf_solver_mpi_cuda"
@@ -48,7 +48,7 @@ for DIR in x y z; do
     cd "${WORK_DIR}"
 
     # gf_solver_cuda runs standalone (no MPI)
-    if [[ "${SOLVER}" == *gf_solver_cuda && "${SOLVER}" != *mpi_cuda ]]; then
+    if [[ ${SOLVER} == *gf_solver_cuda && ${SOLVER} != *mpi_cuda ]]; then
         echo "  solver: gf_solver_cuda (CUDA, no MPI)"
         "${SOLVER}" --direction "${DIR}"
     else
