@@ -271,11 +271,11 @@ After each Newmark correct step, element-wise strain computed from the corrected
 
 Voigt storage order (6 components per GLL node): ε_xx, ε_yy, ε_zz, ε_xy, ε_xz, ε_yz.
 
-L2 strain smoothing (matches SPECFEM3D convention):
+Recording-mode implementation: strain is computed directly at each recorded mesh corner
+from the corrected displacement field via the GLL derivative matrix and chain rule —
+no global L2 projection. (Full-volume L2 smoothing is deferred.)
 
-<center>ε_smooth = M⁻¹ · Σ_e ∫ N·ε_e dΩ</center>
-
-Smoothed strain written to HDF5 snapshots at stride intervals.
+Strain values written to HDF5 snapshots at stride intervals.
 
 ______________________________________________________________________
 

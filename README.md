@@ -83,7 +83,7 @@ bin/gf_solver_cuda --direction x
 mpirun -n $N_RANKS bin/gf_solver_mpi_cuda --direction x
 
 # Post-process
-gf-postprocess model.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/
+gf-postprocess model.h5 config.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/
 
 # C++ accelerator thread count
 export OMP_NUM_THREADS=8   # default: all available CPUs

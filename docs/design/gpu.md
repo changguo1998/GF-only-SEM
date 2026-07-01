@@ -131,11 +131,10 @@ Each thread (i,j,k) within element block `e`:
 
 Buffers are freed on shape change (reallocation). Cleanup before MPI_Finalize is not yet implemented — device memory is freed by OS on process exit.
 
-> **Multi-GPU per node:** Each MPI rank must bind to a distinct GPU device
-> (e.g., via `CUDA_VISIBLE_DEVICES` or `cudaSetDevice`). The code does not
-> call `cudaSetDevice` — it relies on the MPI launcher or environment to assign
-> devices. On multi-GPU nodes with multiple ranks, all ranks default to GPU 0
-> without this binding, causing contention and memory exhaustion.
+> **Multi-GPU per node:** `main.cpp` auto-binds GPU via `cudaSetDevice(rank % n_devices)`.
+> When MPI ranks on a shared-memory node exceed GPUs, the solver warns, reduces to
+> 1 rank per GPU, and redistributes partitions via `read_partition_range()`.
+> Excess ranks (shm_rank >= n_devices) exit early.
 
 ## CMake Configuration
 

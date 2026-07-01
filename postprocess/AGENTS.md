@@ -31,7 +31,7 @@ merge by global vertex_id
 ## CLI
 
 ```bash
-gf-postprocess model.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ -o greenfun/
+gf-postprocess model.h5 config.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ -o greenfun/
 ```
 
 Tile sizes come from `config.h5` (`/simulation/tilex_elements`, `tiley_elements`).

@@ -25,12 +25,12 @@ partitions/partition_{r}.h5 (local subset per rank: topology + field/element + c
     │   ├── NEWMARK PREDICT: ũ = u + solver_dt·v + (solver_dt²/2)·(1-2β)·a
     │   ├── Zero global residual: r[:, :] = 0
     │   ├── Element residual (matrix-free, accumulate into r via gll_to_global)
-    │   ├── C-PML memory variable update + acceleration correction
+    d40|    │   ├── PML damping (linear ramp applied to velocity)
     │   ├── Source injection (distribute STF[t] × w_ijk via precomputed weights)
     │   ├── MPI halo exchange (precomputed face-pair lists)
     │   ├── NEWMARK CORRECT: a_new = M⁻¹·r, v, u update
-    │   ├── L2 strain smoothing — compute ε_elem from ∇u_new, project via M⁻¹Σ_e∫N·ε_elem dΩ
-    │   ├── Compute ε_smooth from L2 projection (second element pass)
+    1ec|    │   ├── Per-vertex strain — compute ε from ∇u_new via derivative matrix + chain rule
+    4f8|    │   ├── Compute per-corner strain at recorded mesh vertices
     │   ├── Write shallow mesh-vertex strain record when step % snapshot_stride == 0
     │   └── Overwrite full-volume restart when step % restart_stride == 0
     │
@@ -125,7 +125,7 @@ Per-rank file from preprocess. Each rank reads only its file. Contains local ele
 | `/recording/vertex_ids` | int64[n_record_vertices] — global mesh vertex IDs to write from this rank |
 | `/recording/source_element_local_index` | int32[n_record_vertices] — local source element for each recorded vertex |
 | `/recording/source_corner_index` | int32[n_record_vertices] — SEM corner index for each recorded vertex |
-| `/partition/rank_{r}/exchange/` | Per-rank exchange patterns (precomputed face-pair lists for MPI halo) |
+| `/partition/exchange/neighbor_{N}/` | Per-rank exchange patterns (precomputed face-pair lists for MPI halo) |
 Note: forward solver reads from `partition_{r}.h5`, not a global model file. Each MPI rank opens and reads only its own `partition_{r}.h5` at startup. The preprocessor generates these per-rank files from the global mesh.
 
 ### config.h5
@@ -146,11 +146,11 @@ No `/attenuation/` — elastic-only, attenuation deferred. No `direction` — pa
 | **gll** | GLL points/weights, Lagrange basis, derivative matrix (header-only, N-dependent) |
 | **element** | Matrix-free K_e·u: stiffness × displacement using precomputed dξ/dx and detJ. Accumulates into global residual via gll_to_global |
 | **assembly** | `assemble_residual()` zeros global r, calls element loop, handles within-rank accumulation |
-| **cpml** | C-PML memory variable update + acceleration correction. Second-order recursive convolution (Wang et al. 2006, θ=1/8). 39 scalar memory values per GLL node per CPML element (see CPML Memory Variables) |
+| **pml** | Simple linear-ramp PML damping: v ← v - d(node)·v. Full recursive-convolution C-PML (Wang et al. 2006, 39 scalar memory values) is deferred. |
 | **newmark** | NewmarkPredictor, NewmarkCorrector (2nd order explicit, β=0, γ=½) |
 | **source** | Reads precomputed element list + Lagrange weights from config.h5. Distributes STF(t) × w_ijk to global residual |
-| **exchange** | MPI halo exchange using precomputed face-pair lists from /partition/rank\_{r}/exchange/ |
-| **record/snapshot** | L2 strain smoothing (global projection, C⁰ continuous ε_smooth) + writer: append shallow mesh-vertex strain to extendible HDF5 dataset at snapshot steps |
+| **exchange** | MPI halo exchange using precomputed face-pair lists from /partition/exchange/neighbor\_{N}/ |
+| **record/snapshot** | Per-vertex strain at recorded mesh corners (direct gradient from displacement) + writer: append shallow mesh-vertex strain to extendible HDF5 dataset at snapshot steps |
 | **solver** | `run_forward()` main time loop; shallow strain output + latest-only restart/resume |
 
 ## Core Types
@@ -202,217 +202,62 @@ Single point force source on the free surface (z = z_min, top of domain). Precom
 If the source lies on a shared face/edge/vertex on the free surface, all sharing elements are included
 in the precomputed element list — the preprocessor handles this during source location.
 
-## CPML Memory Variables
+## PML Damping
 
-The C-PML implementation follows the second-order recursive convolution scheme
-of Wang et al. (2006), equation (21), with parameter θ = 1/8.
-
-### Damping Profile Formulas (from SPECFEM3D)
-
-Three damping-related quantities are computed per GLL node per CPML element,
-precomputed by the preprocessor and stored in `partition_{r}.h5`.
-
-**Normalized distance** (for a GLL node in the x-direction PML layer):
+The current implementation uses a simple linear-ramp damping profile applied to the
+velocity field. Precomputed by the preprocessor and stored in `partition_{r}.h5`
+as a single per-GLL-node damping array:
 
 ```
-abscissa_in_PML = |x_node - x_interface|    (distance from PML/interior interface)
-dist = abscissa_in_PML / CPML_width_x       (normalized to [0, 1])
+/field/element/damping   float64[n_elem_total, NGLL, NGLL, NGLL]
 ```
 
-where `x_interface` is the boundary between interior and PML region
-(not the domain boundary). `CPML_width_x` is the maximum physical PML
-thickness across all MPI ranks.
+### Update Formula
 
-**Damping profile** `d_x` (from SPECFEM3D `pml_damping_profile_l`):
-
-```
-d_x = -((NPOWER + 1) · vp_max · log(CPML_Rcoef) / (2 · CPML_width_x)) · dist^(1.2 · NPOWER)
-```
-
-where `NPOWER = 1`, `CPML_Rcoef = 0.001`. The P-wave speed `vp_max` is the
-maximum vp across all CPML elements (constant for all nodes). The same formula
-applies for `d_y` and `d_z` with their respective widths.
-
-Reference: INRIA research report RR-3471 section 6.1,
-<http://hal.inria.fr/docs/00/07/32/19/PDF/RR-3471.pdf>
-
-**Stretched-coordinate factor** `K_x`:
+At each timestep, PML damping is applied to the velocity field after the element
+residual computation:
 
 ```
-K_x = K_MIN_PML + (K_MAX_PML - K_MIN_PML) · dist
+v(d, iglob) -= damping[e][i][j][k] * v(d, iglob)
 ```
 
-with `K_MIN_PML = K_MAX_PML = 1` (constant K = 1 everywhere — no stretching).
+All 3 displacement components at a node share the same damping coefficient.
+Non-PML elements have damping = 0 everywhere (no effect).
 
-**Shifted frequency-domain pole** `α_x`:
+### Damping Profile
 
-```
-α_x = ALPHA_MAX_PML_x · (1 - dist)
-ALPHA_MAX_PML_x = π · f0_FOR_PML · 0.9
-ALPHA_MAX_PML_y = π · f0_FOR_PML · 1.0
-ALPHA_MAX_PML_z = π · f0_FOR_PML · 1.1
-```
-
-where `f0_FOR_PML` is the dominant source frequency
-(derived from the STF's central frequency). The asymmetry
-`α_x < α_y < α_z` helps avoid singularities in the PML parameter
-separation (Festa & Vilotte 2005).
-
-### Convolution Coefficients (from SPECFEM3D)
-
-The second-order recursive convolution scheme (Xie et al. 2014, eq. 60, D6a-D6b)
-requires precomputed coefficients. Three sets are precomputed per GLL node:
-
-**β (auxiliary decay rate)** per direction:
+For each PML element, the damping coefficient ramps linearly from 0 at the
+PML-entry interface (interior edge of the PML layer) to 1 at the physical
+domain boundary:
 
 ```
-β_x = α_x + d_x / K_x
-β_y = α_y + d_y / K_y
-β_z = α_z + d_z / K_z
+ramp = clamp((coord - pml_start) / pml_width, 0.0, 1.0)
+damping = ramp
 ```
 
-**Recursive convolution coefficients** `compute_convolution_coef(b) → (coef0, coef1, coef2)`:
+### Element Classification
 
-```
-temp = exp(-½ · b · Δt)
+PML elements are tagged by `is_pml` flag (int8) per element, computed during
+preprocessing. Layer expansion uses element grid position `(i,j,k)` for structured
+hex meshes; unstructured meshes fall back to 1-layer surface detection.
 
-coef0 = temp · temp     (= exp(-b · Δt))
+### Deferred: Full C-PML
 
-Second-order scheme:
-  coef1 = (1 - temp) / b       if |b| ≥ ε
-  coef2 = coef1 · temp
+Full recursive-convolution C-PML (Wang et al. 2006, θ=1/8) with 39 memory
+variables per GLL node — matching SPECFEM3D — is documented in the `docs/math.md`
+formulation, but not yet implemented. The deferred design includes:
 
-  Small-b approximation (|b| < ε, Taylor to 3rd order):
-  coef1 = Δt/2 + (-1/8 · Δt² · b + 1/48 · Δt³ · b² - 1/384 · Δt⁴ · b³)
-  coef2 = Δt/2 + (-3/8 · Δt² · b + 7/48 · Δt³ · b² - 5/128 · Δt⁴ · b³)
-```
+- d/K/α damping profiles per direction
+- Second-order convolution coefficients (α_x,y,z, β_x,y,z)
+- 21 memory arrays, 39 scalars per GLL node
+- Accel-update coefficients Ā₁…Ā₅ (Xie et al. 2014)
+- Strain-update coefficients A₆…A₁₇
 
-These coefficients are computed for both `α_x,y,z` and `β_x,y,z`, producing
-9 values each for `pml_convolution_coef_alpha` and `pml_convolution_coef_beta`.
-
-**Accel-update coefficients** `Ā` (from `l_parameter_computation`):
-See Appendix A1 of Xie et al. (2014). Yields 5 coefficients `Ā₁…Ā₅`
-stored in `pml_convolution_coef_abar[5, NGLL, NGLL, NGLL, NSPEC_CPML]`.
-
-**Strain-update coefficients** A₆…A₁₇ (from `lijk_parameter_computation`):
-Permuted for 3 index orderings (123, 132, 231), yielding 12 coefficients
-(4 per ordering) stored in `pml_convolution_coef_strain[18, NGLL, NGLL, NGLL, NSPEC_CPML]`.
-The 18 slots: indices 1-4 = ordering 231, 5-8 = ordering 132, 9-12 = ordering 123,
-13-14 = s_x, 15 = s_y, 16-17 = s_z, 18 = η (see SPECFEM3D `prepare_timerun.F90`).
-
-### Precomputed CPML Arrays in partition\_{r}.h5
-
-| Array | Shape | Description |
-|-------|-------|-------------|
-| cpml_type | int8[n_elem_local] | 1=face, 2=edge, 3=corner |
-| d_x, d_y, d_z | float64[n_elem_local, NGLL, NGLL, NGLL] | Damping profiles |
-| K_x, K_y, K_z | float64[n_elem_local, NGLL, NGLL, NGLL] | K=1 everywhere (no stretch) |
-| alpha_x, alpha_y, alpha_z | float64[n_elem_local, NGLL, NGLL, NGLL] | Frequency-shift profiles |
-| conv_coef_alpha | float64[9, n_elem_local, NGLL, NGLL, NGLL] | coef0,1,2 for α_x, α_y, α_z |
-| conv_coef_beta | float64[9, n_elem_local, NGLL, NGLL, NGLL] | coef0,1,2 for β_x, β_y, β_z |
-| conv_coef_abar | float64[5, n_elem_local, NGLL, NGLL, NGLL] | Ā₁…Ā₅ for accel update |
-| conv_coef_strain | float64[18, n_elem_local, NGLL, NGLL, NGLL] | A₆…A₁₇ for strain update |
-**Memory variable layout:** 21 rmemory arrays total per CPML element,
-organized as 3 PML directions (x, y, z) × 7 arrays:
-
-| Direction | Arrays | Description |
-|-----------|--------|-------------|
-| x | 7 | Memory variables for ∂/∂x displacement gradient |
-| y | 7 | Memory variables for ∂/∂y displacement gradient |
-| z | 7 | Memory variables for ∂/∂z displacement gradient |
-**Time-level storage:** 9 of the 21 arrays require 3 time levels
-(second-order convolution requires the previous two timesteps),
-while the remaining 12 arrays require only 1 time level.
-
-**Effective storage:** 39 scalar values per GLL node per CPML element:
-
-- 9 arrays × 3 time levels = 27 scalars
-- 12 arrays × 1 time level = 12 scalars
-- Total = 39 scalars
-
-**Implementation recommendation:** flatten all rmemory data into a single
-5D array (matching SPECFEM3D indexing):
-
-```
-rmemory[NSPEC_CPML, NGLL, NGLL, NGLL, 39]
-```
-
-**Flat index layout (index 0–38), derived from SPECFEM3D allocation order:**
-
-**Indices 0–26: arrays requiring 3 time levels** (9 arrays × 3 = 27 scalars).
-These are the arrays where the derivative's primary direction matches the PML direction:
-
-| Base | Array | PML Dir | Time level offsets |
-|------|-------|---------|--------------------|
-| 0 | rmemory_dux_dxl | x | 0=n-1, 1=n, 2=n+1 |
-| 3 | rmemory_dux_dyl | x | 0=n-1, 1=n, 2=n+1 |
-| 6 | rmemory_dux_dzl | x | 0=n-1, 1=n, 2=n+1 |
-| 9 | rmemory_duy_dxl | y | 0=n-1, 1=n, 2=n+1 |
-| 12 | rmemory_duy_dyl | y | 0=n-1, 1=n, 2=n+1 |
-| 15 | rmemory_duy_dzl | y | 0=n-1, 1=n, 2=n+1 |
-| 18 | rmemory_duz_dxl | z | 0=n-1, 1=n, 2=n+1 |
-| 21 | rmemory_duz_dyl | z | 0=n-1, 1=n, 2=n+1 |
-| 24 | rmemory_duz_dzl | z | 0=n-1, 1=n, 2=n+1 |
-Access pattern: `rmemory[e][i][j][k][base + t]` where `t ∈ {0,1,2}`.
-
-**Indices 27–38: arrays requiring 1 time level** (12 arrays × 1 = 12 scalars):
-
-| Index | Array | PML Dir |
-|-------|-------|---------|
-| 27 | rmemory_duy_dxl | x |
-| 28 | rmemory_duy_dyl | x |
-| 29 | rmemory_duz_dxl | x |
-| 30 | rmemory_duz_dzl | x |
-| 31 | rmemory_dux_dxl | y |
-| 32 | rmemory_dux_dyl | y |
-| 33 | rmemory_duz_dyl | y |
-| 34 | rmemory_duz_dzl | y |
-| 35 | rmemory_dux_dxl | z |
-| 36 | rmemory_dux_dzl | z |
-| 37 | rmemory_duy_dyl | z |
-| 38 | rmemory_duy_dzl | z |
-**Active directions per element type:**
-
-| cpml_type | Active PML directions | Active memory variables |
-|-----------|----------------------|------------------------|
-| 1 (face) | 1 direction | 7 arrays × (3 or 1 levels) for that direction only |
-| 2 (edge) | 2 directions | 14 arrays across 2 directions (face count × 2) |
-| 3 (corner) | 3 directions | All 21 arrays (full 39 scalars) |
-For face/edge elements, the inactive direction's memory variables are simply
-never updated (remain zero), using `cpml_type` to skip computation per element.
-
-**Additional PML state arrays (stored separately, NOT in rmemory):**
-
-```
-PML_displ_old[NDIM, NGLL, NGLL, NGLL, NSPEC_CPML]
-PML_displ_new[NDIM, NGLL, NGLL, NGLL, NSPEC_CPML]
-```
-
-**Additional PML state arrays:**
-
-```
-PML_displ_old[NDIM, NGLL, NGLL, NGLL, NSPEC_CPML]
-PML_displ_new[NDIM, NGLL, NGLL, NGLL, NSPEC_CPML]
-```
-
-These hold displacement fields specific to PML elements at the old and new
-time levels for the convolution update.
-
-**Precomputed coefficients in partition\_{r}.h5 (`/field/element/cpml/`):**
-
-| Array | Description |
-|-------|-------------|
-| cpml_type | Element classification (0=interior, 1=face-x, 2=face-y, 3=face-z, 4=edge, 5=corner) |
-| d_x, d_y, d_z | Damping profiles per GLL node |
-| K_x, K_y, K_z | Stretched-coordinate metric factors |
-| alpha_x, alpha_y, alpha_z | Shifted frequency-domain pole |
-| conv_coef_alpha | Convolution coefficient α for recursive update |
-| beta | Convolution coefficient β |
-| abar | Convolution coefficient a̅ (reduced) |
+See [`docs/deferred.md`](../deferred.md) for status.
 
 ## Runtime Loop
 
-````
+```
 for step in 0..nsteps-1:
     1. Newmark predict:
        ũ = u + solver_dt·v + (solver_dt²/2)·(1-2β)·a   (β=0 for explicit central difference)
@@ -433,11 +278,10 @@ for step in 0..nsteps-1:
        End
        // Within-rank shared nodes are implicitly summed via accumulation into r
 
-    4. C-PML update:
-       For each CPML element:
-         Update memory variables (exact layout below)
-         Compute C-PML acceleration correction
-         Accumulate correction into global residual r at CPML element GLL nodes
+    4. PML damping:
+       v(d, iglob) -= damping[e][i][j][k] * v(d, iglob)
+       Applied to velocity at each GLL node using precomputed damping profile.
+       Interior nodes (damping = 0) are unaffected.
 
     5. Source injection:
        For each source element e in precomputed list:
@@ -456,66 +300,18 @@ for step in 0..nsteps-1:
        v = ṽ + solver_dt·γ·a_new
        u = ũ + solver_dt²·β·a_new
 
-    8. L2 strain smoothing (snapshot timesteps only):
-       Compute ∇u from corrected u (element pass):
-         For each local element e, for each GLL node (i,j,k):
-           ∇u = GLL derivatives[e] × dxi_dx[e][i][j][k]
-           ε_elem = ½(∇u + ∇uᵀ)   (6-vector per GLL node per element)
-       Global L2 projection onto C⁰-continuous basis.
-
-       **L2 projection algorithm (element-loop form):**
-
-       The projection assembles a weighted strain vector `s_global` at global
-       GLL nodes, then applies the lumped mass inverse:
-
-       ```
-       // Phase A: Assemble weighted strain
-       s_global[6, n_global_nodes] = 0              // 6 strain components
-
-       for each local element e:
-         iglob = gll_to_global[e][i][j][k]          // for each GLL node (i,j,k)
-         detJ   = jacobian_store[e][i][j][k]
-         weight = detJ * w_GLL[i] * w_GLL[j] * w_GLL[k]   // GLL quadrature weight
-
-         for comp = 0..5:
-           s_global[comp][iglob] += weight * ε_elem[e][i][j][k][comp]
-
-       // Phase B: Apply lumped mass inverse
-       for each local element e:
-         for each GLL node (i,j,k):
-           iglob = gll_to_global[e][i][j][k]
-
-           for comp = 0..5:
-             ε_smooth[comp][i][j][k] = s_global[comp][iglob] / mass[e][i][j][k]
-       ```
-
-       The operation `∫ N_α · ε_elem dΩ` simplifies at GLL nodes because
-       the Lagrange basis satisfies `N_α(ξ_i, η_j, ζ_k) = δ_αi · δ_αj · δ_αk`
-       — the quadrature weight at node (i,j,k) directly scales the
-       element-wise strain value. The assembly loop accumulates weighted
-       strain into the shared global node. Since within-rank shared nodes
-       are implicitly summed (standard CG-SEM exchange already handles
-       contributions from adjacent elements sharing the same GLL node),
-       the lumped mass division produces the C⁰-continuous projection.
-
-       MPI ghost nodes in `s_global`: after Phase A, the MPI halo exchange
-       (same face-pair lists used for residual assembly) sums s_global
-       contributions at shared GLL nodes across rank boundaries. This
-       ensures ε_smooth is continuous across the entire mesh, not just
-       within a rank.
-
-    9. Strain snapshot (when `step % snapshot_stride == 0`):
-       Use ε_smooth from the L2 projection (not raw ε_elem).
-       Sample only preprocessing-selected mesh vertices (`/recording/` map):
-       non-PML, depth <= record_depth_actual_m, mesh corners only.
-       Fast path: only compute strain at recorded GLL corner nodes,
-       skipping the full NGLL³ interior for elements with no recorded vertices.
+    8. Strain snapshot (when step % snapshot_stride == 0):
+       For each recorded vertex in the recording map:
+         iglob = gll_to_global[elem][i][j][k]
+         Compute ∇u at that corner via GLL derivative matrix × dxi_dx
+         ε = ½(∇u + ∇uᵀ)   (6-component Voigt)
        Append to wavefields/{direction}/record_{r}.h5
+       (6 components: εxx, εyy, εzz, εxy, εxz, εyz)
        (6 components: εxx, εyy, εzz, εxy, εxz, εyz)
 
     10. Restart overwrite (when `step % restart_stride == 0`):
         Write all full-volume state required for exact resume.
-````
+```
 
 ## Snapshot Output
 
@@ -534,7 +330,7 @@ wavefields/{direction}/record_{r}.h5
 └── strain                      : float32[n_snapshots, n_record_vertices, 6]
 ```
 
-Values are L2-smoothed strain at selected SEM corner nodes. Interior GLL points are not recorded.
+Values are per-vertex strain (direct gradient from displacement at corrected corner nodes). Interior GLL points are not recorded.
 
 ## Restart Output
 

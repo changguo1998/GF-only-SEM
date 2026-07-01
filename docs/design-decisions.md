@@ -94,7 +94,7 @@ GMSH .msh → converter → model.h5 (topology only)
                     wavefields/{x,y,z}/record_{r}.h5
                     restart/{x,y,z}/restart_{r}.h5
                           ↓
-                     postprocess (merge vertex strain)
+                     abb|                     postprocess (merge vertex strain — also reads config.h5)
                           ↓
                     greenfun/tile_x{i}_y{j}.h5
 ```
@@ -269,7 +269,7 @@ Each tile stores recorded vertices in its x/y bounds for all saved depths. Green
 - **Mesh output**: Preprocess adds GLL geometry and `is_pml` to `model.h5`. Rank-local data and `/recording/` go to `partition_{r}.h5`.
 - **STF precompute**: Preprocess samples `stf_func(t_s)` at `solver_dt` and writes an array. Forward does no STF eval.
 - **Mass computation**: After material interpolation (ρ needed for lumped mass).
-- **CPML precompute**: Trace layers inward, tag face/edge/corner elements, and write damping, stretch, convolution, and type arrays to `/field/element/cpml/`.
+  - **CPML precompute**: Tag PML elements and write linear-ramp damping profile to `/field/element/damping`. Full C-PML (d/K/α per direction, convolution coefficients) is deferred.
 - **Partitioning**: METIS k-way partition + GLL node global numbering (ibool equivalent) + precomputed exchange patterns. Each rank gets its own partition\_{r}.h5 with local subset.
 - **Geometric precompute**: GLL coords, Jacobian, dξ/dx, lumped mass, C-PML arrays — all at GLL nodes. Written to partition\_{r}.h5 `/field/element/`.
 - **Source precompute**: Put source on top free surface. Write source elements, natural coords, and normalized weights.
@@ -286,13 +286,13 @@ Each tile stores recorded vertices in its x/y bounds for all saved depths. Green
 - **Precomputed data**: All mesh-dependent quantities read from partition\_{r}.h5 — no init phase.
 - **Material**: Read at GLL nodes from partition\_{r}.h5 — no runtime interpolation.
 - **Source injection**: Precomputed Lagrange weights and element list from config.h5 — forward solver distributes STF amplitude to GLL nodes via stored weights. No runtime Newton iteration.
-- **C-PML memory**: 21 arrays, 39 scalars per GLL node per PML element. Uses Wang et al. (2006), θ=1/8.
-- **C-PML**: Read coefficients from `partition_{r}.h5`; update memory and acceleration per element. No runtime damping build.
+- **PML damping**: Simple linear-ramp damping applied to velocity: v ← v − d(node)·v. Precomputed damping profile read from partition. Full recursive-convolution C-PML (Wang et al. 2006, 39 memory variables) is deferred.
+- **No runtime PML build**: Damping profile precomputed by preprocessor, read from partition at startup.
 - **Shared nodes**: Within-rank sums via global array. Cross-rank sums via precomputed MPI face exchanges.
-- **Runtime loop**: Newmark predict → residual → C-PML → source → MPI exchange → Newmark correct → strain → output.
-- **Strain computation**: Separate element pass after Newmark correct — computes ε = ½(∇u_new + ∇u_newᵀ) from corrected displacement field.
-- **L2 strain smoothing**: Project element strain to continuous GLL nodes: ε_smooth = M⁻¹ · Σ ∫ N · ε_elem dΩ. Matches SPECFEM3D.
-- **Strain record**: Write L2-smoothed strain at recorded mesh vertices only. float32 default, float64 optional.
+  9a4|- **Runtime loop**: Newmark predict → residual → PML damping → source → MPI exchange → Newmark correct → strain → output.
+  c5d|- **Strain computation**: Per-vertex strain computed inline from corrected displacement at recorded mesh corners — reference gradient via derivative matrix, chain rule to physical gradient, symmetric Voigt strain. No separate element pass.
+  fa6|- **No L2 smoothing in recording mode**: Strain is computed directly at recorded corner nodes (no global projection). Full-volume GLL strain (legacy fallback) uses direct per-node computation, not L2 projection.
+  cee|- **Strain record**: Write per-vertex strain at recorded mesh corners only. float32 default, float64 optional.
 - **3 runs per source**: Run x/y/z force jobs. One shared `config.h5`. Each writes `wavefields/{direction}/`.
 - **Restart/resume**: Restart is separate and latest-only. It stores u/v/a, step/time, and C-PML memory. `--resume` continues from it.
 - **Parallelism**: Pure MPI, one rank per core. GPU element residual works alongside MPI (GPU replaces only the element kernel; residual copied back to CPU for exchange); see [`gpu.md`](design/gpu.md).

@@ -3,7 +3,7 @@
 ## Purpose
 
 Header-only C++17 `INTERFACE` library for HDF5 record compression.
-Forward uses it in the record writer.
+Forward solver uses `CompressionFilter.h` for HDF5 property-list setup. `CheckpointWriter.h` (full-volume checkpoint) is not yet integrated.
 
 ## Components
 

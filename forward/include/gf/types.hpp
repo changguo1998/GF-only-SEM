@@ -41,7 +41,7 @@ struct RankData {
     std::vector<double> lambda_, mu_;     // precomputed elastic coefficients at GLL nodes
     std::vector<double> pml_damping;      // PML damping, 0=interior
 
-    // Precomputed exchange patterns (from /partition/rank_{r}/exchange/)
+    // Precomputed exchange patterns (from /partition/exchange/neighbor_{N}/)
     // Face-pair send/recv lists per neighbor
     std::vector<int32_t> neighbors;
 

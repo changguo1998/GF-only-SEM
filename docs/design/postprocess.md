@@ -132,12 +132,9 @@ Axis `6` = strain component. Axis `3` = force direction (`x`, `y`, `z`).
 
 ## Horizontal Tiling
 
-Use `green_tile_size_m` from `config.h5`.
-
-```
-tile_x = floor((x - xmin) / green_tile_size_m)
-tile_y = floor((y - ymin) / green_tile_size_m)
-```
+Tile sizes come from `config.h5` (`/simulation/tilex_elements`, `tiley_elements`), which give
+tile sizes in horizontal element counts. Combined with mesh grid dimensions and PML thickness,
+each vertex's element index determines its tile assignment.
 
 Each tile keeps all saved times and depths for vertices in that x/y bin.
 
@@ -169,7 +166,7 @@ Tiles do not duplicate coordinates. Consumers read coordinates from `model.h5` b
 ## CLI
 
 ```
-gf-postprocess model.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ -o greenfun/
+gf-postprocess model.h5 config.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ -o greenfun/
 ```
 
 | Arg | Meaning |
