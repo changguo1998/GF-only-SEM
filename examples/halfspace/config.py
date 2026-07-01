@@ -38,6 +38,7 @@ output_dt_s = 0.01  # Desired snapshot interval [s]
 total_duration_s = 5.0  # Total simulation duration [s]
 cfl_safety = 0.5  # CFL safety factor (0 < cfl_safety < 1)
 log_stride = 100  # Progress-report interval in solver steps (1 = every step)
+restart_dt_s = 0.5  # Restart checkpoint interval [s] (0 = disable)
 
 # ── I/O ───
 snapshot_precision = "float32"  # "float32" or "float64" for strain snapshots

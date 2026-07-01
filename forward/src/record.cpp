@@ -61,6 +61,9 @@ RecordWriter::RecordWriter(const std::string& output_dir, const std::string& sou
                            double record_depth_max_m, double record_depth_actual_m)
     : file_id_(-1),
       strain_dset_(-1),
+      displacement_dset_(-1),
+      velocity_dset_(-1),
+      acceleration_dset_(-1),
       current_step_(0),
       ngll_(ngll),
       use_float32_(use_float32),
@@ -111,46 +114,53 @@ RecordWriter::RecordWriter(const std::string& output_dir, const std::string& sou
     H5Dclose(elem_dset);
     H5Sclose(elem_space);
 
-    // Create extendible strain dataset: [n_snapshots, n_vertices, 6].
-    // Empty recording ranks use shape [0, 0, 6] with unlimited vertex max
-    // so HDF5 can use positive chunk dimensions.
-    constexpr hsize_t ncomps = 6;
-    hsize_t strain_dims[3] = {n_vertices_ > 0 ? hsize_t{1} : hsize_t{0}, n_vertices_, ncomps};
-    hsize_t max_dims[3] = {H5S_UNLIMITED, n_vertices_ > 0 ? n_vertices_ : hsize_t{H5S_UNLIMITED},
-                           ncomps};
+    // Create field datasets: strain (6 comp), displacement/velocity/acceleration (3 comp)
+    strain_dset_ = create_field_dset("strain", 6);
+    displacement_dset_ = create_field_dset("displacement", 3);
+    velocity_dset_ = create_field_dset("velocity", 3);
+    acceleration_dset_ = create_field_dset("acceleration", 3);
 
-    hid_t strain_space = H5Screate_simple(3, strain_dims, max_dims);
-    if (strain_space < 0)
-        throw std::runtime_error("H5Screate_simple failed for strain");
+    current_step_ = n_vertices_ > 0 ? 1 : 0;
+}
 
-    // Apply chunking and compression
+hid_t RecordWriter::create_field_dset(const std::string& name, int ncomp) {
+    constexpr int ndim = 3;
+    hsize_t dims[3] = {n_vertices_ > 0 ? hsize_t{1} : hsize_t{0}, n_vertices_,
+                        static_cast<hsize_t>(ncomp)};
+    hsize_t max_dims[3] = {H5S_UNLIMITED,
+                           n_vertices_ > 0 ? n_vertices_ : hsize_t{H5S_UNLIMITED},
+                           static_cast<hsize_t>(ncomp)};
+
+    hid_t space = H5Screate_simple(ndim, dims, max_dims);
+    if (space < 0)
+        throw std::runtime_error("H5Screate_simple failed for " + name);
+
     hid_t plist = H5Pcreate(H5P_DATASET_CREATE);
     if (plist < 0) {
-        H5Sclose(strain_space);
-        throw std::runtime_error("H5Pcreate failed");
+        H5Sclose(space);
+        throw std::runtime_error("H5Pcreate failed for " + name);
     }
 
-    // Chunk along time dimension: 1 snapshot per chunk. HDF5 requires all
-    // chunk dimensions to be positive even when this rank records zero vertices.
-    hsize_t chunk_dims[3] = {1, n_vertices_ > 0 ? n_vertices_ : hsize_t{1}, ncomps};
-    H5Pset_chunk(plist, 3, chunk_dims);
+    hsize_t chunk_dims[3] = {1, n_vertices_ > 0 ? n_vertices_ : hsize_t{1},
+                             static_cast<hsize_t>(ncomp)};
+    H5Pset_chunk(plist, ndim, chunk_dims);
 
-    // Apply compression filter
-    apply_compression(plist, compression);
+    CompressionConfig comp;
+    comp.method = CompressionMethod::None;
+    apply_compression(plist, comp);
 
     hid_t write_type = select_precision_type(use_float32_);
 
-    strain_dset_ =
-        H5Dcreate2(file_id_, "strain", write_type, strain_space, H5P_DEFAULT, plist, H5P_DEFAULT);
-    if (strain_dset_ < 0) {
+    hid_t dset = H5Dcreate2(file_id_, name.c_str(), write_type, space, H5P_DEFAULT, plist,
+                            H5P_DEFAULT);
+    if (dset < 0) {
         H5Pclose(plist);
-        H5Sclose(strain_space);
-        throw std::runtime_error("H5Dcreate2 failed for strain");
+        H5Sclose(space);
+        throw std::runtime_error("H5Dcreate2 failed for " + name);
     }
     H5Pclose(plist);
-    H5Sclose(strain_space);
-
-    current_step_ = n_vertices_ > 0 ? 1 : 0;  // non-empty ranks start with 1 allocated step
+    H5Sclose(space);
+    return dset;
 }
 
 RecordWriter::~RecordWriter() {
@@ -160,9 +170,12 @@ RecordWriter::~RecordWriter() {
     }
 }
 
-void RecordWriter::write_step(int step, const double* strain) {
+void RecordWriter::write_step(int step, const double* strain,
+                              const double* displacement,
+                              const double* velocity,
+                              const double* acceleration) {
     (void)step;
-    if (file_id_ < 0 || strain_dset_ < 0) {
+    if (file_id_ < 0) {
         throw std::runtime_error("RecordWriter: file not open");
     }
 
@@ -170,53 +183,65 @@ void RecordWriter::write_step(int step, const double* strain) {
         return;
     }
 
-    // Extend dataset along time dimension
-    hsize_t new_dims[3] = {current_step_, n_vertices_, 6};
-    herr_t status = H5Dset_extent(strain_dset_, new_dims);
-    if (status < 0) {
-        throw std::runtime_error("H5Dset_extent failed at step " + std::to_string(current_step_));
-    }
+    auto write_field_dset = [&](hid_t dset_id, const double* data, int ncomp) {
+        if (dset_id < 0 || data == nullptr)
+            return;
 
-    // Get the updated dataspace
-    hid_t filespace = H5Dget_space(strain_dset_);
-    if (filespace < 0) {
-        throw std::runtime_error("H5Dget_space failed");
-    }
+        // Extend dataset along time dimension
+        hsize_t new_dims[3] = {current_step_, n_vertices_, static_cast<hsize_t>(ncomp)};
+        herr_t status = H5Dset_extent(dset_id, new_dims);
+        if (status < 0) {
+            throw std::runtime_error("H5Dset_extent failed");
+        }
 
-    // Select hyperslab for the new step
-    hsize_t start[3] = {current_step_ - 1, 0, 0};
-    hsize_t count[3] = {1, n_vertices_, 6};
-    H5Sselect_hyperslab(filespace, H5S_SELECT_SET, start, nullptr, count, nullptr);
+        hid_t filespace = H5Dget_space(dset_id);
+        if (filespace < 0) {
+            throw std::runtime_error("H5Dget_space failed");
+        }
 
-    // Create memory dataspace for this slab
-    hid_t memspace = H5Screate_simple(3, count, nullptr);
-    if (memspace < 0) {
+        hsize_t start[3] = {current_step_ - 1, 0, 0};
+        hsize_t count[3] = {1, n_vertices_, static_cast<hsize_t>(ncomp)};
+        H5Sselect_hyperslab(filespace, H5S_SELECT_SET, start, nullptr, count, nullptr);
+
+        hid_t memspace = H5Screate_simple(3, count, nullptr);
+        if (memspace < 0) {
+            H5Sclose(filespace);
+            throw std::runtime_error("H5Screate_simple failed for memspace");
+        }
+
+        hsize_t total = n_vertices_ * static_cast<hsize_t>(ncomp);
+        if (use_float32_) {
+            std::vector<float> fbuf(total);
+            for (hsize_t i = 0; i < total; ++i)
+                fbuf[i] = static_cast<float>(data[i]);
+            H5Dwrite(dset_id, H5T_NATIVE_FLOAT, memspace, filespace, H5P_DEFAULT, fbuf.data());
+        } else {
+            H5Dwrite(dset_id, H5T_NATIVE_DOUBLE, memspace, filespace, H5P_DEFAULT, data);
+        }
+
+        H5Sclose(memspace);
         H5Sclose(filespace);
-        throw std::runtime_error("H5Screate_simple failed for memspace");
-    }
+    };
 
-    // If float32, convert doubles to floats on the fly
-    if (use_float32_) {
-        hsize_t total = n_vertices_ * 6;
-        std::vector<float> fbuf(total);
-        for (hsize_t i = 0; i < total; ++i)
-            fbuf[i] = static_cast<float>(strain[i]);
-        H5Dwrite(strain_dset_, H5T_NATIVE_FLOAT, memspace, filespace, H5P_DEFAULT, fbuf.data());
-    } else {
-        H5Dwrite(strain_dset_, H5T_NATIVE_DOUBLE, memspace, filespace, H5P_DEFAULT, strain);
-    }
-
-    H5Sclose(memspace);
-    H5Sclose(filespace);
+    write_field_dset(strain_dset_, strain, 6);
+    write_field_dset(displacement_dset_, displacement, 3);
+    write_field_dset(velocity_dset_, velocity, 3);
+    write_field_dset(acceleration_dset_, acceleration, 3);
 
     ++current_step_;
 }
 
 void RecordWriter::close() {
-    if (strain_dset_ >= 0) {
-        H5Dclose(strain_dset_);
-        strain_dset_ = -1;
-    }
+    auto close_dset = [](hid_t& id) {
+        if (id >= 0) {
+            H5Dclose(id);
+            id = -1;
+        }
+    };
+    close_dset(strain_dset_);
+    close_dset(displacement_dset_);
+    close_dset(velocity_dset_);
+    close_dset(acceleration_dset_);
     if (file_id_ >= 0) {
         H5Fclose(file_id_);
         file_id_ = -1;

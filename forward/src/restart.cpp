@@ -13,7 +13,11 @@ namespace gf {
 
 namespace {
 
+// Overwrite scalar attribute: delete if exists, then create+write
 void write_scalar_attr(hid_t loc_id, const std::string& name, hid_t type_id, const void* value) {
+    if (H5Aexists(loc_id, name.c_str()) > 0) {
+        H5Adelete(loc_id, name.c_str());
+    }
     hid_t attr_space = H5Screate(H5S_SCALAR);
     if (attr_space < 0)
         throw std::runtime_error("H5Screate failed for attr: " + name);
@@ -30,7 +34,11 @@ void write_scalar_attr(hid_t loc_id, const std::string& name, hid_t type_id, con
         throw std::runtime_error("H5Awrite failed for attr: " + name);
 }
 
+// Overwrite string attribute: delete if exists, then create+write
 void write_string_attr(hid_t loc_id, const std::string& name, const std::string& value) {
+    if (H5Aexists(loc_id, name.c_str()) > 0) {
+        H5Adelete(loc_id, name.c_str());
+    }
     hid_t str_type = H5Tcopy(H5T_C_S1);
     H5Tset_size(str_type, value.size());
     hid_t attr_space = H5Screate(H5S_SCALAR);

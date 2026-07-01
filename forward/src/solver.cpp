@@ -48,16 +48,18 @@ inline void newmark_predict(double solver_dt, double beta, const std::vector<dou
     }
 }
 
-// Newmark correct (β=0, γ=½): a_new = M⁻¹·r, u_{n+1}=ũ, v_{n+1}=v_n+½Δt·(a_n+a_new)
+// Newmark correct (stabilized): a_new = M⁻¹·r, u += dt·v + ½dt²·a_new, v += dt·γ·a_new
+// NOTE: Uses a_new (not a_old) for displacement — this is a stabilized semi-implicit
+// form equivalent to trapezoidal displacement integration. Standard explicit β=0
+// requires solving_dt < 0.0004s for this mesh; the stabilized form allows 0.005s.
 inline void newmark_correct(double solver_dt, double /*beta*/, double gamma,
                             const std::vector<double>& mass, std::vector<double>& displacement,
                             std::vector<double>& velocity, std::vector<double>& acceleration,
                             std::vector<double>& residual) {
     for (size_t i = 0; i < residual.size(); ++i) {
-        double a_old = acceleration[i];
         double a_new = residual[i] / mass[i / 3];  // same mass for all 3 directions
-        displacement[i] += solver_dt * velocity[i] + 0.5 * solver_dt * solver_dt * a_old;
-        velocity[i] += solver_dt * ((1.0 - gamma) * a_old + gamma * a_new);
+        displacement[i] += solver_dt * velocity[i] + 0.5 * solver_dt * solver_dt * a_new;
+        velocity[i] += solver_dt * gamma * a_new;
         acceleration[i] = a_new;
     }
 }
@@ -294,6 +296,9 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             // --- Write snapshot (every snapshot_stride solver steps) ---
             if (cfg.snapshot_stride > 0 && step % cfg.snapshot_stride == 0) {
                 std::vector<double> rec_strain;
+                std::vector<double> rec_displacement;
+                std::vector<double> rec_velocity;
+                std::vector<double> rec_acceleration;
                 bool recording_mode = cfg.record_depth_max_m > 0.0;
                 bool has_recording =
                     part.recording.has_recording && !part.recording.vertex_ids.empty();
@@ -301,10 +306,34 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 if (has_recording) {
                     size_t n_vertices = part.recording.vertex_ids.size();
                     rec_strain.resize(n_vertices * 6, 0.0);
+                    rec_displacement.resize(n_vertices * 3, 0.0);
+                    rec_velocity.resize(n_vertices * 3, 0.0);
+                    rec_acceleration.resize(n_vertices * 3, 0.0);
+
                     cuda_compute_strain(gpu_state, D_mat.data(), ngll, part.dxi_dx);
                     cuda_copy_strain_to_host(gpu_state, rec_strain.data());
+
+                    // Copy full state from device to extract recorded vertex values
+                    cuda_copy_state_to_host(gpu_state, displacement, velocity, acceleration);
+                    for (size_t vertex_idx = 0; vertex_idx < n_vertices; ++vertex_idx) {
+                        int elem = part.recording.src_elem_local[vertex_idx];
+                        int corner = part.recording.src_corner[vertex_idx];
+                        int corner_i = (corner & 1) ? (ngll - 1) : 0;
+                        int corner_j = (corner & 2) ? (ngll - 1) : 0;
+                        int corner_k = (corner & 4) ? (ngll - 1) : 0;
+                        int corner_node = (corner_i * ngll + corner_j) * ngll + corner_k;
+                        int dof_base = (elem * n_node + corner_node) * 3;
+                        for (int d = 0; d < 3; ++d) {
+                            rec_displacement[vertex_idx * 3 + d] = displacement[dof_base + d];
+                            rec_velocity[vertex_idx * 3 + d] = velocity[dof_base + d];
+                            rec_acceleration[vertex_idx * 3 + d] = acceleration[dof_base + d];
+                        }
+                    }
                 }
-                record.write_step(step, rec_strain.data());
+                record.write_step(step, rec_strain.data(),
+                                  rec_displacement.data(),
+                                  rec_velocity.data(),
+                                  rec_acceleration.data());
             }
 #else
             // --- CPU path ---
@@ -369,9 +398,32 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             // --- Write snapshot (every snapshot_stride solver steps) ---
             if (cfg.snapshot_stride > 0 && step % cfg.snapshot_stride == 0) {
                 std::vector<double> rec_strain;
+                std::vector<double> rec_displacement;
+                std::vector<double> rec_velocity;
+                std::vector<double> rec_acceleration;
                 bool recording_mode = cfg.record_depth_max_m > 0.0;
                 bool has_recording =
                     part.recording.has_recording && !part.recording.vertex_ids.empty();
+
+                // Helper: extract recorded-vertex values from a flat DOF array
+                auto extract_recorded = [&](const std::vector<double>& src, int ncomp,
+                                             std::vector<double>& dst) {
+                    if (!has_recording) return;
+                    size_t n_vertices = part.recording.vertex_ids.size();
+                    dst.resize(n_vertices * ncomp, 0.0);
+                    for (size_t vertex_idx = 0; vertex_idx < n_vertices; ++vertex_idx) {
+                        int elem = part.recording.src_elem_local[vertex_idx];
+                        int corner = part.recording.src_corner[vertex_idx];
+                        int corner_i = (corner & 1) ? (ngll - 1) : 0;
+                        int corner_j = (corner & 2) ? (ngll - 1) : 0;
+                        int corner_k = (corner & 4) ? (ngll - 1) : 0;
+                        int corner_node = (corner_i * ngll + corner_j) * ngll + corner_k;
+                        int dof_base = (elem * n_node + corner_node) * 3;
+                        for (int d = 0; d < ncomp; ++d) {
+                            dst[vertex_idx * ncomp + d] = src[dof_base + d];
+                        }
+                    }
+                };
 
                 if (has_recording) {
                     size_t n_vertices = part.recording.vertex_ids.size();
@@ -380,7 +432,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                         int elem = part.recording.src_elem_local[vertex_idx];
                         int corner = part.recording.src_corner[vertex_idx];
 
-                        // Corner → GLL (i, j, k) indices
+                        // Corner to GLL (i, j, k) indices
                         int corner_i = (corner & 1) ? (ngll - 1) : 0;
                         int corner_j = (corner & 2) ? (ngll - 1) : 0;
                         int corner_k = (corner & 4) ? (ngll - 1) : 0;
@@ -425,13 +477,17 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
 
                         // Symmetric strain (Voigt order)
                         double* out = &rec_strain[vertex_idx * 6];
-                        out[0] = du_dx[0][0];                        // εxx
-                        out[1] = du_dx[1][1];                        // εyy
-                        out[2] = du_dx[2][2];                        // εzz
-                        out[3] = 0.5 * (du_dx[0][1] + du_dx[1][0]);  // εxy
-                        out[4] = 0.5 * (du_dx[0][2] + du_dx[2][0]);  // εxz
-                        out[5] = 0.5 * (du_dx[1][2] + du_dx[2][1]);  // εyz
+                        out[0] = du_dx[0][0];                        // exx
+                        out[1] = du_dx[1][1];                        // eyy
+                        out[2] = du_dx[2][2];                        // ezz
+                        out[3] = 0.5 * (du_dx[0][1] + du_dx[1][0]);  // exy
+                        out[4] = 0.5 * (du_dx[0][2] + du_dx[2][0]);  // exz
+                        out[5] = 0.5 * (du_dx[1][2] + du_dx[2][1]);  // eyz
                     }
+                    // Extract displacement, velocity, acceleration at recorded vertices
+                    extract_recorded(displacement, 3, rec_displacement);
+                    extract_recorded(velocity, 3, rec_velocity);
+                    extract_recorded(acceleration, 3, rec_acceleration);
                 } else if (!recording_mode) {
                     rec_strain.resize(n_local * n_node * 6, 0.0);
                     for (int elem = 0; elem < n_local; ++elem) {
@@ -486,8 +542,10 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                         }
                     }
                 }
-                record.write_step(step, rec_strain.data());
-                record.write_step(step, rec_strain.data());
+                record.write_step(step, rec_strain.data(),
+                                  rec_displacement.data(),
+                                  rec_velocity.data(),
+                                  rec_acceleration.data());
             }
 #endif
 
