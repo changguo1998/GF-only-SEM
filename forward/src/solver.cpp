@@ -45,15 +45,16 @@ inline void newmark_predict(double solver_dt, double beta, const std::vector<dou
     }
 }
 
-// Newmark correct: a_new = M⁻¹·r, v += dt·γ·a_new, u += dt·v + dt²/2·a_new
+// Newmark correct (β=0, γ=½): a_new = M⁻¹·r, u_{n+1}=ũ, v_{n+1}=v_n+½Δt·(a_n+a_new)
 inline void newmark_correct(double solver_dt, double /*beta*/, double gamma,
                             const std::vector<double>& mass, std::vector<double>& displacement,
                             std::vector<double>& velocity, std::vector<double>& acceleration,
                             std::vector<double>& residual) {
     for (size_t i = 0; i < residual.size(); ++i) {
+        double a_old = acceleration[i];
         double a_new = residual[i] / mass[i / 3];  // same mass for all 3 directions
-        displacement[i] += solver_dt * velocity[i] + 0.5 * solver_dt * solver_dt * a_new;
-        velocity[i] += solver_dt * gamma * a_new;
+        displacement[i] += solver_dt * velocity[i] + 0.5 * solver_dt * solver_dt * a_old;
+        velocity[i] += solver_dt * ((1.0 - gamma) * a_old + gamma * a_new);
         acceleration[i] = a_new;
     }
 }
