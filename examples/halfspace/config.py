@@ -23,9 +23,9 @@ import numpy as np
 title = "halfspace_example"
 
 # ── Mesh dimensions ───────
-nx_elements = 16  # Elements in x
-ny_elements = 16  # Elements in y
-nz_elements = 8  # Elements in z
+nx_elements = 18  # Elements in x
+ny_elements = 18  # Elements in y
+nz_elements = 9  # Elements in z
 lx = 10000.0  # Domain length x [m]
 ly = 10000.0  # Domain length y [m]
 lz = 5000.0  # Domain length z [m]
@@ -44,12 +44,14 @@ snapshot_precision = "float32"  # "float32" or "float64" for strain snapshots
 storage_limit_gb = 10.0  # Warn if estimated output exceeds this
 record_depth_max_m = 2000.0  # Record strain at vertices within this depth of free surface [m]
 tilex_elements = [
-    5,
-    5,
+    4,
+    4,
+    4,
 ]  # Horizontal x tile sizes in elements (nx = sum(tilex) + pml_xmin + pml_xmax)
 tiley_elements = [
-    5,
-    5,
+    4,
+    4,
+    4,
 ]  # Horizontal y tile sizes in elements (ny = sum(tiley) + pml_ymin + pml_ymax)
 
 # ── Parallelism ───

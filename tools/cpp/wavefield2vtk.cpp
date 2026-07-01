@@ -283,7 +283,7 @@ int main(int argc, char** argv) {
     }
 
     // ── Read mesh topology ──────────────────────────────────────
-    std::cout << "[wavefield2vtk] Reading " << model_path << "\n";
+    if (verbose) std::cout << "[wavefield2vtk] Reading " << model_path << "\n";
     H5File fm(model_path);
     hid_t topo_gid = H5Gopen2(fm.id(), "topology", H5P_DEFAULT);
     if (topo_gid < 0) {
@@ -304,7 +304,7 @@ int main(int argc, char** argv) {
         for (size_t i = 0; i < pml.size() && i < (size_t)n_cell; ++i)
             is_pml[i] = (int8_t)pml[i];
     }
-    std::cout << "  Global cells: " << n_cell << ", vertices: " << n_vert << "\n";
+    if (verbose) std::cout << "  Global cells: " << n_cell << ", vertices: " << n_vert << "\n";
 
     // ── Resolve connectivity ────────────────────────────────────
     if (verbose)
@@ -356,7 +356,7 @@ int main(int argc, char** argv) {
             return 1;
         }
     }
-    std::cout << "  Snapshots: " << n_snapshots << (snap_only >= 0 ? " (--snap mode)" : "") << "\n";
+    if (verbose) std::cout << "  Snapshots: " << n_snapshots << (snap_only >= 0 ? " (--snap mode)" : "") << "\n";
 
     // ── Read snapshot stride from config.h5 ──
     int stride = 1;
@@ -466,6 +466,6 @@ int main(int argc, char** argv) {
                 delete[] batch_data[di][ri];
     }
 
-    std::cout << "  Done. " << (snap_end - snap_start) << " files written to " << vtk_dir << "/\n";
+    if (verbose) std::cout << "  Done. " << (snap_end - snap_start) << " files written to " << vtk_dir << "/\n";
     return 0;
 }
