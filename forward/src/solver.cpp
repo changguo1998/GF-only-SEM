@@ -48,18 +48,17 @@ inline void newmark_predict(double solver_dt, double beta, const std::vector<dou
     }
 }
 
-// Newmark correct (stabilized): a_new = M⁻¹·r, u += dt·v + ½dt²·a_new, v += dt·γ·a_new
-// NOTE: Uses a_new (not a_old) for displacement — this is a stabilized semi-implicit
-// form equivalent to trapezoidal displacement integration. Standard explicit β=0
-// requires solving_dt < 0.0004s for this mesh; the stabilized form allows 0.005s.
-inline void newmark_correct(double solver_dt, double /*beta*/, double gamma,
+// Newmark correct: a_new = M⁻¹·r; commit predictor and update velocity
+inline void newmark_correct(double solver_dt, double beta, double gamma,
                             const std::vector<double>& mass, std::vector<double>& displacement,
                             std::vector<double>& velocity, std::vector<double>& acceleration,
                             std::vector<double>& residual) {
     for (size_t i = 0; i < residual.size(); ++i) {
+        double a_old = acceleration[i];
         double a_new = residual[i] / mass[i / 3];  // same mass for all 3 directions
-        displacement[i] += solver_dt * velocity[i] + 0.5 * solver_dt * solver_dt * a_new;
-        velocity[i] += solver_dt * gamma * a_new;
+        displacement[i] += solver_dt * velocity[i] +
+                           solver_dt * solver_dt * ((0.5 - beta) * a_old + beta * a_new);
+        velocity[i] += solver_dt * ((1.0 - gamma) * a_old + gamma * a_new);
         acceleration[i] = a_new;
     }
 }

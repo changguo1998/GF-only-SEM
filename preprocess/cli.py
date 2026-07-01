@@ -446,6 +446,7 @@ def main() -> None:
 
     # ── Step 4: Material interpolation (always Python) ──
     vp, vs, density = step_material_interpolation(config, coords)
+    mass = mass * density
 
     # ── Step 5: λ/μ + CFL solver_dt ──
     lame = step_lame_and_cfl(model_path, config, vp, vs, density, coords, h_min)

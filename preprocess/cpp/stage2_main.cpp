@@ -210,10 +210,11 @@ int main(int argc, char** argv) {
     hsize_t jnc = 0, jng = 0;
     std::vector<double> jacobian = read_4d_double(elem_gid, "jacobian", jnc, jng);
 
-    // Read vp, vs, density
+    // Read mass (geometry weights only), vp, vs, density
     std::vector<double> vp = read_4d_double(elem_gid, "vp", jnc, jng);
     std::vector<double> vs = read_4d_double(elem_gid, "vs", jnc, jng);
     std::vector<double> density = read_4d_double(elem_gid, "density", jnc, jng);
+    std::vector<double> mass = read_4d_double(elem_gid, "mass", jnc, jng);
 
     H5Gclose(elem_gid);
 
@@ -223,12 +224,13 @@ int main(int argc, char** argv) {
     std::vector<int64_t> boundary_tag = read_int64_1d(surf_gid, "boundary_tag", ns);
     H5Gclose(surf_gid);
 
-    // ---- Compute λ, μ ----
+    // ---- Compute λ, μ and density-weighted mass ----
     size_t n_total = (size_t)n_cell * (size_t)ngll * (size_t)ngll * (size_t)ngll;
     std::vector<double> lam(n_total), mu(n_total);
     for (size_t i = 0; i < n_total; ++i) {
         mu[i] = density[i] * vs[i] * vs[i];
         lam[i] = density[i] * (vp[i] * vp[i] - 2.0 * vs[i] * vs[i]);
+        mass[i] *= density[i];
     }
 
     // ---- Compute solver_dt, snapshot_stride, nsteps ----
@@ -320,6 +322,10 @@ int main(int argc, char** argv) {
     if (H5Lexists(elem_wgid, "mu", H5P_DEFAULT))
         H5Ldelete(elem_wgid, "mu", H5P_DEFAULT);
     write_4d_double(elem_wgid, "mu", (hsize_t)n_cell, (hsize_t)ngll, mu.data());
+
+    if (H5Lexists(elem_wgid, "mass", H5P_DEFAULT))
+        H5Ldelete(elem_wgid, "mass", H5P_DEFAULT);
+    write_4d_double(elem_wgid, "mass", (hsize_t)n_cell, (hsize_t)ngll, mass.data());
 
     H5Gclose(elem_wgid);
     H5Gclose(fld_gid);
