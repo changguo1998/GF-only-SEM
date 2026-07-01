@@ -62,7 +62,19 @@ done
 echo ""
 echo "--- wavefield2vtk (cell-corner strain) ---"
 cd "${WORK_DIR}"
-wavefield2vtk
+
+# Prefer C++ gf_wavefield2vtk with parallel dispatch; fall back to Python
+GF_WVTK="${PROJECT_BIN}/gf_wavefield2vtk"
+if [ -x "${GF_WVTK}" ]; then
+    # Derive n_snapshots from config.py
+    N_SNAPSHOTS=$(python -c "import sys; sys.path.insert(0, '${SCRIPT_DIR}'); import config; print(int(config.total_duration_s / config.output_dt_s))")
+    N_PARALLEL="${OMP_NUM_THREADS:-16}"
+    echo "  C++ gf_wavefield2vtk + parallel (-j${N_PARALLEL}, ${N_SNAPSHOTS} snapshots)"
+    seq 0 $((N_SNAPSHOTS - 1)) | parallel -j"${N_PARALLEL}" OMP_NUM_THREADS=1 "${GF_WVTK}" --snap {}
+else
+    echo "  Python wavefield2vtk (sequential)"
+    wavefield2vtk
+fi
 cd "${SCRIPT_DIR}"
 echo ""
 echo "=== Forward outputs ==="
