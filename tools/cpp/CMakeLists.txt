@@ -25,9 +25,14 @@ add_executable(gf_wavefield2vtk wavefield2vtk.cpp)
 target_include_directories(gf_wavefield2vtk PRIVATE ${TOOLS_CPP_DIR} ${HDF5_INCLUDE_DIRS})
 target_link_libraries(gf_wavefield2vtk PRIVATE ${HDF5_C_LIBRARIES})
 
+# ── wavefield2vtk_detail ──
+add_executable(gf_wavefield2vtk_detail wavefield2vtk_detail.cpp)
+target_include_directories(gf_wavefield2vtk_detail PRIVATE ${TOOLS_CPP_DIR} ${HDF5_INCLUDE_DIRS})
+target_link_libraries(gf_wavefield2vtk_detail PRIVATE ${HDF5_C_LIBRARIES})
+
 # ── OpenMP ──
 if(OpenMP_CXX_FOUND)
-    foreach(tgt gf_model2vtk gf_partition2vtk gf_wavefield2vtk)
+    foreach(tgt gf_model2vtk gf_partition2vtk gf_wavefield2vtk gf_wavefield2vtk_detail)
         target_link_libraries(${tgt} PRIVATE OpenMP::OpenMP_CXX)
         target_compile_options(${tgt} PRIVATE ${OpenMP_CXX_FLAGS})
     endforeach()
@@ -36,7 +41,7 @@ else()
     message(STATUS "OpenMP not found: single-threaded VTK tools")
 endif()
 
-foreach(tgt gf_model2vtk gf_partition2vtk gf_wavefield2vtk)
+foreach(tgt gf_model2vtk gf_partition2vtk gf_wavefield2vtk gf_wavefield2vtk_detail)
     target_compile_features(${tgt} PRIVATE cxx_std_17)
     set_target_properties(${tgt} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
 endforeach()

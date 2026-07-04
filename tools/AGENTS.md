@@ -24,8 +24,11 @@ binaries build via CMake and land in `bin/` (`gf_model2vtk`, `gf_partition2vtk`,
 | `gf_model2vtk` | archived `model2vtk.py` | OpenMP (cells, vertices, GLL sub-cells) |
 | `gf_partition2vtk` | archived `partition2vtk.py` | OpenMP (parallel VTK write per rank) |
 | `gf_wavefield2vtk` | archived `wavefield2vtk.py` | OpenMP (per-vertex strain accumulation) |
+| `gf_wavefield2vtk_detail` | — (new, no Python equivalent in current format) | OpenMP (parallel vertex scatter, per-step VTK) |
 
 C++ tools are the primary implementations. Python sources archived in `_archive/`.
+`gf_wavefield2vtk_detail` writes raw per-vertex strain as point data (18 fields),
+unlike `gf_wavefield2vtk` which writes cell-corner averaged strain as cell data.
 HDF5 C library is not thread-safe → all HDF5 reads serial, compute inside parallel regions.
 
 ## VTK Format
