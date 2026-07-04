@@ -1,7 +1,8 @@
-"""HDF5 readers for record files and mesh geometry.
+"""HDF5 readers for per-step record files and mesh geometry.
 
-Record files now store shallow mesh-vertex strain (from recording map)
-with vertex_ids. Metadata (solver_dt, nsteps, tilex_elements, tiley_elements) comes from config.h5.
+Record files are now per-step: wavefields/{direction}/record_{rank}_{step}.h5,
+each containing a single snapshot (shape [1, n_vertices, 6]).
+Metadata (solver_dt, nsteps, tilex_elements, tiley_elements) comes from config.h5.
 """
 
 import sys
@@ -12,12 +13,12 @@ import numpy.typing as npt
 
 
 class RecordReader:
-    """Reads shallow mesh-vertex strain from a single-rank record HDF5 file.
+    """Reads a single-step record HDF5 file.
 
-    File format (wavefields/{direction}/record_{r}.h5):
+    File format (wavefields/{direction}/record_{r}_{step}.h5):
       attrs: rank, source_direction, basis="mesh_vertices", excludes_pml
       /vertex_ids  : int64[n_vertices]
-      /strain      : float32[n_snapshots, n_vertices, 6]  (extendible)
+      /strain      : float32[1, n_vertices, 6]  (single snapshot)
     """
 
     def __init__(self, path: str):
@@ -52,19 +53,23 @@ class RecordReader:
 
     @property
     def n_snapshots(self) -> int:
+        """Number of snapshots in this file (always 1 for per-step files)."""
         return int(self._file["strain"].shape[0])
 
-    def read_strain(self, snap_idx: int) -> np.ndarray:
+    def read_strain(self, snap_idx: int = 0) -> np.ndarray:
         """Read strain for one snapshot.
+
+        Args:
+            snap_idx: Must be 0 for per-step files.
 
         Returns shape: (n_vertices, 6)
         """
         return np.array(self._file["strain"][snap_idx])
 
     def read_all_strain(self) -> np.ndarray:
-        """Read all strain snapshots.
+        """Read all strain snapshots (just one for per-step files).
 
-        Returns shape: (n_snapshots, n_vertices, 6)
+        Returns shape: (1, n_vertices, 6)
         """
         return np.array(self._file["strain"])
 
@@ -177,48 +182,90 @@ class ConfigReader:
         return float(val) if val is not None else None
 
 
-def merge_vertex_records(rank_files: list[str], n_vertex: int) -> tuple[np.ndarray, np.ndarray]:
-    """Merge vertex-level strain from multiple rank record files.
+def merge_vertex_records(record_dir: str, n_vertex: int) -> tuple[np.ndarray, np.ndarray]:
+    """Merge vertex-level strain from per-step record files in a directory.
 
-    Each rank recorded a subset of global mesh vertices. This function
-    assembles the full-mesh strain array.
+    Discovers all record_{r}_{step}.h5 files in record_dir, groups by step,
+    reads per-rank data for each step, and merges by global vertex_id.
+    Also supports legacy monolithic record_{r}.h5 files (single-step fallback).
 
     Args:
-        rank_files: list of paths to record_{r}.h5 files.
-        n_vertex: total number of unique mesh vertices (global).
+        record_dir: Directory containing record_{r}_{step}.h5 files.
+        n_vertex: Total number of unique mesh vertices (global).
 
     Returns:
         (merged_strain, vertex_mask) where
-          merged_strain: [n_snapshots, n_vertex, 6] float32
+          merged_strain: [n_steps, n_vertex, 6] float32
           vertex_mask:   [n_vertex] bool — True for vertices that were recorded
     """
-    readers = [RecordReader(p) for p in rank_files]
-    for rank_reader in readers:
-        rank_reader.__enter__()
+    import glob
+    import re
+    import os
 
-    try:
-        n_snapshots = readers[0].n_snapshots
-        dtype = readers[0].read_strain(0).dtype
+    pattern = os.path.join(record_dir, "record_*.h5")
+    files = sorted(glob.glob(pattern))
+    if not files:
+        raise FileNotFoundError(f"No record files found in {record_dir}")
 
-        merged = np.zeros((n_snapshots, n_vertex, 6), dtype=dtype)
-        mask = np.zeros(n_vertex, dtype=bool)
+    # Parse filenames and group by step
+    # New per-step format: record_{rank}_{step}.h5
+    # Legacy monolithic:  record_{rank}.h5  (treated as step 0, single step)
+    step_files: dict[int, list[str]] = {}
+    has_legacy = False
+    for fpath in files:
+        basename = os.path.basename(fpath)
+        match = re.match(r"record_(\d+)_(\d+)\.h5$", basename)
+        if match:
+            step = int(match.group(2))
+            step_files.setdefault(step, []).append(fpath)
+        else:
+            match = re.match(r"record_(\d+)\.h5$", basename)
+            if match:
+                has_legacy = True
+                step_files.setdefault(0, []).append(fpath)
 
-        for rank_reader in readers:
-            local_vertex_ids = rank_reader.vertex_ids  # 1-based global vertex IDs
-            strain = rank_reader.read_all_strain()  # [n_snapshots, n_local_vertices, 6]
-            for local_index, global_vertex_id in enumerate(local_vertex_ids):
-                zero_based_index = int(global_vertex_id) - 1
-                if 0 <= zero_based_index < n_vertex:
-                    if mask[zero_based_index]:
-                        print(
-                            f"[postprocess] WARNING: vertex {global_vertex_id} "
-                            f"recorded by multiple ranks — using last value",
-                            file=sys.stderr,
-                        )
-                    merged[:, zero_based_index, :] = strain[:, local_index, :]
-                    mask[zero_based_index] = True
-    finally:
-        for rank_reader in readers:
-            rank_reader.__exit__(None, None, None)
+    if not step_files:
+        raise ValueError(f"No valid record files found in {record_dir}")
+
+    if has_legacy:
+        print(
+            "[postprocess] Detected legacy monolithic record files (record_{r}.h5).",
+            file=sys.stderr,
+        )
+
+    sorted_steps = sorted(step_files.keys())
+
+    # Determine dtype from first file
+    first_path = step_files[sorted_steps[0]][0]
+    with RecordReader(first_path) as r:
+        dtype = r.read_strain(0).dtype
+
+    n_steps = len(sorted_steps)
+    merged = np.zeros((n_steps, n_vertex, 6), dtype=dtype)
+    mask = np.zeros(n_vertex, dtype=bool)
+
+    for snap_idx, step in enumerate(sorted_steps):
+        step_merged = np.zeros((n_vertex, 6), dtype=dtype)
+        step_mask = np.zeros(n_vertex, dtype=bool)
+
+        for fpath in step_files[step]:
+            with RecordReader(fpath) as reader:
+                local_ids = reader.vertex_ids
+                strain = reader.read_all_strain()  # [1, n_local, 6]
+                for local_idx, global_id in enumerate(local_ids):
+                    zero_based = int(global_id) - 1
+                    if 0 <= zero_based < n_vertex:
+                        if step_mask[zero_based]:
+                            print(
+                                f"[postprocess] WARNING: vertex {global_id} "
+                                f"recorded by multiple ranks at step {step} "
+                                f"— using last value",
+                                file=sys.stderr,
+                            )
+                        step_merged[zero_based] = strain[0, local_idx]
+                        step_mask[zero_based] = True
+
+        merged[snap_idx] = step_merged
+        mask |= step_mask
 
     return merged, mask

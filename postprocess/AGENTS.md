@@ -20,8 +20,8 @@ No receivers. Output is the configured shallow mesh-vertex field.
 ```
 model.h5 (/topology/vertex_to_coord) ───┐
 config.h5 (timing + tile size) ────────┤
-wavefields/{x,y,z}/record_{r}.h5 ──────┤
-                                       ↓
+wavefields/{x,y,z}/record_{r}_{step}.h5 ─┤ (per-step files)
+                                         ↓
 merge by global vertex_id
 → validate timing/depth/vertex sets
 → assemble [nt, n_vertex, 6, 3]
@@ -34,6 +34,8 @@ merge by global vertex_id
 gf-postprocess model.h5 config.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ -o greenfun/
 ```
 
+Per-step record files (`record_{r}_{step}.h5`) are auto-discovered in each wavefield directory.
+
 Tile sizes come from `config.h5` (`/simulation/tilex_elements`, `tiley_elements`) or `green_tile_size_m` (optional spatial tile size).
 
 ## Modes
@@ -43,7 +45,7 @@ Tile sizes come from `config.h5` (`/simulation/tilex_elements`, `tiley_elements`
 
 ## Tests
 
-`tests/` has 22 tests covering reader, writer, and conftest. All pass.
+`postprocess/tests/` has tests covering reader, writer, and conftest.
 
 ## Design Doc
 

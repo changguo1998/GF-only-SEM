@@ -71,46 +71,38 @@ def synthetic_config_path(tmp_path):
 
 @pytest.fixture
 def synthetic_record_path(tmp_path):
-    """Create a minimal single-rank record.h5 with 2 snapshots, 1 vertex."""
-    n_checkpoints = 2
+    """Create per-step record files for rank 0 with 2 steps: record_0_0.h5, record_0_1.h5."""
+    n_steps = 2
     n_vertices = 1
-    path = tmp_path / "record_0.h5"
-    with h5py.File(path, "w") as f:
-        f.attrs["source_direction"] = "x"
-        f.attrs["basis"] = "mesh_vertices"
-        f.attrs["excludes_pml"] = True
-        f.create_dataset("vertex_ids", data=np.array([1], dtype=np.int64))
-        strain = np.zeros((n_checkpoints, n_vertices, 6), dtype=np.float64)
-        for t in range(n_checkpoints):
-            strain[t, 0, :] = [
-                float(t) + 1.0,
-                2.0 * (float(t) + 1.0),
-                3.0 * (float(t) + 1.0),
-                0.0,
-                0.0,
-                0.0,
-            ]
-        f.create_dataset("strain", data=strain, maxshape=(None, n_vertices, 6))
-    return path
-
-
-@pytest.fixture
-def synthetic_multirank_records(tmp_path, synthetic_model_path):
-    """Create per-rank record files for a 2-rank case, each with 1 vertex."""
-    n_checkpoints = 2
-    rank_list = [0, 1]
-    paths = []
-    for rank in rank_list:
-        path = tmp_path / f"record_{rank}.h5"
-        paths.append(path)
+    for step in range(n_steps):
+        path = tmp_path / f"record_0_{step}.h5"
         with h5py.File(path, "w") as f:
             f.attrs["source_direction"] = "x"
             f.attrs["basis"] = "mesh_vertices"
             f.attrs["excludes_pml"] = True
-            f.create_dataset("vertex_ids", data=np.array([rank + 1], dtype=np.int64))
-            strain = np.zeros((n_checkpoints, 1, 6), dtype=np.float64)
-            for t in range(n_checkpoints):
-                val = float(t) + 1.0 + float(rank) * 10.0
-                strain[t, 0, :] = [val, val, val, 0.0, 0.0, 0.0]
-            f.create_dataset("strain", data=strain, maxshape=(None, 1, 6))
-    return paths
+            f.create_dataset("vertex_ids", data=np.array([1], dtype=np.int64))
+            strain = np.zeros((1, n_vertices, 6), dtype=np.float64)
+            val = float(step) + 1.0
+            strain[0, 0, :] = [val, 2.0 * val, 3.0 * val, 0.0, 0.0, 0.0]
+            f.create_dataset("strain", data=strain)
+    return str(tmp_path)  # return directory path
+
+
+@pytest.fixture
+def synthetic_multirank_records(tmp_path):
+    """Create per-step record files for 2 ranks with 2 steps each."""
+    n_steps = 2
+    rank_list = [0, 1]
+    for rank in rank_list:
+        for step in range(n_steps):
+            path = tmp_path / f"record_{rank}_{step}.h5"
+            with h5py.File(path, "w") as f:
+                f.attrs["source_direction"] = "x"
+                f.attrs["basis"] = "mesh_vertices"
+                f.attrs["excludes_pml"] = True
+                f.create_dataset("vertex_ids", data=np.array([rank + 1], dtype=np.int64))
+                strain = np.zeros((1, 1, 6), dtype=np.float64)
+                val = float(step) + 1.0 + float(rank) * 10.0
+                strain[0, 0, :] = [val, val, val, 0.0, 0.0, 0.0]
+                f.create_dataset("strain", data=strain)
+    return str(tmp_path)  # return directory path

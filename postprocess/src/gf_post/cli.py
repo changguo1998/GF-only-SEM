@@ -2,6 +2,8 @@
 
 Usage:
     gf-postprocess model.h5 config.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ -o greenfun/
+
+Per-step record files (record_{r}_{step}.h5) are auto-discovered in each wavefield directory.
 """
 
 import glob
@@ -15,15 +17,6 @@ import numpy as np
 from gf_post.assembly import assemble_greens_tensor
 from gf_post.reader import ConfigReader, GeometryReader, merge_vertex_records
 from gf_post.writer import GFWriter
-
-
-def _discover_record_files(record_dir: str) -> list[str]:
-    """Find all record_{r}.h5 files in a directory, sorted by rank."""
-    pattern = os.path.join(record_dir, "record_*.h5")
-    files = sorted(glob.glob(pattern))
-    if not files:
-        raise FileNotFoundError(f"No record files found in {record_dir}")
-    return files
 
 
 @click.command()
@@ -86,26 +79,15 @@ def main(mesh, config, fx, fy, fz, output_dir):
         vertex_coords = geo.vertex_coords
         n_vertex = geo.n_vertex
         domain_bounds = geo.domain_bounds
+    # Merge records from each direction (auto-discovers per-step files)
+    print(f"[postprocess] Merging fx records from {fx}...", file=sys.stderr)
+    strain_fx, mask_fx = merge_vertex_records(fx, n_vertex)
 
-    # Discover record files
-    fx_files = _discover_record_files(fx)
-    fy_files = _discover_record_files(fy)
-    fz_files = _discover_record_files(fz)
-    print(
-        f"[postprocess] Found {len(fx_files)} fx, {len(fy_files)} fy, "
-        f"{len(fz_files)} fz record files",
-        file=sys.stderr,
-    )
+    print(f"[postprocess] Merging fy records from {fy}...", file=sys.stderr)
+    strain_fy, mask_fy = merge_vertex_records(fy, n_vertex)
 
-    # Merge records from each direction
-    print("[postprocess] Merging fx records...", file=sys.stderr)
-    strain_fx, mask_fx = merge_vertex_records(fx_files, n_vertex)
-
-    print("[postprocess] Merging fy records...", file=sys.stderr)
-    strain_fy, mask_fy = merge_vertex_records(fy_files, n_vertex)
-
-    print("[postprocess] Merging fz records...", file=sys.stderr)
-    strain_fz, mask_fz = merge_vertex_records(fz_files, n_vertex)
+    print(f"[postprocess] Merging fz records from {fz}...", file=sys.stderr)
+    strain_fz, mask_fz = merge_vertex_records(fz, n_vertex)
 
     # Consistency check: same recorded vertices across directions
     if not np.array_equal(mask_fx, mask_fy) or not np.array_equal(mask_fx, mask_fz):
