@@ -71,7 +71,7 @@ C++ includes 49 non-CUDA + 3 CUDA — all pass.
 
 C++ primary implementations for: forward solver, postprocess, VTK tools (model2vtk,
 partition2vtk, wavefield2vtk). Python alternatives archived in `_archive/`.
-Python-only: preprocess (orchestration), gmsh_to_hdf5, wavefield2vtk_detail.
+Python-only: preprocess (orchestration), gmsh_to_hdf5. All VTK tools have C++ primary implementations.
 Elastic-only forward solver (SLS/attenuation deferred).
 
 See each module's `AGENTS.md` for details.

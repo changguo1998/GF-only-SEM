@@ -50,7 +50,6 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project.scripts]
-wavefield2vtk_detail = "tools.wavefield2vtk_detail:main"
 
 [tool.setuptools.packages.find]
 include = ["tools*"]
