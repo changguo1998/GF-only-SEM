@@ -17,11 +17,19 @@ echo ""
 echo "=== Stage 4: Green's function extraction ==="
 cd "${WORK_DIR}"
 
-gf-postprocess model.h5 config.h5 \
-    --fx wavefields/x/ \
-    --fy wavefields/y/ \
-    --fz wavefields/z/ \
-    -o greenfun/
+PROJECT_BIN="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}/bin"
+GF_POST="${PROJECT_BIN}/gf_postprocess"
+if [ -x "${GF_POST}" ]; then
+    "${GF_POST}" model.h5 config.h5 \
+        --fx wavefields/x/ \
+        --fy wavefields/y/ \
+        --fz wavefields/z/ \
+        -o greenfun/
+else
+    echo "ERROR: C++ gf_postprocess not found at ${GF_POST}"
+    echo "Build with: cmake -B build && cmake --build build --target gf_postprocess"
+    exit 1
+fi
 
 echo ""
 echo "=== Green's function outputs ==="

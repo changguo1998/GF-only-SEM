@@ -11,23 +11,21 @@ binaries build via CMake and land in `bin/` (`gf_model2vtk`, `gf_partition2vtk`,
 
 ### Python (always available)
 
-| File | Script | Role |
-|------|--------|------|
-| `gmsh_to_hdf5.py` | — | Read `.msh`; write `model.h5` topology. |
-| `model2vtk.py` | `model2vtk` | Write `model.vtk` with mesh and material fields. |
-| `partition2vtk.py` | `partition2vtk` | Write `partition_{r}.vtk` for METIS partitions. |
-| `wavefield2vtk.py` | `wavefield2vtk` | Write per-step VTK with cell-corner strain. |
-| `wavefield2vtk_detail.py` | `wavefield2vtk_detail` | Write per-step VTK with full GLL point strain. |
+| File | Role |
+|------|------|
+| `gmsh_to_hdf5.py` | Read `.msh`; write `model.h5` topology (Python, no C++ alternative). |
+| `wavefield2vtk_detail.py` | Write per-step VTK with full GLL point strain (Python, no C++ alternative). |
+| `_archive/` | Archived Python implementations of model2vtk, partition2vtk, wavefield2vtk. |
 
 ### C++ accelerated (built via CMake, `bin/gf_*2vtk`)
 
-| Binary | Equivalent Python | Speed-up via |
-|--------|------------------|--------------|
-| `gf_model2vtk` | `model2vtk.py` | OpenMP (cells, vertices, GLL sub-cells) |
-| `gf_partition2vtk` | `partition2vtk.py` | OpenMP (parallel VTK write per rank) |
-| `gf_wavefield2vtk` | `wavefield2vtk.py` | OpenMP (per-vertex strain accumulation) |
+| Binary | Replaces | Speed-up via |
+|--------|----------|--------------|
+| `gf_model2vtk` | archived `model2vtk.py` | OpenMP (cells, vertices, GLL sub-cells) |
+| `gf_partition2vtk` | archived `partition2vtk.py` | OpenMP (parallel VTK write per rank) |
+| `gf_wavefield2vtk` | archived `wavefield2vtk.py` | OpenMP (per-vertex strain accumulation) |
 
-C++ tools produce byte-identical VTK output. Fall back to Python if binary not found.
+C++ tools are the primary implementations. Python sources archived in `_archive/`.
 HDF5 C library is not thread-safe → all HDF5 reads serial, compute inside parallel regions.
 
 ## VTK Format
@@ -74,15 +72,13 @@ If GLL coords are absent, write mesh vertices only (non-detail mode).
 
 ```bash
 cd examples/halfspace/
-# Python (always available)
-model2vtk
-partition2vtk
-wavefield2vtk
-
-# C++ accelerated (after cmake --build, in PATH from setenv.sh)
+# C++ (primary)
 gf_model2vtk
 gf_partition2vtk
 gf_wavefield2vtk
+
+# Python-only tools (no C++ alternative)
+wavefield2vtk_detail   # full GLL point strain VTK
 ```
 
 Outputs go under `vtk/`.

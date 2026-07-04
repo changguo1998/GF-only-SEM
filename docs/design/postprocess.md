@@ -222,10 +222,9 @@ GLL corner index mapping for material extraction (GLL index = `(i*NGLL + j)*NGLL
 ## CLI
 
 ```
-gf-postprocess model.h5 config.h5 \
+gf_postprocess model.h5 config.h5 \
     --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ \
-    -o greenfun/ \
-    [--mesh] [--gll]
+    -o greenfun/
 ```
 
 | Arg | Meaning |
@@ -293,8 +292,8 @@ These changes deliver the record file formats specified above. Postprocess auto-
 
 ## Constraints
 
-- Python 3.10+
-- numpy, h5py, click, pytest
+- C++17 (primary implementation), Python 3.10+ (archived reference)
+- HDF5 C library, OpenMP
 - No receivers, receiver search, or point interpolation (per design-decisions.md)
 - Forward records recorded domain only (no PML, depth-bounded)
 - Tile files fully standalone — no dependency on model.h5 for consumer reads

@@ -30,10 +30,10 @@ echo ""
 echo "=== VTK output ==="
 cd "${WORK_DIR}"
 echo "--- model2vtk ---"
-python -m tools.model2vtk
+gf_model2vtk
 echo ""
 echo "--- partition2vtk ---"
-python -m tools.partition2vtk
+gf_partition2vtk
 echo ""
 showdir "${WORK_DIR}/vtk/"
 echo ""

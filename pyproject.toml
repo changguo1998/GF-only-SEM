@@ -9,15 +9,14 @@ url = "https://mirrors.cernet.edu.cn/pypi/web/simple"
 default = true
 
 [tool.uv.workspace]
-members = ["preprocess", "postprocess"]
+members = ["preprocess"]
 
 [tool.uv.sources]
-gf-post = { workspace = true }
+
 gf-preprocess = { workspace = true }
 
 [dependency-groups]
 dev = [
-    "gf-post",
     "gf-preprocess",
     "pytest>=7.0",
     "meshio>=5.0",
@@ -51,9 +50,6 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project.scripts]
-model2vtk = "tools.model2vtk:main"
-partition2vtk = "tools.partition2vtk:main"
-wavefield2vtk = "tools.wavefield2vtk:main"
 wavefield2vtk_detail = "tools.wavefield2vtk_detail:main"
 
 [tool.setuptools.packages.find]

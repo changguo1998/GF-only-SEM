@@ -10,10 +10,11 @@ No receivers. Output is the configured shallow mesh-vertex field.
 
 | File | Responsibility |
 |------|----------------|
-| `reader.py` | read rank record files, mesh vertex coords, merge by `vertex_id` |
-| `assembly.py` | stack 3 force directions into Green tensor |
-| `writer.py` | write `greenfun/tile_x{i}_y{j}.h5` |
-| `cli.py` | CLI entry point |
+| `reader.hh` | HDF5 readers: config, model, record discovery and per-file scatter |
+| `writer.hh` | HDF5 tile writer with element-count and spatial binning |
+| `main.cpp` | CLI entry point, pipeline orchestration, machine-parseable stats |
+| `CMakeLists.txt` | CMake build (HDF5 + OpenMP) |
+| `_archive/` | Archived Python implementation (reference only) |
 
 ## Data Flow
 
@@ -31,28 +32,18 @@ merge by global vertex_id
 ## CLI
 
 ```bash
-gf-postprocess model.h5 config.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ -o greenfun/
+gf_postprocess model.h5 config.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ -o greenfun/
 ```
 
 Per-step record files (`record_{r}_{step}.h5`) are auto-discovered in each wavefield directory.
-
 Tile sizes come from `config.h5` (`/simulation/tilex_elements`, `tiley_elements`) or `green_tile_size_m` (optional spatial tile size).
 
-## Modes
+Binary `gf_postprocess` is the primary postprocessor. Built via CMake, lands in `bin/gf_postprocess`.
 
-1. Small: merge all records in RAM.
-1. Production: stream by tile/time chunk.
+Output is byte-identical to the Python reference (vertex IDs + Green's tensor values match exactly).
+C++ adds HDF5 gzip level 4 + shuffle compression (transparent to readers).
 
-## Tests
-
-`postprocess/tests/` has tests covering reader, writer, and conftest.
-
-## C++ Accelerator
-
-Binary `gf_postprocess` in `postprocess/cpp/` provides an accelerated C++17 edition
-of the postprocessing pipeline. Built via CMake, lands in `bin/gf_postprocess`.
-
-### Pipeline (matches Python `gf_post`)
+## Pipeline
 
 ```
 model.h5 + config.h5
@@ -66,25 +57,7 @@ model.h5 + config.h5
 → write tile_x{i}_y{j}.h5 (gzip+shuffle compressed float32)
 ```
 
-### CLI
-
-```bash
-gf_postprocess <model.h5> <config.h5> --fx <dir> --fy <dir> --fz <dir> -o <dir>
-```
-
-Output is byte-identical to Python `gf_post` (vertex IDs + Green's tensor values match exactly).
-C++ adds HDF5 gzip level 4 + shuffle compression (transparent to readers).
-
-### Files
-
-| File | Responsibility |
-|------|----------------|
-| `reader.hh` | HDF5 readers: config, model, record discovery and per-file scatter |
-| `writer.hh` | HDF5 tile writer with element-count and spatial binning |
-| `main.cpp` | CLI entry point, pipeline orchestration, machine-parseable stats |
-| `CMakeLists.txt` | CMake build (HDF5 + OpenMP) |
-
-### Build
+## Build
 
 Built automatically as part of the project CMake. Target: `gf_postprocess`.
 
@@ -94,10 +67,15 @@ cmake ..
 cmake --build . --target gf_postprocess
 ```
 
-### Performance
+## Performance
 
 ~0.4s for halfspace example (500 steps × 3 directions, 845 recorded vertices,
 25 output tiles) vs Python ~several seconds.
+
+## Tests
+
+Python tests (archived in `_archive/tests/`) cover the original implementation.
+The C++ binary can be tested via the halfspace example pipeline.
 
 ## Design Doc
 
