@@ -1,7 +1,6 @@
 # Forward Solver — Technical Design
 
 > Parent: [../design-decisions.md](../design-decisions.md)
-> Implementation plan: ~~`docs/superpowers/plans/2026-06-08-forward.md`~~ (deleted)
 
 ## Goal
 
@@ -315,7 +314,7 @@ for step in 0..nsteps-1:
 
 ## Snapshot Output
 
-One strain record per rank per run. Append only at `step % snapshot_stride == 0`. Output is shallow mesh vertices, not full GLL:
+One record file per rank per run. Append only at `step % snapshot_stride == 0`. Output is shallow mesh vertices, not full GLL:
 
 ```
 wavefields/{direction}/record_{r}.h5
@@ -327,10 +326,13 @@ wavefields/{direction}/record_{r}.h5
 │   ├── record_depth_actual_m   : float64
 │   └── excludes_pml            : bool
 ├── vertex_ids                  : int64[n_record_vertices]
-└── strain                      : float32[n_snapshots, n_record_vertices, 6]
+├── strain                      : float32[n_snapshots, n_record_vertices, 6]
+├── displacement                : float32[n_snapshots, n_record_vertices, 3]
+├── velocity                    : float32[n_snapshots, n_record_vertices, 3]
+└── acceleration                : float32[n_snapshots, n_record_vertices, 3]
 ```
 
-Values are per-vertex strain (direct gradient from displacement at corrected corner nodes). Interior GLL points are not recorded.
+Values are per-vertex (direct gradient from displacement at corrected corner nodes). Interior GLL points are not recorded. Displacement, velocity, acceleration are extracted from the same recorded-vertex set using the recording map.
 
 ## Restart Output
 

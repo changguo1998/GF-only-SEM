@@ -13,8 +13,8 @@
 
 #include "gf/cuda_check.h"
 #include "gf/cuda_device_manager.hpp"
-#include "gf/element.hpp"
 #include "gf/cuda_step.hpp"
+#include "gf/element.hpp"
 
 namespace gf {
 
@@ -258,9 +258,8 @@ void cuda_launch_element_residual(const CudaDeviceState& state, int ngll, int n_
     dim3 block(ngll, ngll, ngll);
     dim3 grid(n_elem, 1, 1);
     GF_CUDA_CHECK(cudaMemset(state.d_residual, 0, n_elem * n_node * 3 * sizeof(double)));
-    element_residual_kernel<<<grid, block>>>(state.d_dxi_dx, state.d_jacobian,
-                                             state.d_lambda_, state.d_mu_,
-                                             state.d_D, state.d_weights, ngll,
+    element_residual_kernel<<<grid, block>>>(state.d_dxi_dx, state.d_jacobian, state.d_lambda_,
+                                             state.d_mu_, state.d_D, state.d_weights, ngll,
                                              state.d_displacement_tilde, state.d_residual);
     GF_CUDA_CHECK(cudaGetLastError());
     GF_CUDA_CHECK(cudaDeviceSynchronize());

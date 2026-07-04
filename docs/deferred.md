@@ -46,7 +46,6 @@ ______________________________________________________________________
 
 **Status:** Not implemented.
 
-- **Plan:** ~~`docs/superpowers/plans/2026-06-08-compress.md`~~ (deleted)
 - **Design:** [`design/compress.md`](design/compress.md)
 - **Source:** `compress/benchmark/CompressionBenchmark.cpp` — missing
 - **CMake:** `compress/benchmark/CMakeLists.txt` — missing
@@ -70,7 +69,6 @@ ______________________________________________________________________
 
 **Status:** Not integrated. `gf_compress` is not linked in `forward/CMakeLists.txt`.
 
-- **Plan:** ~~`docs/superpowers/plans/2026-06-08-compress.md`~~ (deleted)
 - **Design:** [`design/compress.md`](design/compress.md)
 
 Needed:

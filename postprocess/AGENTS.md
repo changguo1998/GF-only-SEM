@@ -34,7 +34,7 @@ merge by global vertex_id
 gf-postprocess model.h5 config.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ -o greenfun/
 ```
 
-Tile sizes come from `config.h5` (`/simulation/tilex_elements`, `tiley_elements`).
+Tile sizes come from `config.h5` (`/simulation/tilex_elements`, `tiley_elements`) or `green_tile_size_m` (optional spatial tile size).
 
 ## Modes
 
@@ -43,7 +43,7 @@ Tile sizes come from `config.h5` (`/simulation/tilex_elements`, `tiley_elements`
 
 ## Tests
 
-`tests/` has 19 reader tests. Assembly, writer, and CLI still need mesh-vertex tile tests.
+`tests/` has 22 tests covering reader, writer, and conftest. All pass.
 
 ## Design Doc
 

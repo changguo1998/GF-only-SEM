@@ -78,6 +78,7 @@ def main(mesh, config, fx, fy, fz, output_dir):
         record_depth_actual_m = cfg.record_depth_actual_m
         solver_dt = cfg.solver_dt
         output_dt_s = cfg.output_dt_s
+        green_tile_size_m = cfg.green_tile_size_m
 
     # Load mesh geometry
     print(f"[postprocess] Reading mesh geometry from {mesh}", file=sys.stderr)
@@ -145,6 +146,7 @@ def main(mesh, config, fx, fy, fz, output_dir):
         tilex_elements,
         tiley_elements,
         domain_bounds,
+        green_tile_size_m=green_tile_size_m,
         record_depth_max_m=record_depth_max_m,
         record_depth_actual_m=record_depth_actual_m,
     )

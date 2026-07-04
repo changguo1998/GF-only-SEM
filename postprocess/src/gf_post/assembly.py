@@ -11,19 +11,18 @@ def assemble_greens_tensor(
 
     Args:
         waveforms: dict with keys "fx", "fy", "fz".
-            Each value has shape [nt, n_cell, NGLL, NGLL, NGLL, 6]
-            (strain at all GLL nodes).
+            Each value has shape [nt, n_vertices, 6] (vertex-level strain).
 
     Returns:
-        [nt, n_cell, NGLL, NGLL, NGLL, 6, 3] Green's tensor.
+        [nt, n_vertices, 6, 3] Green's tensor.
         Shape[-2] = strain component (Voigt: xx,yy,zz,xy,xz,yz)
         Shape[-1] = force direction (0=x, 1=y, 2=z)
     """
-    nt, n_cell, ngll1, ngll2, ngll3, _ = waveforms["fx"].shape
+    nt, n_vertices, ncomp = waveforms["fx"].shape
 
-    tensor = np.zeros((nt, n_cell, ngll1, ngll2, ngll3, 6, 3), dtype=np.float64)
-    tensor[:, :, :, :, :, :, 0] = waveforms["fx"]
-    tensor[:, :, :, :, :, :, 1] = waveforms["fy"]
-    tensor[:, :, :, :, :, :, 2] = waveforms["fz"]
+    tensor = np.zeros((nt, n_vertices, ncomp, 3), dtype=np.float64)
+    tensor[:, :, :, 0] = waveforms["fx"]
+    tensor[:, :, :, 1] = waveforms["fy"]
+    tensor[:, :, :, 2] = waveforms["fz"]
 
     return tensor

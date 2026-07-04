@@ -111,9 +111,12 @@ CLI              — entry point with --mesh/--gll flags
 ```
 
 **Consumer interpolation (trilinear):**
+
 1. Locate query `(xq, yq, zq)` → scan `cell_bounds` for containing cell.
-2. `cell_to_vertex[cell_idx]` → 8 local vertex indices.
-3. For each of 8 corners (GMSH order), compute local (xi, eta, zeta) in [0,1]³:
+
+1. `cell_to_vertex[cell_idx]` → 8 local vertex indices.
+
+1. For each of 8 corners (GMSH order), compute local (xi, eta, zeta) in [0,1]³:
 
    | corner | (xi,eta,zeta) | trilinear weight |
    |--------|---------------|-------------------|
@@ -126,7 +129,7 @@ CLI              — entry point with --mesh/--gll flags
    | 6 | (1,1,1) | xi·eta·zeta |
    | 7 | (0,1,1) | (1-xi)eta·zeta |
 
-4. `greens[query_point, dir, comp, :] = Σ_{c=0}^{7} greens[corner_idx[c], dir, comp, :] × weight[c]`.
+1. `greens[query_point, dir, comp, :] = Σ_{c=0}^{7} greens[corner_idx[c], dir, comp, :] × weight[c]`.
 
    This is an approximation of the full SEM spectral solution. For exact spectral interpolation, use the full-GLL edition.
 
@@ -152,12 +155,13 @@ CLI              — entry point with --mesh/--gll flags
 ```
 
 **Consumer interpolation (spectral) — EXACT:**
+
 1. Locate query `(xq, yq, zq)` → find cell via `cell_origin ≤ (xq,yq,zq) < cell_origin + cell_size`.
-2. Compute reference coordinates: `xi = 2*(xq - cell_origin_x)/cell_size_x - 1`, similarly for eta, zeta. All in [-1, 1].
-3. Evaluate Lagrange polynomials at (xi, eta, zeta):
+1. Compute reference coordinates: `xi = 2*(xq - cell_origin_x)/cell_size_x - 1`, similarly for eta, zeta. All in [-1, 1].
+1. Evaluate Lagrange polynomials at (xi, eta, zeta):
    - `l_i(xi) = Π_{m≠i} (xi - gll_xi[m]) / (gll_xi[i] - gll_xi[m])` for all NGLL nodes.
    - Similarly `l_j(eta)`, `l_k(zeta)`.
-4. Sum: `greens(query, dir, comp, :) = Σ_{i,j,k} greens[cell, i, j, k, dir, comp, :] × l_i(xi) × l_j(eta) × l_k(zeta)`.
+1. Sum: `greens(query, dir, comp, :) = Σ_{i,j,k} greens[cell, i, j, k, dir, comp, :] × l_i(xi) × l_j(eta) × l_k(zeta)`.
 
 This recovers the SEM spectral solution at any point within the cell exactly (machine-precision — no interpolation error).
 
@@ -166,6 +170,7 @@ Primer on GLL evaluation at arbitrary (xi, eta, zeta) is available in the math d
 ## Coordinate System
 
 Tiles use a recentered coordinate frame:
+
 - **Horizontal origin**: source location → `x' = x - source_x`, `y' = y - source_y`.
 - **Vertical origin**: `z = 0` (free surface / datum) → `z' = z`.
 - Source position in tile frame: `(0, 0, source_z)`.
@@ -184,15 +189,16 @@ Deferred to future module. Placeholder datasets (`/travel_time/tp`, `/travel_tim
 ## Cell Selection & Tiling
 
 A cell qualifies for output if:
+
 1. **Fully recorded**: all NGLL³ GLL nodes (including all 8 corners) are in the recorded set.
-2. **Non-PML**: interior element (i ≥ pml_xmin, i < nx - pml_xmax; similarly for y, z).
-3. **Within record depth**: cell z-max ≤ record_depth_actual_m.
+1. **Non-PML**: interior element (i ≥ pml_xmin, i < nx - pml_xmax; similarly for y, z).
+1. **Within record depth**: cell z-max ≤ record_depth_actual_m.
 
-Qualifying cells are binned by interior element index `(i - pml_xmin, j - pml_ymin)` into tiles. Tile sizes come from `config.h5 /simulation/tilex_elements` and `tiley_elements`.
+Qualifying cells are binned by interior element index `(i - pml_xmin, j - pml_ymin)` into tiles. Tile sizes come from `config.h5 /simulation/tilex_elements` and `tiley_elements` (element-count tiling).
 
-Validation: postprocess aborts if `sum(tilex_elements) ≠ nx_elements - pml_xmin - pml_xmax` (or same check using configured tile sizes).
+Alternatively, when `green_tile_size_m` is set in `config.py` (`/simulation/green_tile_size_m` in `config.h5`), spatial binning replaces element binning: vertices are assigned to tiles by `floor((x - xmin) / green_tile_size_m)` and `floor((y - ymin) / green_tile_size_m)`. This produces spatially-uniform tiles independent of mesh discretization, with element-count tiling as the fallback when `green_tile_size_m` is absent or None.
 
-A vertex on a tile boundary (shared by cells in adjacent tiles) is duplicated in both tiles — acceptable for fully standalone tile files.
+A vertex on a tile boundary (shared by cells in adjacent tiles) is duplicated in both tiles — acceptable for fully standalone tile files. Spatial tiling produces tile boundaries at fixed coordinate intervals; vertices exactly on a boundary fall into the lower tile due to `floor()`.
 
 ## Cell-to-Vertex Derivation
 
@@ -202,16 +208,16 @@ The derivation walks each cell's 6 signed surfaces, 4 signed edges per surface, 
 
 GLL corner index mapping for material extraction (GLL index = `(i*NGLL + j)*NGLL + k` with k-fast, i-slow):
 
-| GMSH corner | GLL (i,j,k)       | GLL flat index          |
+| GMSH corner | GLL (i,j,k) | GLL flat index |
 |-------------|-------------------|-------------------------|
-| 0           | (0, 0, 0)         | 0                       |
-| 1           | (NGLL-1, 0, 0)    | (NGLL-1)·NGLL²          |
-| 2           | (NGLL-1, NGLL-1, 0) | (NGLL-1)·(NGLL²+NGLL) |
-| 3           | (0, NGLL-1, 0)    | (NGLL-1)·NGLL           |
-| 4           | (0, 0, NGLL-1)    | NGLL-1                  |
-| 5           | (NGLL-1, 0, NGLL-1) | (NGLL-1)·(NGLL²+1)   |
-| 6           | (NGLL-1, NGLL-1, NGLL-1) | (NGLL-1)·(NGLL²+NGLL+1) |
-| 7           | (0, NGLL-1, NGLL-1) | (NGLL-1)·(NGLL+1)    |
+| 0 | (0, 0, 0) | 0 |
+| 1 | (NGLL-1, 0, 0) | (NGLL-1)·NGLL² |
+| 2 | (NGLL-1, NGLL-1, 0) | (NGLL-1)·(NGLL²+NGLL) |
+| 3 | (0, NGLL-1, 0) | (NGLL-1)·NGLL |
+| 4 | (0, 0, NGLL-1) | NGLL-1 |
+| 5 | (NGLL-1, 0, NGLL-1) | (NGLL-1)·(NGLL²+1) |
+| 6 | (NGLL-1, NGLL-1, NGLL-1) | (NGLL-1)·(NGLL²+NGLL+1) |
+| 7 | (0, NGLL-1, NGLL-1) | (NGLL-1)·(NGLL+1) |
 
 ## CLI
 
@@ -251,6 +257,7 @@ greenfun/
 ## Validation
 
 Abort if any direction set differs in:
+
 - `basis` or `record_mode`,
 - `record_depth_max_m` or `record_depth_actual_m`,
 - `solver_dt`, `snapshot_stride`, snapshot count,
@@ -318,8 +325,8 @@ postprocess/
 ## Design Decisions
 
 1. **Two editions**: mesh-only (trilinear, compact) + full-GLL (spectral, exact). User chooses per invocation. Recording at GLL level always supports both.
-2. **record_mode in config**: `"gll"` is the recommended mode — produces larger record files but unlocks both editions. `"vertices"` is lighter but limits output to mesh-only.
-3. **Standalone tiles**: no global vertex/cell IDs stored. cell_to_vertex uses local 0-based indices. Coords recentered. Material embedded. Full self-containment.
-4. **Trilinear as approximation**: mesh edition uses trilinear interpolation of 8 corner values. Sub-cell spectral content is lost. For exact SEM evaluation, use full-GLL edition.
-5. **Time-series-first**: `[..., nt]` innermost, chunked for one-location reads. `dt` stored as scalar + `nt` as length — consumer derives time array.
-6. **Coordinate recentering**: horizontal origin at source, vertical origin at z=0. Recentered coords stored in tiles. Original source position in attrs for traceability.
+1. **record_mode in config**: `"gll"` is the recommended mode — produces larger record files but unlocks both editions. `"vertices"` is lighter but limits output to mesh-only.
+1. **Standalone tiles**: no global vertex/cell IDs stored. cell_to_vertex uses local 0-based indices. Coords recentered. Material embedded. Full self-containment.
+1. **Trilinear as approximation**: mesh edition uses trilinear interpolation of 8 corner values. Sub-cell spectral content is lost. For exact SEM evaluation, use full-GLL edition.
+1. **Time-series-first**: `[..., nt]` innermost, chunked for one-location reads. `dt` stored as scalar + `nt` as length — consumer derives time array.
+1. **Coordinate recentering**: horizontal origin at source, vertical origin at z=0. Recentered coords stored in tiles. Original source position in attrs for traceability.

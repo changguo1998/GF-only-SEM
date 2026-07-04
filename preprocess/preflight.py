@@ -243,6 +243,13 @@ def _check_recording_depth(
     result.stats["record_depth_max_m"] = record_depth_max_m
 
 
+def _check_green_tile_size(green_tile_size_m: float | None, result: PreflightResult) -> None:
+    """Validate green_tile_size_m if set."""
+    if green_tile_size_m is not None:
+        if green_tile_size_m <= 0:
+            result.add_error(f"green_tile_size_m must be positive if set, got {green_tile_size_m}")
+
+
 def _check_storage(
     n_cell: int,
     NGLL: int,
@@ -367,6 +374,10 @@ def run_preflight(
     # 7b. Recording depth
     rd_max = float(getattr(config_module, "record_depth_max_m", 0.0))
     _check_recording_depth(rd_max, domain_bounds, result)
+
+    # 7c. Green's function tile size
+    gts = getattr(config_module, "green_tile_size_m", None)
+    _check_green_tile_size(gts, result)
 
     # 8. Storage
     # nsteps is now passed directly as parameter, not from config_module

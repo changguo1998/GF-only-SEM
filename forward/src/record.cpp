@@ -126,9 +126,8 @@ RecordWriter::RecordWriter(const std::string& output_dir, const std::string& sou
 hid_t RecordWriter::create_field_dset(const std::string& name, int ncomp) {
     constexpr int ndim = 3;
     hsize_t dims[3] = {n_vertices_ > 0 ? hsize_t{1} : hsize_t{0}, n_vertices_,
-                        static_cast<hsize_t>(ncomp)};
-    hsize_t max_dims[3] = {H5S_UNLIMITED,
-                           n_vertices_ > 0 ? n_vertices_ : hsize_t{H5S_UNLIMITED},
+                       static_cast<hsize_t>(ncomp)};
+    hsize_t max_dims[3] = {H5S_UNLIMITED, n_vertices_ > 0 ? n_vertices_ : hsize_t{H5S_UNLIMITED},
                            static_cast<hsize_t>(ncomp)};
 
     hid_t space = H5Screate_simple(ndim, dims, max_dims);
@@ -151,8 +150,8 @@ hid_t RecordWriter::create_field_dset(const std::string& name, int ncomp) {
 
     hid_t write_type = select_precision_type(use_float32_);
 
-    hid_t dset = H5Dcreate2(file_id_, name.c_str(), write_type, space, H5P_DEFAULT, plist,
-                            H5P_DEFAULT);
+    hid_t dset =
+        H5Dcreate2(file_id_, name.c_str(), write_type, space, H5P_DEFAULT, plist, H5P_DEFAULT);
     if (dset < 0) {
         H5Pclose(plist);
         H5Sclose(space);
@@ -170,10 +169,8 @@ RecordWriter::~RecordWriter() {
     }
 }
 
-void RecordWriter::write_step(int step, const double* strain,
-                              const double* displacement,
-                              const double* velocity,
-                              const double* acceleration) {
+void RecordWriter::write_step(int step, const double* strain, const double* displacement,
+                              const double* velocity, const double* acceleration) {
     (void)step;
     if (file_id_ < 0) {
         throw std::runtime_error("RecordWriter: file not open");

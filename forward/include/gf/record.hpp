@@ -49,10 +49,8 @@ public:
     /// \param displacement   Displacement array [n_record_vertices * 3] (or null)
     /// \param velocity       Velocity array [n_record_vertices * 3] (or null)
     /// \param acceleration   Acceleration array [n_record_vertices * 3] (or null)
-    void write_step(int step, const double* strain,
-                    const double* displacement = nullptr,
-                    const double* velocity = nullptr,
-                    const double* acceleration = nullptr);
+    void write_step(int step, const double* strain, const double* displacement = nullptr,
+                    const double* velocity = nullptr, const double* acceleration = nullptr);
 
     /// Finalize and close the HDF5 file.
     void close();

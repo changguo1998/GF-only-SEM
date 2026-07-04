@@ -138,7 +138,10 @@ Attrs: `rank`, `source_direction`, `basis="mesh_vertices"`, `record_depth_max_m`
 Datasets:
 
 - `vertex_ids`: `int64[n_record_vertices]`, global mesh vertex IDs, 1-based
-- `strain`: `[n_snapshots, n_record_vertices, 6]`, extendible in time
+- `strain`: `float32[n_snapshots, n_record_vertices, 6]`, extendible in time
+- `displacement`: `float32[n_snapshots, n_record_vertices, 3]`, extendible in time
+- `velocity`: `float32[n_snapshots, n_record_vertices, 3]`, extendible in time
+- `acceleration`: `float32[n_snapshots, n_record_vertices, 3]`, extendible in time
 
 ## Restart Schema
 

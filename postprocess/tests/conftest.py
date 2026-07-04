@@ -65,6 +65,7 @@ def synthetic_config_path(tmp_path):
         sim.create_dataset("tiley_elements", data=np.array([5, 5], dtype=np.int64))
         sim.attrs["record_depth_max_m"] = 1.0
         sim.attrs["record_depth_actual_m"] = 1.0
+        sim.attrs["green_tile_size_m"] = 0.5  # Spatial tile size for spatial tiling tests
     return path
 
 

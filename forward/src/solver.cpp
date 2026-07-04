@@ -197,18 +197,17 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
 #ifdef GF_WITH_CUDA
         // === Allocate GPU state (single-GPU native path) ===
         {
-            gpu_state = cuda_allocate_state(n_local, ngll, part.mass, part.pml_damping,
-                                            part.dxi_dx, part.jacobian, part.lambda_, part.mu_,
-                                            D_mat.data(), gll_wts.data(),
-                                            cfg, part.recording, n_local_dof);
+            gpu_state =
+                cuda_allocate_state(n_local, ngll, part.mass, part.pml_damping, part.dxi_dx,
+                                    part.jacobian, part.lambda_, part.mu_, D_mat.data(),
+                                    gll_wts.data(), cfg, part.recording, n_local_dof);
             // Copy source element offsets to device
             std::vector<int> src_offsets(cfg.n_src_elements, -1);
             for (int si = 0; si < cfg.n_src_elements; ++si) {
                 src_offsets[si] = src_elem_to_local[si];
             }
             GF_CUDA_CHECK(cudaMemcpy(gpu_state.d_src_elem_offsets, src_offsets.data(),
-                                     cfg.n_src_elements * sizeof(int),
-                                     cudaMemcpyHostToDevice));
+                                     cfg.n_src_elements * sizeof(int), cudaMemcpyHostToDevice));
         }
 #endif
 
@@ -278,8 +277,8 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                     stf_val = cfg.stf_values[step];
                 }
                 if (stf_val != 0.0) {
-                    cuda_source_injection(gpu_state, dir, stf_val,
-                                          cfg.src_weights.data(), cfg.n_src_elements);
+                    cuda_source_injection(gpu_state, dir, stf_val, cfg.src_weights.data(),
+                                          cfg.n_src_elements);
                 }
             }
             // No exchange_halo needed — single process (exchange_noop.cpp)
@@ -329,10 +328,8 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                         }
                     }
                 }
-                record.write_step(step, rec_strain.data(),
-                                  rec_displacement.data(),
-                                  rec_velocity.data(),
-                                  rec_acceleration.data());
+                record.write_step(step, rec_strain.data(), rec_displacement.data(),
+                                  rec_velocity.data(), rec_acceleration.data());
             }
 #else
             // --- CPU path ---
@@ -406,8 +403,9 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
 
                 // Helper: extract recorded-vertex values from a flat DOF array
                 auto extract_recorded = [&](const std::vector<double>& src, int ncomp,
-                                             std::vector<double>& dst) {
-                    if (!has_recording) return;
+                                            std::vector<double>& dst) {
+                    if (!has_recording)
+                        return;
                     size_t n_vertices = part.recording.vertex_ids.size();
                     dst.resize(n_vertices * ncomp, 0.0);
                     for (size_t vertex_idx = 0; vertex_idx < n_vertices; ++vertex_idx) {
@@ -541,10 +539,8 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                         }
                     }
                 }
-                record.write_step(step, rec_strain.data(),
-                                  rec_displacement.data(),
-                                  rec_velocity.data(),
-                                  rec_acceleration.data());
+                record.write_step(step, rec_strain.data(), rec_displacement.data(),
+                                  rec_velocity.data(), rec_acceleration.data());
             }
 #endif
 

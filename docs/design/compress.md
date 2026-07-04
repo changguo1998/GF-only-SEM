@@ -1,7 +1,6 @@
 # Compression Module — Technical Design
 
 > Parent: [../design-decisions.md](../design-decisions.md)
-> Implementation plan: ~~`docs/superpowers/plans/2026-06-08-compress.md`~~ (deleted)
 
 ## Goal
 

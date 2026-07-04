@@ -1,8 +1,9 @@
-"""HDF5 writer for element-tiled Green's function output.
+"""HDF5 writer for element-tiled or spatially-tiled Green's function output.
 
-Output tiles partition the non-PML interior by element count.
-Each tile contains vertex_ids + greens_tensor for all vertices in that
-element-range bin. Consumers read coordinates from model.h5 via vertex_ids.
+Output tiles partition by element count (default) or spatial bin size
+(when green_tile_size_m is set).
+Each tile contains vertex_ids + greens_tensor for all vertices in that bin.
+Consumers read coordinates from model.h5 via vertex_ids.
 """
 
 from pathlib import Path
@@ -28,7 +29,7 @@ def _find_tile_index(interior_idx: int, tile_sizes: list[int]) -> int:
 
 
 class GFWriter:
-    """Writes strain Green's functions as element-tiled HDF5 files."""
+    """Writes strain Green's functions as element-tiled or spatially-tiled HDF5 files."""
 
     @staticmethod
     def write(
@@ -44,14 +45,14 @@ class GFWriter:
         tilex_elements: list[int],
         tiley_elements: list[int],
         domain_bounds: dict[str, float],
+        green_tile_size_m: float | None = None,
         record_depth_max_m: float = 0.0,
         record_depth_actual_m: float = 0.0,
     ) -> List[Path]:
-        """Write Green's function output as element-tiled HDF5 files.
+        """Write Green's function output as tiled HDF5 files.
 
-        Tiles partition the non-PML interior by element count. The constraint
-        is: nx_elements = sum(tilex_elements) + pml_xmin + pml_xmax (and
-        similarly for y).
+        Tiles partition by element count (default) or spatial bin size
+        (when green_tile_size_m is set).
 
         Args:
             output_dir: Directory to write tile_x{i}_y{j}.h5 files.
@@ -66,6 +67,8 @@ class GFWriter:
             tilex_elements: List of tile sizes (in elements) along x.
             tiley_elements: List of tile sizes (in elements) along y.
             domain_bounds: dict with xmin, xmax, ymin, ymax, zmin, zmax.
+            green_tile_size_m: Spatial tile size in meters. When set, uses
+                spatial binning instead of element-count tiling.
             record_depth_max_m: Max recording depth.
             record_depth_actual_m: Snapped actual recording depth.
 
@@ -92,69 +95,80 @@ class GFWriter:
                 f"greens shape mismatch: got {greens.shape}, expected {expected_shape}"
             )
 
-        # Element widths
-        dx = (xmax - xmin) / nx_elements if nx_elements > 0 else 0.0
-        dy = (ymax - ymin) / ny_elements if ny_elements > 0 else 0.0
-
-        # PML element counts
-        pml_xmin = pml_thickness.get("xmin", 0)
-        pml_xmax = pml_thickness.get("xmax", 0)
-        pml_ymin = pml_thickness.get("ymin", 0)
-        pml_ymax = pml_thickness.get("ymax", 0)
-
-        # Precompute tile x-boundary cumulative counts
-        # interior_x_cum[i] = start element index (interior) for tile i
-        tile_x_cum = [0]
-        for sz in tilex_elements:
-            tile_x_cum.append(tile_x_cum[-1] + sz)
-        tile_y_cum = [0]
-        for sz in tiley_elements:
-            tile_y_cum.append(tile_y_cum[-1] + sz)
-
-        # Bin vertices into element-based tiles
+        # Choose tiling method: spatial or element-count
         tile_bins: dict[tuple[int, int], list[int]] = {}
-        for vi in range(n_vertex):
-            x, y = vertex_coords[vi, 0], vertex_coords[vi, 1]
+        use_spatial = green_tile_size_m is not None and green_tile_size_m > 0
 
-            # Compute element (i, j) indices
-            ei = int(np.floor((x - xmin) / dx)) if dx > 0 else 0
-            ej = int(np.floor((y - ymin) / dy)) if dy > 0 else 0
-            # Clamp to valid range (vertices on far boundary)
-            ei = min(ei, nx_elements - 1) if nx_elements > 0 else 0
-            ej = min(ej, ny_elements - 1) if ny_elements > 0 else 0
+        if use_spatial:
+            # Spatial binning — vertices grouped by coordinate bins
+            for vi in range(n_vertex):
+                x, y = vertex_coords[vi, 0], vertex_coords[vi, 1]
+                tx = int(np.floor((x - xmin) / green_tile_size_m))
+                ty = int(np.floor((y - ymin) / green_tile_size_m))
+                key = (tx, ty)
+                if key not in tile_bins:
+                    tile_bins[key] = []
+                tile_bins[key].append(vi)
+        else:
+            # Element-count binning (original logic)
+            dx = (xmax - xmin) / nx_elements if nx_elements > 0 else 0.0
+            dy = (ymax - ymin) / ny_elements if ny_elements > 0 else 0.0
 
-            # Convert to interior element index (relative to PML interior)
-            interior_i = ei - pml_xmin
-            interior_j = ej - pml_ymin
+            pml_xmin = pml_thickness.get("xmin", 0)
+            pml_xmax = pml_thickness.get("xmax", 0)
+            pml_ymin = pml_thickness.get("ymin", 0)
+            pml_ymax = pml_thickness.get("ymax", 0)
 
-            # If outside interior (shouldn't happen for recorded vertices, but guard)
-            if interior_i < 0 or interior_i >= tile_x_cum[-1]:
-                continue
-            if interior_j < 0 or interior_j >= tile_y_cum[-1]:
-                continue
+            tile_x_cum = [0]
+            for sz in tilex_elements:
+                tile_x_cum.append(tile_x_cum[-1] + sz)
+            tile_y_cum = [0]
+            for sz in tiley_elements:
+                tile_y_cum.append(tile_y_cum[-1] + sz)
 
-            tx = _find_tile_index(interior_i, tilex_elements)
-            ty = _find_tile_index(interior_j, tiley_elements)
-            key = (tx, ty)
-            if key not in tile_bins:
-                tile_bins[key] = []
-            tile_bins[key].append(vi)
+            for vi in range(n_vertex):
+                x, y = vertex_coords[vi, 0], vertex_coords[vi, 1]
 
+                ei = int(np.floor((x - xmin) / dx)) if dx > 0 else 0
+                ej = int(np.floor((y - ymin) / dy)) if dy > 0 else 0
+                ei = min(ei, nx_elements - 1) if nx_elements > 0 else 0
+                ej = min(ej, ny_elements - 1) if ny_elements > 0 else 0
+
+                interior_i = ei - pml_xmin
+                interior_j = ej - pml_ymin
+
+                if interior_i < 0 or interior_i >= tile_x_cum[-1]:
+                    continue
+                if interior_j < 0 or interior_j >= tile_y_cum[-1]:
+                    continue
+
+                tx = _find_tile_index(interior_i, tilex_elements)
+                ty = _find_tile_index(interior_j, tiley_elements)
+                key = (tx, ty)
+                if key not in tile_bins:
+                    tile_bins[key] = []
+                tile_bins[key].append(vi)
         tiles = []
         for (tx, ty), vert_indices in sorted(tile_bins.items()):
             if not vert_indices:
                 continue
 
             # Compute physical bounds of this tile
-            i_start = pml_xmin + tile_x_cum[tx]
-            i_end = pml_xmin + tile_x_cum[tx + 1]
-            j_start = pml_ymin + tile_y_cum[ty]
-            j_end = pml_ymin + tile_y_cum[ty + 1]
+            if use_spatial:
+                tile_x_min = xmin + tx * green_tile_size_m
+                tile_x_max = xmin + (tx + 1) * green_tile_size_m
+                tile_y_min = ymin + ty * green_tile_size_m
+                tile_y_max = ymin + (ty + 1) * green_tile_size_m
+            else:
+                i_start = pml_xmin + tile_x_cum[tx]
+                i_end = pml_xmin + tile_x_cum[tx + 1]
+                j_start = pml_ymin + tile_y_cum[ty]
+                j_end = pml_ymin + tile_y_cum[ty + 1]
 
-            tile_x_min = xmin + i_start * dx
-            tile_x_max = xmin + i_end * dx
-            tile_y_min = ymin + j_start * dy
-            tile_y_max = ymin + j_end * dy
+                tile_x_min = xmin + i_start * dx
+                tile_x_max = xmin + i_end * dx
+                tile_y_min = ymin + j_start * dy
+                tile_y_max = ymin + j_end * dy
 
             tile_path = output_dir / f"tile_x{tx:03d}_y{ty:03d}.h5"
             _write_tile(

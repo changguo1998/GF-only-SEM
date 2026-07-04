@@ -124,3 +124,104 @@ def test_shape_mismatch_raises(tmp_path):
             tiley_elements=TILEY,
             domain_bounds=DOMAIN,
         )
+
+
+# ── Spatial tiling tests ──────────────────────────────────────────────
+
+
+def test_spatial_tiling_single_tile(tmp_path):
+    """Spatial tiling: 2 vertices in same spatial bin → 1 tile."""
+    n_vertex = 2
+    nt = 1
+    vertex_coords = np.array([[0.1, 0.2, 0.0], [0.3, 0.4, 0.0]], dtype=np.float64)
+    vertex_ids = np.array([1, 2], dtype=np.int64)
+    time_arr = np.array([0.0], dtype=np.float64)
+    dt = 0.01
+    greens = np.zeros((nt, n_vertex, 6, 3), dtype=np.float64)
+
+    tiles = GFWriter.write(
+        str(tmp_path / "greenfun"),
+        vertex_coords,
+        vertex_ids,
+        time_arr,
+        dt,
+        greens,
+        nx_elements=NX,
+        ny_elements=NY,
+        pml_thickness=PML,
+        tilex_elements=TILEX,
+        tiley_elements=TILEY,
+        domain_bounds=DOMAIN,
+        green_tile_size_m=0.5,
+        record_depth_max_m=1.0,
+        record_depth_actual_m=0.5,
+    )
+
+    assert len(tiles) == 1  # both vertices in tile (0,0) with green_tile_size_m=0.5
+    # Verify tile file is valid HDF5
+    with h5py.File(tiles[0], "r") as f:
+        assert f.attrs["basis"] == "mesh_vertices"
+        assert int(f["time"].attrs["nsteps"]) == 1
+
+
+def test_spatial_tiling_two_tiles(tmp_path):
+    """Spatial tiling: vertices in different spatial bins → 2 tiles."""
+    n_vertex = 2
+    nt = 1
+    # (0.1, 0.1) with green_tile_size_m=0.5 → tile (0,0)
+    # (0.6, 0.7) with green_tile_size_m=0.5 → tile (1,1)
+    vertex_coords = np.array([[0.1, 0.1, 0.0], [0.6, 0.7, 0.0]], dtype=np.float64)
+    vertex_ids = np.array([1, 2], dtype=np.int64)
+    time_arr = np.array([0.0], dtype=np.float64)
+    dt = 0.01
+    greens = np.zeros((nt, n_vertex, 6, 3), dtype=np.float64)
+
+    tiles = GFWriter.write(
+        str(tmp_path / "greenfun"),
+        vertex_coords,
+        vertex_ids,
+        time_arr,
+        dt,
+        greens,
+        nx_elements=NX,
+        ny_elements=NY,
+        pml_thickness=PML,
+        tilex_elements=TILEX,
+        tiley_elements=TILEY,
+        domain_bounds=DOMAIN,
+        green_tile_size_m=0.5,
+    )
+
+    assert len(tiles) == 2
+    tile_names = sorted([p.name for p in tiles])
+    assert "tile_x000_y000.h5" in tile_names
+    assert "tile_x001_y001.h5" in tile_names
+
+
+def test_spatial_tiling_fallback_element_mode(tmp_path):
+    """When green_tile_size_m is None, falls back to element-count tiling."""
+    n_vertex = 2
+    nt = 1
+    vertex_coords = np.array([[0.0, 0.0, 0.0], [0.6, 0.7, 0.0]], dtype=np.float64)
+    vertex_ids = np.array([1, 2], dtype=np.int64)
+    time_arr = np.array([0.0], dtype=np.float64)
+    dt = 0.01
+    greens = np.zeros((nt, n_vertex, 6, 3), dtype=np.float64)
+
+    tiles = GFWriter.write(
+        str(tmp_path / "greenfun"),
+        vertex_coords,
+        vertex_ids,
+        time_arr,
+        dt,
+        greens,
+        nx_elements=NX,
+        ny_elements=NY,
+        pml_thickness=PML,
+        tilex_elements=TILEX,
+        tiley_elements=TILEY,
+        domain_bounds=DOMAIN,
+        green_tile_size_m=None,  # explicit None → element-count fallback
+    )
+
+    assert len(tiles) == 2  # same behavior as test_two_tiles_splits_by_xy

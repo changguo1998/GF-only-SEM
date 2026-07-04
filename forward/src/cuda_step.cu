@@ -2,8 +2,8 @@
 // GPU kernels for single-GPU mode: Newmark, PML, source injection, strain.
 // Keeps all state on device, no per-step H2D/D2H copies.
 
-#include "gf/cuda_step.hpp"
 #include "gf/cuda_check.h"
+#include "gf/cuda_step.hpp"
 
 namespace gf {
 
@@ -18,8 +18,8 @@ __device__ static inline int node_idx(int i, int j, int k, int ngll) {
 // Newmark predictor kernel: u_tilde = u + dt*v + 0.5*dt^2*(1-2*beta)*a
 // -----------------------------------------------------------------------
 __global__ void newmark_predict_kernel(double* d_disp_tilde, const double* d_disp,
-                                       const double* d_vel, const double* d_acc,
-                                       double dt, double beta_factor, int n_dof) {
+                                       const double* d_vel, const double* d_acc, double dt,
+                                       double beta_factor, int n_dof) {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
     if (i < n_dof) {
         d_disp_tilde[i] = d_disp[i] + dt * d_vel[i] + beta_factor * d_acc[i];
@@ -29,8 +29,7 @@ __global__ void newmark_predict_kernel(double* d_disp_tilde, const double* d_dis
 // -----------------------------------------------------------------------
 // PML damping kernel: v[i] -= damping_profile[node] * v[i]
 // -----------------------------------------------------------------------
-__global__ void pml_damping_kernel(double* d_vel, const double* d_pml,
-                                   int n_dof, int n_nodes) {
+__global__ void pml_damping_kernel(double* d_vel, const double* d_pml, int n_dof, int n_nodes) {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
     if (i < n_dof) {
         int node = i / 3;  // same damping for all 3 DOFs at a node
@@ -72,8 +71,8 @@ __global__ void source_injection_kernel(double* d_residual, const double* d_src_
 //   acc = a_new
 // -----------------------------------------------------------------------
 __global__ void newmark_correct_kernel(double* d_disp, double* d_vel, double* d_acc,
-                                       const double* d_residual, const double* d_mass,
-                                       double dt, double gamma, int n_dof, int n_nodes) {
+                                       const double* d_residual, const double* d_mass, double dt,
+                                       double gamma, int n_dof, int n_nodes) {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
     if (i < n_dof) {
         int node = i / 3;
@@ -91,11 +90,12 @@ __global__ void newmark_correct_kernel(double* d_disp, double* d_vel, double* d_
 // Strain computation kernel (recorded mesh vertices only)
 // -----------------------------------------------------------------------
 __global__ void recorded_strain_kernel(const double* d_disp, const double* d_dxi_dx,
-                                       const double* d_D, int ngll,
-                                       const int* d_rec_elem, const int* d_rec_corner,
-                                       double* d_strain, int n_vertices, int n_node) {
+                                       const double* d_D, int ngll, const int* d_rec_elem,
+                                       const int* d_rec_corner, double* d_strain, int n_vertices,
+                                       int n_node) {
     int v = blockDim.x * blockIdx.x + threadIdx.x;
-    if (v >= n_vertices) return;
+    if (v >= n_vertices)
+        return;
 
     int elem = d_rec_elem[v];
     int corner = d_rec_corner[v];
@@ -154,11 +154,9 @@ void cuda_newmark_predict(CudaDeviceState& state, double dt, double beta) {
     double beta_factor = 0.5 * dt * dt * (1.0 - 2.0 * beta);
     int block = 256;
     int grid = (state.n_dof + block - 1) / block;
-    newmark_predict_kernel<<<grid, block>>>(state.d_displacement_tilde,
-                                            state.d_displacement,
-                                            state.d_velocity,
-                                            state.d_acceleration,
-                                            dt, beta_factor, state.n_dof);
+    newmark_predict_kernel<<<grid, block>>>(state.d_displacement_tilde, state.d_displacement,
+                                            state.d_velocity, state.d_acceleration, dt,
+                                            beta_factor, state.n_dof);
     GF_CUDA_CHECK(cudaGetLastError());
     GF_CUDA_CHECK(cudaDeviceSynchronize());
 }
@@ -170,33 +168,33 @@ void cuda_zero_residual(CudaDeviceState& state) {
 void cuda_pml_damping(CudaDeviceState& state) {
     int block = 256;
     int grid = (state.n_dof + block - 1) / block;
-    pml_damping_kernel<<<grid, block>>>(state.d_velocity, state.d_pml,
-                                        state.n_dof, state.n_total_nodes);
+    pml_damping_kernel<<<grid, block>>>(state.d_velocity, state.d_pml, state.n_dof,
+                                        state.n_total_nodes);
     GF_CUDA_CHECK(cudaGetLastError());
 }
 
 void cuda_source_injection(CudaDeviceState& state, int direction, double stf_val,
                            const double* h_src_weights, int n_src_elements) {
-    if (stf_val == 0.0 || n_src_elements == 0) return;
+    if (stf_val == 0.0 || n_src_elements == 0)
+        return;
 
     // Upload source weights to device (cached)
     static double* d_src_weights = nullptr;
     static int d_src_weights_size = 0;
     int total_weights = n_src_elements * state.n_node;
     if (d_src_weights == nullptr || d_src_weights_size < total_weights) {
-        if (d_src_weights) cudaFree(d_src_weights);
+        if (d_src_weights)
+            cudaFree(d_src_weights);
         GF_CUDA_CHECK(cudaMalloc(&d_src_weights, total_weights * sizeof(double)));
         d_src_weights_size = total_weights;
     }
-    GF_CUDA_CHECK(cudaMemcpy(d_src_weights, h_src_weights,
-                             total_weights * sizeof(double),
+    GF_CUDA_CHECK(cudaMemcpy(d_src_weights, h_src_weights, total_weights * sizeof(double),
                              cudaMemcpyHostToDevice));
 
     int block = 256;
     int total_threads = n_src_elements * state.n_node;
     int grid = (total_threads + block - 1) / block;
-    source_injection_kernel<<<grid, block>>>(state.d_residual, d_src_weights,
-                                             stf_val, direction,
+    source_injection_kernel<<<grid, block>>>(state.d_residual, d_src_weights, stf_val, direction,
                                              n_src_elements, state.n_node,
                                              state.d_src_elem_offsets);
     GF_CUDA_CHECK(cudaGetLastError());
@@ -206,16 +204,16 @@ void cuda_newmark_correct(CudaDeviceState& state, double dt, double gamma) {
     int block = 256;
     int grid = (state.n_dof + block - 1) / block;
     newmark_correct_kernel<<<grid, block>>>(state.d_displacement, state.d_velocity,
-                                            state.d_acceleration, state.d_residual,
-                                            state.d_mass, dt, gamma,
-                                            state.n_dof, state.n_total_nodes);
+                                            state.d_acceleration, state.d_residual, state.d_mass,
+                                            dt, gamma, state.n_dof, state.n_total_nodes);
     GF_CUDA_CHECK(cudaGetLastError());
     GF_CUDA_CHECK(cudaDeviceSynchronize());
 }
 
 void cuda_compute_strain(CudaDeviceState& state, const double* h_D, int ngll,
                          const std::vector<double>& /*dxi_dx*/) {
-    if (state.n_vertices == 0) return;
+    if (state.n_vertices == 0)
+        return;
     int block = 256;
     int grid = (state.n_vertices + block - 1) / block;
     // Upload D matrix to device (cached across calls)
@@ -223,35 +221,33 @@ void cuda_compute_strain(CudaDeviceState& state, const double* h_D, int ngll,
     static int d_D_size = 0;
     int D_bytes = ngll * ngll * sizeof(double);
     if (d_D_cache == nullptr || d_D_size < D_bytes) {
-        if (d_D_cache) cudaFree(d_D_cache);
+        if (d_D_cache)
+            cudaFree(d_D_cache);
         GF_CUDA_CHECK(cudaMalloc(&d_D_cache, D_bytes));
         d_D_size = D_bytes;
     }
     GF_CUDA_CHECK(cudaMemcpy(d_D_cache, h_D, D_bytes, cudaMemcpyHostToDevice));
 
-    recorded_strain_kernel<<<grid, block>>>(state.d_displacement, state.d_dxi_dx,
-                                            d_D_cache, ngll,
+    recorded_strain_kernel<<<grid, block>>>(state.d_displacement, state.d_dxi_dx, d_D_cache, ngll,
                                             state.d_rec_src_elem, state.d_rec_corner,
-                                            state.d_strain_buffer,
-                                            state.n_vertices, state.n_node);
+                                            state.d_strain_buffer, state.n_vertices, state.n_node);
     GF_CUDA_CHECK(cudaGetLastError());
 }
 
 void cuda_copy_strain_to_host(CudaDeviceState& state, double* h_strain) {
-    if (state.n_vertices == 0) return;
+    if (state.n_vertices == 0)
+        return;
     GF_CUDA_CHECK(cudaMemcpy(h_strain, state.d_strain_buffer,
-                             state.n_vertices * 6 * sizeof(double),
-                             cudaMemcpyDeviceToHost));
+                             state.n_vertices * 6 * sizeof(double), cudaMemcpyDeviceToHost));
 }
 
-void cuda_copy_state_to_host(const CudaDeviceState& state,
-                             std::vector<double>& h_displacement,
+void cuda_copy_state_to_host(const CudaDeviceState& state, std::vector<double>& h_displacement,
                              std::vector<double>& h_velocity,
                              std::vector<double>& h_acceleration) {
     GF_CUDA_CHECK(cudaMemcpy(h_displacement.data(), state.d_displacement,
                              state.n_dof * sizeof(double), cudaMemcpyDeviceToHost));
-    GF_CUDA_CHECK(cudaMemcpy(h_velocity.data(), state.d_velocity,
-                             state.n_dof * sizeof(double), cudaMemcpyDeviceToHost));
+    GF_CUDA_CHECK(cudaMemcpy(h_velocity.data(), state.d_velocity, state.n_dof * sizeof(double),
+                             cudaMemcpyDeviceToHost));
     GF_CUDA_CHECK(cudaMemcpy(h_acceleration.data(), state.d_acceleration,
                              state.n_dof * sizeof(double), cudaMemcpyDeviceToHost));
 }
@@ -260,17 +256,14 @@ void cuda_copy_state_to_host(const CudaDeviceState& state,
 // Allocation / free
 // =======================================================================
 
-CudaDeviceState cuda_allocate_state(int n_local_elem, int ngll,
-                                    const std::vector<double>& mass,
+CudaDeviceState cuda_allocate_state(int n_local_elem, int ngll, const std::vector<double>& mass,
                                     const std::vector<double>& pml_damping,
                                     const std::vector<double>& dxi_dx,
                                     const std::vector<double>& jacobian,
                                     const std::vector<double>& lambda_,
-                                    const std::vector<double>& mu_,
-                                    const double* h_D, const double* h_weights,
-                                    const ConfigData& cfg,
-                                    const RankData::RecordingMap& rec_map,
-                                    int n_local_dof) {
+                                    const std::vector<double>& mu_, const double* h_D,
+                                    const double* h_weights, const ConfigData& cfg,
+                                    const RankData::RecordingMap& rec_map, int n_local_dof) {
     CudaDeviceState state;
     state.n_dof = n_local_dof;
     state.n_total_nodes = n_local_elem * ngll * ngll * ngll;
@@ -279,9 +272,7 @@ CudaDeviceState cuda_allocate_state(int n_local_elem, int ngll,
     state.n_src_elements = cfg.n_src_elements;
 
     // Allocate read-only data
-    auto alloc_d = [](auto*& ptr, size_t bytes) {
-        GF_CUDA_CHECK(cudaMalloc(&ptr, bytes));
-    };
+    auto alloc_d = [](auto*& ptr, size_t bytes) { GF_CUDA_CHECK(cudaMalloc(&ptr, bytes)); };
     auto upload = [](auto* d_ptr, const auto* h_ptr, size_t bytes) {
         GF_CUDA_CHECK(cudaMemcpy(d_ptr, h_ptr, bytes, cudaMemcpyHostToDevice));
     };
@@ -311,16 +302,14 @@ CudaDeviceState cuda_allocate_state(int n_local_elem, int ngll,
     if (state.n_vertices > 0) {
         upload(state.d_rec_src_elem, rec_map.src_elem_local.data(),
                state.n_vertices * sizeof(int32_t));
-        upload(state.d_rec_corner, rec_map.src_corner.data(),
-               state.n_vertices * sizeof(int32_t));
+        upload(state.d_rec_corner, rec_map.src_corner.data(), state.n_vertices * sizeof(int32_t));
     }
 
     // Source element offsets: map global element IDs to local element indices
     // We upload the already-computed mapping from solver.cpp
     // (filled by src_elem_to_local logic). For allocation, leave as zeros;
     // solver.cpp will upload the actual mapping.
-    GF_CUDA_CHECK(cudaMemset(state.d_src_elem_offsets, 0,
-                             state.n_src_elements * sizeof(int)));
+    GF_CUDA_CHECK(cudaMemset(state.d_src_elem_offsets, 0, state.n_src_elements * sizeof(int)));
 
     // Allocate per-timestep state
     alloc_d(state.d_displacement, state.n_dof * sizeof(double));
@@ -344,8 +333,14 @@ CudaDeviceState cuda_allocate_state(int n_local_elem, int ngll,
 }
 
 void cuda_free_state(CudaDeviceState& state) {
-    if (!state.allocated) return;
-    auto f = [](auto*& ptr) { if (ptr) { cudaFree(ptr); ptr = nullptr; } };
+    if (!state.allocated)
+        return;
+    auto f = [](auto*& ptr) {
+        if (ptr) {
+            cudaFree(ptr);
+            ptr = nullptr;
+        }
+    };
     f(state.d_mass);
     f(state.d_pml);
     f(state.d_dxi_dx);

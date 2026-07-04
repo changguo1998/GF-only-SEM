@@ -55,6 +55,9 @@ tiley_elements = [
     4,
 ]  # Horizontal y tile sizes in elements (ny = sum(tiley) + pml_ymin + pml_ymax)
 
+green_tile_size_m = (
+    2000.0  # Optional spatial tile size [m] (overrides tilex_elements/tiley_elements when set)
+)
 # ── Parallelism ───
 n_ranks = 16  # Number of MPI ranks (METIS partition)
 

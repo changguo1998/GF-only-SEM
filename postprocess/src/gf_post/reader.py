@@ -170,6 +170,12 @@ class ConfigReader:
     def output_dt_s(self) -> float:
         return float(self._file["/simulation"].attrs.get("output_dt_s", self.solver_dt))
 
+    @property
+    def green_tile_size_m(self) -> float | None:
+        """Spatial tile size in meters. None means use element-count tiling."""
+        val = self._file["/simulation"].attrs.get("green_tile_size_m", None)
+        return float(val) if val is not None else None
+
 
 def merge_vertex_records(rank_files: list[str], n_vertex: int) -> tuple[np.ndarray, np.ndarray]:
     """Merge vertex-level strain from multiple rank record files.

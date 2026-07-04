@@ -100,16 +100,11 @@ static double* read_all_snapshots(hid_t dset, int64_t nlv, int n_snapshots) {
 
 /// Process a single snapshot: read data, accumulate, average, write VTK.
 static void process_snapshot(
-    int snap_idx, int step_num,
-    const std::vector<std::vector<RecordFile>>& record_paths,
-    const std::vector<std::vector<int64_t>>& vertex_id_list,
-    int n_vert, int64_t n_cell_local,
-    const std::vector<int64_t>& connectivity,
-    const std::vector<int8_t>& is_pml,
-    const std::vector<float>& vtx_coords_f32,
-    const std::vector<std::string>& strain_field_names,
-    const std::string& vtk_dir, const std::string& rank_suffix,
-    bool verbose,
+    int snap_idx, int step_num, const std::vector<std::vector<RecordFile>>& record_paths,
+    const std::vector<std::vector<int64_t>>& vertex_id_list, int n_vert, int64_t n_cell_local,
+    const std::vector<int64_t>& connectivity, const std::vector<int8_t>& is_pml,
+    const std::vector<float>& vtx_coords_f32, const std::vector<std::string>& strain_field_names,
+    const std::string& vtk_dir, const std::string& rank_suffix, bool verbose,
     // Output: per-rank dir_strain accumulators filled from rank files,
     // then averaged per-vertex and per-cell.
     // For --snap mode, data is read here.
@@ -117,8 +112,7 @@ static void process_snapshot(
     // We differentiate by checking if batch_di_ri is null.
     bool batch_mode,
     const std::vector<std::vector<const double*>>& batch_data,  // [di][ri], nullptr if not batch
-    const std::vector<std::vector<int64_t>>& batch_nlv
-) {
+    const std::vector<std::vector<int64_t>>& batch_nlv) {
     // Per-vertex accumulators
     std::vector<double> dir_strain[3];
     for (int di = 0; di < 3; ++di)
@@ -206,8 +200,8 @@ static void process_snapshot(
 
     // Write VTK file
     char out_path[256];
-    std::snprintf(out_path, sizeof(out_path), "%s/wavefield_%d%s.vtk", vtk_dir.c_str(),
-                  step_num, rank_suffix.c_str());
+    std::snprintf(out_path, sizeof(out_path), "%s/wavefield_%d%s.vtk", vtk_dir.c_str(), step_num,
+                  rank_suffix.c_str());
     if (verbose)
         std::cout << "[wavefield2vtk] Writing " << out_path << "\n";
 
@@ -283,7 +277,8 @@ int main(int argc, char** argv) {
     }
 
     // ── Read mesh topology ──────────────────────────────────────
-    if (verbose) std::cout << "[wavefield2vtk] Reading " << model_path << "\n";
+    if (verbose)
+        std::cout << "[wavefield2vtk] Reading " << model_path << "\n";
     H5File fm(model_path);
     hid_t topo_gid = H5Gopen2(fm.id(), "topology", H5P_DEFAULT);
     if (topo_gid < 0) {
@@ -304,7 +299,8 @@ int main(int argc, char** argv) {
         for (size_t i = 0; i < pml.size() && i < (size_t)n_cell; ++i)
             is_pml[i] = (int8_t)pml[i];
     }
-    if (verbose) std::cout << "  Global cells: " << n_cell << ", vertices: " << n_vert << "\n";
+    if (verbose)
+        std::cout << "  Global cells: " << n_cell << ", vertices: " << n_vert << "\n";
 
     // ── Resolve connectivity ────────────────────────────────────
     if (verbose)
@@ -352,11 +348,14 @@ int main(int argc, char** argv) {
 
     if (snap_only >= 0) {
         if (snap_only >= n_snapshots) {
-            std::cerr << "Error: --snap " << snap_only << " out of range (0.." << n_snapshots - 1 << ")\n";
+            std::cerr << "Error: --snap " << snap_only << " out of range (0.." << n_snapshots - 1
+                      << ")\n";
             return 1;
         }
     }
-    if (verbose) std::cout << "  Snapshots: " << n_snapshots << (snap_only >= 0 ? " (--snap mode)" : "") << "\n";
+    if (verbose)
+        std::cout << "  Snapshots: " << n_snapshots << (snap_only >= 0 ? " (--snap mode)" : "")
+                  << "\n";
 
     // ── Read snapshot stride from config.h5 ──
     int stride = 1;
@@ -383,8 +382,7 @@ int main(int argc, char** argv) {
             H5File f(record_paths[di][ri].path);
             auto vids = read_int64_1d(f.id(), "vertex_ids");
             if (vids != vertex_id_list[ri]) {
-                std::cerr << "Error: vertex ID mismatch in "
-                          << record_paths[di][ri].path << "\n";
+                std::cerr << "Error: vertex ID mismatch in " << record_paths[di][ri].path << "\n";
                 return 1;
             }
         }
@@ -439,7 +437,8 @@ int main(int argc, char** argv) {
     // ── Build view arrays for process_snapshot ──────────────────
     // batch mode: const double* ptrs into pre-read buffers
     // single-snap mode: null ptrs (process_snapshot reads on-demand)
-    std::vector<std::vector<const double*>> batch_views(3, std::vector<const double*>(n_ranks, nullptr));
+    std::vector<std::vector<const double*>> batch_views(
+        3, std::vector<const double*>(n_ranks, nullptr));
     if (batch_mode) {
         for (int di = 0; di < 3; ++di)
             for (int ri = 0; ri < n_ranks; ++ri)
@@ -449,14 +448,9 @@ int main(int argc, char** argv) {
     // ── Process snapshots ───────────────────────────────────────
     for (int si = snap_start; si < snap_end; ++si) {
         int step_num = si * stride;
-        process_snapshot(
-            si, step_num,
-            record_paths, vertex_id_list,
-            (int)n_vert, n_cell, connectivity, is_pml,
-            vtx_coords_f32, strain_field_names,
-            vtk_dir, "", verbose,
-            batch_mode, batch_views, batch_nlv
-        );
+        process_snapshot(si, step_num, record_paths, vertex_id_list, (int)n_vert, n_cell,
+                         connectivity, is_pml, vtx_coords_f32, strain_field_names, vtk_dir, "",
+                         verbose, batch_mode, batch_views, batch_nlv);
     }
 
     // ── Cleanup batch data ──
@@ -466,6 +460,8 @@ int main(int argc, char** argv) {
                 delete[] batch_data[di][ri];
     }
 
-    if (verbose) std::cout << "  Done. " << (snap_end - snap_start) << " files written to " << vtk_dir << "/\n";
+    if (verbose)
+        std::cout << "  Done. " << (snap_end - snap_start) << " files written to " << vtk_dir
+                  << "/\n";
     return 0;
 }

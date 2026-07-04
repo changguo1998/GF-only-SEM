@@ -180,14 +180,17 @@ partition_{r}.h5
 
 ### Record and Restart Format
 
-Forward writes shallow strain records and separate latest-only restarts.
+Forward writes shallow mesh-vertex records (strain + displacement/velocity/acceleration) and separate latest-only restarts.
 
 ```
 wavefields/{direction}/record_{r}.h5
 ├── attrs: rank, source_direction, basis="mesh_vertices", record_depth_max_m,
 │          record_depth_actual_m, excludes_pml=true
-├── vertex_ids : int64[n_record_vertices]       # global mesh vertex IDs, 1-based
-└── strain     : float32[n_snapshots, n_record_vertices, 6]
+├── vertex_ids     : int64[n_record_vertices]       # global mesh vertex IDs, 1-based
+├── strain         : float32[n_snapshots, n_record_vertices, 6]
+├── displacement   : float32[n_snapshots, n_record_vertices, 3]
+├── velocity       : float32[n_snapshots, n_record_vertices, 3]
+└── acceleration   : float32[n_snapshots, n_record_vertices, 3]
 
 restart/{direction}/restart_{r}.h5
 ├── attrs: rank, source_direction, step, time_s, ngll
@@ -218,7 +221,9 @@ config.h5
 │   ├── record_depth_actual_m  : float64            — snapped spectral-element face depth
 │   ├── nx_elements, ny_elements, nz_elements  : int64   — mesh grid dims
 │   ├── pml_{x,y,z}{min,max}  : int64                — PML thickness in elements
-│   ├── tilex_elements, tiley_elements : int64[n_tiles] — horizontal tile sizes in elements
+│   ├── tilex_elements, tiley_elements : int64[n_tiles] - horizontal tile sizes in elements
+
+│   ├── green_tile_size_m           : float64 (optional) — spatial tile size in meters; overrides element tiling
 │   ├── log_stride             : int32              — progress-report interval in solver steps
 │   └── storage_limit_gb       : int32              — abort if estimated storage exceeds this
 │
@@ -240,7 +245,7 @@ Notes: no `/attenuation/`; SLS is deferred. No `direction`; runtime CLI sets it.
 
 ### Green's Function Output
 
-Green library stores strain, not displacement. Tiles use element-index bins from `tilex_elements`/`tiley_elements`:
+Green library stores strain, not displacement. Tiles use element-index bins from `tilex_elements`/`tiley_elements` (default) or coordinate-index bins from `green_tile_size_m` (when set):
 
 ```
 greenfun/
