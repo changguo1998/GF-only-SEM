@@ -15,8 +15,8 @@ Full math formulation: [`docs/math.md`](docs/math.md)
 | `preprocess/` | Python + C++17 | GLL geometry, material interpolation, PML, partition, config; C++ accelerator (default, OpenMP) | [`preprocess/AGENTS.md`](preprocess/AGENTS.md) |
 | `forward/` | C++17 | Elastic SEM solver (libgf) + MPI executable | [`forward/AGENTS.md`](forward/AGENTS.md) |
 | `compress/` | C++17 | HDF5 compression utilities (header-only) | [`compress/AGENTS.md`](compress/AGENTS.md) |
-| `postprocess/` | Python | Strain Green's function extraction | [`postprocess/AGENTS.md`](postprocess/AGENTS.md) |
-| `tools/` | Python + C++17 | Mesh conversion (GMSH→HDF5) + VTK visualization tools; C++ accelerated VTK writers (OpenMP) | [`tools/AGENTS.md`](tools/AGENTS.md) |
+| `postprocess/` | C++17 | Strain Green's function extraction (Python archived in `_archive/`) | [`postprocess/AGENTS.md`](postprocess/AGENTS.md) |
+| `tools/` | C++17 + Python | VTK visualization tools (C++ primary, Python archived); GMSH→HDF5 conversion (Python) | [`tools/AGENTS.md`](tools/AGENTS.md) |
 | `tests/` | Python + C++ | Shared test infrastructure (pytest + Catch2) | [`tests/AGENTS.md`](tests/AGENTS.md) |
 
 ## Tech Stack
@@ -68,6 +68,10 @@ and spack-installed `llvm` for clang-format.
 
 Implementation complete — 5 modules + tests (178 tests: 126 Python, 52 C++).
 C++ includes 49 non-CUDA + 3 CUDA — all pass.
+
+C++ primary implementations for: forward solver, postprocess, VTK tools (model2vtk,
+partition2vtk, wavefield2vtk). Python alternatives archived in `_archive/`.
+Python-only: preprocess (orchestration), gmsh_to_hdf5, wavefield2vtk_detail.
 Elastic-only forward solver (SLS/attenuation deferred).
 
 See each module's `AGENTS.md` for details.
