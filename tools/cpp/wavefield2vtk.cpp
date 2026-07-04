@@ -48,9 +48,13 @@ static void print_usage(const char* prog) {
 struct RecordFile {
     std::string path;
     int rank;
+    int step;  // solver step number (-1 if monolithic)
 };
 
-static std::vector<RecordFile> find_record_files(const std::string& wave_dir) {
+/// Find record files per direction.
+/// If step_num >= 0, matches per-step files: record_{rank}_{step_num}.h5
+/// If step_num < 0, matches monolithic files: record_{rank}.h5
+static std::vector<RecordFile> find_record_files(const std::string& wave_dir, int step_num = -1) {
     std::vector<RecordFile> files;
     DIR* dir = opendir(wave_dir.c_str());
     if (!dir)
@@ -58,10 +62,24 @@ static std::vector<RecordFile> find_record_files(const std::string& wave_dir) {
     struct dirent* entry;
     while ((entry = readdir(dir)) != nullptr) {
         std::string name(entry->d_name);
-        std::regex re("record_(\\d+)\\.h5$");
-        std::smatch m;
-        if (std::regex_search(name, m, re) && m.size() > 1) {
-            files.push_back({wave_dir + "/" + name, std::stoi(m[1].str())});
+        if (step_num >= 0) {
+            // Per-step files: record_{rank}_{step}.h5
+            std::regex re("record_(\\d+)_(\\d+)\\.h5$");
+            std::smatch m;
+            if (std::regex_search(name, m, re) && m.size() > 2) {
+                int rank = std::stoi(m[1].str());
+                int fstep = std::stoi(m[2].str());
+                if (fstep == step_num) {
+                    files.push_back({wave_dir + "/" + name, rank, fstep});
+                }
+            }
+        } else {
+            // Monolithic files: record_{rank}.h5
+            std::regex re("record_(\\d+)\\.h5$");
+            std::smatch m;
+            if (std::regex_search(name, m, re) && m.size() > 1) {
+                files.push_back({wave_dir + "/" + name, std::stoi(m[1].str()), -1});
+            }
         }
     }
     closedir(dir);
@@ -70,17 +88,23 @@ static std::vector<RecordFile> find_record_files(const std::string& wave_dir) {
     return files;
 }
 
-/// Read a single hyperslab (one snapshot) from an open dataset.
-static std::vector<double> read_one_snapshot(hid_t dset, int snap_idx, int64_t nlv) {
+/// Read the full strain dataset from a per-step file (shape [1, nlv, 6] -> [nlv, 6]).
+static std::vector<double> read_step_strain(const std::string& rpath, int64_t nlv) {
+    hid_t fid = H5Fopen(rpath.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+    if (fid < 0)
+        throw std::runtime_error("Cannot open: " + rpath);
+    hid_t dset = H5Dopen2(fid, "strain", H5P_DEFAULT);
+    if (dset < 0) {
+        H5Fclose(fid);
+        throw std::runtime_error("No strain dataset in " + rpath);
+    }
     std::vector<double> buf(nlv * 6);
-    hid_t fspace = H5Dget_space(dset);
-    hsize_t start[3] = {(hsize_t)snap_idx, 0, 0};
     hsize_t count[3] = {1, (hsize_t)nlv, 6};
-    H5Sselect_hyperslab(fspace, H5S_SELECT_SET, start, nullptr, count, nullptr);
     hid_t mspace = H5Screate_simple(3, count, nullptr);
-    H5Dread(dset, H5T_NATIVE_DOUBLE, mspace, fspace, H5P_DEFAULT, buf.data());
+    H5Dread(dset, H5T_NATIVE_DOUBLE, mspace, H5S_ALL, H5P_DEFAULT, buf.data());
     H5Sclose(mspace);
-    H5Sclose(fspace);
+    H5Dclose(dset);
+    H5Fclose(fid);
     return buf;
 }
 
@@ -134,11 +158,7 @@ static void process_snapshot(
                 sbuf = batch_data[di][ri] + snap_idx * nlv * 6;
             } else {
                 std::string rpath = record_paths[di][ri].path;
-                hid_t fid = H5Fopen(rpath.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
-                hid_t dset = H5Dopen2(fid, "strain", H5P_DEFAULT);
-                local_buf = read_one_snapshot(dset, snap_idx, nlv);
-                H5Dclose(dset);
-                H5Fclose(fid);
+                local_buf = read_step_strain(rpath, nlv);
                 sbuf = local_buf.data();
             }
 
@@ -313,51 +333,7 @@ int main(int argc, char** argv) {
             connectivity[ci * 8 + j] = conn[j];
     }
 
-    // ── Find record files per direction ─────────────────────────
-    std::vector<std::vector<RecordFile>> record_paths(3);
-    for (int di = 0; di < 3; ++di) {
-        std::string wave_dir = "./wavefields/" + std::string(DIRECTIONS[di]);
-        auto files = find_record_files(wave_dir);
-        if (files.empty()) {
-            std::cerr << "[wavefield2vtk] Error: no record_*.h5 files in " << wave_dir << "\n";
-            return 1;
-        }
-        record_paths[di] = files;
-        if (verbose)
-            std::cout << "  wavefields/" << DIRECTIONS[di] << "/: " << files.size()
-                      << " rank files\n";
-    }
-
-    // ── n_snapshots ─────────────────────────────────────────────
-    int n_snapshots = 0;
-    for (const auto& rf : record_paths[0]) {
-        H5File f(rf.path);
-        if (dataset_exists(f.id(), "strain")) {
-            std::vector<hsize_t> sh;
-            read_float64_nd(f.id(), "strain", sh);
-            if (!sh.empty() && sh[0] > 0) {
-                n_snapshots = (int)sh[0];
-                break;
-            }
-        }
-    }
-    if (n_snapshots == 0) {
-        std::cerr << "Error: no snapshots\n";
-        return 1;
-    }
-
-    if (snap_only >= 0) {
-        if (snap_only >= n_snapshots) {
-            std::cerr << "Error: --snap " << snap_only << " out of range (0.." << n_snapshots - 1
-                      << ")\n";
-            return 1;
-        }
-    }
-    if (verbose)
-        std::cout << "  Snapshots: " << n_snapshots << (snap_only >= 0 ? " (--snap mode)" : "")
-                  << "\n";
-
-    // ── Read snapshot stride from config.h5 ──
+    // ── Read snapshot stride from config.h5 (needed before file discovery) ──
     int stride = 1;
     try {
         hid_t cf = H5Fopen(config_path.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
@@ -369,6 +345,68 @@ int main(int argc, char** argv) {
     }
     if (verbose)
         std::cout << "  Snapshot stride: " << stride << "\n";
+
+    // ── Find record files per direction ─────────────────────────
+    std::vector<std::vector<RecordFile>> record_paths(3);
+    int n_snapshots = 0;
+    if (snap_only >= 0) {
+        // Per-step file mode (--snap N): find record_{rank}_{step}.h5
+        int step_num = snap_only * stride;
+        for (int di = 0; di < 3; ++di) {
+            std::string wave_dir = "./wavefields/" + std::string(DIRECTIONS[di]);
+            auto files = find_record_files(wave_dir, step_num);
+            if (files.empty()) {
+                std::cerr << "[wavefield2vtk] Error: no record_*_" << step_num << ".h5 files in "
+                          << wave_dir << "\n";
+                return 1;
+            }
+            record_paths[di] = files;
+            if (verbose)
+                std::cout << "  wavefields/" << DIRECTIONS[di] << "/: " << files.size()
+                          << " rank files (step=" << step_num << ")\n";
+        }
+        n_snapshots = 1;  // each per-step file has 1 snapshot
+    } else {
+        // Monolithic file mode (batch): find record_{rank}.h5
+        for (int di = 0; di < 3; ++di) {
+            std::string wave_dir = "./wavefields/" + std::string(DIRECTIONS[di]);
+            auto files = find_record_files(wave_dir);  // step_num = -1
+            if (files.empty()) {
+                std::cerr << "[wavefield2vtk] Error: no record_*.h5 files in " << wave_dir << "\n";
+                return 1;
+            }
+            record_paths[di] = files;
+            if (verbose)
+                std::cout << "  wavefields/" << DIRECTIONS[di] << "/: " << files.size()
+                          << " rank files\n";
+        }
+
+        // Determine n_snapshots from first file
+        for (const auto& rf : record_paths[0]) {
+            H5File f(rf.path);
+            if (dataset_exists(f.id(), "strain")) {
+                std::vector<hsize_t> sh;
+                read_float64_nd(f.id(), "strain", sh);
+                if (!sh.empty() && sh[0] > 0) {
+                    n_snapshots = (int)sh[0];
+                    break;
+                }
+            }
+        }
+        if (n_snapshots == 0) {
+            std::cerr << "Error: no snapshots\n";
+            return 1;
+        }
+
+        if (snap_only >= 0 && snap_only >= n_snapshots) {
+            std::cerr << "Error: --snap " << snap_only << " out of range (0.." << n_snapshots - 1
+                      << ")\n";
+            return 1;
+        }
+    }
+    if (verbose)
+        std::cout << "  Snapshots: " << n_snapshots << (snap_only >= 0 ? " (--snap mode)" : "")
+                  << "\n";
 
     // ── Pre-read vertex IDs + verify match across directions ────
     int n_ranks = (int)record_paths[0].size();

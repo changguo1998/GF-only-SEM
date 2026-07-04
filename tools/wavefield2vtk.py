@@ -13,7 +13,7 @@ Usage:
 Reads:
     model.h5
     config.h5                          — snapshot stride, nsteps
-    wavefields/{x,y,z}/record_{r}.h5   — strain at recorded vertices
+    wavefields/{x,y,z}/record_{r}_{step}.h5   — strain at recorded vertices
 
 Writes:
     vtk/wavefield_N.vtk                — per-timestep VTK (cell data)

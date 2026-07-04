@@ -10,7 +10,7 @@ namespace gf {
 ///   - config.h5
 ///   - partitions/partition_{r}.h5
 /// Writes strain records to:
-///   - wavefields/{direction}/record_{r}.h5
+///   - wavefields/{direction}/record_{r}_{step}.h5
 ///
 /// \param direction        Force direction string ("x", "y", or "z")
 /// \param resume_mode      Resume from restart file

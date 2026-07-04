@@ -3,7 +3,7 @@
 // gf_solver --direction {x,y,z} [--resume]
 // All I/O paths are frozen relative to CWD:
 //   Input:  config.h5, partitions/partition_{r}.h5
-//   Output: wavefields/{direction}/record_{r}.h5
+//   Output: wavefields/{direction}/record_{r}_{step}.h5
 //   Restart: restart/{direction}/restart_{r}.h5 (with --resume)
 
 #ifndef GF_NO_MPI
@@ -25,8 +25,7 @@
 void print_usage(const char* prog) {
     std::cerr << "Usage: " << prog << " --direction {x,y,z} [--resume]\n"
               << "  All I/O paths are frozen relative to CWD:\n"
-              << "    Input:  config.h5, partitions/partition_{r}.h5\n"
-              << "    Output: wavefields/{direction}/record_{r}.h5\n"
+              << "    Output: wavefields/{direction}/record_{r}_{step}.h5\n"
               << "    Restart: restart/{direction}/restart_{r}.h5\n";
 }
 
@@ -118,7 +117,8 @@ int main(int argc, char** argv) {
                 std::cout << " (resume mode)";
             std::cout << std::endl;
             std::cout << "  input:  config.h5 + partitions/partition_{r}.h5\n"
-                      << "  output: wavefields/" << direction << "/record_{r}.h5" << std::endl;
+                      << "  output: wavefields/" << direction << "/record_{r}_{step}.h5"
+                      << std::endl;
         }
 
         int result = gf::run_forward(direction, resume_mode, effective_nprocs_pass);

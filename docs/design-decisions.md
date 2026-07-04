@@ -91,7 +91,7 @@ GMSH .msh → converter → model.h5 (topology only)
                      forward solver --direction {x,y,z}
                          (reads partitions/partition_{r}.h5 + config.h5)
                           ↓
-                    wavefields/{x,y,z}/record_{r}.h5
+                    wavefields/{x,y,z}/record_{r}_{step}.h5
                     restart/{x,y,z}/restart_{r}.h5
                           ↓
                      abb|                     postprocess (merge vertex strain — also reads config.h5)
@@ -106,7 +106,7 @@ GMSH .msh → converter → model.h5 (topology only)
 | model.h5 | converter → preprocessor | preprocessor, postprocess | Topology + GLL geometry + `is_pml`. No material. Postprocess uses `/topology/vertex_to_coord`. |
 | partition\_{r}.h5 | preprocessor | forward | Per-rank element data, C-PML, partition metadata, and `/recording/` map |
 | config.h5 | preprocessor | forward, postprocess | Simulation params, cadence, record depth, tile size, domain, source, STF, weights. No direction. |
-| wavefields/{direction}/record\_{r}.h5 | forward | postprocess | L2-smoothed strain at recorded vertices; extendible time axis |
+| wavefields/{direction}/record\_{r}\_{step}.h5 | forward | postprocess | L2-smoothed strain at recorded vertices; one step per file |
 | restart/{direction}/restart\_{r}.h5 | forward | forward (`--resume`) | Latest full-volume restart: u, v, a, C-PML memory, step/time |
 | model_auxiliary.h5 | preprocessor (optional) | validation | CSR adjacency relations |
 | greenfun/tile_x{i}\_y{j}.h5 | postprocess | user | Mesh-vertex strain Green tensors, x/y tiled |
@@ -183,14 +183,14 @@ partition_{r}.h5
 Forward writes shallow mesh-vertex records (strain + displacement/velocity/acceleration) and separate latest-only restarts.
 
 ```
-wavefields/{direction}/record_{r}.h5
+wavefields/{direction}/record_{r}_{step}.h5
 ├── attrs: rank, source_direction, basis="mesh_vertices", record_depth_max_m,
 │          record_depth_actual_m, excludes_pml=true
-├── vertex_ids     : int64[n_record_vertices]       # global mesh vertex IDs, 1-based
-├── strain         : float32[n_snapshots, n_record_vertices, 6]
-├── displacement   : float32[n_snapshots, n_record_vertices, 3]
-├── velocity       : float32[n_snapshots, n_record_vertices, 3]
-└── acceleration   : float32[n_snapshots, n_record_vertices, 3]
+├── vertex_ids     : int64[n_record_vertices]             # global mesh vertex IDs
+├── strain         : float32[1, n_record_vertices, 6]     # single step
+├── displacement   : float32[1, n_record_vertices, 3]
+├── velocity       : float32[1, n_record_vertices, 3]
+└── acceleration   : float32[1, n_record_vertices, 3]
 
 restart/{direction}/restart_{r}.h5
 ├── attrs: rank, source_direction, step, time_s, ngll

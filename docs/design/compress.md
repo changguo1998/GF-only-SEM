@@ -55,7 +55,7 @@ Computes chunk dimensions from the strain tensor shape to balance I/O throughput
 One strain record per rank per direction. `strain` extends in time. Restart is separate and latest-only.
 
 ```
-wavefields/{direction}/record_{r}.h5
+wavefields/{direction}/record_{r}_{step}.h5
 ├── attrs:
 │   ├── rank                    : int32
 │   ├── source_direction        : string          # "x", "y", or "z"

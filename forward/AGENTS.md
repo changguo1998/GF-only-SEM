@@ -83,7 +83,7 @@ mpirun -n N gf_solver_mpi_cuda --direction x
 Frozen paths from CWD:
 
 - input: `config.h5`, `partitions/partition_{r}.h5`
-- strain: `wavefields/{direction}/record_{r}.h5`
+- strain: `wavefields/{direction}/record_{r}_{step}.h5` (one file per snapshot)
 - restart: `restart/{direction}/restart_{r}.h5`
 
 Caller creates directories.
@@ -131,17 +131,17 @@ recording mode is enabled (`record_depth_max_m > 0`).
 
 ## Record Schema
 
-`wavefields/{direction}/record_{r}.h5`
+`wavefields/{direction}/record_{r}_{step}.h5` — one per snapshot.
 
 Attrs: `rank`, `source_direction`, `basis="mesh_vertices"`, `record_depth_max_m`, `record_depth_actual_m`, `excludes_pml`.
 
 Datasets:
 
 - `vertex_ids`: `int64[n_record_vertices]`, global mesh vertex IDs, 1-based
-- `strain`: `float32[n_snapshots, n_record_vertices, 6]`, extendible in time
-- `displacement`: `float32[n_snapshots, n_record_vertices, 3]`, extendible in time
-- `velocity`: `float32[n_snapshots, n_record_vertices, 3]`, extendible in time
-- `acceleration`: `float32[n_snapshots, n_record_vertices, 3]`, extendible in time
+- `strain`: `float32[1, n_record_vertices, 6]`
+- `displacement`: `float32[1, n_record_vertices, 3]`
+- `velocity`: `float32[1, n_record_vertices, 3]`
+- `acceleration`: `float32[1, n_record_vertices, 3]`
 
 ## Restart Schema
 

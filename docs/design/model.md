@@ -43,9 +43,9 @@ working_dir/
 │   ├── partition_1.h5
 │   └── ...
 ├── wavefields/
-│   ├── x/record_{r}.h5          — forward run fx, shallow mesh-vertex strain
-│   ├── y/record_{r}.h5          — forward run fy
-│   └── z/record_{r}.h5          — forward run fz
+│   ├── x/record_{r}_{step}.h5    — forward run fx, shallow mesh-vertex strain
+│   ├── y/record_{r}_{step}.h5    — forward run fy
+│   └── z/record_{r}_{step}.h5    — forward run fz
 ├── restart/
 │   ├── x/restart_{r}.h5         — latest-only full-volume restart
 │   ├── y/restart_{r}.h5

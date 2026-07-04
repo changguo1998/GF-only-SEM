@@ -22,25 +22,25 @@ Each force run writes rank files under `wavefields/{x,y,z}/`. Postprocess merges
 ### `record_mode = "vertices"`
 
 ```
-record_{r}.h5
+record_{r}_{step}.h5
 ├── attrs: rank, source_direction, basis="mesh_vertices", excludes_pml, record_depth_*
 ├── /vertex_ids  : int64[n_vertices]                 # global, 1-based
-├── /strain      : float32[n_snapshots, n_vertices, 6]
-├── /displacement: float32[n_snapshots, n_vertices, 3]
-├── /velocity    : float32[n_snapshots, n_vertices, 3]
-└── /acceleration: float32[n_snapshots, n_vertices, 3]
+├── /strain      : float32[1, n_vertices, 6]
+├── /displacement: float32[1, n_vertices, 3]
+├── /velocity    : float32[1, n_vertices, 3]
+└── /acceleration: float32[1, n_vertices, 3]
 ```
 
 ### `record_mode = "gll"`
 
 ```
-record_{r}.h5
+record_{r}_{step}.h5
 ├── attrs: rank, source_direction, basis="gll_nodes", excludes_pml, record_depth_*, NGLL
 ├── /cell_ids     : int64[n_cells]                    # global, 1-based
-├── /strain       : float32[n_snapshots, n_cells, NGLL, NGLL, NGLL, 6]
-├── /displacement : float32[n_snapshots, n_cells, NGLL, NGLL, NGLL, 3]
-├── /velocity     : float32[n_snapshots, n_cells, NGLL, NGLL, NGLL, 3]
-└── /acceleration : float32[n_snapshots, n_cells, NGLL, NGLL, NGLL, 3]
+├── /strain       : float32[1, n_cells, NGLL, NGLL, NGLL, 6]
+├── /displacement : float32[1, n_cells, NGLL, NGLL, NGLL, 3]
+├── /velocity     : float32[1, n_cells, NGLL, NGLL, NGLL, 3]
+└── /acceleration : float32[1, n_cells, NGLL, NGLL, NGLL, 3]
 ```
 
 Restart files are not inputs.
@@ -50,7 +50,7 @@ Restart files are not inputs.
 ```
 model.h5 (/topology, /field/element/{vp,vs,density,jacobian})
 config.h5 (/simulation timing, tiles, source, record_mode)
-wavefields/{x,y,z}/record_{r}.h5
+wavefields/{x,y,z}/record_{r}_{step}.h5
          │
          ├── auto-detect record_mode
          │

@@ -11,7 +11,7 @@ Usage:
 
 Reads:
     model.h5
-    wavefields/{x,y,z}/record_{r}.h5  (all ranks r)
+    wavefields/{x,y,z}/record_{r}_{step}.h5  (all ranks r, step per file)
     config.h5                       — for snapshot stride
 
 Writes:

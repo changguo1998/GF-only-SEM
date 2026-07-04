@@ -33,7 +33,7 @@ partitions/partition_{r}.h5 (local subset per rank: topology + field/element + c
     │   ├── Write shallow mesh-vertex strain record when step % snapshot_stride == 0
     │   └── Overwrite full-volume restart when step % restart_stride == 0
     │
-    ├── wavefields/{direction}/record_{r}.h5  (extendible shallow mesh-vertex strain)
+    ├── wavefields/{direction}/record_{r}_{step}.h5  (one per snapshot)
     └── restart/{direction}/restart_{r}.h5    (latest-only full-volume restart)
 ```
 
@@ -48,7 +48,7 @@ mpirun -np N bin/gf_solver_mpi_cuda --direction x         # multi-GPU
 All paths are fixed relative to CWD:
 
 - Input: `config.h5`, `partitions/partition_{r}.h5`
-- Strain output: `wavefields/{direction}/record_{r}.h5`
+- Strain output: `wavefields/{direction}/record_{r}_{step}.h5`
 - Restart output: `restart/{direction}/restart_{r}.h5`
 
 | Arg | Description |
@@ -304,7 +304,7 @@ for step in 0..nsteps-1:
          iglob = gll_to_global[elem][i][j][k]
          Compute ∇u at that corner via GLL derivative matrix × dxi_dx
          ε = ½(∇u + ∇uᵀ)   (6-component Voigt)
-       Append to wavefields/{direction}/record_{r}.h5
+       Write wavefields/{direction}/record_{r}_{step}.h5
        (6 components: εxx, εyy, εzz, εxy, εxz, εyz)
        (6 components: εxx, εyy, εzz, εxy, εxz, εyz)
 
@@ -314,10 +314,10 @@ for step in 0..nsteps-1:
 
 ## Snapshot Output
 
-One record file per rank per run. Append only at `step % snapshot_stride == 0`. Output is shallow mesh vertices, not full GLL:
+One record file per rank per snapshot (at `step % snapshot_stride == 0`). Output is shallow mesh vertices, not full GLL:
 
 ```
-wavefields/{direction}/record_{r}.h5
+wavefields/{direction}/record_{r}_{step}.h5
 ├── attrs:
 │   ├── rank                    : int32
 │   ├── source_direction        : string
@@ -326,10 +326,10 @@ wavefields/{direction}/record_{r}.h5
 │   ├── record_depth_actual_m   : float64
 │   └── excludes_pml            : bool
 ├── vertex_ids                  : int64[n_record_vertices]
-├── strain                      : float32[n_snapshots, n_record_vertices, 6]
-├── displacement                : float32[n_snapshots, n_record_vertices, 3]
-├── velocity                    : float32[n_snapshots, n_record_vertices, 3]
-└── acceleration                : float32[n_snapshots, n_record_vertices, 3]
+├── strain                      : float32[1, n_record_vertices, 6]
+├── displacement                : float32[1, n_record_vertices, 3]
+├── velocity                    : float32[1, n_record_vertices, 3]
+└── acceleration                : float32[1, n_record_vertices, 3]
 ```
 
 Values are per-vertex (direct gradient from displacement at corrected corner nodes). Interior GLL points are not recorded. Displacement, velocity, acceleration are extracted from the same recorded-vertex set using the recording map.
