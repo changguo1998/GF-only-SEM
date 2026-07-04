@@ -66,7 +66,8 @@ and spack-installed `llvm` for clang-format.
 
 ## Project State
 
-Implementation complete — 5 modules + tests (144 tests: 96 Python, 48 C++).
+Implementation complete — 5 modules + tests (178 tests: 126 Python, 52 C++).
+C++ includes 49 non-CUDA + 3 CUDA — all pass.
 Elastic-only forward solver (SLS/attenuation deferred).
 
 See each module's `AGENTS.md` for details.

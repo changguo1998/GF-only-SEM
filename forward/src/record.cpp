@@ -2,7 +2,6 @@
 #include "gf/record.hpp"
 
 #include <hdf5.h>
-#include <sys/stat.h>
 
 #include <cmath>
 #include <cstring>
@@ -74,8 +73,7 @@ RecordWriter::RecordWriter(const std::string& output_dir, const std::string& sou
     std::string wavefields_dir = output_dir + "/" + source_direction;
     filepath_ = wavefields_dir + "/record_" + std::to_string(rank) + ".h5";
 
-    // Create output directory if needed
-    mkdir(wavefields_dir.c_str(), 0755);
+    // Caller (shell script) must create output directory before calling RecordWriter
 
     // Create or open HDF5 file
     file_id_ = H5Fcreate(filepath_.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);

@@ -13,7 +13,8 @@ include(Catch)
 # ---------------------------------------------------------------
 
 if(MPI_FOUND)
-    function(add_gf_test name source)
+    # Build helper — creates test executable with proper includes/link
+    function(add_gf_test_build name source)
         add_executable(${name} ${source})
         target_include_directories(
             ${name}
@@ -22,6 +23,11 @@ if(MPI_FOUND)
         target_link_libraries(${name} PRIVATE libgf Catch2::Catch2WithMain MPI::MPI_CXX
                                               Eigen3::Eigen ${HDF5_C_LIBRARIES})
         target_compile_features(${name} PRIVATE cxx_std_17)
+    endfunction()
+
+    # Full test helper — build + auto-discover test cases
+    function(add_gf_test name source)
+        add_gf_test_build(${name} ${source})
         catch_discover_tests(${name})
     endfunction()
 
@@ -43,8 +49,29 @@ if(MPI_FOUND)
     # I/O round-trip tests (HDF5)
     add_gf_test(test_io test_io.cpp)
 
-    # Record writer tests (HDF5)
-    add_gf_test(test_record test_record.cpp)
+    # Record writer tests (HDF5) Note: Manual registration instead of catch_discover_tests so CTest
+    # creates output directories before running (caller creates dirs, not C++ code).
+    add_gf_test_build(test_record test_record.cpp)
+
+    # Fixture setup: create record output directories
+    add_test(NAME "record_test_prepare" COMMAND ${CMAKE_COMMAND} -E make_directory "wavefields/x"
+                                                "wavefields/y")
+    set_tests_properties(
+        record_test_prepare PROPERTIES FIXTURES_SETUP "record_test" WORKING_DIRECTORY
+                                       "${CMAKE_CURRENT_BINARY_DIR}")
+
+    # Record test cases (registered manually to depend on fixture)
+    add_test(NAME "RecordWriter creates file and writes strain"
+             COMMAND test_record "RecordWriter creates file and writes strain")
+    set_tests_properties(
+        "RecordWriter creates file and writes strain"
+        PROPERTIES FIXTURES_REQUIRED "record_test" WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+
+    add_test(NAME "RecordWriter with float32 compression"
+             COMMAND test_record "RecordWriter with float32 compression")
+    set_tests_properties(
+        "RecordWriter with float32 compression"
+        PROPERTIES FIXTURES_REQUIRED "record_test" WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
     # Assembly tests
     add_gf_test(test_assembly test_assembly.cpp)
@@ -85,11 +112,10 @@ if(TARGET libgf_cuda_nompi)
         test_element_cuda
         PRIVATE ${CMAKE_SOURCE_DIR}/forward/include ${CMAKE_SOURCE_DIR}/compress/include
                 ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
-    # Eigen3 include for CUDA (nvcc response files don't see CPATH). Use COMPILE_LANGUAGE generator
-    # expression to ensure nvcc picks it up.
+    # Eigen3 include for CUDA: use compile-option -I (bypasses response file issues)
     get_filename_component(_eigen_prefix "${Eigen3_DIR}/../../.." ABSOLUTE)
-    target_include_directories(test_element_cuda
-                               PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${_eigen_prefix}/include/eigen3>)
+    target_compile_options(test_element_cuda
+                           PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-I${_eigen_prefix}/include/eigen3>)
     target_link_libraries(test_element_cuda PRIVATE libgf_cuda_nompi Catch2::Catch2WithMain
                                                     Eigen3::Eigen ${HDF5_C_LIBRARIES} CUDA::cudart)
     target_compile_features(test_element_cuda PRIVATE cxx_std_17)

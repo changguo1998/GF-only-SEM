@@ -72,9 +72,10 @@ if(CUDAToolkit_FOUND)
                                         src/element_cuda.cu src/cuda_step.cu)
     target_include_directories(libgf_cuda_nompi PUBLIC ${COMMON_INCLUDES})
     # Eigen3 include for CUDA: nvcc uses response files and doesn't see CPATH, so
-    # target_link_libraries propagation may not reach CUDA.
+    # target_include_directories may not reach CUDA. Use compile-option -I directly.
     get_filename_component(_eigen_prefix "${Eigen3_DIR}/../../.." ABSOLUTE)
-    target_include_directories(libgf_cuda_nompi PRIVATE "${_eigen_prefix}/include/eigen3")
+    target_compile_options(libgf_cuda_nompi
+                           PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-I${_eigen_prefix}/include/eigen3>)
     target_link_libraries(libgf_cuda_nompi PUBLIC ${COMMON_LIBS} CUDA::cudart)
     target_compile_definitions(libgf_cuda_nompi PRIVATE GF_ACTIVE_BACKEND=1 GF_WITH_CUDA GF_NO_MPI)
     target_compile_features(libgf_cuda_nompi PUBLIC cxx_std_17)
@@ -101,9 +102,10 @@ if(CUDAToolkit_FOUND AND MPI_FOUND)
                                   src/element_cuda.cu src/cuda_step.cu)
     target_include_directories(libgf_cuda PUBLIC ${COMMON_INCLUDES})
     # Eigen3 include for CUDA: nvcc uses response files and doesn't see CPATH, so
-    # target_link_libraries propagation may not reach CUDA.
+    # target_include_directories may not reach CUDA. Use compile-option -I directly.
     get_filename_component(_eigen_prefix "${Eigen3_DIR}/../../.." ABSOLUTE)
-    target_include_directories(libgf_cuda PRIVATE "${_eigen_prefix}/include/eigen3")
+    target_compile_options(libgf_cuda
+                           PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-I${_eigen_prefix}/include/eigen3>)
     target_link_libraries(libgf_cuda PUBLIC ${COMMON_LIBS} MPI::MPI_CXX CUDA::cudart)
     target_compile_definitions(libgf_cuda PRIVATE GF_ACTIVE_BACKEND=1 GF_WITH_CUDA)
     target_compile_features(libgf_cuda PUBLIC cxx_std_17)
