@@ -8,15 +8,17 @@ Header-only C++ helpers for HDF5 compression, precision, and chunking. Used by f
 
 ## Architecture
 
-Header-only C++17 `INTERFACE` library. Provides compression, precision, chunking policies, plus `write_checkpoint()`.
+Header-only C++17 `INTERFACE` library. Provides compression filter, precision policy, and chunking strategy.
 
 ```
 CompressionFilter  ─┐
+PrecisionPolicy    ─┼─→ HDF5 property lists for record writes
+ChunkingStrategy   ─┘
 PrecisionPolicy    ─┼─→ CheckpointWriter.write_checkpoint() → HDF5 datasets
 ChunkingStrategy   ─┘
 ```
 
-A standalone benchmarking tool compares speed and size tradeoffs. Catch2 tests verify round-trip correctness and float32 precision tolerance.
+Catch2 tests verify round-trip correctness and float32 precision tolerance.
 
 ## Technology
 
@@ -78,19 +80,6 @@ restart/{direction}/restart_{r}.h5
 └── pml_memory_*                : float64[...]
 ```
 
-### Write Pattern
-
-1. **First snapshot**: create file, fixed `vertex_ids`, extendible `strain`, and first slice.
-1. **Later snapshots**: extend time by 1 and write one slice.
-1. **Restart**: when `step % restart_stride == 0`, overwrite latest full-volume state.
-
-### Data Shape
-
-- 6 strain components (full symmetric tensor: εxx, εyy, εzz, εxy, εxz, εyz)
-- Vertex-first layout: `[n_snapshots, n_record_vertices, 6]`
-- `vertex_ids` maps local record index to global mesh vertex ID (1-based).
-- `snapshot_precision`: float32 default, float64 for validation. Restart is always float64.
-
 ## Chunking
 
 Chunked along time and recorded vertex dimensions:
@@ -114,7 +103,6 @@ compress/
 │   ├── CompressionFilter.h         — enum + property list builder
 │   ├── PrecisionPolicy.h           — float32/float64 template
 │   ├── ChunkingStrategy.h          — chunk dimension computation
-│   └── CheckpointWriter.h          — high-level write_checkpoint() with extendible dataset
 ├── benchmark/
 │   ├── CMakeLists.txt
 │   └── CompressionBenchmark.cpp    — speed vs size on sample strain data

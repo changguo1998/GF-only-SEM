@@ -5,7 +5,7 @@
 Convert GMSH meshes to HDF5. Write VTK files for mesh, partitions, and wavefields.
 Python scripts install as root `pyproject.toml` console scripts. C++ accelerated
 binaries build via CMake and land in `bin/` (`gf_model2vtk`, `gf_partition2vtk`,
-`gf_wavefield2vtk`).
+`gf_wavefield2vtk`, `gf_wavefield2vtk_detail`).
 
 ## Files
 

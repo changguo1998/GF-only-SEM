@@ -41,7 +41,7 @@ Tile sizes come from `config.h5` (`/simulation/tilex_elements`, `tiley_elements`
 Binary `gf_postprocess` is the primary postprocessor. Built via CMake, lands in `bin/gf_postprocess`.
 
 Output is byte-identical to the Python reference (vertex IDs + Green's tensor values match exactly).
-C++ adds HDF5 gzip level 4 + shuffle compression (transparent to readers).
+Output is byte-identical to the Python reference (vertex IDs + Green's tensor values match exactly).
 
 ## Pipeline
 
@@ -74,8 +74,7 @@ cmake --build . --target gf_postprocess
 
 ## Tests
 
-Python tests (archived in `_archive/tests/`) cover the original implementation.
-The C++ binary can be tested via the halfspace example pipeline.
+Tests: the C++ binary is validated via the halfspace example pipeline (`examples/halfspace/run.sh`). The archived Python implementation (`_archive/`) includes pytest tests for the reference code.
 
 ## Design Doc
 

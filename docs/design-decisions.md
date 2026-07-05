@@ -54,11 +54,11 @@ Mathematical formulation for all methods below: [`docs/math.md`](math.md)
 - **Glue language**: Python
 - **Project structure**:
   ```
-  tools/           — GMSH → model.h5 converter + VTK visualization tools (Python)
-  preprocess/      — Python: GLL geometry, material interpolation, partition, config
-  forward/         — C++: core physics library (libgf) + MPI solver executable (elastic only)
-  compress/        — C++: header-only checkpoint compression utilities
-  postprocess/     — Python: strain GF extraction at shallow mesh vertices
+  tools/           — GMSH → model.h5 converter (Python) + VTK tools (C++ primary, Python archived)
+  preprocess/      — Python + C++17: GLL geometry, material interpolation, partition, config
+  forward/         — C++17: core physics library (libgf) + MPI solver executable
+  compress/        — C++17: header-only HDF5 compression utilities
+  postprocess/     — C++17: strain GF extraction at shallow mesh vertices (Python archived)
   tests/
   external_reference_codes/
   ```
@@ -94,7 +94,8 @@ GMSH .msh → converter → model.h5 (topology only)
                     wavefields/{x,y,z}/record_{r}_{step}.h5
                     restart/{x,y,z}/restart_{r}.h5
                           ↓
-                     abb|                     postprocess (merge vertex strain — also reads config.h5)
+                     │
+                     postprocess (merge vertex strain — also reads config.h5)
                           ↓
                     greenfun/tile_x{i}_y{j}.h5
 ```
@@ -106,7 +107,7 @@ GMSH .msh → converter → model.h5 (topology only)
 | model.h5 | converter → preprocessor | preprocessor, postprocess | Topology + GLL geometry + `is_pml`. No material. Postprocess uses `/topology/vertex_to_coord`. |
 | partition\_{r}.h5 | preprocessor | forward | Per-rank element data, C-PML, partition metadata, and `/recording/` map |
 | config.h5 | preprocessor | forward, postprocess | Simulation params, cadence, record depth, tile size, domain, source, STF, weights. No direction. |
-| wavefields/{direction}/record\_{r}\_{step}.h5 | forward | postprocess | L2-smoothed strain at recorded vertices; one step per file |
+| wavefields/{direction}/record\_{r}\_{step}.h5 | forward | postprocess | Per-vertex strain at recorded mesh corners; one step per file |
 | restart/{direction}/restart\_{r}.h5 | forward | forward (`--resume`) | Latest full-volume restart: u, v, a, C-PML memory, step/time |
 | model_auxiliary.h5 | preprocessor (optional) | validation | CSR adjacency relations |
 | greenfun/tile_x{i}\_y{j}.h5 | postprocess | user | Mesh-vertex strain Green tensors, x/y tiled |
@@ -294,10 +295,8 @@ Each tile stores recorded vertices in its x/y bounds for all saved depths. Green
 - **PML damping**: Simple linear-ramp damping applied to velocity: v ← v − d(node)·v. Precomputed damping profile read from partition. Full recursive-convolution C-PML (Wang et al. 2006, 39 memory variables) is deferred.
 - **No runtime PML build**: Damping profile precomputed by preprocessor, read from partition at startup.
 - **Shared nodes**: Within-rank sums via global array. Cross-rank sums via precomputed MPI face exchanges.
-  9a4|- **Runtime loop**: Newmark predict → residual → PML damping → source → MPI exchange → Newmark correct → strain → output.
-  c5d|- **Strain computation**: Per-vertex strain computed inline from corrected displacement at recorded mesh corners — reference gradient via derivative matrix, chain rule to physical gradient, symmetric Voigt strain. No separate element pass.
-  fa6|- **No L2 smoothing in recording mode**: Strain is computed directly at recorded corner nodes (no global projection). Full-volume GLL strain (legacy fallback) uses direct per-node computation, not L2 projection.
-  cee|- **Strain record**: Write per-vertex strain at recorded mesh corners only. float32 default, float64 optional.
+- **Runtime loop**: Newmark predict → residual → PML damping → source → MPI exchange → Newmark correct → strain → output.
+- **Recording-mode strain**: Per-vertex strain computed inline at recorded mesh corners via derivative matrix and chain rule. Data-driven recording map: ranks with zero recorded vertices skip strain computation. No fallback to full-volume GLL strain when recording is enabled.
 - **3 runs per source**: Run x/y/z force jobs. One shared `config.h5`. Each writes `wavefields/{direction}/`.
 - **Restart/resume**: Restart is separate and latest-only. It stores u/v/a, step/time, and C-PML memory. `--resume` continues from it.
 - **Parallelism**: Pure MPI, one rank per core. GPU element residual works alongside MPI (GPU replaces only the element kernel; residual copied back to CPU for exchange); see [`gpu.md`](design/gpu.md).

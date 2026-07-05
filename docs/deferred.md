@@ -12,62 +12,28 @@ SLS spans preprocess and forward.
 
 ### Preprocess
 
-- **Plan:** initial implementation complete — SLS Task 7 not started
-- **Design:** [`design/preprocess.md`](design/preprocess.md) → SLS fitting
-- **Source:** `preprocess/sls.py` — missing
-- **Tests:** `tests/preprocess/test_sls.py` — missing
-
 Needed:
 
-- Compute per-GLL-node `τ_σ_l` and `τ_ε_l` from `q_kappa`, `q_mu`, `f_min`, `f_max`, and `n_sls`.
+- Compute per-GLL-node τ_σ_l and τ_ε_l from q_kappa, q_mu, f_min, f_max, and n_sls.
 - Write HDF5 datasets:
-
-```
-/field/element/tau_sigma[n_cell, NGLL, NGLL, NGLL, n_sls]
-/field/element/tau_epsilon[n_cell, NGLL, NGLL, NGLL, n_sls]
-```
+  ```
+  /field/element/tau_sigma[n_cell, NGLL, NGLL, NGLL, n_sls]
+  /field/element/tau_epsilon[n_cell, NGLL, NGLL, NGLL, n_sls]
+  ```
 
 ### Forward
 
-- **Plan:** initial implementation complete — SLS Task 5 not started
-- **Design:** [`design/forward.md`](design/forward.md)
-- **Source:** `forward/src/viscoelastic.cpp` — missing
-- **Tests:** `forward/tests/test_viscoelastic.cpp` — missing
-
 Needed:
 
-- SLS memory arrays: `[n_cell, NGLL³, n_sls]`.
-- Stress update using precomputed `τ_σ` and `τ_ε`.
+- SLS memory arrays per element: [n_cell, NGLL³, n_sls].
+- Stress update using precomputed τ_σ and τ_ε.
 - Add viscoelastic stress to residual.
 
 ______________________________________________________________________
 
-## 2. Compression Benchmark Tool
+## 2. Compress Module Integration
 
-**Status:** Not implemented.
-
-- **Design:** [`design/compress.md`](design/compress.md)
-- **Source:** `compress/benchmark/CompressionBenchmark.cpp` — missing
-- **CMake:** `compress/benchmark/CMakeLists.txt` — missing
-
-Needed: CLI that writes and reads HDF5 datasets with none, LZF, and zlib 1–9, at float32 and float64. Report size, write time, read time, and round-trip error. Use production-like sizes.
-
-______________________________________________________________________
-
-## 3. Compress Test Fixes (Resolved)
-
-**Status:** All compress tests pass (21,546 assertions, 9 test cases). Only issue: HDF5 LZF
-filter 32000 not registered, so LZF round-trip is not exercised — the filter is expected to
-be registered by the HDF5 runtime (plugin path). No test failures.
-
-**Resolution:** Tests now match `CheckpointWriter.h` and current `write_checkpoint()`
-signatures. Defect was fixed in a prior commit.
-
-______________________________________________________________________
-
-## 4. Compress Integration into Forward
-
-**Status:** Not integrated. `gf_compress` is not linked in `forward/CMakeLists.txt`.
+**Status:** Not integrated. The `gf_compress` header-only library is not linked in `forward/CMakeLists.txt`.
 
 - **Design:** [`design/compress.md`](design/compress.md)
 
@@ -78,18 +44,36 @@ Needed:
 
 ______________________________________________________________________
 
-## 5. GPU/DCU Device Abstraction
+## 3. Full C-PML Implementation
 
-**Status:** Implemented (CUDA backend).
+**Status:** Deferred. Current solver uses simple linear-ramp damping.
 
-- **Design:** [`design/gpu.md`](design/gpu.md)
-- **Implementation:** `forward/include/gf/backend.hpp`, `forward/src/element_cuda.cu`, `forward/src/element_cpu.cpp`
+Needed:
 
-Template-polymorphic `compute_element_residual<Backend>` with CPU and CUDA backends.
-Batched API (`n_elem` parameter) for GPU throughput. Persistent device memory manager
-(`cuda_device_manager.hpp`). See GPU design doc for details and future optimizations.
+- Full recursive-convolution C-PML (Wang et al. 2006, θ=1/8) with 39 memory variables per GLL node.
+- d/K/α damping profiles per direction.
+- Second-order convolution coefficients.
+- Memory arrays for convolution state.
 
-HIP/SYCL backends deferred — same pattern.
+Current implementation: simple linear-ramp `v ← v - d(node)·v`. Precomputed `damping` profile read from `partition_{r}.h5`.
+
+______________________________________________________________________
+
+## 4. Compression Benchmark Tool
+
+**Status:** Not implemented.
+
+- **Design:** [`design/compress.md`](design/compress.md)
+
+Needed: CLI that writes and reads HDF5 datasets with none, LZF, and zlib 1–9, at float32 and float64. Report size, write time, read time, and round-trip error.
+
+______________________________________________________________________
+
+## 5. GPU/DCU Backends (HIP, SYCL)
+
+**Status:** CUDA backend implemented. HIP and SYCL backends deferred.
+
+Same pattern as CUDA: add tag struct, source file, CMake branch. See [`design/gpu.md`](design/gpu.md).
 
 ______________________________________________________________________
 
@@ -98,7 +82,7 @@ ______________________________________________________________________
 | Item | Module | Priority | Effort |
 |------|--------|----------|--------|
 | SLS attenuation | preprocess + forward | High | Large |
+| Full C-PML | preprocess + forward | Medium | Large |
+| Compress integration | forward | Low | Tiny |
 | Compression benchmark | compress | Low | Small |
-|| Compress test fixes | compress | Resolved | — |
-|| Compress-forward link | forward | Low | Tiny |
-| GPU abstraction | forward | Done | Large |
+| HIP/SYCL backends | forward | Low | Medium |

@@ -3,7 +3,7 @@
 ## Project Purpose
 
 3D viscoelastic SEM forward solver + post-hoc Green's function extraction.
-Python pre/post + C++17 kernel + HDF5 I/O + METIS partitioning.
+Python pre + C++17 kernel + HDF5 I/O + METIS partitioning.
 
 Full design decisions: [`docs/design-decisions.md`](docs/design-decisions.md)
 Full math formulation: [`docs/math.md`](docs/math.md)
@@ -27,7 +27,7 @@ Full math formulation: [`docs/math.md`](docs/math.md)
 | Build | CMake |
 | I/O | HDF5 |
 | Mesh partitioning | METIS (called from preprocessor) |
-| Pre/post + VTK | Python + C++17 (OpenMP for preprocessor, VTK converters) |
+| Pre/post + VTK | Python + C++17 (OpenMP for preprocessor and VTK tools) |
 | External reference | `external_reference_codes/` (read-only, untracked by git) |
 | Design docs | `docs/design-decisions.md`, `docs/math.md`, `docs/design/` — per-module design docs in `docs/design/` |
 
@@ -66,13 +66,11 @@ and spack-installed `llvm` for clang-format.
 
 ## Project State
 
-Implementation complete — 5 modules + tests (178 tests: 126 Python, 52 C++).
-C++ includes 49 non-CUDA + 3 CUDA — all pass.
-
-C++ primary implementations for: forward solver, postprocess, VTK tools (model2vtk,
-partition2vtk, wavefield2vtk). Python alternatives archived in `_archive/`.
-Python-only: preprocess (orchestration), gmsh_to_hdf5. All VTK tools have C++ primary implementations.
+Implementation complete — 5 modules + tests (104 Python + C++ Catch2).
 Elastic-only forward solver (SLS/attenuation deferred).
+
+C++ primary implementations: forward solver, postprocess, VTK tools (model2vtk,
+partition2vtk, wavefield2vtk, wavefield2vtk_detail). Python alternatives archived in `_archive/`.
 
 See each module's `AGENTS.md` for details.
 

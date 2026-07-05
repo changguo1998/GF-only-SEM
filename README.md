@@ -2,7 +2,7 @@
 
 3D elastic SEM wave-equation solver + strain Green's function extraction.
 
-Python pre/post-processing, C++17 MPI compute, HDF5 I/O, METIS partitioning.
+Python pre-processing, C++17 postprocess + MPI compute, HDF5 I/O, METIS partitioning.
 
 ## Pipeline
 
@@ -47,9 +47,9 @@ Three binaries built from the same source, switchable by name:
 |--------|----------|---------|
 | `preprocess/` | Python + C++17 | GLL geometry, material, PML, partition, config |
 | `forward/` | C++17 | Elastic CG-SEM solver (libgf) + 3 MPI/CUDA executables |
-| `postprocess/` | Python | Strain Green's function extraction |
+| `postprocess/` | C++17 | Strain Green's function extraction (Python archived) |
 | `compress/` | C++17 | Header-only HDF5 compression utilities |
-| `tools/` | Python | GMSH→HDF5 converter, VTK visualization with GLL sub-cell topology |
+| `tools/` | Python + C++17 | GMSH→HDF5 converter (Python); VTK tools (C++ primary, Python archived) |
 
 ## Key Commands
 
@@ -109,8 +109,8 @@ Key fields: `polynomial_order`, `output_dt_s`, `total_duration_s`, `cfl_safety`,
 ## Testing
 
 ```bash
-python -m pytest tests -q                          # Python (96)
-ctest --test-dir build --output-on-failure          # C++ (48)
+python -m pytest tests -q                          # Python (104)
+ctest --test-dir build --output-on-failure          # C++ (Catch2)
 bash examples/halfspace/run.sh                      # Full pipeline
 ```
 

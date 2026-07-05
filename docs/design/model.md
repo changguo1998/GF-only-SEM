@@ -101,7 +101,7 @@ model.h5  (preprocessor extensions)
 ```
 
 These `/field/` groups are written to both `model.h5` and `partition_{r}.h5`.
-Material, C-PML metadata, per-rank partition metadata, and recording maps also live in `partition_{r}.h5`.
+Material, PML damping, per-rank partition metadata, and recording maps also live in `partition_{r}.h5`.
 
 **`is_pml` flag**: preprocess marks absorbing-layer elements. Recording map excludes them.
 
@@ -167,14 +167,7 @@ partition_{r}.h5
 │   │   │
 │   │   ├── vp, vs, density, lambda, mu : float64[n_elem_total, NGLL, NGLL, NGLL]
 │   │   │
-│   │   └── /cpml/                                    — C-PML precomputed arrays
-│   │       ├── cpml_type       : int8[n_cell_local]    — 0=interior, 1=face, 2=edge, 3=corner
-│   │       ├── d_x, d_y, d_z   : float64[…NGLL,NGLL]  — directional damping per GLL
-│   │       ├── K_x, K_y, K_z   : float64[…NGLL,NGLL]  — stretched-coordinate κ
-│   │       ├── alpha_x, alpha_y, alpha_z  : float64[…NGLL,NGLL]  — stretched-coordinate α
-│   │       ├── conv_coef_alpha : float64[…NGLL,NGLL,3]  — convolution α_c per direction
-│   │       ├── conv_coef_beta  : float64[…NGLL,NGLL,3]  — convolution β_c per direction
-│   │       └── conv_coef_abar  : float64[…NGLL,NGLL,3]  — convolution ā per direction
+│   │   └── damping   : float64[n_elem_total, NGLL, NGLL, NGLL]       — linear-ramp PML damping
 │   │
 │   └── /surface/
 │       └── boundary_tag  : int32[n_surface_local]  — 0=interior, 1=free surface, 2=absorbing
@@ -212,7 +205,7 @@ partition_{r}.h5
 
 - **NGLL** = N+1, embedded in array shapes — no separate attribute needed. Polynomial order N is known to all components via array shapes.
 - All element-level fields use element-first layout: `[n_elem_total, NGLL, NGLL, NGLL, …]`
-- C-PML arrays (`/field/element/cpml/`) are all precomputed by the preprocessor. Forward solver reads directly — no runtime PML damping computation.
+- PML damping array (`/field/element/damping`) is precomputed by the preprocessor. Forward solver reads directly — no runtime PML computation.
 - `gll_to_global` is the CG-SEM assembly map (`ibool`). It maps each local/ghost GLL node to a global ID. Shared nodes accumulate into the same ID.
 - `n_elem_total = n_elem_local + n_ghost` — both owned and ghost elements share the same `gll_to_global` numbering space.
 
@@ -227,7 +220,7 @@ Boundary detection is auto, by geometry. No GMSH physical groups needed. One fre
 ## Design Notes
 
 - **model.h5** gives postprocess vertex coordinates by `vertex_ids`. Converter writes `/topology/`; preprocess adds `/field/element/*` for forward checks.
-- **partition\_{r}.h5** serves forward: field data, C-PML, metadata, and per-rank `/recording/` map.
+- **partition\_{r}.h5** serves forward: field data, PML damping, metadata, and per-rank `/recording/` map.
 - Postprocess does no element search or interpolation.
 
 ## File Layout

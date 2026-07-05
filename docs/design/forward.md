@@ -10,7 +10,7 @@
 
 ```
 config.h5 (single, rank-invariant: simulation + domain + source)
-partitions/partition_{r}.h5 (local subset per rank: topology + field/element + cpml + partition metadata)
+partitions/partition_{r}.h5 (local subset per rank: topology + field/element + PML damping + partition metadata)
           │
           ▼
     gf_solver_{mpi,cuda,mpi_cuda} --direction {x,y,z}  (CPU/GPU, MPI optional)
@@ -19,7 +19,7 @@ partitions/partition_{r}.h5 (local subset per rank: topology + field/element + c
     ├── All ranks read config.h5 (same file, rank-invariant)
     ├── allocate runtime arrays per rank
     │       global residual r[NDIM, n_global_nodes]    — CG-SEM assembly target
-    │       C-PML memory variables (see CPML section for exact layout)
+    │       PML damping array (linear-ramp profile)
     ├── Newmark time loop
     │   ├── NEWMARK PREDICT: ũ = u + solver_dt·v + (solver_dt²/2)·(1-2β)·a
     │   ├── Zero global residual: r[:, :] = 0
@@ -28,8 +28,8 @@ partitions/partition_{r}.h5 (local subset per rank: topology + field/element + c
     │   ├── Source injection (distribute STF[t] × w_ijk via precomputed weights)
     │   ├── MPI halo exchange (precomputed face-pair lists)
     │   ├── NEWMARK CORRECT: a_new = M⁻¹·r, v, u update
-    1ec|    │   ├── Per-vertex strain — compute ε from ∇u_new via derivative matrix + chain rule
-    4f8|    │   ├── Compute per-corner strain at recorded mesh vertices
+    │   ├── Per-vertex strain — compute ε from ∇u_new via derivative matrix + chain rule
+    │   ├── Compute per-corner strain at recorded mesh vertices
     │   ├── Write shallow mesh-vertex strain record when step % snapshot_stride == 0
     │   └── Overwrite full-volume restart when step % restart_stride == 0
     │
@@ -77,7 +77,7 @@ Preprocess writes all mesh data to per-rank partitions. Rank `R` reads `partitio
 
 **Source injection**: read source elements, weights, and `STF[n]` from `config.h5`. Distribute to GLL nodes. No runtime search.
 
-**C-PML**: read precomputed damping, stretch, and convolution coefficients from `partition_{r}.h5`. Keep all CPML memory variables. Use Wang et al. (2006), θ=1/8.
+**PML damping**: simple linear-ramp profile applied to velocity. Profile precomputed by preprocessor, read from `partition_{r}.h5`. Full recursive-convolution C-PML is deferred.
 
 **Partition discovery**: rank `R` opens `partitions/partition_{R}.h5`. All ranks read same `config.h5`.
 
@@ -109,7 +109,7 @@ Per-rank file from preprocess. Each rank reads only its file. Contains local ele
 | `/field/element/dxi_dx` | ∂ξ_i/∂x_j — stiffness computation + strain |
 | `/field/element/mass` | Lumped mass diagonal — Newmark solve |
 | `/field/element/vp, vs, density, lambda, mu` | Elastic constants per GLL node (vp, vs, density from config; lambda, mu precomputed) |
-| `/field/element/cpml/*` | All C-PML arrays: cpml_type, d_x/y/z, K_x/y/z, alpha_x/y/z, convolution coefficients (conv_coef_alpha, beta, abar), element type tags (face/edge/corner) |
+| `/field/element/damping` | PML damping profile (linear ramp) |
 | `/field/surface/boundary_tag` | 0=interior, 1=free surface, 2=absorbing |
 **Partition metadata** (`/partition/`):
 
@@ -145,7 +145,7 @@ No `/attenuation/` — elastic-only, attenuation deferred. No `direction` — pa
 | **gll** | GLL points/weights, Lagrange basis, derivative matrix (header-only, N-dependent) |
 | **element** | Matrix-free K_e·u: stiffness × displacement using precomputed dξ/dx and detJ. Accumulates into global residual via gll_to_global |
 | **assembly** | `assemble_residual()` zeros global r, calls element loop, handles within-rank accumulation |
-| **pml** | Simple linear-ramp PML damping: v ← v - d(node)·v. Full recursive-convolution C-PML (Wang et al. 2006, 39 scalar memory values) is deferred. |
+| **pml** | Simple linear-ramp PML damping: v ← v - d(node)·v. Full recursive-convolution C-PML deferred |
 | **newmark** | NewmarkPredictor, NewmarkCorrector (2nd order explicit, β=0, γ=½) |
 | **source** | Reads precomputed element list + Lagrange weights from config.h5. Distributes STF(t) × w_ijk to global residual |
 | **exchange** | MPI halo exchange using precomputed face-pair lists from /partition/exchange/neighbor\_{N}/ |
@@ -179,7 +179,7 @@ struct RankData {
     std::vector<int64_t> gll_to_global;
 
     // Precomputed fields at GLL nodes (coords, jacobian, dxi_dx, mass, material)
-    // C-PML arrays: cpml_type, d_x/y/z, K_x/y/z, alpha_x/y/z, conv coefficients
+    // PML damping profile
     // Precomputed exchange patterns
     // ...
 };
@@ -349,7 +349,7 @@ restart/{direction}/restart_{r}.h5
 ├── displacement                : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
 ├── velocity                    : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
 ├── acceleration                : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
-└── pml_memory_*                : float64[...]  # all active C-PML memory arrays
+└── pml_damping                : float64[...]  # PML damping array for exact resume
 ```
 
 With `--resume`, `gf_solver` restores state and continues at `step + 1`.
