@@ -7,7 +7,7 @@ ______________________________________________________________________
 ## 1. SLS Viscoelastic Attenuation
 
 **Status:** Deferred. Current `forward/` solver is elastic-only.
-A `forward-viscoelastic/` skeleton exists for future SLS implementation.
+A `forward/viscoelastic/` skeleton exists for future SLS implementation.
 
 SLS spans preprocess and forward.
 
@@ -82,8 +82,7 @@ ______________________________________________________________________
 
 | Item | Module | Priority | Effort |
 |------|--------|----------|--------|
-| SLS attenuation | preprocess + forward-viscoelastic | High | Large |
-| Full C-PML | preprocess + forward | Medium | Large |
-| Compress integration | forward-elastic/ | Low | Tiny |
+| SLS attenuation | preprocess + forward/viscoelastic | High | Large |
+| Compress integration | forward/ | Low | Tiny |
 | Compression benchmark | compress | Low | Small |
-| HIP/SYCL backends | forward-elastic/ | Low | Medium |
+| HIP/SYCL backends | forward/elastic/ | Low | Medium |

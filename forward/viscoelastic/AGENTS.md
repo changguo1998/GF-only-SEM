@@ -15,6 +15,7 @@ TBD — will follow `forward/share/` + `forward/elastic/` structure.
 
 When implemented, the viscoelastic solver will share the infrastructure library
 (`libgf_shared` from `forward/share/`) and add:
+
 - SLS memory arrays and stress-update terms in its element residual
 - Additional HDF5 datasets for SLS memory state in restart files
 - A runtime flag in `ConfigData`/`RankData` to enable solver-specific data

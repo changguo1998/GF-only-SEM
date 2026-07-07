@@ -6,8 +6,7 @@ project(gf_forward LANGUAGES CXX)
 # Dependencies (propagated to subdirectories)
 # -----------------------------------------------------------------------
 
-# MPI: required for MPI-based solvers. Without MPI, only gf_solver_elastic_cuda (single-GPU, no MPI) can
-# be built.
+# MPI: required for MPI-based solvers. Without MPI, only gf_solver_elastic_cuda
 find_package(MPI)
 if(MPI_FOUND)
     message(STATUS "MPI found — MPI solver targets enabled")
