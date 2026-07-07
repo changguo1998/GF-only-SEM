@@ -11,21 +11,13 @@ name = "gf-post"
 version = "0.1.0"
 description = "Strain Green's function extraction from SEM checkpoint files"
 requires-python = ">=3.10"
-dependencies = [
-    "numpy",
-    "h5py",
-    "scipy",
-    "click",
-]
+dependencies = ["numpy", "h5py", "scipy", "click"]
 
 [project.scripts]
 gf-postprocess = "gf_post.cli:main"
 
 [project.optional-dependencies]
-test = [
-    "pytest",
-    "h5py",
-]
+test = ["pytest", "h5py"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -11,11 +11,7 @@ name = "gf-preprocess"
 version = "0.1.0"
 description = "SEM preprocessor — GLL geometry, 3D model interpolation, partition"
 requires-python = ">=3.10"
-dependencies = [
-    "numpy>=1.24",
-    "h5py>=3.9",
-    "scipy>=1.11",
-]
+dependencies = ["numpy>=1.24", "h5py>=3.9", "scipy>=1.11"]
 
 [tool.setuptools.packages.find]
 where = [".."]

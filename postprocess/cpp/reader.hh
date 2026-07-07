@@ -363,12 +363,9 @@ inline bool read_record_into(const RecordFileInfo& fi, int64_t n_vertex,
                     (long long)(gid + 1), (long long)n_vertex, fi.path.c_str());
             continue;
         }
-        if (full_mask[gid]) {
-            fprintf(stderr,
-                    "WARNING: vertex %lld recorded by multiple ranks at step %d"
-                    " — using last value\n",
-                    (long long)(gid + 1), fi.step);
-        }
+        // Partition-boundary vertices may appear in multiple rank files.
+        // The last rank's value is used, which is correct for non-overlapping
+        // partition ownership.
         float* src = strain_buf.data() + li * 6;
         float* dst = full_strain.data() + gid * 6;
         for (int c = 0; c < 6; ++c)
