@@ -51,9 +51,9 @@ uv sync --group dev
 # C++ forward solver — all targets auto-detected:
 cmake -B build && cmake --build build
 # Or build individually:
-#   cmake --build build --target gf_solver_mpi        # MPI + CPU
-#   cmake --build build --target gf_solver_cuda        # CUDA single-GPU
-#   cmake --build build --target gf_solver_mpi_cuda    # MPI + CUDA
+#   cmake --build build --target gf_solver_elastic_mpi        # MPI + CPU
+#   cmake --build build --target gf_solver_elastic_cuda        # CUDA single-GPU
+#   cmake --build build --target gf_solver_elastic_mpi_cuda    # MPI + CUDA
 # All binaries go to bin/
 
 # MPI environment (if using Spack)

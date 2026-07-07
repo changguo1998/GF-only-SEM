@@ -21,7 +21,7 @@ uv sync --group dev
 source env_setup.sh
 
 # Build (all auto-detected targets)
-cmake -B build && cmake --build build --target gf_solver_mpi
+cmake -B build && cmake --build build --target gf_solver_elastic_mpi
 
 # Run example
 bash examples/halfspace/run.sh
@@ -33,9 +33,9 @@ Three binaries built from the same source, switchable by name:
 
 | Binary | Backend | MPI | Use case |
 |--------|---------|-----|----------|
-| `gf_solver_mpi` | CPU | yes | CPU cluster, workstation |
-| `gf_solver_cuda` | CUDA | no | Single GPU, no MPI |
-| `gf_solver_mpi_cuda` | CUDA | yes | Multi-GPU cluster |
+| `gf_solver_elastic_mpi` | CPU | yes | CPU cluster, workstation |
+| `gf_solver_elastic_cuda` | CUDA | no | Single GPU, no MPI |
+| `gf_solver_elastic_mpi_cuda` | CUDA | yes | Multi-GPU cluster |
 
 - MPI and CUDA are auto-detected by CMake. Missing dependencies skip their targets.
 - GPU auto-binds via `cudaSetDevice(rank % n_devices)`.
@@ -61,9 +61,9 @@ Three binaries built from the same source, switchable by name:
 cmake -B build && cmake --build build
 
 # Individual targets
-cmake --build build --target gf_solver_mpi        # MPI + CPU
-cmake --build build --target gf_solver_cuda        # CUDA single-GPU
-cmake --build build --target gf_solver_mpi_cuda    # MPI + CUDA multi-GPU
+cmake --build build --target gf_solver_elastic_mpi        # MPI + CPU
+cmake --build build --target gf_solver_elastic_cuda        # CUDA single-GPU
+cmake --build build --target gf_solver_elastic_mpi_cuda    # MPI + CUDA multi-GPU
 ```
 
 ### Run
@@ -73,15 +73,15 @@ cmake --build build --target gf_solver_mpi_cuda    # MPI + CUDA multi-GPU
 python -m preprocess                          # reads config.py + model.h5 from CWD
 
 # Forward (3 directions) — choose your binary:
-mpirun -n $N_RANKS bin/gf_solver_mpi --direction x
-mpirun -n $N_RANKS bin/gf_solver_mpi --direction y
-mpirun -n $N_RANKS bin/gf_solver_mpi --direction z
+mpirun -n $N_RANKS bin/gf_solver_elastic_mpi --direction x
+mpirun -n $N_RANKS bin/gf_solver_elastic_mpi --direction y
+mpirun -n $N_RANKS bin/gf_solver_elastic_mpi --direction z
 
 # Or single-GPU (no MPI):
-bin/gf_solver_cuda --direction x
+bin/gf_solver_elastic_cuda --direction x
 
 # Or multi-GPU via MPI:
-mpirun -n $N_RANKS bin/gf_solver_mpi_cuda --direction x
+mpirun -n $N_RANKS bin/gf_solver_elastic_mpi_cuda --direction x
 
 # Post-process
 gf_postprocess model.h5 config.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/

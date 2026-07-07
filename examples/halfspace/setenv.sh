@@ -20,10 +20,10 @@ N_RANKS=$(python -c "import sys; sys.path.insert(0, '${EXAMPLE_DIR}'); import co
 MPIRUN="${MPIRUN:-mpirun}"
 
 # Check solver binary (default: MPI+CPU). Override SOLVER for GPU variants.
-SOLVER="${SOLVER:-${PROJECT_DIR}/bin/gf_solver_mpi}"
+SOLVER="${SOLVER:-${PROJECT_DIR}/bin/gf_solver_elastic_mpi}"
 if [ ! -x "${SOLVER}" ]; then
     echo "ERROR: solver not found at ${SOLVER}"
-    echo "       Build with: cd ${PROJECT_DIR}/build && cmake --build . --target gf_solver_mpi"
+    echo "       Build with: cd ${PROJECT_DIR}/build && cmake --build . --target gf_solver_elastic_mpi"
     return 1 2>/dev/null || exit 1
 fi
 

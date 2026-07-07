@@ -20,22 +20,22 @@ source "${SCRIPT_DIR}/preprocess.sh"
 PROJECT_BIN="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}/bin"
 
 # (A) CPU + MPI (default)
-# SOLVER="${PROJECT_BIN}/gf_solver_mpi"
+# SOLVER="${PROJECT_BIN}/gf_solver_elastic_mpi"
 
 # (B) CUDA single-GPU, no MPI
-SOLVER="${PROJECT_BIN}/gf_solver_cuda"
+SOLVER="${PROJECT_BIN}/gf_solver_elastic_cuda"
 SOLVER_FLAGS="" # no MPI needed
 
 # (C) CUDA + MPI (multi-GPU cluster)
-# SOLVER="${PROJECT_BIN}/gf_solver_mpi_cuda"
+# SOLVER="${PROJECT_BIN}/gf_solver_elastic_mpi_cuda"
 
 # (D) MPI + CUDA with explicit rank/GPU control (override n_ranks)
 # N_RANKS_CUSTOM=4
-# SOLVER="${PROJECT_BIN}/gf_solver_mpi_cuda"
+# SOLVER="${PROJECT_BIN}/gf_solver_elastic_mpi_cuda"
 # MPIRUN="mpirun -n ${N_RANKS_CUSTOM}"
 
 # (E) Custom path / build variant
-# SOLVER="${PROJECT_DIR}/build/forward-elastic/gf_solver_mpi"
+# SOLVER="${PROJECT_DIR}/build/forward/elastic/gf_solver_elastic_mpi"
 # ──────────────────────────────────────────────────────
 
 # ── Forward solver (3 directions) ───
@@ -47,9 +47,9 @@ for DIR in x y z; do
     mkdir -p "${WORK_DIR}/wavefields/${DIR}"
     cd "${WORK_DIR}"
 
-    # gf_solver_cuda runs standalone (no MPI)
-    if [[ ${SOLVER} == *gf_solver_cuda && ${SOLVER} != *mpi_cuda ]]; then
-        echo "  solver: gf_solver_cuda (CUDA, no MPI)"
+    # gf_solver_elastic_cuda runs standalone (no MPI)
+    if [[ ${SOLVER} == *gf_solver_elastic_cuda && ${SOLVER} != *mpi_cuda ]]; then
+        echo "  solver: gf_solver_elastic_cuda (CUDA, no MPI)"
         "${SOLVER}" --direction "${DIR}"
     else
         echo "  solver: $(basename "${SOLVER}") (${N_RANKS} ranks)"

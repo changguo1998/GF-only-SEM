@@ -5,7 +5,7 @@ project(gf_calculation LANGUAGES CXX)
 # Dependencies (auto-detected where available)
 # -----------------------------------------------------------------------
 
-# MPI: optional at top level. Required for MPI-based solvers. Without MPI, only gf_solver_cuda
+# MPI: optional at top level. Required for MPI-based solvers. Without MPI, only gf_solver_elastic_cuda
 # (single-GPU) can be built.
 find_package(MPI)
 if(MPI_FOUND)

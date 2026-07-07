@@ -4,7 +4,7 @@
 
 ## Goal
 
-`libgf` C++ physics library plus 3 solver binaries (`gf_solver_mpi`, `gf_solver_cuda`, `gf_solver_mpi_cuda`) for elastic SEM forward modeling.
+`libgf` C++ physics library plus 3 solver binaries (`gf_solver_elastic_mpi`, `gf_solver_elastic_cuda`, `gf_solver_elastic_mpi_cuda`) for elastic SEM forward modeling.
 
 ## Data Flow
 
@@ -40,9 +40,9 @@ partitions/partition_{r}.h5 (local subset per rank: topology + field/element + P
 ### CLI
 
 ```
-mpirun -np N bin/gf_solver_mpi --direction {x,y,z}        # CPU + MPI
-bin/gf_solver_cuda --direction x                          # single GPU (no MPI)
-mpirun -np N bin/gf_solver_mpi_cuda --direction x         # multi-GPU
+mpirun -np N bin/gf_solver_elastic_mpi --direction {x,y,z}        # CPU + MPI
+bin/gf_solver_elastic_cuda --direction x                          # single GPU (no MPI)
+mpirun -np N bin/gf_solver_elastic_mpi_cuda --direction x         # multi-GPU
 ```
 
 All paths are fixed relative to CWD:
@@ -62,9 +62,9 @@ Caller creates directories.
 
 | Binary | Backend | MPI | Build definition |
 |--------|---------|-----|-----------------|
-| `gf_solver_mpi` | CPU | yes | default |
-| `gf_solver_cuda` | CUDA | no | `GF_WITH_CUDA` + `GF_NO_MPI` |
-| `gf_solver_mpi_cuda` | CUDA | yes | `GF_WITH_CUDA` |
+| `gf_solver_elastic_mpi` | CPU | yes | default |
+| `gf_solver_elastic_cuda` | CUDA | no | `GF_WITH_CUDA` + `GF_NO_MPI` |
+| `gf_solver_elastic_mpi_cuda` | CUDA | yes | `GF_WITH_CUDA` |
 
 GPU auto-detects via `cudaGetDeviceCount()` and assigns `cudaSetDevice(rank % n_devices)`.
 When MPI ranks exceed GPUs on a node, excess ranks exit and remaining ranks

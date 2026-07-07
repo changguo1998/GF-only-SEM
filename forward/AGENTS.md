@@ -35,7 +35,7 @@ Elastic coefficients λ and μ are precomputed at GLL nodes during preprocessing
 and read from partition files — the kernel receives λ, μ directly instead of
 computing them from Vp, Vs, density every timestep.
 
-MPI is optional at link time: `gf_solver_cuda` links a no-op exchange stub
+MPI is optional at link time: `gf_solver_elastic_cuda` links a no-op exchange stub
 and guards `MPI_Init` via `#ifndef GF_NO_MPI`. All other solvers use real MPI.
 The GPU backend replaces *only* `compute_element_residual` — Newmark, PML,
 source, exchange, I/O stay on CPU. After each GPU kernel, residual is copied
@@ -49,7 +49,7 @@ CMake `GF_DEVICE_BACKEND=CUDA` enables the CUDA path. All other solver component
 
 See [`../docs/design/gpu.md`](../docs/design/gpu.md) for full design.
 
-> **GPU auto-binding:** `gf_solver_cuda` and `gf_solver_mpi_cuda` automatically detect
+> **GPU auto-binding:** `gf_solver_elastic_cuda` and `gf_solver_elastic_mpi_cuda` automatically detect
 > available GPUs via `cudaGetDeviceCount()` and assign `cudaSetDevice(rank % n_devices)`.
 > If MPI ranks on a shared-memory node exceed GPUs, the solver warns and reduces to
 > 1 rank per GPU: excess ranks exit early, remaining ranks redistribute partitions
@@ -61,9 +61,9 @@ Three solver binaries are produced, selectable by name:
 
 | Binary | Backend | MPI | Use case |
 |--------|---------|-----|----------|
-| `gf_solver_mpi` | CPU | yes | CPU cluster, workstation |
-| `gf_solver_cuda` | CUDA | no | Single GPU, no MPI needed |
-| `gf_solver_mpi_cuda` | CUDA | yes | Multi-GPU cluster |
+| `gf_solver_elastic_mpi` | CPU | yes | CPU cluster, workstation |
+| `gf_solver_elastic_cuda` | CUDA | no | Single GPU, no MPI needed |
+| `gf_solver_elastic_mpi_cuda` | CUDA | yes | Multi-GPU cluster |
 
 All three share the same source code. MPI-dependent code is guarded by
 `#ifndef GF_NO_MPI`. Backend dispatch uses `ActiveBackend` (set by CMake
@@ -71,13 +71,13 @@ define `GF_ACTIVE_BACKEND`).
 
 ```bash
 # MPI + CPU (default)
-mpirun -n N gf_solver_mpi --direction x
+mpirun -n N gf_solver_elastic_mpi --direction x
 
 # Single GPU (no mpirun)
-gf_solver_cuda --direction x
+gf_solver_elastic_cuda --direction x
 
 # Multi-GPU via MPI
-mpirun -n N gf_solver_mpi_cuda --direction x
+mpirun -n N gf_solver_elastic_mpi_cuda --direction x
 ```
 
 Frozen paths from CWD:
@@ -168,15 +168,15 @@ spack load /zkrqzmds   # OpenMPI 5.0.10
 ```bash
 # CPU + MPI (default — always available)
 cmake -B build
-cmake --build build --target gf_solver_mpi
+cmake --build build --target gf_solver_elastic_mpi
 
 # CUDA single-GPU (requires CUDA toolkit)
 cmake -B build
-cmake --build build --target gf_solver_cuda
+cmake --build build --target gf_solver_elastic_cuda
 
 # CUDA + MPI multi-GPU
 cmake -B build
-cmake --build build --target gf_solver_mpi_cuda
+cmake --build build --target gf_solver_elastic_mpi_cuda
 
 # All available targets
 cmake --build build
