@@ -1,4 +1,4 @@
-// forward/src/io.cpp
+// forward/share/src/io.cpp
 #include "gf/io.hpp"
 
 #include <hdf5.h>

@@ -349,4 +349,4 @@ All checked at preprocess time:
 | 11 | Δt ≤ h_min / v_p_max | CFL |
 | 12 | G\_{ij} = ε^{(j)}\_i | Strain Green tensor |
 
-*Generated from source code: forward/include/gf/*.hpp, forward/src/*.cpp, preprocess/*.py.\*
+*Generated from source code: forward/share/include/gf/*.hpp, forward/share/src/*.cpp, preprocess/*.py.\*

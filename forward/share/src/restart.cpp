@@ -1,4 +1,4 @@
-// forward/src/restart.cpp
+// forward/share/src/restart.cpp
 #include "gf/restart.hpp"
 
 #include <hdf5.h>

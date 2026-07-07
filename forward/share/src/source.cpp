@@ -1,4 +1,4 @@
-// forward/src/source.cpp
+// forward/share/src/source.cpp
 #include "gf/source.hpp"
 
 #include <algorithm>

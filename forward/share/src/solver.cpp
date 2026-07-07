@@ -1,4 +1,4 @@
-// forward/src/solver.cpp
+// forward/share/src/solver.cpp
 #include "gf/solver.hpp"
 
 #ifndef GF_NO_MPI

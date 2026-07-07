@@ -1,4 +1,4 @@
-// forward/src/assembly.cpp
+// forward/share/src/assembly.cpp
 #include "gf/assembly.hpp"
 
 #include <cassert>

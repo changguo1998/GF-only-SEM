@@ -56,7 +56,8 @@ Mathematical formulation for all methods below: [`docs/math.md`](math.md)
   ```
   tools/           — GMSH → model.h5 converter (Python) + VTK tools (C++ primary, Python archived)
   preprocess/      — Python + C++17: GLL geometry, material interpolation, partition, config
-  forward/         — C++17: core physics library (libgf) + MPI solver executable
+  forward/— C++17: core physics library (libgf) + MPI solver executable
+  forward-viscoelastic/  — C++17: viscoelastic SEM solver (SLS) — skeleton, deferred
   compress/        — C++17: header-only HDF5 compression utilities
   postprocess/     — C++17: strain GF extraction at shallow mesh vertices (Python archived)
   tests/

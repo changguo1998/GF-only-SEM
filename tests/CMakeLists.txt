@@ -18,7 +18,7 @@ if(MPI_FOUND)
         add_executable(${name} ${source})
         target_include_directories(
             ${name}
-            PRIVATE ${CMAKE_SOURCE_DIR}/forward/include ${CMAKE_SOURCE_DIR}/compress/include
+            PRIVATE ${CMAKE_SOURCE_DIR}/forward/share/include ${CMAKE_SOURCE_DIR}/compress/include
                     ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
         target_link_libraries(${name} PRIVATE libgf Catch2::Catch2WithMain MPI::MPI_CXX
                                               Eigen3::Eigen ${HDF5_C_LIBRARIES})
@@ -80,7 +80,7 @@ if(MPI_FOUND)
     add_executable(test_exchange test_exchange.cpp)
     target_include_directories(
         test_exchange
-        PRIVATE ${CMAKE_SOURCE_DIR}/forward/include ${CMAKE_SOURCE_DIR}/compress/include
+        PRIVATE ${CMAKE_SOURCE_DIR}/forward/share/include ${CMAKE_SOURCE_DIR}/compress/include
                 ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
     target_link_libraries(test_exchange PRIVATE libgf Catch2::Catch2 MPI::MPI_CXX Eigen3::Eigen
                                                 ${HDF5_C_LIBRARIES})
@@ -110,7 +110,7 @@ if(TARGET libgf_cuda_nompi)
     add_executable(test_element_cuda test_element_cuda.cu)
     target_include_directories(
         test_element_cuda
-        PRIVATE ${CMAKE_SOURCE_DIR}/forward/include ${CMAKE_SOURCE_DIR}/compress/include
+        PRIVATE ${CMAKE_SOURCE_DIR}/forward/share/include ${CMAKE_SOURCE_DIR}/compress/include
                 ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
     # Eigen3 include for CUDA: use compile-option -I (bypasses response file issues)
     get_filename_component(_eigen_prefix "${Eigen3_DIR}/../../.." ABSOLUTE)

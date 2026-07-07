@@ -72,7 +72,7 @@ from batching.
 ### Source Files
 
 ```
-forward/src/
+forward/share/src/
 ├── element_cpu.cpp        — CPU specialization (loops over n_elem internally)
 ├── element_cuda.cu        — CUDA kernel + specialization (grid.x = n_elem)
 ├── element_hip.hip.cpp    — deferred

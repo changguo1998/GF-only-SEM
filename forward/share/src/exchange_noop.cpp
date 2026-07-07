@@ -1,4 +1,4 @@
-// forward/src/exchange_noop.cpp
+// forward/share/src/exchange_noop.cpp
 //
 // No-op MPI halo exchange for single-process (non-MPI) builds.
 // Used by gf_solver_cuda (single-GPU, no MPI).

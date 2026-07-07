@@ -35,7 +35,7 @@ SOLVER_FLAGS="" # no MPI needed
 # MPIRUN="mpirun -n ${N_RANKS_CUSTOM}"
 
 # (E) Custom path / build variant
-# SOLVER="${PROJECT_DIR}/build/forward/gf_solver_mpi"
+# SOLVER="${PROJECT_DIR}/build/forward-elastic/gf_solver_mpi"
 # ──────────────────────────────────────────────────────
 
 # ── Forward solver (3 directions) ───

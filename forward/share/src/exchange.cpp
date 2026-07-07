@@ -1,4 +1,4 @@
-// forward/src/exchange.cpp
+// forward/share/src/exchange.cpp
 #include "gf/exchange.hpp"
 
 #include <mpi.h>

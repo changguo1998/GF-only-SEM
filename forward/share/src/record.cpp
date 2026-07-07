@@ -1,4 +1,4 @@
-// forward/src/record.cpp
+// forward/share/src/record.cpp
 #include "gf/record.hpp"
 
 #include <hdf5.h>

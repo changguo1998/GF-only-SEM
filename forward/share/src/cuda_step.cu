@@ -1,4 +1,4 @@
-// forward/src/cuda_step.cu
+// forward/share/src/cuda_step.cu
 // GPU kernels for single-GPU mode: Newmark, PML, source injection, strain.
 // Keeps all state on device, no per-step H2D/D2H copies.
 

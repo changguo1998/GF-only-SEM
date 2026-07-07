@@ -1,4 +1,4 @@
-// forward/src/newmark.cpp
+// forward/share/src/newmark.cpp
 #include "gf/newmark.hpp"
 
 namespace gf {

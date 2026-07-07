@@ -47,6 +47,7 @@ Three binaries built from the same source, switchable by name:
 |--------|----------|---------|
 | `preprocess/` | Python + C++17 | GLL geometry, material, PML, partition, config |
 | `forward/` | C++17 | Elastic CG-SEM solver (libgf) + 3 MPI/CUDA executables |
+| `forward-viscoelastic/` | C++17 | Viscoelastic SEM solver (SLS) — skeleton, implementation deferred |
 | `postprocess/` | C++17 | Strain Green's function extraction (Python archived) |
 | `compress/` | C++17 | Header-only HDF5 compression utilities |
 | `tools/` | Python + C++17 | GMSH→HDF5 converter (Python); VTK tools (C++ primary, Python archived) |

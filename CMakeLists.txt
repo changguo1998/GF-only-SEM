@@ -28,7 +28,7 @@ endif()
 # Required dependencies
 find_package(HDF5 REQUIRED COMPONENTS C)
 find_package(Eigen3 REQUIRED)
-# Propagate Eigen3 include path to subdirectories (same logic as forward/CMakeLists.txt)
+# Propagate Eigen3 include path to subdirectories (same logic as forward/share/CMakeLists.txt)
 get_filename_component(_eigen_prefix "${Eigen3_DIR}/../../.." ABSOLUTE)
 set(EIGEN3_INCLUDE_DIR "${_eigen_prefix}/include/eigen3")
 
@@ -50,9 +50,7 @@ FetchContent_MakeAvailable(Catch2)
 # -----------------------------------------------------------------------
 # Subdirectories
 # -----------------------------------------------------------------------
-add_subdirectory(compress)
 add_subdirectory(forward)
-add_subdirectory(preprocess/cpp)
 add_subdirectory(tools/cpp)
 add_subdirectory(postprocess/cpp)
 add_subdirectory(tests)

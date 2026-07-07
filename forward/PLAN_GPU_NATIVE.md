@@ -33,7 +33,7 @@ GPU: newmark_predict_kernel
 
 ## Files to create/modify
 
-### NEW: `forward/src/cuda_step.cu`
+### NEW: `forward/share/src/cuda_step.cu`
 
 CUDA kernels + host wrappers for:
 
@@ -47,7 +47,7 @@ CUDA kernels + host wrappers for:
 
 Host-callable function declarations + `CudaDeviceState` struct for device-side state management.
 
-### MODIFY: `forward/src/solver.cpp`
+### MODIFY: `forward/share/src/solver.cpp`
 
 Add `#ifdef GF_WITH_CUDA` path in time loop:
 

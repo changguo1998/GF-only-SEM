@@ -1,4 +1,4 @@
-// forward/include/gf/logger.hpp
+// forward/share/include/gf/logger.hpp
 //
 // Simple timestamped file logger for forward solver.
 // Writes to log/forward_{direction}_{rank}.log, also echoes to stdout (rank 0).

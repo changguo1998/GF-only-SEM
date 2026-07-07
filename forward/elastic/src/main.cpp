@@ -1,4 +1,4 @@
-// forward/src/main.cpp
+// forward/elastic/src/main.cpp
 //
 // gf_solver --direction {x,y,z} [--resume]
 // All I/O paths are frozen relative to CWD:

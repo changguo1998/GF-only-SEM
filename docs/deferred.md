@@ -6,7 +6,8 @@ ______________________________________________________________________
 
 ## 1. SLS Viscoelastic Attenuation
 
-**Status:** Deferred. Current solver is elastic-only.
+**Status:** Deferred. Current `forward/` solver is elastic-only.
+A `forward-viscoelastic/` skeleton exists for future SLS implementation.
 
 SLS spans preprocess and forward.
 
@@ -33,7 +34,7 @@ ______________________________________________________________________
 
 ## 2. Compress Module Integration
 
-**Status:** Not integrated. The `gf_compress` header-only library is not linked in `forward/CMakeLists.txt`.
+**Status:** Not integrated. The `gf_compress` header-only library is not linked in `forward/share/CMakeLists.txt`.
 
 - **Design:** [`design/compress.md`](design/compress.md)
 
@@ -81,8 +82,8 @@ ______________________________________________________________________
 
 | Item | Module | Priority | Effort |
 |------|--------|----------|--------|
-| SLS attenuation | preprocess + forward | High | Large |
+| SLS attenuation | preprocess + forward-viscoelastic | High | Large |
 | Full C-PML | preprocess + forward | Medium | Large |
-| Compress integration | forward | Low | Tiny |
+| Compress integration | forward-elastic/ | Low | Tiny |
 | Compression benchmark | compress | Low | Small |
-| HIP/SYCL backends | forward | Low | Medium |
+| HIP/SYCL backends | forward-elastic/ | Low | Medium |

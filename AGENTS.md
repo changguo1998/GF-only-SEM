@@ -14,6 +14,7 @@ Full math formulation: [`docs/math.md`](docs/math.md)
 |--------|----------|---------|-----------|
 | `preprocess/` | Python + C++17 | GLL geometry, material interpolation, PML, partition, config; C++ accelerator (default, OpenMP) | [`preprocess/AGENTS.md`](preprocess/AGENTS.md) |
 | `forward/` | C++17 | Elastic SEM solver (libgf) + MPI executable | [`forward/AGENTS.md`](forward/AGENTS.md) |
+| `forward-viscoelastic/` | C++17 | Viscoelastic SEM solver (SLS) — skeleton, implementation deferred | [`forward-viscoelastic/AGENTS.md`](forward-viscoelastic/AGENTS.md) |
 | `compress/` | C++17 | HDF5 compression utilities (header-only) | [`compress/AGENTS.md`](compress/AGENTS.md) |
 | `postprocess/` | C++17 | Strain Green's function extraction (Python archived in `_archive/`) | [`postprocess/AGENTS.md`](postprocess/AGENTS.md) |
 | `tools/` | C++17 + Python | VTK visualization tools (C++ primary, Python archived); GMSH→HDF5 conversion (Python) | [`tools/AGENTS.md`](tools/AGENTS.md) |
