@@ -27,5 +27,8 @@ if [ ! -x "${SOLVER}" ]; then
     return 1 2>/dev/null || exit 1
 fi
 
+# Make C++ tool binaries (gf_model2vtk, gf_postprocess, ...) available by name
+export PATH="${PROJECT_DIR}/bin:${PATH}"
+
 export PROJECT_DIR EXAMPLE_DIR N_RANKS MPIRUN SOLVER
 echo "Environment ready: N_RANKS=${N_RANKS}, MPIRUN=${MPIRUN}, SOLVER=${SOLVER}"

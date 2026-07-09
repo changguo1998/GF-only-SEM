@@ -16,7 +16,7 @@ source "${SCRIPT_DIR}/setenv.sh"
 showdir() {
     local p
     p=${1:-'.'}
-    { ls -lh "$p" 2>/dev/null || echo "  (not found)"; } | head -n 5
+    { ls -lh "$p" 2>/dev/null || echo "  (not found)"; } | head -n 5 || true
     if [[ "$(ls -lvh "$p" 2>/dev/null | wc -l)" -gt 5 ]]; then
         echo "  ..."
     fi
