@@ -2,10 +2,9 @@
 #
 # Produces: libgf_shared (STATIC)
 #
-# Core solver components that do NOT depend on MPI/CUDA compile-time flags.
-# Flags-dependent sources (solver.cpp, exchange.cpp, cuda_step.cu) and
-# solver-specific sources (element residual) are compiled per-target
-# in each solver's CMakeLists.txt.
+# Core solver components that do NOT depend on MPI/CUDA compile-time flags. Flags-dependent sources
+# (solver.cpp, exchange.cpp, cuda_step.cu) and solver-specific sources (element residual) are
+# compiled per-target in each solver's CMakeLists.txt.
 
 set(SHARED_SRCS
     src/assembly.cpp

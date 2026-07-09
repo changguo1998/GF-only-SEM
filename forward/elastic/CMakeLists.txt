@@ -1,12 +1,9 @@
 # forward/elastic/CMakeLists.txt — elastic SEM solver executables
 #
-# Produces:
-#   libgf                (STATIC, backward-compatible)
-#   libgf_cuda_nompi     (STATIC, backward-compatible, CUDA + noop exchange)
-#   libgf_cuda           (STATIC, backward-compatible, CUDA + MPI exchange)
-#   gf_solver_elastic_mpi        (CPU + MPI)
-#   gf_solver_elastic_cuda       (CUDA single-GPU, no MPI)
-#   gf_solver_elastic_mpi_cuda   (CUDA + MPI multi-GPU)
+# Produces: libgf                (STATIC, backward-compatible) libgf_cuda_nompi     (STATIC,
+# backward-compatible, CUDA + noop exchange) libgf_cuda           (STATIC, backward-compatible,
+# CUDA + MPI exchange) gf_solver_elastic_mpi        (CPU + MPI) gf_solver_elastic_cuda       (CUDA
+# single-GPU, no MPI) gf_solver_elastic_mpi_cuda   (CUDA + MPI multi-GPU)
 
 # -----------------------------------------------------------------------
 # Elastic element sources (physics-specific)
