@@ -135,3 +135,12 @@ add_executable(test_compress test_compress.cpp)
 target_link_libraries(test_compress PRIVATE gf_compress Catch2::Catch2WithMain)
 target_compile_features(test_compress PRIVATE cxx_std_17)
 catch_discover_tests(test_compress)
+
+# ---------------------------------------------------------------
+# Postprocess tile schema tests (no MPI, needs HDF5)
+# ---------------------------------------------------------------
+add_executable(test_postprocess_tile test_postprocess_tile.cpp)
+target_include_directories(test_postprocess_tile PRIVATE ${HDF5_INCLUDE_DIRS})
+target_link_libraries(test_postprocess_tile PRIVATE Catch2::Catch2WithMain ${HDF5_C_LIBRARIES})
+target_compile_features(test_postprocess_tile PRIVATE cxx_std_17)
+catch_discover_tests(test_postprocess_tile)

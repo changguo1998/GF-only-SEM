@@ -107,6 +107,25 @@ static void read_strain_1xNx6(hid_t loc, const char* name, hsize_t& n_vertices,
     H5Sclose(space);
 }
 
+// Read a 3-D float32 array [1, n_vertices, 3] (displacement/velocity/acceleration snapshot)
+static void read_field_1xNx3(hid_t loc, const char* name, hsize_t& n_vertices,
+                              std::vector<float>& buf) {
+    hid_t ds = H5Dopen2(loc, name, H5P_DEFAULT);
+    if (ds < 0) {
+        n_vertices = 0;
+        return;
+    }
+    hid_t space = H5Dget_space(ds);
+    hsize_t dims[3];
+    H5Sget_simple_extent_dims(space, dims, nullptr);
+    n_vertices = dims[1];
+    hsize_t total = dims[0] * dims[1] * dims[2];
+    buf.resize(total);
+    H5Dread(ds, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, buf.data());
+    H5Dclose(ds);
+    H5Sclose(space);
+}
+
 // -----------------------------------------------------------------------
 // ConfigReader
 // -----------------------------------------------------------------------
@@ -120,6 +139,10 @@ struct ConfigParams {
     double record_depth_max_m = 0.0;
     double record_depth_actual_m = 0.0;
     double green_tile_size_m = -1.0;  // negative = not set
+    // Source position
+    double source_x_m = 0.0;
+    double source_y_m = 0.0;
+    double source_z_m = 0.0;
     // PML thickness
     int64_t pml_xmin = 0, pml_xmax = 0;
     int64_t pml_ymin = 0, pml_ymax = 0;
@@ -166,6 +189,15 @@ inline ConfigParams read_config(const char* config_path) {
     cfg.tilex_elements = std::move(tx);
     auto ty = read_int64_1d(sim_gid, "tiley_elements", n);
     cfg.tiley_elements = std::move(ty);
+
+    // Read /source group attrs
+    hid_t src_gid = H5Gopen2(fid, "source", H5P_DEFAULT);
+    if (src_gid >= 0) {
+        read_attr_double(src_gid, "x", cfg.source_x_m);
+        read_attr_double(src_gid, "y", cfg.source_y_m);
+        read_attr_double(src_gid, "z", cfg.source_z_m);
+        H5Gclose(src_gid);
+    }
 
     H5Gclose(sim_gid);
     H5Fclose(fid);
@@ -328,7 +360,9 @@ inline std::vector<StepGroup> group_by_step(const std::vector<RecordFileInfo>& f
 // Returns false on error.
 inline bool read_record_into(const RecordFileInfo& fi, int64_t n_vertex,
                              std::vector<float>& full_strain,  // [n_vertex, 6]
-                             std::vector<bool>& full_mask) {
+                             std::vector<bool>& full_mask,
+                             std::vector<float>& full_displacement  // [n_vertex, 3]
+) {
     hid_t fid = H5Fopen(fi.path.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
     if (fid < 0) {
         fprintf(stderr, "WARNING: cannot open %s\n", fi.path.c_str());
@@ -353,9 +387,15 @@ inline bool read_record_into(const RecordFileInfo& fi, int64_t n_vertex,
         return false;
     }
 
+    // Read displacement [1, n_local, 3] (optional — backward compat)
+    hsize_t ndv = 0;
+    std::vector<float> disp_buf;
+    read_field_1xNx3(fid, "displacement", ndv, disp_buf);
+    bool has_displacement = (ndv == n_local && !disp_buf.empty());
+
     H5Fclose(fid);
 
-    // Scatter by vertex_id (1-based → 0-based)
+    // Scatter strain by vertex_id (1-based → 0-based)
     for (hsize_t li = 0; li < n_local; ++li) {
         int64_t gid = local_ids[li] - 1;  // 1-based → 0-based
         if (gid < 0 || gid >= n_vertex) {
@@ -371,6 +411,14 @@ inline bool read_record_into(const RecordFileInfo& fi, int64_t n_vertex,
         for (int c = 0; c < 6; ++c)
             dst[c] = src[c];
         full_mask[gid] = true;
+
+        // Scatter displacement if available
+        if (has_displacement) {
+            float* dsrc = disp_buf.data() + li * 3;
+            float* ddst = full_displacement.data() + gid * 3;
+            for (int c = 0; c < 3; ++c)
+                ddst[c] = dsrc[c];
+        }
     }
     return true;
 }

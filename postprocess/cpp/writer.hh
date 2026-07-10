@@ -139,7 +139,10 @@ inline void write_tile(const std::string& path, int tile_x, int tile_y, double x
                        const std::vector<int64_t>& tile_vertex_ids,  // 1-based
                        const std::vector<double>& time_arr,          // [nt]
                        double solver_dt_s,
-                       const std::vector<float>& tile_greens  // [nt, n_local, 6, 3]
+                       const std::vector<float>& tile_greens,  // [nt, n_local, 6, 3]
+                       const double source_xyz_m[3],
+                       const std::vector<double>& tile_vertex_coords,  // [n_local, 3]
+                       const float* displacement_tensor  // nullptr = strain-only
 ) {
     hid_t fid = H5Fcreate(path.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
     if (fid < 0) {
@@ -191,6 +194,18 @@ inline void write_tile(const std::string& path, int tile_x, int tile_y, double x
     write_double_attr("record_depth_max_m", record_depth_max_m);
     write_double_attr("record_depth_actual_m", record_depth_actual_m);
 
+    // Source position attrs
+    {
+        hsize_t sdims[1] = {3};
+        hid_t space = H5Screate_simple(1, sdims, nullptr);
+        hid_t attr = H5Acreate2(fid, "source_xyz_m", H5T_NATIVE_DOUBLE, space, H5P_DEFAULT, H5P_DEFAULT);
+        H5Awrite(attr, H5T_NATIVE_DOUBLE, source_xyz_m);
+        H5Aclose(attr);
+        H5Sclose(space);
+    }
+    write_str_attr("source_directions", "x,y,z");
+    write_str_attr("greens_quantities", displacement_tensor ? "strain,displacement" : "strain");
+
     // excludes_pml: int
     {
         int true_val = 1;
@@ -234,6 +249,16 @@ inline void write_tile(const std::string& path, int tile_x, int tile_y, double x
         H5Dclose(ds);
         H5Sclose(space);
     }
+    // vertex_coords: [n_local, 3] float64
+    if (!tile_vertex_coords.empty()) {
+        hsize_t cdims[2] = {(hsize_t)n_local, 3};
+        hid_t space = H5Screate_simple(2, cdims, nullptr);
+        hid_t ds = H5Dcreate2(mesh_gid, "vertex_coords", H5T_NATIVE_DOUBLE, space, H5P_DEFAULT,
+                              H5P_DEFAULT, H5P_DEFAULT);
+        H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, tile_vertex_coords.data());
+        H5Dclose(ds);
+        H5Sclose(space);
+    }
     H5Gclose(mesh_gid);
 
     // ---- /field group ----
@@ -245,15 +270,11 @@ inline void write_tile(const std::string& path, int tile_x, int tile_y, double x
 
         // Enable gzip + shuffle compression
         hid_t plist = H5Pcreate(H5P_DATASET_CREATE);
-        // Try to set compression; if not available, skip
         H5Pset_shuffle(plist);
-        // Set chunking
         hsize_t chunk_dims[4] = {1, (hsize_t)n_local, (hsize_t)ncomp, (hsize_t)ndir};
-        // If n_local is 0, use a safe chunk
         if (n_local == 0)
             chunk_dims[1] = 1;
         H5Pset_chunk(plist, 4, chunk_dims);
-        // Set deflate level 4 (gzip)
         H5Pset_deflate(plist, 4);
 
         hid_t ds = H5Dcreate2(field_gid, "greens_tensor", H5T_NATIVE_FLOAT, space, H5P_DEFAULT,
@@ -262,6 +283,25 @@ inline void write_tile(const std::string& path, int tile_x, int tile_y, double x
         H5Dclose(ds);
         H5Pclose(plist);
         H5Sclose(space);
+
+        // displacement_tensor: [nt, n_local, 3, 3] float32 (optional)
+        if (displacement_tensor != nullptr) {
+            hsize_t ddims[4] = {(hsize_t)nt, (hsize_t)n_local, 3, 3};
+            hid_t dspace = H5Screate_simple(4, ddims, nullptr);
+            hid_t dplist = H5Pcreate(H5P_DATASET_CREATE);
+            H5Pset_shuffle(dplist);
+            hsize_t dchunk[4] = {1, (hsize_t)n_local, 3, 3};
+            if (n_local == 0)
+                dchunk[1] = 1;
+            H5Pset_chunk(dplist, 4, dchunk);
+            H5Pset_deflate(dplist, 4);
+            hid_t dds = H5Dcreate2(field_gid, "displacement_tensor", H5T_NATIVE_FLOAT, dspace,
+                                   H5P_DEFAULT, dplist, H5P_DEFAULT);
+            H5Dwrite(dds, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, displacement_tensor);
+            H5Dclose(dds);
+            H5Pclose(dplist);
+            H5Sclose(dspace);
+        }
     }
     H5Gclose(field_gid);
 

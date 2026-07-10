@@ -96,9 +96,11 @@ static Args parse_args(int argc, char** argv) {
 // -----------------------------------------------------------------------
 
 struct MergedDirection {
-    std::vector<float> strain;      // [n_steps, n_vertex, 6]
-    std::vector<bool> vertex_mask;  // [n_vertex] — which vertices were recorded
+    std::vector<float> strain;           // [n_steps, n_vertex, 6]
+    std::vector<float> displacement;     // [n_steps, n_vertex, 3]
+    std::vector<bool> vertex_mask;       // [n_vertex] — which vertices were recorded
     int64_t n_steps = 0;
+    bool has_displacement = false;
 };
 
 static MergedDirection merge_direction(const char* dir_path, int64_t n_vertex) {
@@ -133,20 +135,34 @@ static MergedDirection merge_direction(const char* dir_path, int64_t n_vertex) {
     fprintf(stderr, "[postprocess]   Found %lld steps, %lld files\n", (long long)result.n_steps,
             (long long)files.size());
 
-    // Allocate merged array: [n_steps, n_vertex, 6]
+    // Allocate merged arrays
     result.strain.resize((size_t)result.n_steps * (size_t)n_vertex * 6, 0.0f);
+    result.displacement.resize((size_t)result.n_steps * (size_t)n_vertex * 3, 0.0f);
     result.vertex_mask.resize((size_t)n_vertex, false);
+
+    // Check first file for displacement dataset presence
+    if (!files.empty()) {
+        hid_t probe = H5Fopen(files[0].path.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+        if (probe >= 0) {
+            hid_t ds = H5Dopen2(probe, "displacement", H5P_DEFAULT);
+            result.has_displacement = (ds >= 0);
+            if (ds >= 0) H5Dclose(ds);
+            H5Fclose(probe);
+        }
+    }
 
     for (int64_t snap_idx = 0; snap_idx < result.n_steps; ++snap_idx) {
         auto& group = groups[(size_t)snap_idx];
         float* step_data = result.strain.data() + snap_idx * n_vertex * 6;
+        float* step_disp = result.displacement.data() + snap_idx * n_vertex * 3;
 
-        // Per-rank scratch buffer for this step
+        // Per-rank scratch buffers for this step
         std::vector<float> step_scratch((size_t)n_vertex * 6, 0.0f);
+        std::vector<float> step_disp_scratch((size_t)n_vertex * 3, 0.0f);
         std::vector<bool> step_mask((size_t)n_vertex, false);
 
         for (auto& fi : group.files) {
-            read_record_into(fi, n_vertex, step_scratch, step_mask);
+            read_record_into(fi, n_vertex, step_scratch, step_mask, step_disp_scratch);
         }
 
         // Copy to merged array and accumulate global mask
@@ -157,6 +173,14 @@ static MergedDirection merge_direction(const char* dir_path, int64_t n_vertex) {
                 for (int c = 0; c < 6; ++c)
                     dst[c] = src[c];
                 result.vertex_mask[(size_t)vi] = true;
+
+                // Copy displacement if available
+                if (result.has_displacement) {
+                    float* dsrc = step_disp_scratch.data() + vi * 3;
+                    float* ddst = step_disp + vi * 3;
+                    for (int c = 0; c < 3; ++c)
+                        ddst[c] = dsrc[c];
+                }
             }
         }
     }
@@ -265,6 +289,19 @@ int main(int argc, char** argv) {
     std::vector<float> fy_subset((size_t)n_steps * (size_t)n_recorded * 6, 0.0f);
     std::vector<float> fz_subset((size_t)n_steps * (size_t)n_recorded * 6, 0.0f);
 
+    // Check if displacement data is available across all directions
+    bool has_displacement = fx.has_displacement && fy.has_displacement && fz.has_displacement;
+
+    // Allocate subset displacement arrays [n_steps, n_recorded, 3]
+    std::vector<float> fx_disp_subset;
+    std::vector<float> fy_disp_subset;
+    std::vector<float> fz_disp_subset;
+    if (has_displacement) {
+        fx_disp_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0f);
+        fy_disp_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0f);
+        fz_disp_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0f);
+    }
+
     for (int64_t s = 0; s < n_steps; ++s) {
         for (int64_t gv = 0; gv < n_vertex; ++gv) {
             int64_t ri = global_to_recorded[(size_t)gv];
@@ -285,6 +322,23 @@ int main(int argc, char** argv) {
                 dst_fx[c] = src_fx[c];
                 dst_fy[c] = src_fy[c];
                 dst_fz[c] = src_fz[c];
+            }
+
+            // Subset displacement if available
+            if (has_displacement) {
+                size_t dsrc_base = ((size_t)s * (size_t)n_vertex + (size_t)gv) * 3;
+                size_t ddst_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3;
+                float* dsrc_fx = fx.displacement.data() + dsrc_base;
+                float* dsrc_fy = fy.displacement.data() + dsrc_base;
+                float* dsrc_fz = fz.displacement.data() + dsrc_base;
+                float* ddst_fx = fx_disp_subset.data() + ddst_base;
+                float* ddst_fy = fy_disp_subset.data() + ddst_base;
+                float* ddst_fz = fz_disp_subset.data() + ddst_base;
+                for (int c = 0; c < 3; ++c) {
+                    ddst_fx[c] = dsrc_fx[c];
+                    ddst_fy[c] = dsrc_fy[c];
+                    ddst_fz[c] = dsrc_fz[c];
+                }
             }
         }
     }
@@ -319,6 +373,38 @@ int main(int argc, char** argv) {
         }
     }
 
+    // ---- Assemble displacement tensor at recorded vertices ----
+    // disp_subset: [n_steps, n_recorded, 3, 3]
+    // Force-x direction → column 0, force-y → column 1, force-z → column 2
+    std::vector<float> disp_subset;
+    if (has_displacement) {
+        disp_subset.resize((size_t)n_steps * (size_t)n_recorded * 3 * 3, 0.0f);
+        for (int64_t s = 0; s < n_steps; ++s) {
+            for (int64_t ri = 0; ri < n_recorded; ++ri) {
+                size_t base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3;
+                size_t d_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3 * 3;
+
+                // fx → dir 0
+                float* src_fx = fx_disp_subset.data() + base;
+                float* d0 = disp_subset.data() + d_base + 0 * 3;
+                for (int c = 0; c < 3; ++c)
+                    d0[c] = src_fx[c];
+
+                // fy → dir 1
+                float* src_fy = fy_disp_subset.data() + base;
+                float* d1 = disp_subset.data() + d_base + 1 * 3;
+                for (int c = 0; c < 3; ++c)
+                    d1[c] = src_fy[c];
+
+                // fz → dir 2
+                float* src_fz = fz_disp_subset.data() + base;
+                float* d2 = disp_subset.data() + d_base + 2 * 3;
+                for (int c = 0; c < 3; ++c)
+                    d2[c] = src_fz[c];
+            }
+        }
+    }
+
     // Free large per-direction arrays to save memory
     fx.strain.clear();
     fx.strain.shrink_to_fit();
@@ -332,6 +418,20 @@ int main(int argc, char** argv) {
     fy_subset.shrink_to_fit();
     fz_subset.clear();
     fz_subset.shrink_to_fit();
+    fx.displacement.clear();
+    fx.displacement.shrink_to_fit();
+    fy.displacement.clear();
+    fy.displacement.shrink_to_fit();
+    fz.displacement.clear();
+    fz.displacement.shrink_to_fit();
+    if (has_displacement) {
+        fx_disp_subset.clear();
+        fx_disp_subset.shrink_to_fit();
+        fy_disp_subset.clear();
+        fy_disp_subset.shrink_to_fit();
+        fz_disp_subset.clear();
+        fz_disp_subset.shrink_to_fit();
+    }
 
     // ---- Bin recorded vertices into tiles ----
     fprintf(stderr, "[postprocess] Binning vertices into tiles...\n");
@@ -415,6 +515,35 @@ int main(int argc, char** argv) {
             }
         }
 
+        // Build tile displacement: [n_steps, n_local, 3, 3] (nullable)
+        std::vector<float> tile_displacement;
+        if (has_displacement) {
+            tile_displacement.resize((size_t)n_steps * (size_t)n_local * 3 * 3);
+            for (int64_t s = 0; s < n_steps; ++s) {
+                for (int64_t li = 0; li < n_local; ++li) {
+                    int64_t ri = vert_indices[(size_t)li];  // recorded index
+                    size_t src_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3 * 3;
+                    size_t dst_base = ((size_t)s * (size_t)n_local + (size_t)li) * 3 * 3;
+                    float* src = disp_subset.data() + src_base;
+                    float* dst = tile_displacement.data() + dst_base;
+                    for (size_t k = 0; k < (size_t)(3 * 3); ++k)
+                        dst[k] = src[k];
+                }
+            }
+        }
+
+        // Build tile vertex coords [n_local, 3] from model
+        std::vector<double> tile_vertex_coords((size_t)n_local * 3);
+        for (int64_t i = 0; i < n_local; ++i) {
+            int64_t gid = recorded_ids[(size_t)vert_indices[(size_t)i]] - 1;
+            tile_vertex_coords[(size_t)i * 3 + 0] = model.vertex_coords[(size_t)gid * 3 + 0];
+            tile_vertex_coords[(size_t)i * 3 + 1] = model.vertex_coords[(size_t)gid * 3 + 1];
+            tile_vertex_coords[(size_t)i * 3 + 2] = model.vertex_coords[(size_t)gid * 3 + 2];
+        }
+
+        // Source position
+        double source_xyz_m[3] = {cfg.source_x_m, cfg.source_y_m, cfg.source_z_m};
+
         // Compute tile bounds
         double tx_min, tx_max, ty_min, ty_max;
         compute_tile_bounds(key, tx_min, tx_max, ty_min, ty_max);
@@ -426,7 +555,8 @@ int main(int argc, char** argv) {
 
         write_tile(fname, key.tx, key.ty, tx_min, tx_max, ty_min, ty_max, zmin, zmax,
                    cfg.record_depth_max_m, cfg.record_depth_actual_m, tile_vertex_ids, time_arr,
-                   cfg.solver_dt, tile_greens);
+                   cfg.solver_dt, tile_greens, source_xyz_m, tile_vertex_coords,
+                   has_displacement ? tile_displacement.data() : nullptr);
     }
 
     // ---- Print machine-parseable stats ----
