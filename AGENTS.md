@@ -19,6 +19,7 @@ Full math formulation: [`docs/math.md`](docs/math.md)
 | `postprocess/` | C++17 | Strain Green's function extraction (Python archived in `_archive/`) | [`postprocess/AGENTS.md`](postprocess/AGENTS.md) |
 | `tools/` | C++17 + Python | VTK visualization tools (C++ primary, Python archived); GMSH→HDF5 conversion (Python) | [`tools/AGENTS.md`](tools/AGENTS.md) |
 | `tests/` | Python + C++ | Shared test infrastructure (pytest + Catch2) | [`tests/AGENTS.md`](tests/AGENTS.md) |
+| `greenfun/` | Python | Green's function reader with reciprocity query | [`greenfun/AGENTS.md`](greenfun/AGENTS.md) |
 
 ## Tech Stack
 

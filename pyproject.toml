@@ -3,7 +3,7 @@ name = "gf-calculation"
 version = "0.1.0"
 description = "3D viscoelastic SEM forward solver + post-hoc Green's function extraction"
 requires-python = ">=3.13"
-dependencies = ["numpy>=1.24", "h5py>=3.9", "meshio>=5.0"]
+dependencies = ["numpy>=1.24", "h5py>=3.9", "meshio>=5.0", "scipy>=1.11"]
 
 [[tool.uv.index]]
 url = "https://mirrors.cernet.edu.cn/pypi/web/simple"
@@ -51,9 +51,10 @@ build-backend = "setuptools.build_meta"
 
 [project.scripts]
 gmsh-to-hdf5 = "tools.gmsh_to_hdf5:main"
+gf_greenquery = "greenfun.query:main"
 
 [tool.setuptools.packages.find]
-include = ["tools*"]
+include = ["tools*", "greenfun*"]
 
 [tool.mdformat]
 wrap = 99
