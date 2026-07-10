@@ -109,7 +109,7 @@ static void read_strain_1xNx6(hid_t loc, const char* name, hsize_t& n_vertices,
 
 // Read a 3-D float32 array [1, n_vertices, 3] (displacement/velocity/acceleration snapshot)
 static void read_field_1xNx3(hid_t loc, const char* name, hsize_t& n_vertices,
-                              std::vector<float>& buf) {
+                             std::vector<float>& buf) {
     hid_t ds = H5Dopen2(loc, name, H5P_DEFAULT);
     if (ds < 0) {
         n_vertices = 0;

@@ -97,14 +97,24 @@ def compute_library_hash(root_path: Path) -> str:
 
 
 def _extract_source_id(source_dir: Path, root_path: Path) -> int:
-    """Extract the integer source ID from a source directory name."""
+    """Extract the integer source ID from a source directory name.
+
+    ``src_NNNN`` directories keep their numeric suffix.  A flat library root
+    containing ``tile_*.h5`` directly is treated as a single source with ID 0.
+    """
+    if source_dir.resolve() == root_path.resolve():
+        return 0
+
     match = _SRC_DIR_RE.search(source_dir.name)
     if match is None:
-        raise ValueError(f"Source directory {source_dir.name!r} does not match pattern 'src_NNNN'")
+        raise ValueError(
+            f"Source directory {source_dir.name!r} does not match pattern "
+            "'src_NNNN' and is not the flat library root"
+        )
     return int(match.group(1))
 
 
-def _read_tile_attrs(tile_path: Path) -> TileIndexEntry:
+def _read_tile_attrs(tile_path: Path, root_path: Path) -> TileIndexEntry:
     """Open a single tile HDF5 and extract its index metadata."""
     with h5py.File(tile_path, "r") as h5:
         source_xyz = h5.attrs["source_xyz_m"]
@@ -131,12 +141,8 @@ def _read_tile_attrs(tile_path: Path) -> TileIndexEntry:
         tile_x = int(h5.attrs["tile_x_index"])
         tile_y = int(h5.attrs["tile_y_index"])
 
-    # Derive source identity from the tile's parent directory.
     source_dir = tile_path.parent
-    source_id = _extract_source_id(source_dir, tile_path.parent)
-
-    # rel_path is relative to the library root (grandparent of tile).
-    root_path = tile_path.parent.parent
+    source_id = _extract_source_id(source_dir, root_path)
     rel_path = str(tile_path.relative_to(root_path))
 
     return TileIndexEntry(
@@ -164,7 +170,7 @@ def scan_tiles(root_path: Path) -> LibraryIndex:
     seen_sources: dict[int, npt.NDArray[np.float64]] = {}
 
     for tile_path in tile_paths:
-        entry = _read_tile_attrs(tile_path)
+        entry = _read_tile_attrs(tile_path, root_path)
         tile_entries.append(entry)
 
         # Stash the source xyz on first encounter of each source.

@@ -30,12 +30,8 @@ from greenfun.index_cache import (
 
 def _assert_index_shape(index, n_src: int, n_tiles: int) -> None:
     """Assert that *index* has the expected number of sources and tiles."""
-    assert len(index.sources) == n_src, (
-        f"expected {n_src} sources, got {len(index.sources)}"
-    )
-    assert len(index.tiles) == n_tiles, (
-        f"expected {n_tiles} tiles, got {len(index.tiles)}"
-    )
+    assert len(index.sources) == n_src, f"expected {n_src} sources, got {len(index.sources)}"
+    assert len(index.tiles) == n_tiles, f"expected {n_tiles} tiles, got {len(index.tiles)}"
 
 
 def _cache_path(root: Path) -> Path:
@@ -58,9 +54,7 @@ class TestComputeLibraryHash:
         extra_tile.write_text("dummy-content")
         hash_after = compute_library_hash(root)
 
-        assert hash_before != hash_after, (
-            "hash did not change after adding a tile"
-        )
+        assert hash_before != hash_after, "hash did not change after adding a tile"
         extra_tile.unlink()
 
     def test_hash_changes_when_tile_removed(self, greenfun_library):
@@ -74,9 +68,7 @@ class TestComputeLibraryHash:
         victim.unlink()
         hash_after = compute_library_hash(root)
 
-        assert hash_before != hash_after, (
-            "hash did not change after removing a tile"
-        )
+        assert hash_before != hash_after, "hash did not change after removing a tile"
         # Restore so cleanup works.
         victim.write_bytes(content)
 
@@ -95,7 +87,9 @@ class TestComputeLibraryHash:
         # Empty hash is the blake2b hex digest of no input.
         assert isinstance(h1, str) and len(h1) > 0
 
-    def test_hash_does_not_depend_on_content_inside_tile(self, tmp_path: Path, greens_tile_factory):
+    def test_hash_does_not_depend_on_content_inside_tile(
+        self, tmp_path: Path, greens_tile_factory
+    ):
         """Hash is based on stat only, not HDF5 content.
 
         Writing different data still produces the same hash if stat
@@ -133,9 +127,7 @@ class TestScanTiles:
 
         # Each source should have 2 tiles.
         for src in index.sources:
-            assert src.n_tiles == 2, (
-                f"source {src.source_id} expected 2 tiles, got {src.n_tiles}"
-            )
+            assert src.n_tiles == 2, f"source {src.source_id} expected 2 tiles, got {src.n_tiles}"
 
         # Tile paths should be relative and non-empty.
         for tile in index.tiles:
@@ -164,6 +156,23 @@ class TestScanTiles:
         assert tile.source_id == 0
         assert tile.tile_ij == (0, 0)
 
+    def test_scan_flat_single_source_directory(self, tmp_path: Path, greens_tile_factory):
+        """Scan flat postprocess output as a single source with source_id 0."""
+        greens_tile_factory(n_vertices=8, nt=50)
+
+        index = scan_tiles(tmp_path)
+
+        _assert_index_shape(index, n_src=1, n_tiles=1)
+        src = index.sources[0]
+        assert src.source_id == 0
+        assert src.dir_path == "."
+        assert src.n_tiles == 1
+        assert np.allclose(src.source_xyz_m, [500.0, 0.0, 0.0])
+
+        tile = index.tiles[0]
+        assert tile.source_id == 0
+        assert tile.rel_path == "tile_x000_y000.h5"
+
     def test_scan_source_xyz_preserved(self, greenfun_library):
         """Scan should preserve the source_xyz_m from tile attrs."""
         index = scan_tiles(greenfun_library.root)
@@ -177,9 +186,7 @@ class TestScanTiles:
         index = scan_tiles(greenfun_library.root)
         for tile in index.tiles:
             xmin, xmax, ymin, ymax, zmin, zmax = tile.bounds_m
-            assert xmin <= xmax, (
-                f"xmin ({xmin}) > xmax ({xmax}) for {tile.rel_path}"
-            )
+            assert xmin <= xmax, f"xmin ({xmin}) > xmax ({xmax}) for {tile.rel_path}"
             assert ymin <= ymax
             assert zmin <= zmax
 
@@ -243,9 +250,7 @@ class TestLoadOrRebuildIndex:
         load_or_rebuild_index(root)
         mtime_after = cache.stat().st_mtime_ns
 
-        assert mtime_before == mtime_after, (
-            "cache file was re-written on a hit"
-        )
+        assert mtime_before == mtime_after, "cache file was re-written on a hit"
 
     def test_mtime_change_triggers_rebuild(self, greenfun_library):
         """Changing a tile's mtime (but not its path/size) triggers rebuild.
@@ -273,13 +278,9 @@ class TestLoadOrRebuildIndex:
         assert len(index1.sources) == len(index2.sources)
         assert len(index1.tiles) == len(index2.tiles)
         # Hash must differ because mtime changed.
-        assert index1.library_hash != index2.library_hash, (
-            "hash should differ after mtime change"
-        )
+        assert index1.library_hash != index2.library_hash, "hash should differ after mtime change"
         # Build time should be updated (new rebuild).
-        assert index1.build_time != index2.build_time, (
-            "build_time should update on rebuild"
-        )
+        assert index1.build_time != index2.build_time, "build_time should update on rebuild"
 
     def test_rebuild_flag_forces_rescan(self, greenfun_library):
         """Passing ``rebuild=True`` must rescan even when cache exists."""
@@ -293,9 +294,7 @@ class TestLoadOrRebuildIndex:
         index2 = load_or_rebuild_index(root, rebuild=True)
         # Cache should be re-written.
         mtime_after = cache.stat().st_mtime_ns
-        assert mtime_after >= mtime_before, (
-            "cache was not re-written with rebuild=True"
-        )
+        assert mtime_after >= mtime_before, "cache was not re-written with rebuild=True"
         # Data should still be correct.
         _assert_index_shape(index2, n_src=3, n_tiles=6)
 
@@ -333,9 +332,7 @@ class TestLoadOrRebuildIndex:
         hash_after = compute_library_hash(root)
         assert hash_before != hash_after
 
-    def test_cache_preserves_index_after_restart(
-        self, greenfun_library
-    ):
+    def test_cache_preserves_index_after_restart(self, greenfun_library):
         """Simulate a 'restart' — delete in-memory index, reload from cache."""
         root = greenfun_library.root
         # Build and cache.
@@ -356,9 +353,7 @@ class TestLoadOrRebuildIndex:
             assert t1.tile_ij == t2.tile_ij
             assert np.allclose(t1.bounds_m, t2.bounds_m)
 
-    def test_corrupt_cache_triggers_rebuild(
-        self, greenfun_library
-    ):
+    def test_corrupt_cache_triggers_rebuild(self, greenfun_library):
         """A corrupted or incompatible-version cache must trigger rebuild."""
         root = greenfun_library.root
         cache = _cache_path(root)
@@ -389,10 +384,7 @@ class TestDataclassConstruction:
 
     def test_source_index_entry(self):
         entry = SourceIndexEntry(
-            source_id=0,
-            dir_path="src_0000",
-            source_xyz_m=np.array([1.0, 2.0, 3.0]),
-            n_tiles=2,
+            source_id=0, dir_path="src_0000", source_xyz_m=np.array([1.0, 2.0, 3.0]), n_tiles=2
         )
         assert entry.source_id == 0
         assert entry.dir_path == "src_0000"

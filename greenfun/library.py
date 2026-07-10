@@ -96,6 +96,10 @@ class GreenFunctionLibrary:
         GreenQuery
             Populated query result.
         """
+        if quantity not in ("strain", "displacement", "both"):
+            raise ValueError(
+                f"quantity must be one of 'strain', 'displacement', or 'both', got {quantity!r}"
+            )
         receiver = np.asarray(receiver_xyz, dtype=np.float64)
         source = np.asarray(source_xyz, dtype=np.float64)
 

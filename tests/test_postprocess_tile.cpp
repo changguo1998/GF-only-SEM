@@ -7,11 +7,10 @@
 // Set the GF_TILE_PATH environment variable to the tile file, or this test
 // will be skipped.
 
-#include <catch2/catch_test_macros.hpp>
-#include <catch2/matchers/catch_matchers_floating_point.hpp>
-
 #include <hdf5.h>
 
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>

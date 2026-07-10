@@ -143,4 +143,11 @@ add_executable(test_postprocess_tile test_postprocess_tile.cpp)
 target_include_directories(test_postprocess_tile PRIVATE ${HDF5_INCLUDE_DIRS})
 target_link_libraries(test_postprocess_tile PRIVATE Catch2::Catch2WithMain ${HDF5_C_LIBRARIES})
 target_compile_features(test_postprocess_tile PRIVATE cxx_std_17)
-catch_discover_tests(test_postprocess_tile)
+
+# Register one stable CTest name so `ctest -R test_postprocess_tile` always runs. If GF_TILE_PATH
+# is not supplied, the executable prints a Catch2 WARN and CTest reports the test as skipped
+# instead of silently matching no tests.
+add_test(NAME test_postprocess_tile COMMAND $<TARGET_FILE:test_postprocess_tile>)
+set_tests_properties(
+    test_postprocess_tile PROPERTIES SKIP_REGULAR_EXPRESSION "GF_TILE_PATH not set"
+                                     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

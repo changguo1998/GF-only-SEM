@@ -16,9 +16,15 @@ _EPS = 1e-12
 
 
 def _regular_3d_grid(
-    nx: int = 4, ny: int = 4, nz: int = 4,
-    x0: float = 0.0, y0: float = 0.0, z0: float = 0.0,
-    dx: float = 1.0, dy: float = 1.0, dz: float = 1.0,
+    nx: int = 4,
+    ny: int = 4,
+    nz: int = 4,
+    x0: float = 0.0,
+    y0: float = 0.0,
+    z0: float = 0.0,
+    dx: float = 1.0,
+    dy: float = 1.0,
+    dz: float = 1.0,
 ) -> np.ndarray:
     """Return an ``(nx*ny*nz, 3)`` array of regularly-spaced 3-D points."""
     xs = x0 + dx * np.arange(nx)
@@ -129,9 +135,7 @@ class TestTrilinearInterpolator:
         pt = np.array([1.3, 1.7, 2.1])
         result = interp.interpolate(pt, values)
 
-        assert result.shape == (2, 3), (
-            f"Expected shape (2, 3), got {result.shape}"
-        )
+        assert result.shape == (2, 3), f"Expected shape (2, 3), got {result.shape}"
 
     # ------------------------------------------------------------------
     # Edge cases
@@ -141,9 +145,7 @@ class TestTrilinearInterpolator:
         """Point at the center of a cell face (2-D plane) still works."""
         coords = _regular_3d_grid(nx=6, ny=6, nz=6, dx=1.5, dy=1.5, dz=1.5)
         n_vert = coords.shape[0]
-        field = (
-            2.0 + 0.5 * coords[:, 0] - 1.0 * coords[:, 1] + 3.0 * coords[:, 2]
-        )
+        field = 2.0 + 0.5 * coords[:, 0] - 1.0 * coords[:, 1] + 3.0 * coords[:, 2]
 
         interp = TrilinearInterpolator(coords)
 

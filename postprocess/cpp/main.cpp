@@ -96,9 +96,9 @@ static Args parse_args(int argc, char** argv) {
 // -----------------------------------------------------------------------
 
 struct MergedDirection {
-    std::vector<float> strain;           // [n_steps, n_vertex, 6]
-    std::vector<float> displacement;     // [n_steps, n_vertex, 3]
-    std::vector<bool> vertex_mask;       // [n_vertex] — which vertices were recorded
+    std::vector<float> strain;        // [n_steps, n_vertex, 6]
+    std::vector<float> displacement;  // [n_steps, n_vertex, 3]
+    std::vector<bool> vertex_mask;    // [n_vertex] — which vertices were recorded
     int64_t n_steps = 0;
     bool has_displacement = false;
 };
@@ -146,7 +146,8 @@ static MergedDirection merge_direction(const char* dir_path, int64_t n_vertex) {
         if (probe >= 0) {
             hid_t ds = H5Dopen2(probe, "displacement", H5P_DEFAULT);
             result.has_displacement = (ds >= 0);
-            if (ds >= 0) H5Dclose(ds);
+            if (ds >= 0)
+                H5Dclose(ds);
             H5Fclose(probe);
         }
     }

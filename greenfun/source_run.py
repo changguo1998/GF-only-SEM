@@ -146,6 +146,10 @@ class SourceRun:
         GreenQuery
             Fully populated query result.
         """
+        if quantity not in ("strain", "displacement", "both"):
+            raise ValueError(
+                f"quantity must be one of 'strain', 'displacement', or 'both', got {quantity!r}"
+            )
         if not self._loaded:
             self.load()
 

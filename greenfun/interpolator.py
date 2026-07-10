@@ -52,11 +52,7 @@ class TrilinearInterpolator:
     # Public API
     # ------------------------------------------------------------------
 
-    def interpolate(
-        self,
-        point_xyz_m: npt.ArrayLike,
-        values: np.ndarray,
-    ) -> np.ndarray:
+    def interpolate(self, point_xyz_m: npt.ArrayLike, values: np.ndarray) -> np.ndarray:
         """Interpolate *values* at the query point.
 
         Parameters
@@ -81,9 +77,7 @@ class TrilinearInterpolator:
         """
         point = np.asarray(point_xyz_m, dtype=np.float64)
         if point.shape != (3,):
-            raise ValueError(
-                f"point_xyz_m must have shape (3,), got {point.shape}"
-            )
+            raise ValueError(f"point_xyz_m must have shape (3,), got {point.shape}")
 
         values = np.asarray(values)
         n_vertices = self._vertex_coords.shape[0]
@@ -112,20 +106,13 @@ class TrilinearInterpolator:
         iz = int(np.searchsorted(z_axis, pz, side="right")) - 1
 
         if ix < 0 or iy < 0 or iz < 0:
-            raise ValueError(
-                f"Query point {point} is outside mesh bounds (below minimum)."
-            )
+            raise ValueError(f"Query point {point} is outside mesh bounds (below minimum).")
         if ix >= self._nx - 1 or iy >= self._ny - 1 or iz >= self._nz - 1:
-            raise ValueError(
-                f"Query point {point} is outside mesh bounds (above maximum)."
-            )
+            raise ValueError(f"Query point {point} is outside mesh bounds (above maximum).")
 
         # 8 corners of the bounding cell
         corner_indices = [
-            self._cell_map[ix + i, iy + j, iz + k]
-            for i in (0, 1)
-            for j in (0, 1)
-            for k in (0, 1)
+            self._cell_map[ix + i, iy + j, iz + k] for i in (0, 1) for j in (0, 1) for k in (0, 1)
         ]
 
         # ------------------------------------------------------------------
@@ -135,9 +122,7 @@ class TrilinearInterpolator:
         y0, y1 = y_axis[iy], y_axis[iy + 1]
         z0, z1 = z_axis[iz], z_axis[iz + 1]
 
-        cell_size = np.array(
-            [x1 - x0, y1 - y0, z1 - z0], dtype=np.float64
-        )
+        cell_size = np.array([x1 - x0, y1 - y0, z1 - z0], dtype=np.float64)
 
         # Degenerate cell — use inverse-distance weighting.
         if np.any(cell_size <= 1e-15):
@@ -162,9 +147,12 @@ class TrilinearInterpolator:
         for c in range(8):
             i, j, k = c // 4, (c // 2) % 2, c % 2
             weights[c] = (
-                (1.0 - alpha) ** (1 - i) * alpha ** i
-                * (1.0 - beta) ** (1 - j) * beta ** j
-                * (1.0 - gamma) ** (1 - k) * gamma ** k
+                (1.0 - alpha) ** (1 - i)
+                * alpha**i
+                * (1.0 - beta) ** (1 - j)
+                * beta**j
+                * (1.0 - gamma) ** (1 - k)
+                * gamma**k
             )
 
         weights /= weights.sum()

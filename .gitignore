@@ -14,3 +14,14 @@ preprocess/cpp/gf_preprocess_cpp_debug
 *.o
 *_nothread
 bin/
+
+# Rebuildable greenfun cache
+_greenfun_index.h5
+
+# Local agent/runtime artifacts
+.pi/
+.pi-subagents/
+docs/superpowers/
+
+# Accidental in-source CMake artifacts
+CMakeFiles/

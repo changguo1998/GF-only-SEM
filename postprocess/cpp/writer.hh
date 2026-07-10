@@ -142,7 +142,7 @@ inline void write_tile(const std::string& path, int tile_x, int tile_y, double x
                        const std::vector<float>& tile_greens,  // [nt, n_local, 6, 3]
                        const double source_xyz_m[3],
                        const std::vector<double>& tile_vertex_coords,  // [n_local, 3]
-                       const float* displacement_tensor  // nullptr = strain-only
+                       const float* displacement_tensor                // nullptr = strain-only
 ) {
     hid_t fid = H5Fcreate(path.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
     if (fid < 0) {
@@ -198,7 +198,8 @@ inline void write_tile(const std::string& path, int tile_x, int tile_y, double x
     {
         hsize_t sdims[1] = {3};
         hid_t space = H5Screate_simple(1, sdims, nullptr);
-        hid_t attr = H5Acreate2(fid, "source_xyz_m", H5T_NATIVE_DOUBLE, space, H5P_DEFAULT, H5P_DEFAULT);
+        hid_t attr =
+            H5Acreate2(fid, "source_xyz_m", H5T_NATIVE_DOUBLE, space, H5P_DEFAULT, H5P_DEFAULT);
         H5Awrite(attr, H5T_NATIVE_DOUBLE, source_xyz_m);
         H5Aclose(attr);
         H5Sclose(space);

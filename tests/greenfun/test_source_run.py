@@ -144,6 +144,7 @@ def _create_source_run_dir(
 
     return src_dir, sem_source_xyz, time
 
+
 # ---------------------------------------------------------------------------
 # Tests — SourceRun.load
 # ---------------------------------------------------------------------------
@@ -247,6 +248,12 @@ class TestSourceRunQuery:
         run = SourceRun(src_dir, source_xyz)
         result = run.query(source_xyz_m=np.array([5.0, 5.0, 5.0]), quantity="displacement")
         assert result.displacement is None
+
+    def test_invalid_quantity_raises(self, tmp_path: Path) -> None:
+        """Invalid quantity names fail loudly instead of returning empty data."""
+        run = self._make_run(tmp_path)
+        with pytest.raises(ValueError, match="quantity"):
+            run.query(source_xyz_m=np.array([5.0, 5.0, 5.0]), quantity="velocity")
 
     def test_exact_vertex_match_no_interpolation(self, tmp_path: Path) -> None:
         """Exact vertex match returns exact value (no interpolation)."""

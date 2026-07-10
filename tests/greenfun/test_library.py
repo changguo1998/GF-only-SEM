@@ -117,9 +117,7 @@ def _create_3d_library(
             mesh = np.meshgrid(xs, ys, zs, indexing="ij")
             vertex_coords = np.column_stack([m.ravel() for m in mesh])
 
-            vertex_ids = np.arange(
-                tile_idx * n_vert, tile_idx * n_vert + n_vert, dtype=np.int64
-            )
+            vertex_ids = np.arange(tile_idx * n_vert, tile_idx * n_vert + n_vert, dtype=np.int64)
 
             strain = rng.standard_normal((nt, n_vert, 6, 3)).astype(np.float32)
 
@@ -270,9 +268,7 @@ class TestGreenFunctionLibraryQuery:
 
         source_pt = np.array([5.0, 5.0, 5.0])
         result = lib.query(
-            source_xyz=source_pt,
-            receiver_xyz=np.array([10.0, 0.0, 0.0]),
-            quantity="strain",
+            source_xyz=source_pt, receiver_xyz=np.array([10.0, 0.0, 0.0]), quantity="strain"
         )
         assert np.allclose(result.source_xyz, source_pt)
 
@@ -282,9 +278,7 @@ class TestGreenFunctionLibraryQuery:
 
         receiver_pt = np.array([10.0, 0.0, 0.0])
         result = lib.query(
-            source_xyz=np.array([5.0, 5.0, 5.0]),
-            receiver_xyz=receiver_pt,
-            quantity="strain",
+            source_xyz=np.array([5.0, 5.0, 5.0]), receiver_xyz=receiver_pt, quantity="strain"
         )
         assert np.allclose(result.receiver_xyz, receiver_pt)
 
@@ -301,14 +295,8 @@ class TestGreenFunctionLibraryBatch:
         """Batch query returns one result per source."""
         lib = GreenFunctionLibrary(library_3d)
 
-        sources = np.array([
-            [5.0, 5.0, 5.0],
-            [5.0, 5.0, 5.0],
-        ])
-        receivers = np.array([
-            [10.0, 0.0, 0.0],
-            [990.0, 0.0, 0.0],
-        ])
+        sources = np.array([[5.0, 5.0, 5.0], [5.0, 5.0, 5.0]])
+        receivers = np.array([[10.0, 0.0, 0.0], [990.0, 0.0, 0.0]])
 
         results = lib.query_batch(sources, receivers, quantity="strain")
         assert len(results) == 2
@@ -321,10 +309,7 @@ class TestGreenFunctionLibraryBatch:
         """Single receiver broadcast to all sources."""
         lib = GreenFunctionLibrary(library_3d)
 
-        sources = np.array([
-            [5.0, 5.0, 5.0],
-            [5.0, 5.0, 5.0],
-        ])
+        sources = np.array([[5.0, 5.0, 5.0], [5.0, 5.0, 5.0]])
         # Single receiver (3,) broadcast.
         receiver = np.array([10.0, 0.0, 0.0])
 
@@ -347,11 +332,7 @@ class TestGreenFunctionLibraryBatch:
         lib = GreenFunctionLibrary(library_3d)
 
         sources = np.array([[5.0, 5.0, 5.0], [5.0, 5.0, 5.0]])
-        receivers = np.array([
-            [10.0, 0.0, 0.0],
-            [10.0, 0.0, 0.0],
-            [20.0, 0.0, 0.0],
-        ])
+        receivers = np.array([[10.0, 0.0, 0.0], [10.0, 0.0, 0.0], [20.0, 0.0, 0.0]])
 
         with pytest.raises(ValueError, match="Number of receivers"):
             lib.query_batch(sources, receivers)
@@ -361,20 +342,14 @@ class TestGreenFunctionLibraryBatch:
         lib = GreenFunctionLibrary(library_3d)
 
         with pytest.raises(ValueError, match="sources must have shape"):
-            lib.query_batch(
-                np.array([1.0, 2.0, 3.0]),
-                np.array([[10.0, 0.0, 0.0]]),
-            )
+            lib.query_batch(np.array([1.0, 2.0, 3.0]), np.array([[10.0, 0.0, 0.0]]))
 
     def test_query_batch_wrong_receiver_shape_raises(self, library_3d) -> None:
         """Wrong receiver shape raises ValueError."""
         lib = GreenFunctionLibrary(library_3d)
 
         with pytest.raises(ValueError, match="receivers must have shape"):
-            lib.query_batch(
-                np.array([[5.0, 5.0, 5.0]]),
-                np.array([1.0, 2.0]),
-            )
+            lib.query_batch(np.array([[5.0, 5.0, 5.0]]), np.array([1.0, 2.0]))
 
 
 # ---------------------------------------------------------------------------
@@ -389,18 +364,14 @@ class TestGreenFunctionLibraryEdgeCases:
         """Query on an empty library raises ValueError."""
         lib = GreenFunctionLibrary(tmp_path)
         with pytest.raises(ValueError, match="No SEM sources available"):
-            lib.query(
-                source_xyz=np.array([0.0, 0.0, 0.0]),
-                receiver_xyz=np.array([0.0, 0.0, 0.0]),
-            )
+            lib.query(source_xyz=np.array([0.0, 0.0, 0.0]), receiver_xyz=np.array([0.0, 0.0, 0.0]))
 
     def test_empty_library_raises_on_query_batch(self, tmp_path: Path) -> None:
         """Batch query on an empty library raises ValueError."""
         lib = GreenFunctionLibrary(tmp_path)
         with pytest.raises(ValueError, match="No SEM sources available"):
             lib.query_batch(
-                sources=np.array([[0.0, 0.0, 0.0]]),
-                receivers=np.array([[0.0, 0.0, 0.0]]),
+                sources=np.array([[0.0, 0.0, 0.0]]), receivers=np.array([[0.0, 0.0, 0.0]])
             )
 
     def test_source_xyz_at_receiver_returns_meaningful_data(self, library_3d) -> None:
@@ -448,3 +419,51 @@ class TestGreenFunctionLibraryEdgeCases:
 
         assert result.strain is not None
         assert result.strain.shape == (50, 6, 3)
+
+    def test_flat_single_source_directory_query(self, tmp_path: Path) -> None:
+        """Flat postprocess output directory is readable as one source run."""
+        rng = np.random.default_rng(7)
+        time = np.linspace(0.0, 1.0, 50, dtype=np.float64)
+        xs = np.array([0.0, 10.0])
+        ys = np.array([0.0, 10.0])
+        zs = np.array([0.0, 10.0])
+        mesh = np.meshgrid(xs, ys, zs, indexing="ij")
+        vertex_coords = np.column_stack([m.ravel() for m in mesh])
+        vertex_ids = np.arange(vertex_coords.shape[0], dtype=np.int64)
+        strain = rng.standard_normal((50, vertex_coords.shape[0], 6, 3)).astype(np.float32)
+        displacement = rng.standard_normal((50, vertex_coords.shape[0], 3, 3)).astype(np.float32)
+
+        _write_tile(
+            tmp_path / "tile_x000_y000.h5",
+            vertex_ids=vertex_ids,
+            vertex_coords=vertex_coords,
+            time=time,
+            strain=strain,
+            displacement=displacement,
+            sem_source_xyz=np.array([100.0, 200.0, 0.0]),
+        )
+
+        lib = GreenFunctionLibrary(tmp_path)
+        result = lib.query(
+            source_xyz=np.array([5.0, 5.0, 5.0]),
+            receiver_xyz=np.array([100.0, 200.0, 0.0]),
+            quantity="both",
+        )
+
+        assert lib.n_sources == 1
+        assert lib.n_tiles == 1
+        assert np.allclose(result.sem_source_xyz, [100.0, 200.0, 0.0])
+        assert result.strain is not None
+        assert result.strain.shape == (50, 6, 3)
+        assert result.displacement is not None
+        assert result.displacement.shape == (50, 3, 3)
+
+    def test_invalid_quantity_raises(self, library_3d) -> None:
+        """Invalid quantity names fail loudly at the library API boundary."""
+        lib = GreenFunctionLibrary(library_3d)
+        with pytest.raises(ValueError, match="quantity"):
+            lib.query(
+                source_xyz=np.array([5.0, 5.0, 5.0]),
+                receiver_xyz=np.array([10.0, 0.0, 0.0]),
+                quantity="velocity",
+            )

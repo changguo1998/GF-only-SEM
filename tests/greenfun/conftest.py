@@ -62,11 +62,13 @@ class GreenfunTestLibrary:
         time = np.linspace(0.0, 1.0, self.nt, dtype=np.float64)
 
         # Place SEM sources along a line / grid.
-        sem_sources = np.column_stack([
-            np.linspace(0.0, 1000.0, self.n_sources),
-            np.zeros(self.n_sources),
-            np.zeros(self.n_sources),
-        ])
+        sem_sources = np.column_stack(
+            [
+                np.linspace(0.0, 1000.0, self.n_sources),
+                np.zeros(self.n_sources),
+                np.zeros(self.n_sources),
+            ]
+        )
 
         for src_idx in range(self.n_sources):
             src_dir = self.root / f"src_{src_idx:04d}"
@@ -79,7 +81,11 @@ class GreenfunTestLibrary:
 
                 # Generate a small grid of vertex coordinates at z=0.
                 gx, gy = np.meshgrid(
-                    np.linspace(tile_idx * self.tile_x_size, (tile_idx + 1) * self.tile_x_size, int(np.sqrt(n_vert))),
+                    np.linspace(
+                        tile_idx * self.tile_x_size,
+                        (tile_idx + 1) * self.tile_x_size,
+                        int(np.sqrt(n_vert)),
+                    ),
                     np.linspace(0, self.tile_y_size, int(np.sqrt(n_vert))),
                 )
                 gx = gx.ravel()[:n_vert]
@@ -117,14 +123,10 @@ class GreenfunTestLibrary:
 
                     # Mesh
                     h5.create_dataset("/mesh/vertex_ids", data=vertex_ids)
-                    h5.create_dataset(
-                        "/mesh/vertex_coords", data=vertex_coords, dtype=np.float64
-                    )
+                    h5.create_dataset("/mesh/vertex_coords", data=vertex_coords, dtype=np.float64)
 
                     # Strain Green tensor [nt, n_vert, 6, 3]
-                    strain_data = rng.standard_normal(
-                        (self.nt, n_vert, 6, 3), dtype=np.float32
-                    )
+                    strain_data = rng.standard_normal((self.nt, n_vert, 6, 3), dtype=np.float32)
                     h5.create_dataset(
                         "/field/greens_tensor",
                         data=strain_data,
@@ -136,9 +138,7 @@ class GreenfunTestLibrary:
 
                     # Displacement tensor [nt, n_vert, 3, 3]
                     if include_displacement:
-                        disp_data = rng.standard_normal(
-                            (self.nt, n_vert, 3, 3), dtype=np.float32
-                        )
+                        disp_data = rng.standard_normal((self.nt, n_vert, 3, 3), dtype=np.float32)
                         h5.create_dataset(
                             "/field/displacement_tensor",
                             data=disp_data,
@@ -160,11 +160,7 @@ def greenfun_library(request: pytest.FixtureRequest) -> GreenfunTestLibrary:
     Cleanup is automatic after the test.
     """
     lib = GreenfunTestLibrary.create(
-        n_sources=3,
-        n_tiles_per_source=2,
-        n_vertex_per_tile=9,
-        nt=100,
-        include_displacement=True,
+        n_sources=3, n_tiles_per_source=2, n_vertex_per_tile=9, nt=100, include_displacement=True
     )
     request.addfinalizer(lib.cleanup)
     return lib
@@ -178,11 +174,7 @@ def greens_tile_factory(tmp_path: Path):
     and writes a single tile HDF5, returning the path.
     """
 
-    def _make(
-        n_vertices: int = 8,
-        nt: int = 50,
-        include_displacement: bool = True,
-    ) -> Path:
+    def _make(n_vertices: int = 8, nt: int = 50, include_displacement: bool = True) -> Path:
         rng = np.random.default_rng(12345)
         tile = tmp_path / "tile_x000_y000.h5"
         time = np.linspace(0.0, 0.5, nt, dtype=np.float64)
@@ -203,7 +195,9 @@ def greens_tile_factory(tmp_path: Path):
             h5.attrs["excludes_pml"] = 1
             h5.attrs["source_xyz_m"] = np.array([500.0, 0.0, 0.0])
             h5.attrs["source_directions"] = "x,y,z"
-            h5.attrs["greens_quantities"] = "strain,displacement" if include_displacement else "strain"
+            h5.attrs["greens_quantities"] = (
+                "strain,displacement" if include_displacement else "strain"
+            )
             h5.create_dataset("/time/t", data=time)
             h5.create_dataset("/mesh/vertex_ids", data=np.arange(n_vertices, dtype=np.int64))
             h5.create_dataset("/mesh/vertex_coords", data=coords)
