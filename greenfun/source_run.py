@@ -1,0 +1,192 @@
+"""SourceRun — one SEM source run with lazy tile loading and interpolation.
+
+A SourceRun encapsulates all tiles for a single SEM source location. It
+discovers ``tile_*.h5`` files, reads vertex coordinates, deduplicates
+boundary vertices by ID, and provides interpolation via
+:class:`TrilinearInterpolator`.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import h5py
+import numpy as np
+import numpy.typing as npt
+from scipy.spatial import KDTree
+
+from greenfun.interpolator import TrilinearInterpolator
+from greenfun.query import GreenQuery
+
+
+class SourceRun:
+    """Single greenfun run (one SEM source). Lazy tile loading.
+
+    Parameters
+    ----------
+    dir_path:
+        Path to a ``src_XXXX`` directory containing ``tile_*.h5`` files.
+    source_xyz:
+        SEM source location ``[x, y, z]`` in meters.
+
+    Attributes
+    ----------
+    time:
+        Time axis ``[nt]``, populated after :meth:`load`.
+    vertex_coords:
+        Deduplicated vertex coordinates ``[n_vertices, 3]``.
+    greens_tensor:
+        Strain Green tensor ``[nt, n_vertices, 6, 3]``.
+    displacement_tensor:
+        Displacement tensor ``[nt, n_vertices, 3, 3]`` or ``None``.
+    n_tiles:
+        Number of tile files loaded.
+    """
+
+    def __init__(self, dir_path: Path, source_xyz: np.ndarray) -> None:
+        self._dir_path = Path(dir_path)
+        self._source_xyz = np.asarray(source_xyz, dtype=np.float64)
+
+        # Lazy-loaded state
+        self._loaded = False
+        self.time: npt.NDArray[np.float64] | None = None
+        self.vertex_coords: npt.NDArray[np.float64] | None = None
+        self.greens_tensor: npt.NDArray[np.float32] | None = None
+        self.displacement_tensor: npt.NDArray[np.float32] | None = None
+        self.n_tiles: int = 0
+        self._interpolator: TrilinearInterpolator | None = None
+        self._kdtree: KDTree | None = None
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def load(self) -> None:
+        """Load all tiles: read vertex_coords, time axis, deduplicate by vertex_id.
+
+        Raises
+        ------
+        FileNotFoundError
+            If no ``tile_*.h5`` files are found in the directory.
+        """
+        tile_paths = sorted(self._dir_path.glob("tile_*.h5"))
+        if not tile_paths:
+            raise FileNotFoundError(f"No tile_*.h5 files found in {self._dir_path}")
+
+        # Read time axis from the first tile.
+        with h5py.File(tile_paths[0], "r") as h5:
+            self.time = h5["/time/t"][:].astype(np.float64)
+
+        nt = len(self.time)
+
+        # Collect vertex data, deduplicating by vertex_id.
+        all_vertex_ids: list[np.ndarray] = []
+        all_vertex_coords: list[np.ndarray] = []
+        all_greens: list[np.ndarray] = []
+        all_displacements: list[np.ndarray] = []
+        seen_ids: set[int] = set()
+        has_displacement = False
+
+        for tile_path in tile_paths:
+            with h5py.File(tile_path, "r") as h5:
+                vertex_ids = h5["/mesh/vertex_ids"][:]
+                vertex_coords = h5["/mesh/vertex_coords"][:]
+                greens = h5["/field/greens_tensor"][:]
+
+                has_disp = "/field/displacement_tensor" in h5
+                if has_disp:
+                    displacement = h5["/field/displacement_tensor"][:]
+                    has_displacement = True
+                else:
+                    displacement = None
+
+            # Deduplicate: keep vertices whose ID has not been seen before.
+            # Use a simple loop over the (typically small) vertex list;
+            # this avoids vectorised set-lookup overhead for correctness.
+            keep_mask = np.array([int(vid) not in seen_ids for vid in vertex_ids], dtype=bool)
+            kept_ids = vertex_ids[keep_mask]
+            for vid in kept_ids:
+                seen_ids.add(int(vid))
+
+            if not np.any(keep_mask):
+                continue
+
+            all_vertex_ids.append(kept_ids)
+            all_vertex_coords.append(vertex_coords[keep_mask])
+            all_greens.append(greens[:, keep_mask, :, :])
+            if displacement is not None:
+                all_displacements.append(displacement[:, keep_mask, :, :])
+
+        # Concatenate into unified arrays.
+        self.vertex_coords = np.concatenate(all_vertex_coords, axis=0).astype(np.float64)
+        self.greens_tensor = np.concatenate(all_greens, axis=1).astype(np.float32)
+
+        if has_displacement and all_displacements:
+            self.displacement_tensor = np.concatenate(all_displacements, axis=1).astype(np.float32)
+        else:
+            self.displacement_tensor = None
+
+        self.n_tiles = len(tile_paths)
+        self._interpolator = TrilinearInterpolator(self.vertex_coords)
+        self._kdtree = KDTree(self.vertex_coords)
+        self._loaded = True
+
+    def query(self, source_xyz_m: npt.ArrayLike, quantity: str = "strain") -> GreenQuery:
+        """Return interpolated Green's function at *source_xyz_m*.
+
+        Parameters
+        ----------
+        source_xyz_m:
+            Real source coordinate ``[x, y, z]`` in meters.
+        quantity:
+            One of ``"strain"``, ``"displacement"``, or ``"both"``.
+
+        Returns
+        -------
+        GreenQuery
+            Fully populated query result.
+        """
+        if not self._loaded:
+            self.load()
+
+        point = np.asarray(source_xyz_m, dtype=np.float64)
+        if point.shape != (3,):
+            raise ValueError(f"source_xyz_m must have shape (3,), got {point.shape}")
+
+        # Check for exact vertex match.
+        nn_distance, _ = self._kdtree.query(point, k=1)  # type: ignore[union-attr]
+        interpolation_used = bool(nn_distance >= 1e-15)
+
+        # Interpolate requested quantities.
+        # Tensors are stored as [nt, n_vertices, ...] but TrilinearInterpolator
+        # expects [n_vertices, ...], so we move the vertex dimension first.
+        strain: npt.NDArray[np.float32] | None = None
+        displacement: npt.NDArray[np.float32] | None = None
+
+        if quantity in ("strain", "both"):
+            values_vtx_first = np.moveaxis(self.greens_tensor, 0, 1)  # -> [n_vertices, nt, 6, 3]
+            result = self._interpolator.interpolate(  # type: ignore[union-attr]
+                point, values_vtx_first
+            )
+            strain = np.asarray(result, dtype=np.float32)  # [nt, 6, 3]
+
+        if quantity in ("displacement", "both"):
+            if self.displacement_tensor is not None:
+                values_vtx_first = np.moveaxis(
+                    self.displacement_tensor, 0, 1
+                )  # -> [n_vertices, nt, 3, 3]
+                result = self._interpolator.interpolate(  # type: ignore[union-attr]
+                    point, values_vtx_first
+                )
+                displacement = np.asarray(result, dtype=np.float32)  # [nt, 3, 3]
+
+        return GreenQuery(
+            source_xyz=point,
+            receiver_xyz=point,
+            sem_source_xyz=self._source_xyz,
+            time=self.time,  # type: ignore[arg-type]
+            strain=strain,
+            displacement=displacement,
+            n_tiles_used=self.n_tiles,
+            interpolation_used=interpolation_used,
+        )
