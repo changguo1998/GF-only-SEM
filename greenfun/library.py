@@ -78,10 +78,7 @@ class GreenFunctionLibrary:
         return len(self._index.tiles)
 
     def query(
-        self,
-        source_xyz: npt.ArrayLike,
-        receiver_xyz: npt.ArrayLike,
-        quantity: str = "strain",
+        self, source_xyz: npt.ArrayLike, receiver_xyz: npt.ArrayLike, quantity: str = "strain"
     ) -> GreenQuery:
         """Query Green's function by source and receiver coordinates.
 
@@ -135,10 +132,7 @@ class GreenFunctionLibrary:
         return result
 
     def query_batch(
-        self,
-        sources: npt.ArrayLike,
-        receivers: npt.ArrayLike,
-        quantity: str = "strain",
+        self, sources: npt.ArrayLike, receivers: npt.ArrayLike, quantity: str = "strain"
     ) -> list[GreenQuery]:
         """Batch version of :meth:`query`.
 
@@ -161,9 +155,7 @@ class GreenFunctionLibrary:
         rec_arr = np.asarray(receivers, dtype=np.float64)
 
         if src_arr.ndim != 2 or src_arr.shape[1] != 3:
-            raise ValueError(
-                f"sources must have shape (n_src, 3), got {src_arr.shape}"
-            )
+            raise ValueError(f"sources must have shape (n_src, 3), got {src_arr.shape}")
 
         n_src = src_arr.shape[0]
 
@@ -172,9 +164,7 @@ class GreenFunctionLibrary:
             rec_arr = rec_arr.reshape(1, 3)
 
         if rec_arr.ndim != 2 or rec_arr.shape[1] != 3:
-            raise ValueError(
-                f"receivers must have shape (n_rec, 3) or (3,), got {rec_arr.shape}"
-            )
+            raise ValueError(f"receivers must have shape (n_rec, 3) or (3,), got {rec_arr.shape}")
 
         if rec_arr.shape[0] == 1:
             rec_arr = np.broadcast_to(rec_arr, (n_src, 3))
@@ -185,10 +175,7 @@ class GreenFunctionLibrary:
                 f"number of sources ({n_src}), or be 1 for broadcasting."
             )
 
-        return [
-            self.query(src_arr[i], rec_arr[i], quantity=quantity)
-            for i in range(n_src)
-        ]
+        return [self.query(src_arr[i], rec_arr[i], quantity=quantity) for i in range(n_src)]
 
     # ------------------------------------------------------------------
     # Internal helpers

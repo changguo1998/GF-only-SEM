@@ -100,9 +100,7 @@ def _extract_source_id(source_dir: Path, root_path: Path) -> int:
     """Extract the integer source ID from a source directory name."""
     match = _SRC_DIR_RE.search(source_dir.name)
     if match is None:
-        raise ValueError(
-            f"Source directory {source_dir.name!r} does not match pattern 'src_NNNN'"
-        )
+        raise ValueError(f"Source directory {source_dir.name!r} does not match pattern 'src_NNNN'")
     return int(match.group(1))
 
 
@@ -117,14 +115,7 @@ def _read_tile_attrs(tile_path: Path) -> TileIndexEntry:
 
         min_max = {
             k: float(h5.attrs[k])
-            for k in (
-                "x_min_m",
-                "x_max_m",
-                "y_min_m",
-                "y_max_m",
-                "z_min_m",
-                "z_max_m",
-            )
+            for k in ("x_min_m", "x_max_m", "y_min_m", "y_max_m", "z_min_m", "z_max_m")
         }
         bounds = np.array(
             [
@@ -149,10 +140,7 @@ def _read_tile_attrs(tile_path: Path) -> TileIndexEntry:
     rel_path = str(tile_path.relative_to(root_path))
 
     return TileIndexEntry(
-        source_id=source_id,
-        rel_path=rel_path,
-        tile_ij=(tile_x, tile_y),
-        bounds_m=bounds,
+        source_id=source_id, rel_path=rel_path, tile_ij=(tile_x, tile_y), bounds_m=bounds
     )
 
 
@@ -200,16 +188,9 @@ def scan_tiles(root_path: Path) -> LibraryIndex:
         sdir = source_dirs[sid]
         dir_rel = str(sdir.relative_to(root_path))
         n_t = sum(1 for t in tile_entries if t.source_id == sid)
-        xyz = seen_sources.get(
-            sid, np.array([0.0, 0.0, 0.0], dtype=np.float64)
-        )
+        xyz = seen_sources.get(sid, np.array([0.0, 0.0, 0.0], dtype=np.float64))
         source_entries.append(
-            SourceIndexEntry(
-                source_id=sid,
-                dir_path=dir_rel,
-                source_xyz_m=xyz,
-                n_tiles=n_t,
-            )
+            SourceIndexEntry(source_id=sid, dir_path=dir_rel, source_xyz_m=xyz, n_tiles=n_t)
         )
 
     build_time = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -237,11 +218,7 @@ def _write_cache(cache_path: Path, index: LibraryIndex) -> None:
 
         # Sources group.
         src_dtype = np.dtype(
-            [
-                ("source_id", np.int32),
-                ("source_xyz_m", np.float64, (3,)),
-                ("n_tiles", np.int32),
-            ]
+            [("source_id", np.int32), ("source_xyz_m", np.float64, (3,)), ("n_tiles", np.int32)]
         )
         src_data = np.empty(len(index.sources), dtype=src_dtype)
         src_dir_paths: list[str] = []
@@ -253,17 +230,13 @@ def _write_cache(cache_path: Path, index: LibraryIndex) -> None:
 
         grp_src = h5.create_group("sources")
         grp_src.create_dataset("source_id", data=src_data["source_id"])
-        grp_src.create_dataset(
-            "source_xyz_m", data=src_data["source_xyz_m"]
-        )
+        grp_src.create_dataset("source_xyz_m", data=src_data["source_xyz_m"])
         grp_src.create_dataset("n_tiles", data=src_data["n_tiles"])
 
         # Variable-length string dataset for dir_path.
         dt_str = h5py.string_dtype()
         grp_src.create_dataset(
-            "dir_path",
-            data=np.array(src_dir_paths, dtype=object),
-            dtype=dt_str,
+            "dir_path", data=np.array(src_dir_paths, dtype=object), dtype=dt_str
         )
 
         # Tiles group.
@@ -283,17 +256,13 @@ def _write_cache(cache_path: Path, index: LibraryIndex) -> None:
         grp_tile = h5.create_group("tiles")
         grp_tile.create_dataset("source_id", data=tile_source_ids)
         grp_tile.create_dataset(
-            "rel_path",
-            data=np.array(tile_rel_paths, dtype=object),
-            dtype=dt_str,
+            "rel_path", data=np.array(tile_rel_paths, dtype=object), dtype=dt_str
         )
         grp_tile.create_dataset("tile_ij", data=tile_ij)
         grp_tile.create_dataset("bounds_m", data=tile_bounds)
 
 
-def _load_cache(
-    cache_path: Path, library_hash: str
-) -> LibraryIndex | None:
+def _load_cache(cache_path: Path, library_hash: str) -> LibraryIndex | None:
     """Load the cached index if the hash matches.
 
     Returns ``None`` when the cache is missing, has an incompatible version,
@@ -320,8 +289,7 @@ def _load_cache(
         src_xyz = grp_src["source_xyz_m"][:]
         src_n_tiles = grp_src["n_tiles"][:]
         src_dir_paths = [
-            s.decode("utf-8") if isinstance(s, bytes) else str(s)
-            for s in grp_src["dir_path"][:]
+            s.decode("utf-8") if isinstance(s, bytes) else str(s) for s in grp_src["dir_path"][:]
         ]
 
         sources: list[SourceIndexEntry] = []
@@ -339,8 +307,7 @@ def _load_cache(
         grp_tile = h5["tiles"]
         tile_src_ids = grp_tile["source_id"][:]
         tile_rel_paths = [
-            s.decode("utf-8") if isinstance(s, bytes) else str(s)
-            for s in grp_tile["rel_path"][:]
+            s.decode("utf-8") if isinstance(s, bytes) else str(s) for s in grp_tile["rel_path"][:]
         ]
         tile_ij = grp_tile["tile_ij"][:]
         tile_bounds = grp_tile["bounds_m"][:]
@@ -357,19 +324,14 @@ def _load_cache(
             )
 
     return LibraryIndex(
-        sources=sources,
-        tiles=tiles,
-        library_hash=library_hash,
-        build_time=build_time,
+        sources=sources, tiles=tiles, library_hash=library_hash, build_time=build_time
     )
 
 
 # ── public entry point ───────────────────────────────────────────────────
 
 
-def load_or_rebuild_index(
-    root_path: Path, rebuild: bool = False
-) -> LibraryIndex:
+def load_or_rebuild_index(root_path: Path, rebuild: bool = False) -> LibraryIndex:
     """Load the cached index or rebuild it from scratch.
 
     Parameters
