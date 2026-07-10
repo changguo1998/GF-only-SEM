@@ -52,9 +52,7 @@ class GreenQuery:
         return "\n".join(lines)
 
 
-def format_green_tensor(
-    data: npt.NDArray[np.float32] | None, label: str
-) -> str:
+def format_green_tensor(data: npt.NDArray[np.float32] | None, label: str) -> str:
     """Format a Green tensor for display."""
     if data is None:
         return f"{label}: None"
@@ -67,9 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Query Green's function library by source/receiver coordinates."
     )
     parser.add_argument(
-        "library_root",
-        type=str,
-        help="Path to the greenfun library root directory",
+        "library_root", type=str, help="Path to the greenfun library root directory"
     )
     parser.add_argument(
         "--source",
@@ -95,15 +91,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Green's quantity to return (default: strain)",
     )
     parser.add_argument(
-        "--output",
-        type=str,
-        default=None,
-        help="Write result to .npz file (optional)",
+        "--output", type=str, default=None, help="Write result to .npz file (optional)"
     )
     parser.add_argument(
-        "--rebuild-index",
-        action="store_true",
-        help="Force rebuild of the library index cache",
+        "--rebuild-index", action="store_true", help="Force rebuild of the library index cache"
     )
     return parser
 
@@ -116,16 +107,9 @@ def main(argv: list[str] | None = None) -> int:
     # Lazy import to avoid circular dependencies at package level.
     from greenfun.library import GreenFunctionLibrary
 
-    lib = GreenFunctionLibrary(
-        root=args.library_root,
-        rebuild_index=args.rebuild_index,
-    )
+    lib = GreenFunctionLibrary(root=args.library_root, rebuild_index=args.rebuild_index)
 
-    result = lib.query(
-        source_xyz=args.source,
-        receiver_xyz=args.receiver,
-        quantity=args.quantity,
-    )
+    result = lib.query(source_xyz=args.source, receiver_xyz=args.receiver, quantity=args.quantity)
 
     if args.output:
         out_path = Path(args.output)
