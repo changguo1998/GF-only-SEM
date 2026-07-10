@@ -162,7 +162,7 @@ def greenfun_library(request: pytest.FixtureRequest) -> GreenfunTestLibrary:
     lib = GreenfunTestLibrary.create(
         n_sources=3,
         n_tiles_per_source=2,
-        n_vertex_per_tile=8,
+        n_vertex_per_tile=9,
         nt=100,
         include_displacement=True,
     )
