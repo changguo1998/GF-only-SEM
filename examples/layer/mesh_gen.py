@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Generate a regular hexahedral mesh and write model.h5.
-
-Creates a rectilinear grid of hex elements and writes the standard
-model.h5 topology format used by the preprocessor.
+"""Generate a regular hexahedral mesh for the layered half-space and write model.h5.
 
 Mesh dimensions (nx_elements, ny_elements, nz_elements, lx, ly, lz) are read
-from config.py in the same directory.
+from config.py in the same directory.  The z-element thickness (lz / nz)
+matches the layer interface depth so each element is homogeneous.
 
 Usage:
-    python examples/halfspace/mesh_gen.py
+    python examples/layer/mesh_gen.py
 """
+
+from __future__ import annotations
 
 import os
 import sys
@@ -102,6 +102,7 @@ def main() -> None:
     print(f"            Elements: {nx * ny * nz} ({nx}×{ny}×{nz})")
     print(f"            Vertices: {topology['vertex_to_coord'].shape[0]}")
     print(f"            Domain:   {lx}×{ly}×{lz} m")
+    print("            Layer interface at z=500 m aligns with element boundary")
 
 
 if __name__ == "__main__":

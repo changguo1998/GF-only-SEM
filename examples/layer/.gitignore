@@ -3,4 +3,5 @@
 *.log
 *.npz
 *.csv
+.pyfk-venv/
 __pycache__/

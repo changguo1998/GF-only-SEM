@@ -7,8 +7,8 @@
 # Usage:
 #   source env_setup.sh
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-PROJECT_DIR="${SCRIPT_DIR}"
+GF_SEM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+PROJECT_DIR="${GF_SEM_DIR}"
 
 echo "=== gf-calculation environment initialization ==="
 echo "Project root: ${PROJECT_DIR}"
