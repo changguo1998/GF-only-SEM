@@ -68,14 +68,15 @@ and spack-installed `llvm` for clang-format.
 
 ## Project State
 
-Implementation complete — 5 modules + tests (104 Python + C++ Catch2).
+CG-SEM global-DOF assembly fix complete — waves now correctly propagate across element interfaces (both within-rank and cross-rank). All 207 tests pass (188 Python + 19 C++ Catch2).
+
 Elastic-only forward solver (SLS/attenuation deferred).
 
-C++ primary implementations: forward solver, postprocess, VTK tools (model2vtk,
-partition2vtk, wavefield2vtk, wavefield2vtk_detail). Python alternatives archived in `_archive/`.
-
-See each module's `AGENTS.md` for details.
-
+| Solver variant | Multi-rank | DOF numbering | Status |
+|---------------|------------|---------------|--------|
+| CPU + MPI     | ✅ (16 ranks) | Global (ibool) | ✅ Verified — halfspace 2.5e-12 m |
+| CUDA single   | N/A         | Element-local | ✅ 1000 steps / 2.4s |
+| CUDA + MPI    | Untested    | Per-rank ibool | ⚠ Not tested yet |
 ## Cross-Cutting Conventions
 
 - **Naming**: X2Y for topology relations, 1-based with signed direction

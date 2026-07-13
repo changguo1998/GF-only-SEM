@@ -38,21 +38,21 @@ SOLVER="${PROJECT_BIN}/gf_solver_elastic_mpi"
 echo ""
 echo "=== Stage 3: Forward solver ==="
 for DIR in x y z; do
-    echo ""
-    echo "--- direction=${DIR} ---"
-    mkdir -p "${WORK_DIR}/wavefields/${DIR}"
-    cd "${WORK_DIR}"
+	echo ""
+	echo "--- direction=${DIR} ---"
+	mkdir -p "${WORK_DIR}/wavefields/${DIR}"
+	cd "${WORK_DIR}"
 
-    # gf_solver_elastic_cuda runs standalone (no MPI)
-    if [[ ${SOLVER} == *gf_solver_elastic_cuda && ${SOLVER} != *mpi_cuda ]]; then
-        echo "  solver: gf_solver_elastic_cuda (CUDA, no MPI)"
-        "${SOLVER}" --direction "${DIR}"
-    else
-        echo "  solver: $(basename "${SOLVER}") (${N_RANKS} ranks)"
-        ${MPIRUN:-mpirun} -n ${N_RANKS:-1} "${SOLVER}" --direction "${DIR}"
-    fi
+	# gf_solver_elastic_cuda runs standalone (no MPI)
+	if [[ ${SOLVER} == *gf_solver_elastic_cuda && ${SOLVER} != *mpi_cuda ]]; then
+		echo "  solver: gf_solver_elastic_cuda (CUDA, no MPI)"
+		"${SOLVER}" --direction "${DIR}"
+	else
+		echo "  solver: $(basename "${SOLVER}") (${N_RANKS} ranks)"
+		${MPIRUN:-mpirun} -n ${N_RANKS:-1} "${SOLVER}" --direction "${DIR}"
+	fi
 
-    cd "${SCRIPT_DIR}"
+	cd "${SCRIPT_DIR}"
 done
 
 echo ""
@@ -62,21 +62,21 @@ cd "${WORK_DIR}"
 # Prefer C++ gf_wavefield2vtk with parallel dispatch; fall back to Python
 GF_WVTK="${PROJECT_BIN}/gf_wavefield2vtk"
 if [ -x "${GF_WVTK}" ]; then
-    # Derive n_snapshots from config.py
-    N_SNAPSHOTS=$(python -c "import sys; sys.path.insert(0, '${SCRIPT_DIR}'); import config; print(int(config.total_duration_s / config.output_dt_s))")
-    N_PARALLEL="${OMP_NUM_THREADS:-16}"
-    echo "  C++ gf_wavefield2vtk + parallel (-j${N_PARALLEL}, ${N_SNAPSHOTS} snapshots)"
-    seq 0 $((N_SNAPSHOTS - 1)) | parallel -j"${N_PARALLEL}" OMP_NUM_THREADS=1 "${GF_WVTK}" --snap {}
+	# Derive n_snapshots from config.py
+	N_SNAPSHOTS=$(python -c "import sys; sys.path.insert(0, '${SCRIPT_DIR}'); import config; print(int(config.total_duration_s / config.output_dt_s))")
+	N_PARALLEL="${OMP_NUM_THREADS:-16}"
+	echo "  C++ gf_wavefield2vtk + parallel (-j${N_PARALLEL}, ${N_SNAPSHOTS} snapshots)"
+	seq 0 $((N_SNAPSHOTS - 1)) | parallel -j"${N_PARALLEL}" OMP_NUM_THREADS=1 "${GF_WVTK}" --snap {}
 else
-    echo "  Python wavefield2vtk (sequential)"
-    wavefield2vtk
+	echo "  Python wavefield2vtk (sequential)"
+	wavefield2vtk
 fi
 cd "${SCRIPT_DIR}"
 echo ""
 echo "=== Forward outputs ==="
 for DIR in x y z; do
-    echo "wavefields/${DIR}/:"
-    showdir "${WORK_DIR}/wavefields/${DIR}/"
+	echo "wavefields/${DIR}/:"
+	showdir "${WORK_DIR}/wavefields/${DIR}/"
 done
 echo ""
 echo "Log files:"

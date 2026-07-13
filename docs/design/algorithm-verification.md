@@ -141,3 +141,15 @@ ______________________________________________________________________
 | 双阶段重叠 | — 未实现 (单阶段正确, 无计算/通信重叠优化) |
 
 **结论**: fix-plan 中所有影响**正确性**的算法设计与 SPECFEM3D 参考实现一致。PML 简化(速度阻尼替代 C-PML)是建模层面的权衡, 非算法错误。无双阶段优化不影响结果正确性。
+
+## 10. 多 rank 稳定性（实现中发现）
+
+fix-plan 假设 scatter/gather + MPI exchange 足够确保多 rank 正确性。
+实现中发现两个额外需求：
+
+| 维度 | 问题 | 修复 | 原因 |
+|------|------|------|------|
+| **质量 exchange** | 共享节点 `a = r_local + r_neighbor / m_local` → 加速度 2x 正常 → 爆炸 | exchange 后 `m_shared = m_local + m_neighbor` | rank_node_mass 只含本地元素贡献，不含 ghost 元素。SPECFEM3D 无此问题因 ghost 元素包含在分区文件中。 |
+| **u_tilde sync** | 两 rank 共享节点位移漂移 → 元素核用不同位移 → 残差不一致 → 正反馈 | 元素核前 exchange + average u_tilde | fix-plan 未考虑位移状态在 rank 间自然漂移。SPECFEM3D 无此问题因 ghost 元素直接读取邻居 rank 的节点值。 |
+
+**根因对比**: SPECFEM3D 将 ghost 元素数据（含 ibool）包含在分区文件中，每个 rank 有完整边界区域 → 元素核自动使用一致位移 → 无分歧。fix-plan 的简化（无 ghost 元素在分区中存储）需要显式的 mass exchange 和 u_tilde sync。

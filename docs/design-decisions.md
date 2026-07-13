@@ -53,6 +53,7 @@ Mathematical formulation for all methods below: [`docs/math.md`](math.md)
 - **Build system**: CMake
 - **Glue language**: Python
 - **Project structure**:
+
   ```
   tools/           — GMSH → model.h5 converter (Python) + VTK tools (C++ primary, Python archived)
   preprocess/      — Python + C++17: GLL geometry, material interpolation, partition, config
@@ -171,13 +172,14 @@ partition_{r}.h5
 │
 └── /partition/
     ├── n_ranks                 : attr int32
-    ├── n_elem_local            : attr int32
-    ├── n_elem_ghost            : attr int32
-    ├── n_global_nodes          : attr int64              — unique GLL nodes on this rank
-    ├── local_element_ids       : int64[n_elem_local]
-    ├── ghost_element_ids       : int64[n_ghost]
-    ├── ghost_owners            : int32[n_ghost]
-    ├── local_element2rank_node           : int64[n_elem_total, NGLL, NGLL, NGLL]  — ibool: local→global GLL node ID
+    ├── n_local_element         : attr int32
+    ├── n_ghost_element         : attr int32
+    ├── n_global_nodes          : attr int64              — unique GLL nodes on this rank (n_rank_node)
+    ├── use_global_dof          : attr int8               — 1=CG-SEM global DOF, 0=legacy element-local
+    ├── local_element_ids       : int64[n_local_element]
+    ├── ghost_element_ids       : int64[n_ghost_element]
+    ├── ghost_owners            : int32[n_ghost_element]
+    ├── local_element2rank_node : int64[n_local_element * NGLL^3]  — ibool: flat per-rank GLL→node map (absent→legacy)
     └── /exchange/              — precomputed face-pair lists per neighbor
 ```
 
@@ -279,28 +281,30 @@ Each tile stores recorded vertices in its x/y bounds for all saved depths. Green
 - **Mass computation**: After material interpolation (ρ needed for lumped mass).
   - **CPML precompute**: Tag PML elements and write linear-ramp damping profile to `/field/element/damping`. Full C-PML (d/K/α per direction, convolution coefficients) is deferred.
 - **Partitioning**: METIS k-way partition + GLL node global numbering (ibool equivalent) + precomputed exchange patterns. Each rank gets its own partition\_{r}.h5 with local subset.
-- **Geometric precompute**: GLL coords, Jacobian, dξ/dx, lumped mass, C-PML arrays — all at GLL nodes. Written to partition\_{r}.h5 `/field/element/`.
-- **Source precompute**: Put source on top free surface. Write source elements, natural coords, and normalized weights.
-- **No receivers**: Postprocess uses recorded mesh vertices. No receiver CSV, search, or interpolation.
-- **No inline STF**: User-defined function, evaluated over full time range.
-- **DRY metric**: N/NGLL embedded in array shapes — no separate config attribute.
-- **Elastic only**: SLS attenuation deferred to future work.
+- **ibool (local_element2rank_node)**: Per-rank unique GLL node numbering computed via coordinate sorting (matching SPECFEM3D's `get_global.f90`). Written as flat `int64[n_local * NGLL^3]` to `/field/element/local_element2rank_node`. Backward-compatible: absent → element-local DOF. Per-rank `n_rank_node` written as attribute.
+- **Exchange pattern conversion**: Send/recv DOF indices use global per-rank DOF numbers (`iglob * 3 + dir`) instead of element-local (`elem * n_node * 3 + dir`).
+- **Geometric precompute**: GLL coords, Jacobian, dξ/dx, lumped mass, C-PML arrays — all at GLL nodes. Written to partition\_{r}.h5 `/field/element/.`
 
 ## 8. Forward Solver Decisions
 
 - **Elastic only**: No SLS memory variables. Attenuation deferred to future work.
 - **Matrix-free assembly**: No global system matrix. K·u computed element-by-element.
-- **Global residual**: Single `r[NDIM, NGLOB_AB]` indexed by global GLL ID. Element contributions add into shared nodes.
+- **Global assembly (dual path)**: Two DOF numbering modes controlled by `use_global_dof` flag:
+  - **Global DOF (CG-SEM)**: Element-level temp arrays + explicit `scatter_to_rank`/`gather_from_rank`
+    via `local_element2rank_node` (ibool). MPI exchange sums contributions at shared interface nodes.
+    Requires mass exchange + u_tilde sync for multi-rank stability.
+  - **Element-local (legacy, backward compat)**: Direct element-level arrays, no cross-element assembly.
+    Used when partition file lacks `local_element2rank_node`.
 - **Precomputed data**: All mesh-dependent quantities read from partition\_{r}.h5 — no init phase.
 - **Material**: Read at GLL nodes from partition\_{r}.h5 — no runtime interpolation.
 - **Source injection**: Precomputed Lagrange weights and element list from config.h5 — forward solver distributes STF amplitude to GLL nodes via stored weights. No runtime Newton iteration.
 - **PML damping**: Simple linear-ramp damping applied to velocity: v ← v − d(node)·v. Precomputed damping profile read from partition. Full recursive-convolution C-PML (Wang et al. 2006, 39 memory variables) is deferred.
 - **No runtime PML build**: Damping profile precomputed by preprocessor, read from partition at startup.
-- **Shared nodes**: Within-rank sums via global array. Cross-rank sums via precomputed MPI face exchanges.
-- **Runtime loop**: Newmark predict → residual → PML damping → source → MPI exchange → Newmark correct → strain → output.
+- **Shared nodes**: Within-rank sums via `scatter_to_rank` (atomic add on GPU). Cross-rank sums via precomputed MPI exchange patterns (global DOF indices `iglob * 3 + dir`). Mass at shared nodes is exchanged so `a = (r_local + r_neighbor) / (m_local + m_neighbor)`. Predicted displacement (`u_tilde`) is exchanged + averaged before element kernel to keep state consistent across ranks.
+- **Runtime loop (global DOF)**: Newmark predict → u_tilde sync (exchange + average at shared nodes via MPI) → gather → element residual → PML damping → source injection → scatter → MPI exchange → Newmark correct (using mass-exchanged mass) → strain recording.
 - **Recording-mode strain**: Per-vertex strain computed inline at recorded mesh corners via derivative matrix and chain rule. Data-driven recording map: ranks with zero recorded vertices skip strain computation. No fallback to full-volume GLL strain when recording is enabled.
 - **3 runs per source**: Run x/y/z force jobs. One shared `config.h5`. Each writes `wavefields/{direction}/`.
-- **Restart/resume**: Restart is separate and latest-only. It stores u/v/a, step/time, and C-PML memory. `--resume` continues from it.
+- **Restart/resume**: Supports both DOF modes. `use_global_dof` attribute written to restart file. Global mode: flat `float64[n_rank_node * 3]` arrays. Element-local mode: `float64[n_local, NGLL, NGLL, NGLL, 3]` arrays. Reader auto-detects format. `--resume` continues from it.
 - **Parallelism**: Pure MPI, one rank per core. GPU element residual works alongside MPI (GPU replaces only the element kernel; residual copied back to CPU for exchange); see [`gpu.md`](design/gpu.md).
 
 ## 9. Testing & Validation

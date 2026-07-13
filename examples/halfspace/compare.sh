@@ -20,23 +20,23 @@ echo ""
 echo "=== Stage S2: Lamb analytic reference ==="
 cd "${WORK_DIR}"
 python "${SCRIPT_DIR}/reference.py" \
-  "${WORK_DIR}/greenfun" \
-  --source 6000 5000 0 \
-  --receiver 5000 5000 0 \
-  --output "${WORK_DIR}/lamb_reference.npz" \
-  --source-depth-m 10.0
+	"${WORK_DIR}/greenfun" \
+	--source 6000 5000 0 \
+	--receiver 5000 5000 0 \
+	--output "${WORK_DIR}/lamb_reference.npz" \
+	--source-depth-m 10.0
 
 # ── Stage S3: Compare ───
 echo ""
 echo "=== Stage S3: Compare with SEM ==="
 cd "${WORK_DIR}"
 python "${SCRIPT_DIR}/compare.py" \
-  "${WORK_DIR}/greenfun" \
-  --source 6000 5000 0 \
-  --receiver 5000 5000 0 \
-  --reference "${WORK_DIR}/lamb_reference.npz" \
-  --output "${WORK_DIR}/lamb_comparison.npz" \
-  --fit-scale
+	"${WORK_DIR}/greenfun" \
+	--source 6000 5000 0 \
+	--receiver 5000 5000 0 \
+	--reference "${WORK_DIR}/lamb_reference.npz" \
+	--output "${WORK_DIR}/lamb_comparison.npz" \
+	--fit-scale
 
 echo ""
 echo "=== All stages complete ==="
