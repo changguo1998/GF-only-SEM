@@ -25,7 +25,7 @@ struct GLLQuad {
 // by local element + GLL node. No separate MaterialProperties/PMProfile structs --
 // everything is precomputed at GLL nodes in partition_{r}.h5.
 struct RankData {
-    int n_local_elem = 0, n_ghost_elem = 0, n_total_elem = 0;
+    int n_local_element = 0, n_ghost_element = 0, n_total_element = 0;
     int ngll = 0;  // N+1, extracted from partition array shapes
 
     std::vector<int64_t> local_element_ids;  // 1-based global element IDs
@@ -40,6 +40,10 @@ struct RankData {
     std::vector<double> vp, vs, density;  // material at GLL nodes
     std::vector<double> lambda_, mu_;     // precomputed elastic coefficients at GLL nodes
     std::vector<double> pml_damping;      // PML damping, 0=interior
+
+    // Rank-level node numbering (CG-SEM assembly)
+    std::vector<int32_t> local_element2rank_node;     // [n_local_element * n_node] — maps (elem,node)→node_id (0-based)
+    int n_rank_node = 0;                  // unique rank-level nodes on this rank
 
     // Precomputed exchange patterns (from /partition/exchange/neighbor_{N}/)
     // Face-pair send/recv lists per neighbor

@@ -33,10 +33,10 @@ public:
     /// \param output_dir       Top-level output directory
     /// \param source_direction Force direction string ("x", "y", or "z")
     /// \param rank             MPI rank number
-    /// \param n_local_elem     Number of local elements on this rank
+    /// \param n_local_element     Number of local elements on this rank
     /// \param ngll             Number of GLL points per axis (N+1)
     RestartWriter(const std::string& output_dir, const std::string& source_direction, int rank,
-                  int n_local_elem, int ngll);
+                  int n_local_element, int ngll);
 
     ~RestartWriter();
 

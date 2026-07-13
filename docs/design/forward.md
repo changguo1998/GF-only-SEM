@@ -23,7 +23,7 @@ partitions/partition_{r}.h5 (local subset per rank: topology + field/element + P
     ├── Newmark time loop
     │   ├── NEWMARK PREDICT: ũ = u + solver_dt·v + (solver_dt²/2)·(1-2β)·a
     │   ├── Zero global residual: r[:, :] = 0
-    │   ├── Element residual (matrix-free, accumulate into r via gll_to_global)
+    │   ├── Element residual (matrix-free, accumulate into r via local_element2rank_node)
     d40|    │   ├── PML damping (linear ramp applied to velocity)
     │   ├── Source injection (distribute STF[t] × w_ijk via precomputed weights)
     │   ├── MPI halo exchange (precomputed face-pair lists)
@@ -71,7 +71,7 @@ When MPI ranks exceed GPUs on a node, excess ranks exit and remaining ranks
 redistribute partitions via `read_partition_range()`. Single-rank mode (1 MPI rank or
 non-MPI) reads all partitions via `read_partition_all()` — no repartitioning needed.
 
-**Matrix-free assembly**: no global matrix. Elements add `r = Σ Bᵀ_e · σ_e` into `r[NDIM, n_global_nodes]` through `gll_to_global`. Shared nodes sum by using the same global ID.
+**Matrix-free assembly**: no global matrix. Elements add `r = Σ Bᵀ_e · σ_e` into `r[NDIM, n_global_nodes]` through `local_element2rank_node`. Shared nodes sum by using the same global ID.
 
 Preprocess writes all mesh data to per-rank partitions. Rank `R` reads `partitions/partition_{R}.h5`. No global model file. No geometry recompute.
 
@@ -120,7 +120,7 @@ Per-rank file from preprocess. Each rank reads only its file. Contains local ele
 | `/partition/local_element_ids` | int64[n_elem_local] — owned element IDs (1-based) |
 | `/partition/ghost_element_ids` | int64[n_ghost_elem] — halo element IDs (1-based) |
 | `/partition/ghost_owners` | int32[n_ghost_elem] — source rank for each ghost element |
-| `/partition/gll_to_global` | int64[n_elem_local, NGLL, NGLL, NGLL] — global GLL node ID per local element (1-based, 0=null) |
+| `/partition/local_element2rank_node` | int64[n_elem_local, NGLL, NGLL, NGLL] — global GLL node ID per local element (1-based, 0=null) |
 | `/recording/vertex_ids` | int64[n_record_vertices] — global mesh vertex IDs to write from this rank |
 | `/recording/source_element_local_index` | int32[n_record_vertices] — local source element for each recorded vertex |
 | `/recording/source_corner_index` | int32[n_record_vertices] — SEM corner index for each recorded vertex |
@@ -143,7 +143,7 @@ No `/attenuation/` — elastic-only, attenuation deferred. No `direction` — pa
 | Component | Responsibility |
 |-----------|---------------|
 | **gll** | GLL points/weights, Lagrange basis, derivative matrix (header-only, N-dependent) |
-| **element** | Matrix-free K_e·u: stiffness × displacement using precomputed dξ/dx and detJ. Accumulates into global residual via gll_to_global |
+| **element** | Matrix-free K_e·u: stiffness × displacement using precomputed dξ/dx and detJ. Accumulates into global residual via local_element2rank_node |
 | **assembly** | `assemble_residual()` zeros global r, calls element loop, handles within-rank accumulation |
 | **pml** | Simple linear-ramp PML damping: v ← v - d(node)·v. Full recursive-convolution C-PML deferred |
 | **newmark** | NewmarkPredictor, NewmarkCorrector (2nd order explicit, β=0, γ=½) |
@@ -168,15 +168,15 @@ struct GLLQuad {
 
 // Per-rank data (subset of partition_{r}.h5)
 struct RankData {
-    int n_local_elem, n_ghost_elem, n_total_elem;
+    int n_local_element, n_ghost_elem, n_total_elem;
     int64_t n_global_nodes;                   // unique GLL nodes on this rank
     std::vector<int64_t> local_element_ids;   // owned
     std::vector<int64_t> ghost_element_ids;   // halo
     std::vector<int32_t> ghost_owners;        // which rank owns each ghost
 
     // Global GLL node numbering: [n_elem_total, NGLL, NGLL, NGLL]
-    // gll_to_global[e][i][j][k] = global node ID (1-based, 0=null)
-    std::vector<int64_t> gll_to_global;
+    // local_element2rank_node[e][i][j][k] = global node ID (1-based, 0=null)
+    std::vector<int64_t> local_element2rank_node;
 
     // Precomputed fields at GLL nodes (coords, jacobian, dxi_dx, mass, material)
     // PML damping profile
@@ -268,7 +268,7 @@ for step in 0..nsteps-1:
     3. Element stiffness (matrix-free K·u for local + ghost elements):
        For each element e:
          For each GLL node (i,j,k):
-           iglob = gll_to_global[e][i][j][k]       ← global node ID
+           iglob = local_element2rank_node[e][i][j][k]       ← global node ID
            Compute ∇ũ via GLL derivatives × dξ/dx
            ε = ½(∇ũ + ∇ũᵀ)
            σ = C:ε  (elastic)
@@ -285,7 +285,7 @@ for step in 0..nsteps-1:
     5. Source injection:
        For each source element e in precomputed list:
          For each GLL node (i,j,k):
-           iglob = gll_to_global[e][i][j][k]
+           iglob = local_element2rank_node[e][i][j][k]
            r(d, iglob) += STF(t) × w_ijk × direction_vector[d]   ← d=1,2,3
 
     6. MPI halo exchange:
@@ -301,7 +301,7 @@ for step in 0..nsteps-1:
 
     8. Strain snapshot (when step % snapshot_stride == 0):
        For each recorded vertex in the recording map:
-         iglob = gll_to_global[elem][i][j][k]
+         iglob = local_element2rank_node[elem][i][j][k]
          Compute ∇u at that corner via GLL derivative matrix × dxi_dx
          ε = ½(∇u + ∇uᵀ)   (6-component Voigt)
        Write wavefields/{direction}/record_{r}_{step}.h5

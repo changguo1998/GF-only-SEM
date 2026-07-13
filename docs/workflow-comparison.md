@@ -67,7 +67,7 @@ element_residual_kernel<<<grid, block>>>(..., d_displacement_tilde, d_residual);
 // d_residual[e * n_node * 3 + ...] — no cross-element accumulation
 
 // "Assembly" (= trivial copy):
-global_residual[global_offset + d] = elem_residual[local_offset + d];
+rank_node_residual[global_offset + d] = local_element_residual[local_offset + d];
 
 // MPI exchange_halo — empty patterns, so no-op
 exchange_halo(exchange_patterns, residual, 3);

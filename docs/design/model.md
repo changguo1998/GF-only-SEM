@@ -179,7 +179,7 @@ partition_{r}.h5
     ├── local_element_ids       : int64[n_elem_local]   — owned element global IDs
     ├── ghost_element_ids       : int64[n_ghost]         — halo elements (other ranks)
     ├── ghost_owners            : int32[n_ghost]         — which rank owns each ghost
-    ├── gll_to_global           : int64[n_elem_total, NGLL, NGLL, NGLL]
+    ├── local_element2rank_node           : int64[n_elem_total, NGLL, NGLL, NGLL]
     │                               — GLL node (i,j,k) → global node ID
     │                               — n_elem_total = n_elem_local + n_ghost
     │                               — 1-based, 0 = null
@@ -206,8 +206,8 @@ partition_{r}.h5
 - **NGLL** = N+1, embedded in array shapes — no separate attribute needed. Polynomial order N is known to all components via array shapes.
 - All element-level fields use element-first layout: `[n_elem_total, NGLL, NGLL, NGLL, …]`
 - PML damping array (`/field/element/damping`) is precomputed by the preprocessor. Forward solver reads directly — no runtime PML computation.
-- `gll_to_global` is the CG-SEM assembly map (`ibool`). It maps each local/ghost GLL node to a global ID. Shared nodes accumulate into the same ID.
-- `n_elem_total = n_elem_local + n_ghost` — both owned and ghost elements share the same `gll_to_global` numbering space.
+- `local_element2rank_node` is the CG-SEM assembly map (`ibool`). It maps each local/ghost GLL node to a global ID. Shared nodes accumulate into the same ID.
+- `n_elem_total = n_elem_local + n_ghost` — both owned and ghost elements share the same `local_element2rank_node` numbering space.
 
 ## Boundary Tags
 

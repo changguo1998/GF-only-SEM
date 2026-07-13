@@ -266,7 +266,7 @@ def _write_partition_files(
         ghost_owners = np.asarray(rk.get("ghost_owners", []), dtype=np.int32)
 
         local_zero = local_ids  # already 0-based from partition.py
-        n_local = len(local_zero)
+        n_local_element = len(local_zero)
 
         part_path = os.path.join(parts_dir, f"partition_{r}.h5")
         with h5py.File(part_path, "w") as f:
@@ -277,15 +277,27 @@ def _write_partition_files(
                 arr = fields.get(key)
                 if arr is None:
                     continue
-                local_data = arr[local_zero] if n_local > 0 else np.array([], dtype=arr.dtype)
+                local_data = arr[local_zero] if n_local_element > 0 else np.array([], dtype=arr.dtype)
                 _write_dataset(felem_grp, key, local_data, compression=True)
 
             # Write tile_index to partition file
             if global_tile_index is not None:
                 local_tile = (
-                    global_tile_index[local_zero] if n_local > 0 else np.array([], dtype=np.int64)
+                    global_tile_index[local_zero] if n_local_element > 0 else np.array([], dtype=np.int64)
                 )
                 _write_dataset(felem_grp, "tile_index", local_tile, dtype="int64")
+
+            # Write local_element2rank_node and n_rank_node (per-rank global DOF mapping)
+            local_element2rank_node_4d = rk.get("local_element2rank_node")
+            if local_element2rank_node_4d is not None and n_local_element > 0:
+                # local_element2rank_node_4d: [n_local_element+n_ghost, NGLL, NGLL, NGLL]
+                # Write only local-element slice, flattened
+                n_node = int(local_element2rank_node_4d[0].size)  # NGLL³
+                local_element2rank_node_local = local_element2rank_node_4d[:n_local_element].ravel().astype(np.int32)
+                _write_dataset(felem_grp, "local_element2rank_node", local_element2rank_node_local, dtype="int32", compression=True)
+            n_rank_node = rk.get("n_rank_node")
+            if n_rank_node is not None:
+                felem_grp.attrs["n_rank_node"] = int(n_rank_node)
 
             fsurf_grp = fld_grp.create_group("surface")
             _write_dataset(fsurf_grp, "boundary_tag", boundary_tag, dtype="int64")

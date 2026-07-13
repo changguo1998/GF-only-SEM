@@ -399,7 +399,7 @@ Comprehensive validation before partition and writing. Runs as a checklist; with
    - `local_element_ids`: owned element global IDs
    - `ghost_element_ids`: elements sharing a face with owned elements but owned by other ranks
    - `ghost_owners`: which rank owns each ghost
-1. **GLL numbering**: assign 1-based global IDs; 0 = null. Build `gll_to_global[...]` (`ibool`). Match shared nodes by coordinate tolerance `1e-6 × min_element_size`.
+1. **GLL numbering**: assign 1-based global IDs; 0 = null. Build `local_element2rank_node[...]` (`ibool`). Match shared nodes by coordinate tolerance `1e-6 × min_element_size`.
 1. For each neighbor rank, precompute face-pair exchange lists:
    - send: (owned_local_idx, face_idx) → (ghost_idx, ghost_face)
    - recv: ghost elements to receive into
@@ -429,7 +429,7 @@ Output in each `partition_{r}.h5`:
 /recording/
   attrs: basis="mesh_vertices", record_depth_max_m, record_depth_actual_m,
          tilex_elements, tiley_elements, excludes_pml=true
-  save_element_mask          bool[n_local_elem]
+  save_element_mask          bool[n_local_element]
   vertex_ids                 int64[n_record_vertices]
   source_element_local_index int32[n_record_vertices]
   source_corner_index        int32[n_record_vertices]

@@ -400,3 +400,129 @@ class TestPartition:
 
         total_local = sum(len(rd["local_element_ids"]) for rd in result["per_rank"].values())
         assert total_local == 4
+
+
+class TestComputeLocalElement2RankNode:
+    """Tests for compute_local_element2rank_node function."""
+
+    def test_two_cubes_shared_face(self):
+        """Two cubes sharing a face — shared GLL nodes get same node_id."""
+        from preprocess.partition import compute_local_element2rank_node
+
+        gll_coords = np.zeros((2, 2, 2, 2, 3), dtype=np.float64)
+        # Element 0: z in [0,1], Element 1: z in [1,2]
+        for e in range(2):
+            for i in range(2):
+                for j in range(2):
+                    for k in range(2):
+                        gll_coords[e, i, j, k, 0] = float(i)
+                        gll_coords[e, i, j, k, 1] = float(j)
+                        gll_coords[e, i, j, k, 2] = float(k + e)
+
+        local_element2rank_node, n_rank_node = compute_local_element2rank_node(gll_coords, [0, 1])
+
+        # Shared face: E0 k=1 == E1 k=0
+        assert np.array_equal(local_element2rank_node[0, :, :, 1], local_element2rank_node[1, :, :, 0])
+        # 16 GLL nodes, 4 shared = 12 unique
+        assert n_rank_node == 12
+        assert local_element2rank_node.shape == (2, 2, 2, 2)
+
+    def test_non_shared_elements_all_unique(self):
+        """Two disjoint cubes — all node_id values unique."""
+        from preprocess.partition import compute_local_element2rank_node
+
+        gll_coords = np.zeros((2, 2, 2, 2, 3), dtype=np.float64)
+        # Widely separated
+        for e in range(2):
+            offset = e * 100.0
+            for i in range(2):
+                for j in range(2):
+                    for k in range(2):
+                        gll_coords[e, i, j, k, 0] = float(i) + offset
+                        gll_coords[e, i, j, k, 1] = float(j) + offset
+                        gll_coords[e, i, j, k, 2] = float(k) + offset
+
+        local_element2rank_node, n_rank_node = compute_local_element2rank_node(gll_coords, [0, 1])
+
+        # 2 * 8 = 16 unique nodes
+        assert n_rank_node == 16
+        assert len(np.unique(local_element2rank_node)) == 16
+
+    def test_zero_elements(self):
+        """Empty element list returns empty local_element2rank_node and n_rank_node=0."""
+        from preprocess.partition import compute_local_element2rank_node
+
+        gll_coords = np.zeros((0, 2, 2, 2, 3), dtype=np.float64)
+        local_element2rank_node, n_rank_node = compute_local_element2rank_node(gll_coords, [])
+
+        assert local_element2rank_node.shape == (0, 2, 2, 2)
+        assert n_rank_node == 0
+
+    def test_nglob_equals_unique_count(self):
+        """n_rank_node matches number of unique node_id values."""
+        from preprocess.partition import compute_local_element2rank_node
+
+        gll_coords = np.zeros((1, 3, 3, 3, 3), dtype=np.float64)
+        for i in range(3):
+            for j in range(3):
+                for k in range(3):
+                    gll_coords[0, i, j, k, 0] = float(i)
+                    gll_coords[0, i, j, k, 1] = float(j)
+                    gll_coords[0, i, j, k, 2] = float(k)
+
+        local_element2rank_node, n_rank_node = compute_local_element2rank_node(gll_coords, [0])
+
+        assert n_rank_node == 27
+        assert np.max(local_element2rank_node) == n_rank_node - 1
+        assert np.min(local_element2rank_node) == 0
+
+    def test_partition_result_has_ibool_and_nglob(self):
+        """partition() result includes local_element2rank_node and n_rank_node per rank."""
+        topo = _make_two_cube_topo()
+        gll_coords = np.zeros((2, 2, 2, 2, 3), dtype=np.float64)
+        for e in range(2):
+            for i in range(2):
+                for j in range(2):
+                    for k in range(2):
+                        gll_coords[e, i, j, k, 0] = float(i)
+                        gll_coords[e, i, j, k, 1] = float(j)
+                        gll_coords[e, i, j, k, 2] = float(k + e)
+
+        result = partition(topo, gll_coords, n_ranks=2)
+
+        for rank, rd in result["per_rank"].items():
+            assert "local_element2rank_node" in rd
+            assert "n_rank_node" in rd
+            assert rd["local_element2rank_node"].dtype == np.int32
+            assert rd["n_rank_node"] > 0
+
+    def test_exchange_dof_indices_use_global(self):
+        """Exchange patterns converted to per-rank global DOF (node_id*3+dir)."""
+        topo = _make_two_cube_topo()
+        gll_coords = np.zeros((2, 3, 3, 3, 3), dtype=np.float64)
+        for e in range(2):
+            for i in range(3):
+                for j in range(3):
+                    for k in range(3):
+                        gll_coords[e, i, j, k, 0] = float(i) / 2.0
+                        gll_coords[e, i, j, k, 1] = float(j) / 2.0
+                        gll_coords[e, i, j, k, 2] = float(k) / 2.0 + float(e)
+
+        result = partition(topo, gll_coords, n_ranks=2)
+
+        exchange_found = False
+        for rank, rd in result["per_rank"].items():
+            n_rank_node = rd["n_rank_node"]
+            for neighbor, ex in rd["exchange"].items():
+                exchange_found = True
+                for key in ("send_dof", "recv_dof"):
+                    dofs = ex[key]
+                    assert len(dofs) > 0
+                    # All DOF indices should be in [0, n_rank_node*3)
+                    assert all(0 <= d < n_rank_node * 3 for d in dofs), (
+                        f"Rank {rank} neighbor {neighbor} {key}: DOF out of range"
+                    )
+                    # Directions 0,1,2 should appear equally
+                    directions = [d % 3 for d in dofs]
+                    assert directions.count(0) == directions.count(1) == directions.count(2)
+        assert exchange_found

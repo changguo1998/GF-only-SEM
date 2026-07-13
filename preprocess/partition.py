@@ -110,6 +110,75 @@ def _geometric_partition(
     return element_to_rank
 
 
+def compute_local_element2rank_node(
+    gll_coords: npt.NDArray[np.float64],
+    element_ids: list[int],
+) -> tuple[npt.NDArray[np.int32], int]:
+    """Compute per-rank local_element2rank_node mapping from GLL coordinates (SPECFEM get_global).
+
+    Sorts GLL node coordinates for the specified elements, then assigns
+    the same per-rank global node ID (0-based) to nodes at identical
+    physical positions.  Follows SPECFEM3D's ``get_global.f90`` algorithm:
+    coordinate sort + distance tolerance check.
+
+    Args:
+        gll_coords: [n_cell, NGLL, NGLL, NGLL, 3] — all elements' GLL coords.
+        element_ids: 0-based element indices composing this rank
+                     (local + ghost).  Local elements must come first.
+
+    Returns:
+        local_element2rank_node: [n_elem, NGLL, NGLL, NGLL] int32 — per-element→node_id mapping.
+        n_rank_node: number of unique per-rank global nodes.
+    """
+    NGLL = gll_coords.shape[1]
+    n_node = NGLL * NGLL * NGLL
+    n_elem = len(element_ids)
+
+    if n_elem == 0:
+        return np.zeros((0, NGLL, NGLL, NGLL), dtype=np.int32), 0
+
+    # Subset of GLL coordinates for this rank
+    rank_coords = gll_coords[element_ids]  # [n_elem, NGLL, NGLL, NGLL, 3]
+
+    # Per-rank domain extent for floating-point tolerance
+    extent = float(
+        max(
+            rank_coords[..., 0].max() - rank_coords[..., 0].min(),
+            rank_coords[..., 1].max() - rank_coords[..., 1].min(),
+            rank_coords[..., 2].max() - rank_coords[..., 2].min(),
+            np.finfo(np.float64).eps,
+        )
+    )
+    tol = np.float64(1e-12 * extent)
+
+    n_points = n_elem * n_node
+
+    # Flatten: 3-D coordinate columns + element/node indices
+    coords_flat = rank_coords.reshape(n_points, 3)
+    elem_idx = np.repeat(np.arange(n_elem, dtype=np.int32), n_node)
+    node_idx = np.tile(np.arange(n_node, dtype=np.int32), n_elem)
+
+    # Sort by (x, y, z) — identical coordinates cluster together
+    order = np.lexsort((coords_flat[:, 2], coords_flat[:, 1], coords_flat[:, 0]))
+    sorted_xyz = coords_flat[order]
+    sorted_elem = elem_idx[order]
+    sorted_node = node_idx[order]
+
+    # Vectorised diff: a new node_id starts when ANY coordinate differs > tol
+    is_new = np.any(np.abs(np.diff(sorted_xyz, axis=0, prepend=sorted_xyz[:1] - tol - 1.0)) > tol, axis=1)
+    rank_node_id_vals = np.cumsum(is_new, dtype=np.int32) - 1  # 0-based for C++
+
+    # Scatter back to local_element2rank_node[e, i, j, k]
+    local_element2rank_node = np.zeros((n_elem, NGLL, NGLL, NGLL), dtype=np.int32)
+    i_idx = sorted_node // (NGLL * NGLL)
+    j_idx = (sorted_node // NGLL) % NGLL
+    k_idx = sorted_node % NGLL
+    local_element2rank_node[sorted_elem, i_idx, j_idx, k_idx] = rank_node_id_vals
+
+    n_rank_node = int(rank_node_id_vals[-1]) + 1 if n_points > 0 else 0
+    return local_element2rank_node, n_rank_node
+
+
 def partition(topology: TopologyData, gll_coords: npt.NDArray[np.float64], n_ranks: int) -> dict:
     """Partition elements across MPI ranks.
 
@@ -128,13 +197,15 @@ def partition(topology: TopologyData, gll_coords: npt.NDArray[np.float64], n_ran
           element_to_rank: [n_cell] int64 array
           n_ranks: number of ranks
           per_rank: dict rank → dict with:
-            local_element_ids: list of 1-based element indices local to this rank
-            ghost_element_ids: list of 1-based element indices owned by other ranks
+            local_element_ids: list of 0-based element indices local to this rank
+            ghost_element_ids: list of 0-based element indices owned by other ranks
                                but needed by this rank
             ghost_owners: list of rank IDs for each ghost element
+            local_element2rank_node: [n_local_element+n_ghost, NGLL, NGLL, NGLL] int32 — per-rank global node IDs
+            n_rank_node: int — number of unique global nodes on this rank
             exchange: dict neighbor_rank → {
-                "send_dof": list of local DOF indices (flat, 3*ngll_idx + dir),
-                "recv_dof": list of ghost DOF indices (flat, 3*ngll_idx + dir),
+                "send_dof": list of per-rank global DOF indices (node_id*3+dir),
+                "recv_dof": list of per-rank global DOF indices (node_id*3+dir),
             }
     """
     n_cell = topology.n_cell
@@ -310,5 +381,47 @@ def partition(topology: TopologyData, gll_coords: npt.NDArray[np.float64], n_ran
                                     ex["recv_dof"].append(d)
 
         rd["exchange"] = exchange_dof
+
+    # Third pass: compute local_element2rank_node for each rank and convert exchange DOF
+    # indices from element-local to per-rank global (node_id-based).
+    # local_element2rank_node is computed for local + ghost elements together so that
+    # shared interface nodes receive the same node_id within the rank.
+    for rank in range(n_ranks):
+        rd = per_rank[rank]
+        locals_list = list(rd["local_element_ids"])
+        ghosts_list = list(rd["ghost_element_ids"])
+        n_local_element = len(locals_list)
+
+        # Compute local_element2rank_node for all elements (locals before ghosts)
+        all_elem_ids = locals_list + ghosts_list
+        local_element2rank_node_4d, n_rank_node = compute_local_element2rank_node(gll_coords, all_elem_ids)
+        rd["local_element2rank_node"] = local_element2rank_node_4d
+        rd["n_rank_node"] = n_rank_node
+
+        # Build map: global element ID → local index in local_element2rank_node_4d
+        all_elem_to_node_map = {e_global: idx for idx, e_global in enumerate(all_elem_ids)}
+
+        # Convert exchange DOF indices
+        for neighbor_rank, ex in rd["exchange"].items():
+            for key in ("send_dof", "recv_dof"):
+                old_dofs = ex[key]
+                new_dofs: list[int] = []
+                for old_dof in old_dofs:
+                    # Decode element-local DOF:
+                    #   old_dof = local_idx * n_node * 3 + node * 3 + direction
+                    local_idx = old_dof // (n_node * 3)
+                    remainder = old_dof % (n_node * 3)
+                    node = remainder // 3
+                    direction = remainder % 3
+
+                    # Map node → (i, j, k) in GLL layout
+                    k_idx = node % NGLL
+                    j_idx = (node // NGLL) % NGLL
+                    i_idx = node // (NGLL * NGLL)
+
+                    node_id = int(local_element2rank_node_4d[local_idx, i_idx, j_idx, k_idx])
+                    new_dofs.append(node_id * 3 + direction)
+
+                ex[key] = new_dofs
 
     return {"element_to_rank": element_to_rank, "n_ranks": n_ranks, "per_rank": per_rank}

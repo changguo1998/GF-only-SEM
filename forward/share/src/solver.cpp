@@ -113,14 +113,14 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         if (eff_nprocs == 1) {
             // Single effective rank: merge all partitions into full domain
             part = read_partition_all(partition_dir);
-            logger.debug("  merged " + std::to_string(part.n_local_elem) +
+            logger.debug("  merged " + std::to_string(part.n_local_element) +
                          " elements from all partitions");
         } else if (eff_nprocs < nprocs) {
             // Reduced effective ranks: block-distribute partitions
             int eff_rank = rank % eff_nprocs;
             part = read_partition_range(partition_dir, eff_rank, eff_nprocs);
             logger.debug("  effective rank " + std::to_string(eff_rank) + ": " +
-                         std::to_string(part.n_local_elem) + " elements");
+                         std::to_string(part.n_local_element) + " elements");
         } else {
             std::string partition_path =
                 partition_dir + "/partition_" + std::to_string(rank) + ".h5";
@@ -130,15 +130,23 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             std::chrono::duration<double>(std::chrono::steady_clock::now() - t_io).count();
         logger.debug("  partition read: " + std::to_string(io_elapsed) + "s");
 
-        int n_local = part.n_local_elem;
+        int n_local_element = part.n_local_element;
         int n_node = ngll * ngll * ngll;
-        int n_local_dof = n_local * n_node * 3;
-        logger.info("  n_local=" + std::to_string(n_local) + " n_gll_per_elem=" +
-                    std::to_string(n_node) + " dofs=" + std::to_string(n_local_dof));
+        int n_local_element_dof = n_local_element * n_node * 3;  // element-local DOF for kernel temp arrays
+
+        // Use global DOF numbering if local_element2rank_node is available (CG-SEM assembly).
+        // Fall back to element-local DOF (backward compat) otherwise.
+        bool use_global_dof = (part.n_rank_node > 0 && !part.local_element2rank_node.empty());
+        int n_rank_dof = use_global_dof ? part.n_rank_node * 3 : n_local_element_dof;
+
+        logger.info("  n_local_element=" + std::to_string(n_local_element) + " n_gll_per_elem=" +
+                    std::to_string(n_node) +
+                    (use_global_dof ? " n_rank_node=" + std::to_string(part.n_rank_node) :
+                                       " dofs=" + std::to_string(n_local_element_dof)));
 
         // Memory estimate (8 bytes per double)
-        size_t mem_bytes = n_local_dof * 4 * 8;  // displacement, velocity, acceleration, residual
-        mem_bytes += n_local * n_node * 6 * 8;   // strain (allocated per snapshot)
+        size_t mem_bytes = n_rank_dof * 4 * 8;  // displacement, velocity, acceleration, residual
+        mem_bytes += n_local_element_dof * 2 * 8;           // elem temp arrays (displacement, residual)
         double mem_mb = static_cast<double>(mem_bytes) / (1024.0 * 1024.0);
         logger.debug("  est memory (state): " + std::to_string(mem_mb) + " MB");
 
@@ -147,23 +155,45 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         std::vector<double> gll_wts = gll_weights(cfg.polynomial_order, gll_pts);
         std::vector<double> D_mat = gll_derivative_matrix(cfg.polynomial_order, gll_pts);
 
-        // === Allocate displacement, velocity, acceleration ===
-        // Flat arrays: [n_local_dof] for owned elements
+        // === Allocate state vectors ===
+        // Global-sized arrays for CG-SEM (or element-local for backward compat).
+        // Element-local temp arrays for the element kernel.
 
-        std::vector<double> displacement(n_local_dof, 0.0);
-        std::vector<double> velocity(n_local_dof, 0.0);
-        std::vector<double> acceleration(n_local_dof, 0.0);
-        std::vector<double> residual(n_local_dof, 0.0);            // residual
-        std::vector<double> displacement_tilde(n_local_dof, 0.0);  // predicted displacement
+        std::vector<double> displacement(n_rank_dof, 0.0);
+        std::vector<double> velocity(n_rank_dof, 0.0);
+        std::vector<double> acceleration(n_rank_dof, 0.0);
+        std::vector<double> residual(n_rank_dof, 0.0);            // global residual
+        std::vector<double> displacement_tilde(n_rank_dof, 0.0);  // predicted displacement
+
+        // Element-local temp arrays for kernel (always element-local)
+        std::vector<double> local_element_displacement(n_local_element_dof, 0.0);
+        std::vector<double> local_element_residual(n_local_element_dof, 0.0);
 #ifdef GF_WITH_CUDA
         CudaDeviceState gpu_state;
 #endif
 
         // === Use precomputed exchange patterns from partition file ===
         // These contain send_dof and recv_dof indices for shared interface nodes.
-        // For CG-SEM: send_dof == recv_dof (both point to local element interface DOFs,
-        // since each rank accumulates neighbor contributions into its own local DOFs).
+        // With local_element2rank_node-based global DOF (Phase 0.3), these are node_id*3+dir indices.
+        // Without local_element2rank_node (legacy), these are element-local (elem*n_node+node)*3+dir.
         const auto& exchange_patterns = part.exchange_patterns;
+
+        // === Assemble global mass and damping (one-time, at startup) ===
+        // When local_element2rank_node is available, element-local mass/damping values are
+        // scattered to global-sized arrays.  Mass accumulates (shared node
+        // masses sum); damping assigns (all sharing elements have the same
+        // damping profile on shared faces).
+        std::vector<double> rank_node_mass(n_rank_dof / 3, 0.0);    // [n_rank_node] — node-sized
+        std::vector<double> rank_node_damping(n_rank_dof / 3, 0.0); // [n_rank_node]
+        if (use_global_dof) {
+            for (int e = 0; e < n_local_element; ++e) {
+                for (int n = 0; n < n_node; ++n) {
+                    int node_id = part.local_element2rank_node[e * n_node + n];
+                    rank_node_mass[node_id] += part.mass[e * n_node + n];
+                    rank_node_damping[node_id] = part.pml_damping[e * n_node + n];
+                }
+            }
+        }
 
         // === Initialize record writer ===
         CompressionConfig comp_cfg;
@@ -183,7 +213,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         // -1 means the source element is not on this rank.
         std::vector<int> src_elem_to_local(cfg.n_src_elements, -1);
         for (int si = 0; si < cfg.n_src_elements; ++si) {
-            for (int e = 0; e < n_local; ++e) {
+            for (int e = 0; e < n_local_element; ++e) {
                 if (part.local_element_ids[e] == cfg.src_element_ids[si]) {
                     src_elem_to_local[si] = e;
                     break;
@@ -198,9 +228,10 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         // === Allocate GPU state (single-GPU native path) ===
         {
             gpu_state =
-                cuda_allocate_state(n_local, ngll, part.mass, part.pml_damping, part.dxi_dx,
+                cuda_allocate_state(n_local_element, ngll, part.mass, part.pml_damping, part.dxi_dx,
                                     part.jacobian, part.lambda_, part.mu_, D_mat.data(),
-                                    gll_wts.data(), cfg, part.recording, n_local_dof);
+                                    gll_wts.data(), cfg, part.recording, n_local_element_dof,
+                                    part.local_element2rank_node, part.n_rank_node, rank_node_mass, rank_node_damping);
             // Copy source element offsets to device
             std::vector<int> src_offsets(cfg.n_src_elements, -1);
             for (int si = 0; si < cfg.n_src_elements; ++si) {
@@ -234,7 +265,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             restart_stride = cfg.restart_stride;
         }
         bool do_restart = (restart_stride > 0);
-        RestartWriter restart_writer(output_dir, direction, rank, n_local, ngll);
+        RestartWriter restart_writer(output_dir, direction, rank, n_local_element, ngll);
         if (do_restart) {
             logger.info("  restart stride: " + std::to_string(restart_stride));
         } else {
@@ -266,23 +297,51 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
 #ifdef GF_WITH_CUDA
             // === GPU-native path (single-GPU, no MPI) ===
             // All state vectors live on device. Only copy for I/O.
-            cuda_newmark_predict(gpu_state, solver_dt, beta);
-            cuda_zero_residual(gpu_state);
-            cuda_launch_element_residual(gpu_state, ngll, n_local);
-            cuda_pml_damping(gpu_state);
-            {
-                int dir = (direction == "x") ? 0 : ((direction == "y") ? 1 : 2);
-                double stf_val = 0.0;
-                if (step < static_cast<int>(cfg.stf_t.size())) {
-                    stf_val = cfg.stf_values[step];
+            if (gpu_state.use_global_dof) {
+                // ---- CG-SEM global assembly on GPU ----
+                cuda_newmark_predict(gpu_state, solver_dt, beta);
+
+                // Gather predicted displacement → element-local for kernel
+                cuda_gather_predicted(gpu_state);
+
+                cuda_zero_residual(gpu_state);
+                cuda_launch_element_residual(gpu_state, ngll, n_local_element);
+                cuda_pml_damping(gpu_state);
+                {
+                    int dir = (direction == "x") ? 0 : ((direction == "y") ? 1 : 2);
+                    double stf_val = 0.0;
+                    if (step < static_cast<int>(cfg.stf_t.size())) {
+                        stf_val = cfg.stf_values[step];
+                    }
+                    if (stf_val != 0.0) {
+                        cuda_source_injection(gpu_state, dir, stf_val, cfg.src_weights.data(),
+                                              cfg.n_src_elements);
+                    }
                 }
-                if (stf_val != 0.0) {
-                    cuda_source_injection(gpu_state, dir, stf_val, cfg.src_weights.data(),
-                                          cfg.n_src_elements);
+                // Scatter element-local → global (atomicAdd at shared nodes)
+                cuda_scatter_to_rank(gpu_state);
+
+                // No MPI exchange (single process)
+                cuda_newmark_correct(gpu_state, solver_dt, gamma);
+            } else {
+                // ---- Legacy element-local path ----
+                cuda_newmark_predict(gpu_state, solver_dt, beta);
+                cuda_zero_residual(gpu_state);
+                cuda_launch_element_residual(gpu_state, ngll, n_local_element);
+                cuda_pml_damping(gpu_state);
+                {
+                    int dir = (direction == "x") ? 0 : ((direction == "y") ? 1 : 2);
+                    double stf_val = 0.0;
+                    if (step < static_cast<int>(cfg.stf_t.size())) {
+                        stf_val = cfg.stf_values[step];
+                    }
+                    if (stf_val != 0.0) {
+                        cuda_source_injection(gpu_state, dir, stf_val, cfg.src_weights.data(),
+                                              cfg.n_src_elements);
+                    }
                 }
+                cuda_newmark_correct(gpu_state, solver_dt, gamma);
             }
-            // No exchange_halo needed — single process (exchange_noop.cpp)
-            cuda_newmark_correct(gpu_state, solver_dt, gamma);
 
             // --- Write restart (every restart_stride solver steps) ---
             if (do_restart && step > 0 && step % restart_stride == 0) {
@@ -302,6 +361,10 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                     part.recording.has_recording && !part.recording.vertex_ids.empty();
 
                 if (has_recording) {
+                    // For global DOF: gather displacement to element-local for strain
+                    if (gpu_state.use_global_dof) {
+                        cuda_gather_from_rank(gpu_state);
+                    }
                     size_t n_vertices = part.recording.vertex_ids.size();
                     rec_strain.resize(n_vertices * 6, 0.0);
                     rec_displacement.resize(n_vertices * 3, 0.0);
@@ -320,11 +383,20 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                         int corner_j = (corner & 2) ? (ngll - 1) : 0;
                         int corner_k = (corner & 4) ? (ngll - 1) : 0;
                         int corner_node = (corner_i * ngll + corner_j) * ngll + corner_k;
-                        int dof_base = (elem * n_node + corner_node) * 3;
-                        for (int d = 0; d < 3; ++d) {
-                            rec_displacement[vertex_idx * 3 + d] = displacement[dof_base + d];
-                            rec_velocity[vertex_idx * 3 + d] = velocity[dof_base + d];
-                            rec_acceleration[vertex_idx * 3 + d] = acceleration[dof_base + d];
+                        if (gpu_state.use_global_dof) {
+                            int node_id = part.local_element2rank_node[elem * n_node + corner_node];
+                            for (int d = 0; d < 3; ++d) {
+                                rec_displacement[vertex_idx * 3 + d] = displacement[node_id * 3 + d];
+                                rec_velocity[vertex_idx * 3 + d] = velocity[node_id * 3 + d];
+                                rec_acceleration[vertex_idx * 3 + d] = acceleration[node_id * 3 + d];
+                            }
+                        } else {
+                            int dof_base = (elem * n_node + corner_node) * 3;
+                            for (int d = 0; d < 3; ++d) {
+                                rec_displacement[vertex_idx * 3 + d] = displacement[dof_base + d];
+                                rec_velocity[vertex_idx * 3 + d] = velocity[dof_base + d];
+                                rec_acceleration[vertex_idx * 3 + d] = acceleration[dof_base + d];
+                            }
                         }
                     }
                 }
@@ -333,57 +405,124 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             }
 #else
             // --- CPU path ---
-            newmark_predict(solver_dt, beta, displacement, velocity, acceleration,
-                            displacement_tilde);
+            if (use_global_dof) {
+                // === CG-SEM global assembly path ===
 
-            // --- Zero residual ---
-            std::fill(residual.begin(), residual.end(), 0.0);
+                // 1. Newmark predictor (global arrays)
+                newmark_predict(solver_dt, beta, displacement, velocity, acceleration,
+                                displacement_tilde);
 
-            // --- Element residual computation (matrix-free, batched) ---
-            compute_element_residual<gf::ActiveBackend>(
-                n_local, part.dxi_dx.data(), part.jacobian.data(), part.lambda_.data(),
-                part.mu_.data(), D_mat.data(), gll_wts.data(), ngll, displacement_tilde.data(),
-                residual.data());
+                // 2. Gather predicted displacement → element-local for kernel
+                gather_from_rank(displacement_tilde, part.local_element2rank_node, n_local_element, n_node,
+                                   local_element_displacement);
 
-            // --- PML damping ---
-            apply_pml_damping(part.pml_damping, displacement_tilde, velocity,
-                              static_cast<int>(velocity.size()));
+                // 3. Zero element-local residual, compute element kernel
+                std::fill(local_element_residual.begin(), local_element_residual.end(), 0.0);
+                compute_element_residual<gf::ActiveBackend>(
+                    n_local_element, part.dxi_dx.data(), part.jacobian.data(), part.lambda_.data(),
+                    part.mu_.data(), D_mat.data(), gll_wts.data(), ngll, local_element_displacement.data(),
+                    local_element_residual.data());
 
-            // --- Source injection ---
-            {
-                int dir = (direction == "x") ? 0 : ((direction == "y") ? 1 : 2);
-                double stf_val = 0.0;
-                if (step < static_cast<int>(cfg.stf_t.size())) {
-                    stf_val = cfg.stf_values[step];
+                // 4. PML damping on global velocity (direct — no gather/scatter)
+                for (int node_id = 0; node_id < part.n_rank_node; ++node_id) {
+                    double d = rank_node_damping[node_id];
+                    if (d > 0.0) {
+                        int base = node_id * 3;
+                        velocity[base + 0] -= d * velocity[base + 0];
+                        velocity[base + 1] -= d * velocity[base + 1];
+                        velocity[base + 2] -= d * velocity[base + 2];
+                    }
                 }
-                if (stf_val != 0.0) {
-                    for (int si = 0; si < cfg.n_src_elements; ++si) {
-                        int elem_idx = src_elem_to_local[si];
-                        if (elem_idx < 0)
-                            continue;
-                        int weight_off = si * n_node;
-                        int dof_base_elem = elem_idx * n_node * 3;
-                        for (int k = 0; k < ngll; ++k) {
-                            for (int j = 0; j < ngll; ++j) {
-                                for (int i = 0; i < ngll; ++i) {
-                                    double w =
-                                        cfg.src_weights[weight_off + (i * ngll + j) * ngll + k];
-                                    if (w == 0.0)
-                                        continue;
-                                    int node_off = (i * ngll + j) * ngll + k;
-                                    residual[dof_base_elem + node_off * 3 + dir] += stf_val * w;
+
+                // 5. Source injection into element-local residual
+                {
+                    int dir = (direction == "x") ? 0 : ((direction == "y") ? 1 : 2);
+                    double stf_val = 0.0;
+                    if (step < static_cast<int>(cfg.stf_t.size())) {
+                        stf_val = cfg.stf_values[step];
+                    }
+                    if (stf_val != 0.0) {
+                        for (int si = 0; si < cfg.n_src_elements; ++si) {
+                            int elem_idx = src_elem_to_local[si];
+                            if (elem_idx < 0)
+                                continue;
+                            int weight_off = si * n_node;
+                            int dof_base_elem = elem_idx * n_node * 3;
+                            for (int k = 0; k < ngll; ++k) {
+                                for (int j = 0; j < ngll; ++j) {
+                                    for (int i = 0; i < ngll; ++i) {
+                                        double w = cfg.src_weights[weight_off +
+                                                                   (i * ngll + j) * ngll + k];
+                                        if (w == 0.0)
+                                            continue;
+                                        int node_off = (i * ngll + j) * ngll + k;
+                                        local_element_residual[dof_base_elem + node_off * 3 + dir] +=
+                                            stf_val * w;
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
-            // --- MPI halo exchange (CG-SEM assembly) ---
-            exchange_halo(exchange_patterns, residual, 3);
 
-            // --- Newmark correct ---
-            newmark_correct(solver_dt, beta, gamma, part.mass, displacement, velocity,
-                            acceleration, residual);
+                // 6. Scatter element-local → global (accumulates at shared nodes)
+                scatter_to_rank(local_element_residual, part.local_element2rank_node, n_local_element, n_node, residual);
+
+                // 7. MPI halo exchange on global residual
+                exchange_halo(exchange_patterns, residual, 3);
+
+                // 8. Newmark corrector (global arrays, global mass)
+                newmark_correct(solver_dt, beta, gamma, rank_node_mass, displacement, velocity,
+                                acceleration, residual);
+
+            } else {
+                // === Legacy element-local path (backward compat) ===
+                newmark_predict(solver_dt, beta, displacement, velocity, acceleration,
+                                displacement_tilde);
+
+                std::fill(residual.begin(), residual.end(), 0.0);
+
+                compute_element_residual<gf::ActiveBackend>(
+                    n_local_element, part.dxi_dx.data(), part.jacobian.data(), part.lambda_.data(),
+                    part.mu_.data(), D_mat.data(), gll_wts.data(), ngll,
+                    displacement_tilde.data(), residual.data());
+
+                apply_pml_damping(part.pml_damping, displacement_tilde, velocity,
+                                  static_cast<int>(velocity.size()));
+
+                {
+                    int dir = (direction == "x") ? 0 : ((direction == "y") ? 1 : 2);
+                    double stf_val = 0.0;
+                    if (step < static_cast<int>(cfg.stf_t.size())) {
+                        stf_val = cfg.stf_values[step];
+                    }
+                    if (stf_val != 0.0) {
+                        for (int si = 0; si < cfg.n_src_elements; ++si) {
+                            int elem_idx = src_elem_to_local[si];
+                            if (elem_idx < 0)
+                                continue;
+                            int weight_off = si * n_node;
+                            int dof_base_elem = elem_idx * n_node * 3;
+                            for (int k = 0; k < ngll; ++k) {
+                                for (int j = 0; j < ngll; ++j) {
+                                    for (int i = 0; i < ngll; ++i) {
+                                        double w = cfg.src_weights[weight_off +
+                                                                   (i * ngll + j) * ngll + k];
+                                        if (w == 0.0)
+                                            continue;
+                                        int node_off = (i * ngll + j) * ngll + k;
+                                        residual[dof_base_elem + node_off * 3 + dir] +=
+                                            stf_val * w;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                exchange_halo(exchange_patterns, residual, 3);
+                newmark_correct(solver_dt, beta, gamma, part.mass, displacement, velocity,
+                                acceleration, residual);
+            }
 
             // --- Write restart (every restart_stride solver steps) ---
             if (do_restart && step > 0 && step % restart_stride == 0) {
@@ -401,7 +540,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 bool has_recording =
                     part.recording.has_recording && !part.recording.vertex_ids.empty();
 
-                // Helper: extract recorded-vertex values from a flat DOF array
+                // Helper: extract recorded-vertex values from global or element-local DOF array
                 auto extract_recorded = [&](const std::vector<double>& src, int ncomp,
                                             std::vector<double>& dst) {
                     if (!has_recording)
@@ -415,21 +554,37 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                         int corner_j = (corner & 2) ? (ngll - 1) : 0;
                         int corner_k = (corner & 4) ? (ngll - 1) : 0;
                         int corner_node = (corner_i * ngll + corner_j) * ngll + corner_k;
-                        int dof_base = (elem * n_node + corner_node) * 3;
-                        for (int d = 0; d < ncomp; ++d) {
-                            dst[vertex_idx * ncomp + d] = src[dof_base + d];
+                        if (use_global_dof) {
+                            int node_id = part.local_element2rank_node[elem * n_node + corner_node];
+                            for (int d = 0; d < ncomp; ++d) {
+                                dst[vertex_idx * ncomp + d] = src[node_id * 3 + d];
+                            }
+                        } else {
+                            int dof_base = (elem * n_node + corner_node) * 3;
+                            for (int d = 0; d < ncomp; ++d) {
+                                dst[vertex_idx * ncomp + d] = src[dof_base + d];
+                            }
                         }
                     }
                 };
 
                 if (has_recording) {
+                    // For global DOF: gather fresh displacement into element-local
+                    // so strain derivative computation can access all GLL nodes.
+                    if (use_global_dof) {
+                        gather_from_rank(displacement, part.local_element2rank_node, n_local_element, n_node,
+                                           local_element_displacement);
+                    }
+                    // Pointer to the displacement array used for strain computation
+                    const double* strain_disp =
+                        use_global_dof ? local_element_displacement.data() : displacement.data();
+
                     size_t n_vertices = part.recording.vertex_ids.size();
                     rec_strain.resize(n_vertices * 6, 0.0);
                     for (size_t vertex_idx = 0; vertex_idx < n_vertices; ++vertex_idx) {
                         int elem = part.recording.src_elem_local[vertex_idx];
                         int corner = part.recording.src_corner[vertex_idx];
 
-                        // Corner to GLL (i, j, k) indices
                         int corner_i = (corner & 1) ? (ngll - 1) : 0;
                         int corner_j = (corner & 2) ? (ngll - 1) : 0;
                         int corner_k = (corner & 4) ? (ngll - 1) : 0;
@@ -438,7 +593,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                         const double* dxi_dx_ptr =
                             &part.dxi_dx[elem * n_node * 9 + corner_node * 9];
                         const double* disp_ptr =
-                            &displacement[elem * n_node * 3 + corner_node * 3];
+                            &strain_disp[elem * n_node * 3 + corner_node * 3];
 
                         // Reference gradient at this GLL node
                         double dudxi[3] = {0.0, 0.0, 0.0};
@@ -486,8 +641,16 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                     extract_recorded(velocity, 3, rec_velocity);
                     extract_recorded(acceleration, 3, rec_acceleration);
                 } else if (!recording_mode) {
-                    rec_strain.resize(n_local * n_node * 6, 0.0);
-                    for (int elem = 0; elem < n_local; ++elem) {
+                    // For global DOF: gather displacement before full-volume strain
+                    if (use_global_dof) {
+                        gather_from_rank(displacement, part.local_element2rank_node, n_local_element, n_node,
+                                           local_element_displacement);
+                    }
+                    const double* strain_disp =
+                        use_global_dof ? local_element_displacement.data() : displacement.data();
+
+                    rec_strain.resize(n_local_element * n_node * 6, 0.0);
+                    for (int elem = 0; elem < n_local_element; ++elem) {
                         for (int i = 0; i < ngll; ++i) {
                             for (int j = 0; j < ngll; ++j) {
                                 for (int k = 0; k < ngll; ++k) {
@@ -495,7 +658,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                                     const double* dxi_dx_ptr =
                                         &part.dxi_dx[elem * n_node * 9 + node_idx * 9];
                                     const double* disp_ptr =
-                                        &displacement[elem * n_node * 3 + node_idx * 3];
+                                        &strain_disp[elem * n_node * 3 + node_idx * 3];
                                     double dudxi[3] = {0.0, 0.0, 0.0};
                                     double dudeta[3] = {0.0, 0.0, 0.0};
                                     double dudzeta[3] = {0.0, 0.0, 0.0};

@@ -17,8 +17,8 @@ namespace gf {
 struct CudaDeviceState {
     // --- Read-only geometry (already in CudaDeviceBuffers, duplicates here for convenience) ---
     // --- Geometry buffers (uploaded once, persistent) ---
-    double* d_mass = nullptr;       // [n_total_nodes] lumped mass
-    double* d_pml = nullptr;        // [n_total_nodes] PML damping profile
+    double* d_mass = nullptr;       // [n_total_nodes] lumped mass (element-local)
+    double* d_pml = nullptr;        // [n_total_nodes] PML damping profile (element-local)
     double* d_dxi_dx = nullptr;     // [n_total_nodes * 9]
     double* d_jacobian = nullptr;   // [n_total_nodes]
     double* d_lambda_ = nullptr;    // [n_total_nodes] λ at GLL nodes
@@ -29,7 +29,24 @@ struct CudaDeviceState {
     int* d_rec_corner = nullptr;    // [n_vertices] corner index 0-7
     int* d_src_elem_offsets = nullptr;  // [n_src_elements] local element index for source elems
 
+    // --- Global DOF arrays (CG-SEM assembly) ---
+    double* d_rank_node_mass = nullptr;              // [n_rank_node] — per-node mass
+    double* d_rank_node_damping = nullptr;           // [n_rank_node] — per-node damping
+    int* d_local_element2rank_node = nullptr;          // [n_local_element * n_node] — flat element→node id map
+
+    // --- Per-node state vectors (CG-SEM, allocated when use_global_dof) ---
+    double* d_rank_node_displacement = nullptr;       // [n_rank_node * 3]
+    double* d_rank_node_displacement_tilde = nullptr; // [n_rank_node * 3] — predictor output
+    double* d_rank_node_velocity = nullptr;           // [n_rank_node * 3]
+    double* d_rank_node_acceleration = nullptr;       // [n_rank_node * 3]
+    double* d_rank_node_residual = nullptr;           // [n_rank_node * 3] — global residual
+
+    // --- Element-local temp arrays for kernel (always element-local) ---
+    double* d_local_element_displacement = nullptr;  // [n_local_element * n_node * 3]
+    double* d_local_element_residual = nullptr;      // [n_local_element * n_node * 3]
+
     // --- Per-timestep state (persistent on device) ---
+    // Element-local (backward compat / legacy)
     double* d_displacement = nullptr;        // [n_dof]
     double* d_velocity = nullptr;            // [n_dof]
     double* d_acceleration = nullptr;        // [n_dof]
@@ -39,23 +56,31 @@ struct CudaDeviceState {
 
     // --- Sizes ---
     int n_dof = 0;
+    int n_local_element_dof = 0;  // n_local_element * n_node * 3 (element-local DOF)
     int n_total_nodes = 0;
     int n_vertices = 0;
     int n_src_elements = 0;
     int n_node = 0;  // NGLL^3
+    int n_rank_node = 0;   // unique rank-level nodes (0 = not using global DOF)
+    int n_local_element = 0; // number of local elements
+    bool use_global_dof = false;
 
     bool allocated = false;
 };
 
 /// Allocate GPU state and upload read-only data (mass, pml, source weights, recording map).
-CudaDeviceState cuda_allocate_state(int n_local_elem, int ngll, const std::vector<double>& mass,
+CudaDeviceState cuda_allocate_state(int n_local_element, int ngll, const std::vector<double>& mass,
                                     const std::vector<double>& pml_damping,
                                     const std::vector<double>& dxi_dx,
                                     const std::vector<double>& jacobian,
                                     const std::vector<double>& lambda_,
                                     const std::vector<double>& mu_, const double* h_D,
                                     const double* h_weights, const ConfigData& cfg,
-                                    const RankData::RecordingMap& rec_map, int n_local_dof);
+                                    const RankData::RecordingMap& rec_map, int n_local_element_dof,
+                                    const std::vector<int32_t>& local_element2rank_node = {},
+                                    int n_rank_node = 0,
+                                    const std::vector<double>& rank_node_mass = {},
+                                    const std::vector<double>& rank_node_damping = {});
 
 /// Free all device buffers.
 void cuda_free_state(CudaDeviceState& state);
@@ -95,5 +120,14 @@ void cuda_copy_state_to_host(const CudaDeviceState& state, std::vector<double>& 
 /// Launch element residual kernel using pre-existing device pointers (GPU-native mode).
 /// Skips H2D/D2H copies — uses geometry buffers already resident on device.
 void cuda_launch_element_residual(const CudaDeviceState& state, int ngll, int n_elem);
+
+/// CG-SEM global scatter: local_element_residual → rank_node_residual (with atomicAdd).
+void cuda_scatter_to_rank(CudaDeviceState& state);
+
+/// CG-SEM global gather: global_displacement → local_element_displacement.
+void cuda_gather_from_rank(CudaDeviceState& state);
+
+/// CG-SEM global gather of predicted displacement for element kernel.
+void cuda_gather_predicted(CudaDeviceState& state);
 
 }  // namespace gf

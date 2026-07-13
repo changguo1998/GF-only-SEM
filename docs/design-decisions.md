@@ -118,6 +118,7 @@ GMSH .msh → converter → model.h5 (topology only)
 | Rule | Example |
 |------|---------|
 | X2Y naming for relations | `edge_to_vertex`, `cell_to_surface`, `dxi_dx` |
+| Hierarchical scope prefixes | `global_`, `rank_`, `local_`, `ghost_`, `element_`, `node_` — see [naming-convention.md](design/naming-convention.md) |
 | 1-based indexing, 0 = null | element IDs, vertex IDs, surface IDs |
 | Sign = direction (signed int) | `+edge_id` = positive traversal, `-edge_id` = reverse |
 | Element-first layout | `[n_cell, NGLL, NGLL, NGLL, ...]` |
@@ -176,7 +177,7 @@ partition_{r}.h5
     ├── local_element_ids       : int64[n_elem_local]
     ├── ghost_element_ids       : int64[n_ghost]
     ├── ghost_owners            : int32[n_ghost]
-    ├── gll_to_global           : int64[n_elem_total, NGLL, NGLL, NGLL]  — ibool: local→global GLL node ID
+    ├── local_element2rank_node           : int64[n_elem_total, NGLL, NGLL, NGLL]  — ibool: local→global GLL node ID
     └── /exchange/              — precomputed face-pair lists per neighbor
 ```
 

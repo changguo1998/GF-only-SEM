@@ -189,9 +189,9 @@ RankData read_partition(const std::string& path, int /*rank*/) {
     auto ghost_ids = read_dataset_int64(fid, "/partition/ghost_element_ids");
     auto ghost_owners = read_dataset_int32(fid, "/partition/ghost_owners");
 
-    data.n_local_elem = static_cast<int>(local_ids.size());
-    data.n_ghost_elem = static_cast<int>(ghost_ids.size());
-    data.n_total_elem = data.n_local_elem + data.n_ghost_elem;
+    data.n_local_element = static_cast<int>(local_ids.size());
+    data.n_ghost_element = static_cast<int>(ghost_ids.size());
+    data.n_total_element = data.n_local_element + data.n_ghost_element;
 
     data.local_element_ids = local_ids;
     data.ghost_element_ids = ghost_ids;
@@ -215,7 +215,7 @@ RankData read_partition(const std::string& path, int /*rank*/) {
     }
 
     // --- Read geometry and material fields ---
-    // All stored under /field/element/ with shape [n_local_elem, NGLL, NGLL, NGLL, ...]
+    // All stored under /field/element/ with shape [n_local_element, NGLL, NGLL, NGLL, ...]
     data.coords = try_read_dataset<double>(fid, "/field/element/coords");
     data.jacobian = try_read_dataset<double>(fid, "/field/element/jacobian");
     data.dxi_dx = try_read_dataset<double>(fid, "/field/element/dxi_dx");
@@ -226,6 +226,16 @@ RankData read_partition(const std::string& path, int /*rank*/) {
     data.lambda_ = try_read_dataset<double>(fid, "/field/element/lambda");
     data.mu_ = try_read_dataset<double>(fid, "/field/element/mu");
     data.pml_damping = try_read_dataset<double>(fid, "/field/element/damping");
+
+    // --- Read local_element2rank_node and n_rank_node (CG-SEM rank-level node mapping) ---
+    data.local_element2rank_node = try_read_dataset<int32_t>(fid, "/field/element/local_element2rank_node");
+    {
+        hid_t felem = H5Gopen2(fid, "/field/element", H5P_DEFAULT);
+        if (felem >= 0) {
+            read_attr_int(felem, "n_rank_node", data.n_rank_node);
+            H5Gclose(felem);
+        }
+    }
 
     // --- Read exchange patterns ---
     hid_t exch_grp = H5Gopen2(fid, "/partition/exchange", H5P_DEFAULT);
@@ -335,7 +345,7 @@ RankData read_partition_all(const std::string& partition_dir) {
             merged.exchange_patterns.clear();
             merged.ghost_element_ids.clear();
             merged.ghost_owners.clear();
-            cumulative_elements = merged.n_local_elem;
+            cumulative_elements = merged.n_local_element;
         } else {
             // Concatenate element-based arrays
             concat_vec(merged.local_element_ids, part.local_element_ids);
@@ -360,13 +370,13 @@ RankData read_partition_all(const std::string& partition_dir) {
                 concat_vec(merged.recording.src_corner, part.recording.src_corner);
             }
 
-            cumulative_elements += part.n_local_elem;
+            cumulative_elements += part.n_local_element;
         }
     }
 
-    merged.n_local_elem = cumulative_elements;
-    merged.n_ghost_elem = 0;
-    merged.n_total_elem = merged.n_local_elem;
+    merged.n_local_element = cumulative_elements;
+    merged.n_ghost_element = 0;
+    merged.n_total_element = merged.n_local_element;
 
     return merged;
 }
@@ -422,7 +432,7 @@ RankData read_partition_range(const std::string& partition_dir, int effective_ra
             merged.exchange_patterns.clear();
             merged.ghost_element_ids.clear();
             merged.ghost_owners.clear();
-            cumulative_elements = merged.n_local_elem;
+            cumulative_elements = merged.n_local_element;
         } else {
             concat_vec(merged.local_element_ids, part.local_element_ids);
             concat_vec(merged.coords, part.coords);
@@ -445,13 +455,13 @@ RankData read_partition_range(const std::string& partition_dir, int effective_ra
                 concat_vec(merged.recording.src_corner, part.recording.src_corner);
             }
 
-            cumulative_elements += part.n_local_elem;
+            cumulative_elements += part.n_local_element;
         }
     }
 
-    merged.n_local_elem = cumulative_elements;
-    merged.n_ghost_elem = 0;
-    merged.n_total_elem = merged.n_local_elem;
+    merged.n_local_element = cumulative_elements;
+    merged.n_ghost_element = 0;
+    merged.n_total_element = merged.n_local_element;
 
     return merged;
 }

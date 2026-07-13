@@ -80,8 +80,8 @@ void write_dset(hid_t loc_id, const std::string& name, const std::vector<double>
 }  // anonymous namespace
 
 RestartWriter::RestartWriter(const std::string& output_dir, const std::string& source_direction,
-                             int rank, int n_local_elem, int ngll)
-    : file_id_(-1), n_elem_local_(n_local_elem), ngll_(ngll), source_direction_(source_direction) {
+                             int rank, int n_local_element, int ngll)
+    : file_id_(-1), n_elem_local_(n_local_element), ngll_(ngll), source_direction_(source_direction) {
     std::string restart_dir = output_dir + "/" + source_direction;
     filepath_ = restart_dir + "/restart_" + std::to_string(rank) + ".h5";
 
