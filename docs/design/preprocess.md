@@ -404,7 +404,7 @@ Comprehensive validation before partition and writing. Runs as a checklist; with
    - send: (owned_local_idx, face_idx) → (ghost_idx, ghost_face)
    - recv: ghost elements to receive into
 
-Output: one `partition_{r}.h5` per rank with owned/ghost data, metadata, and `/recording/` map. See [mesh.md](mesh.md).
+Output: one `partition_{r}.h5` per rank with owned/ghost data, metadata (`use_global_dof` flag, `n_rank_node`), `local_element2rank_node` (flat ibool), and `/recording/` map. The `use_global_dof` flag controls whether the forward solver uses CG-SEM global assembly (1) or legacy element-local DOF (0/absent). See [mesh.md](mesh.md).
 
 ### 10. Build Shallow Recording Map
 

@@ -136,6 +136,38 @@ Buffers are freed on shape change (reallocation). Cleanup before MPI_Finalize is
 > 1 rank per GPU, and redistributes partitions via `read_partition_range()`.
 > Excess ranks (shm_rank >= n_devices) exit early.
 
+## CG-SEM Global DOF Path on GPU
+
+When `use_global_dof=true` (partition file has `local_element2rank_node`), the GPU solver
+supports an alternative code path that mirrors the CPU CG-SEM assembly. Additional
+CUDA kernels in `cuda_step.cu` implement the global DOF operations:
+
+| Kernel | Purpose | Shared memory |
+|--------|---------|---------------|
+| `cuda_newmark_predict` | Newmark predictor on rank-level arrays | No |
+| `cuda_gather_predicted` | Gather `d_rank_node_displacement_tilde` → element-local via ibool | No |
+| `cuda_zero_residual` | Zero element-local residual array | No |
+| `cuda_launch_element_residual` | Element kernel (same as legacy, reads/writes elem-local) | Depends on NGLL |
+| `cuda_pml_damping` | PML damping on rank-level velocity array | No |
+| `cuda_source_injection` | Source injection into element-local residual | No |
+| `cuda_scatter_to_rank` | Atomic `atomicAdd` from elem-local → rank-level residual via ibool | No |
+| `cuda_newmark_correct` | Newmark corrector with mass-exchange handling (skip ghost-only nodes) | No |
+| `cuda_gather_from_rank` | Gather rank-level displacement → element-local for strain recording | No |
+
+The GPU scatter kernel uses `atomicAdd` on `d_rank_node_residual` to correctly
+accumulate element contributions at shared nodes. No MPI exchange is performed
+on GPU — the residual is left on device and the host-side `exchange_halo` handles
+cross-rank assembly (GPU→CPU copy avoids device-side MPI complexity).
+
+**Device state allocation**: `cuda_allocate_state()` in `cuda_step.cu` detects
+`use_global_dof` from partition data and allocates appropriate arrays:
+
+- Global DOF: `d_rank_node_*` arrays of size `[n_rank_node × 3]` + element-local temps `[n_local_element × n_node × 3]`
+- Legacy: `d_*` arrays of size `[n_local_element × n_node × 3]` (element-local only)
+
+Both paths share the same element residual kernel. The global DOF path adds
+gather/scatter wrapper kernels and rank-level arrays.
+
 ## CMake Configuration
 
 ### Root `CMakeLists.txt`
