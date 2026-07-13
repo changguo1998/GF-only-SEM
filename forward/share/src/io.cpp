@@ -378,6 +378,12 @@ RankData read_partition_all(const std::string& partition_dir) {
     merged.n_ghost_element = 0;
     merged.n_total_element = merged.n_local_element;
 
+    // Per-rank local_element2rank_node (ibool) cannot be merged across
+    // partitions — each rank uses its own local node numbering. When all
+    // partitions are merged (single-GPU), fall back to element-local DOF.
+    merged.local_element2rank_node.clear();
+    merged.n_rank_node = 0;
+
     return merged;
 }
 
@@ -462,6 +468,10 @@ RankData read_partition_range(const std::string& partition_dir, int effective_ra
     merged.n_local_element = cumulative_elements;
     merged.n_ghost_element = 0;
     merged.n_total_element = merged.n_local_element;
+
+    // Clear per-rank ibool — cannot merge across partitions
+    merged.local_element2rank_node.clear();
+    merged.n_rank_node = 0;
 
     return merged;
 }

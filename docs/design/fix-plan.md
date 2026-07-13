@@ -759,15 +759,15 @@ Test cases:
 - [x] **Step 1: Run full halfspace pipeline** — preprocess → forward (MPI, CPU) → postprocess
 - [x] **Step 2: Check wavefield values are physically reasonable** — displacement magnitude at source ≈ 1e-7 to 1e-4 m (not 1e-11)
 - [x] **Step 3: Check strain values are non-zero and propagate through element interfaces**
-- [ ] **Step 4: Run comparison with Lamb reference solution** — `bash compare.sh`
-- [ ] **Step 5: Verify rel_l2 error is reasonable** (should be ≪ 1.0)
-- [ ] **Step 6: Commit**
+- [x] **Step 4: Run comparison with Lamb reference solution** — `bash compare.sh`
+- [x] **Step 5: Verify rel_l2 error is reasonable** (should be ≪ 1.0)
+- [x] **Step 6: Commit**
 
 ### Task 5.4: CUDA Integration Test
 
 - [x] **Step 1: Run halfspace with CUDA solver** — verify same results as MPI CPU
-- [ ] **Step 2: Compare CUDA and MPI output record files** — should match within machine precision
-- [ ] **Step 3: Commit**
+- [x] **Step 2: Compare CUDA and MPI output record files** — should match within machine precision
+- [x] **Step 3: Commit**
 
 ### Task 5.5: Verify Existing Test Suite
 

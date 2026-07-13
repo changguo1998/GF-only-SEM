@@ -20,11 +20,7 @@ source "${SCRIPT_DIR}/preprocess.sh"
 PROJECT_BIN="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}/bin"
 
 # (A) CPU + MPI (default)
-# SOLVER="${PROJECT_BIN}/gf_solver_elastic_mpi"
-
-# (B) CUDA single-GPU, no MPI
-SOLVER="${PROJECT_BIN}/gf_solver_elastic_cuda"
-SOLVER_FLAGS="" # no MPI needed
+SOLVER="${PROJECT_BIN}/gf_solver_elastic_mpi"
 
 # (C) CUDA + MPI (multi-GPU cluster)
 # SOLVER="${PROJECT_BIN}/gf_solver_elastic_mpi_cuda"
