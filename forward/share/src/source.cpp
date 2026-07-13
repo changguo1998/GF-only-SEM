@@ -147,11 +147,11 @@ void PointForceSource::apply(double force_x, double force_y, double force_z,
     if (elem_idx < 0)
         return;
 
-    int dof_base = elem_idx * n_node * 3 + (gll_i * ngll + gll_j) * ngll + gll_k;
+    int node_idx = elem_idx * n_node + (gll_i * ngll + gll_j) * ngll + gll_k;
     const double weight = (wy == 0.0 && wz == 0.0) ? wx : (wx * wy * wz);
-    rhs[dof_base * 3 + 0] += weight * force_x;
-    rhs[dof_base * 3 + 1] += weight * force_y;
-    rhs[dof_base * 3 + 2] += weight * force_z;
+    rhs[node_idx * 3 + 0] += weight * force_x;
+    rhs[node_idx * 3 + 1] += weight * force_y;
+    rhs[node_idx * 3 + 2] += weight * force_z;
 }
 
 }  // namespace gf

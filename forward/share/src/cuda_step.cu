@@ -66,8 +66,13 @@ __global__ void newmark_correct_kernel(double* d_disp, double* d_vel, double* d_
     if (i < n_dof) {
         int node = i / 3;
         if (node < n_nodes) {
+            double m = d_mass[node];
+            if (m <= 0.0) {
+                d_acc[i] = 0.0;
+                return;
+            }
             double a_old = d_acc[i];
-            double a_new = d_residual[i] / d_mass[node];
+            double a_new = d_residual[i] / m;
             d_disp[i] += dt * d_vel[i] + 0.5 * dt * dt * a_old;
             d_vel[i] += dt * ((1.0 - gamma) * a_old + gamma * a_new);
             d_acc[i] = a_new;
@@ -142,8 +147,13 @@ __global__ void newmark_correct_rank_kernel(double* d_disp, double* d_vel, doubl
     int i = blockDim.x * blockIdx.x + threadIdx.x;
     if (i < n_rank_dof) {
         int node_id = i / 3;
+        double m = d_rank_node_mass[node_id];
+        if (m <= 0.0) {
+            d_acc[i] = 0.0;
+            return;
+        }
         double a_old = d_acc[i];
-        double a_new = d_residual[i] / d_rank_node_mass[node_id];
+        double a_new = d_residual[i] / m;
         d_disp[i] += dt * d_vel[i] + 0.5 * dt * dt * a_old;
         d_vel[i] += dt * ((1.0 - gamma) * a_old + gamma * a_new);
         d_acc[i] = a_new;

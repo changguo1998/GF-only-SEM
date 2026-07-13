@@ -111,7 +111,7 @@ TEST_CASE("Read partition data round-trip", "[io]") {
     RankData data = read_partition(path, 0);
 
     REQUIRE(data.n_local_element == n_local_element);
-    REQUIRE(data.n_ghost_elem == 0);
+    REQUIRE(data.n_ghost_element == 0);
     REQUIRE(data.ngll == ngll);
     REQUIRE(data.local_element_ids.size() == static_cast<size_t>(n_local_element));
     REQUIRE(data.ghost_element_ids.empty());

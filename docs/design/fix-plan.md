@@ -82,10 +82,10 @@ def compute_ibool(topology, gll_coords):
     return local_element2rank_node, node_id - 1  # n_rank_node
 ```
 
-- [ ] **Step 1: Write `compute_ibool` function in `preprocess/partition.py`**
-- [ ] **Step 2: Write unit test** — 2-element mesh sharing a face → verify shared nodes have same node_id, interior nodes have unique node_id
-- [ ] **Step 3: Run test to verify**
-- [ ] **Step 4: Commit**
+- [x] **Step 1: Write `compute_ibool` function in `preprocess/partition.py`**
+- [x] **Step 2: Write unit test** — 2-element mesh sharing a face → verify shared nodes have same node_id, interior nodes have unique node_id
+- [x] **Step 3: Run test to verify**
+- [x] **Step 4: Commit**
 
 ### Task 0.2: Write local_element2rank_node to Partition Files
 
@@ -101,13 +101,13 @@ def compute_ibool(topology, gll_coords):
 - Produces: `/field/n_rank_node` attribute in each partition file — scalar int32
   **Flattening:** The preprocessor computes local_element2rank_node as a 4D array `[n_cell, NGLL, NGLL, NGLL]`. Before writing, slice to local elements and flatten: `ibool_local = local_element2rank_node[:n_local_element].reshape(-1)` → 1D array of shape `[n_local_element * n_node]`.
 
-- [ ] **Step 1: Add `local_element2rank_node` and `n_rank_node` fields to partition data dict in `partition.py`**
+- [x] **Step 1: Add `local_element2rank_node` and `n_rank_node` fields to partition data dict in `partition.py`**
 
-- [ ] **Step 2: Add writing code in `model_writer.py`** — write local_element2rank_node under `/field/`, n_rank_node as attr
+- [x] **Step 2: Add writing code in `model_writer.py`** — write local_element2rank_node under `/field/`, n_rank_node as attr
 
-- [ ] **Step 3: Run halfspace preprocessor** and verify datasets exist with `h5ls`
+- [x] **Step 3: Run halfspace preprocessor** and verify datasets exist with `h5ls`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ### Task 0.3: Generate Exchange Patterns with Global DOF Indices
 
@@ -148,9 +148,9 @@ for rank_data in all_rank_data:
 
 ````
 
-- [ ] **Step 1: Implement the DOF index conversion in `partition.py`** (Approach A — preprocessor-side, see implementation sketch above)
-- [ ] **Step 2: Verify exchange patterns use valid local_element2rank_node indices (0 ≤ idx < n_rank_node * 3) for both send and recv**
-- [ ] **Step 3: Commit**
+- [x] **Step 1: Implement the DOF index conversion in `partition.py`** (Approach A — preprocessor-side, see implementation sketch above)
+- [x] **Step 2: Verify exchange patterns use valid local_element2rank_node indices (0 ≤ idx < n_rank_node * 3) for both send and recv**
+- [x] **Step 3: Commit**
 
 ---
 
@@ -200,10 +200,10 @@ if (attr >= 0) {
 
 We still need element-local arrays for the element residual kernel (it operates element-by-element), but the main state vectors (displacement, velocity, acceleration, residual) should be global-sized.
 
-- [ ] **Step 1: Add `local_element2rank_node` and `n_rank_node` fields to `RankData` struct**
-- [ ] **Step 2: Add reading code in `io.cpp` `read_partition()`**
-- [ ] **Step 3: Build and verify** — compile forward solver, run with new partition files, check local_element2rank_node is loaded
-- [ ] **Step 4: Commit**
+- [x] **Step 1: Add `local_element2rank_node` and `n_rank_node` fields to `RankData` struct**
+- [x] **Step 2: Add reading code in `io.cpp` `read_partition()`**
+- [x] **Step 3: Build and verify** — compile forward solver, run with new partition files, check local_element2rank_node is loaded
+- [x] **Step 4: Commit**
 
 ### Task 1.2: Add Global State Vector Allocation
 
@@ -231,9 +231,9 @@ std::vector<double> acceleration(n_rank_dof, 0.0);
 std::vector<double> residual(n_rank_dof, 0.0);
 ```
 
-- [ ] **Step 1: Modify solver.cpp to allocate global-sized state vectors**
-- [ ] **Step 2: Build and verify compilation**
-- [ ] **Step 3: Commit**
+- [x] **Step 1: Modify solver.cpp to allocate global-sized state vectors**
+- [x] **Step 2: Build and verify compilation**
+- [x] **Step 3: Commit**
 
 ### Task 1.3: Add Scatter/Gather Routines
 
@@ -293,10 +293,10 @@ void scatter_to_rank(
 }
 ```
 
-- [ ] **Step 1: Rewrite `assembly.hpp` with new function declarations**
-- [ ] **Step 2: Implement `scatter_to_rank` and `gather_from_rank` in `assembly.cpp`**
-- [ ] **Step 3: Write unit test** — 2 elements sharing one node → verify residual is summed at shared node
-- [ ] **Step 4: Commit**
+- [x] **Step 1: Rewrite `assembly.hpp` with new function declarations**
+- [x] **Step 2: Implement `scatter_to_rank` and `gather_from_rank` in `assembly.cpp`**
+- [x] **Step 3: Write unit test** — 2 elements sharing one node → verify residual is summed at shared node
+- [x] **Step 4: Commit**
 
 ### Task 1.4: Assemble Global Mass and Damping Arrays
 
@@ -321,10 +321,10 @@ for (int e = 0; e < n_local; ++e) {
 }
 ```
 
-- [ ] **Step 1: Add global mass and global damping assembly code**
-- [ ] **Step 2: Update `newmark_correct` to use `rank_node_mass` instead of `part.mass`**
-- [ ] **Step 3: Build and verify compilation**
-- [ ] **Step 4: Commit**
+- [x] **Step 1: Add global mass and global damping assembly code**
+- [x] **Step 2: Update `newmark_correct` to use `rank_node_mass` instead of `part.mass`**
+- [x] **Step 3: Build and verify compilation**
+- [x] **Step 4: Commit**
 
 ______________________________________________________________________
 
@@ -377,11 +377,11 @@ inline void newmark_correct(double solver_dt, double beta, double gamma,
 
 **Mass size change:** Currently the solver calls `newmark_correct(..., part.mass, ...)` where `part.mass` is element-local `[n_local * n_node]`. After assembly (Task 1.4), pass `rank_node_mass` (assembled `[n_rank_node]`) instead. The corrector already uses `mass[i/3]` (node-sized access) — no loop structure change needed, just resize the mass array.
 
-- [ ] **Step 1: Update the inline `newmark_predict` signature in `solver.cpp`** to accept global-sized arrays
-- [ ] **Step 2: Update the inline `newmark_correct` call site** to pass `rank_node_mass` instead of `part.mass`
-- [ ] **Step 3: Add `#include "gf/assembly.hpp"` to `solver.cpp`** (for scatter/gather)
-- [ ] **Step 4: Build and verify compilation**
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Update the inline `newmark_predict` signature in `solver.cpp`** to accept global-sized arrays
+- [x] **Step 2: Update the inline `newmark_correct` call site** to pass `rank_node_mass` instead of `part.mass`
+- [x] **Step 3: Add `#include "gf/assembly.hpp"` to `solver.cpp`** (for scatter/gather)
+- [x] **Step 4: Build and verify compilation**
+- [x] **Step 5: Commit**
 
 ### Task 2.2: Rewrite CPU Solver Loop
 
@@ -457,9 +457,9 @@ for (int step = start_step; step < cfg.nsteps; ++step) {
 }
 ```
 
-- [ ] **Step 1: Rewrite the CPU branch of the time loop in `solver.cpp`**
-- [ ] **Step 2: Build and verify compilation**
-- [ ] **Step 3: Commit**
+- [x] **Step 1: Rewrite the CPU branch of the time loop in `solver.cpp`**
+- [x] **Step 2: Build and verify compilation**
+- [x] **Step 3: Commit**
 
 ### Task 2.3: Fix Source Injection for Global Indexing
 
@@ -476,9 +476,9 @@ Actually, since the source injection happens BEFORE scatter_to_rank, and it alre
 
 Option 1 is simpler — no changes needed to source.cpp, just let scatter_to_rank handle it.
 
-- [ ] **Step 1: Verify source injection works with element-local temp array**
-- [ ] **Step 2: Update if needed — compute global DOF index for direct injection into global residual**
-- [ ] **Step 3: Commit**
+- [x] **Step 1: Verify source injection works with element-local temp array**
+- [x] **Step 2: Update if needed — compute global DOF index for direct injection into global residual**
+- [x] **Step 3: Commit**
 
 ### Task 2.4: Apply PML Damping Directly to Global Velocity
 
@@ -504,9 +504,9 @@ for (int node_id = 0; node_id < part.n_rank_node; ++node_id) {
 }
 ```
 
-- [ ] **Step 1: Remove the `apply_pml_damping` call; inline global damping loop in the time loop**
-- [ ] **Step 2: Build and verify**
-- [ ] **Step 3: Commit**
+- [x] **Step 1: Remove the `apply_pml_damping` call; inline global damping loop in the time loop**
+- [x] **Step 2: Build and verify**
+- [x] **Step 3: Commit**
 
 ______________________________________________________________________
 
@@ -579,19 +579,19 @@ __global__ void gather_from_global_kernel(
 
   This is one extra device memory read per vertex — negligible overhead.
 
-- [ ] **Step 1: Add global array pointers (`d_global_*`, `d_rank_node_damping`, `d_local_element2rank_node`) to `CudaDeviceState`**
+- [x] **Step 1: Add global array pointers (`d_global_*`, `d_rank_node_damping`, `d_local_element2rank_node`) to `CudaDeviceState`**
 
-- [ ] **Step 2: Implement `scatter_to_global_kernel`** — MUST use `atomicAdd` because multiple elements sharing a node write to the same global DOF
+- [x] **Step 2: Implement `scatter_to_global_kernel`** — MUST use `atomicAdd` because multiple elements sharing a node write to the same global DOF
 
-- [ ] **Step 3: Implement `gather_from_global_kernel`** — one-to-one mapping, no atomics needed
+- [x] **Step 3: Implement `gather_from_global_kernel`** — one-to-one mapping, no atomics needed
 
-- [ ] **Step 4: Implement `pml_damping_global_kernel`** — operates directly on `d_rank_node_velocity`
+- [x] **Step 4: Implement `pml_damping_global_kernel`** — operates directly on `d_rank_node_velocity`
 
-- [ ] **Step 5: Update `cuda_allocate_state` to allocate global arrays and upload local_element2rank_node / rank_node_damping**
+- [x] **Step 5: Update `cuda_allocate_state` to allocate global arrays and upload local_element2rank_node / rank_node_damping**
 
-- [ ] **Step 6: Update `recorded_strain_kernel`** to use local_element2rank_node for displacement lookup
+- [x] **Step 6: Update `recorded_strain_kernel`** to use local_element2rank_node for displacement lookup
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ### Task 3.2: Rewrite CUDA Solver Loop
 
@@ -633,12 +633,12 @@ cuda_newmark_correct_global(gpu_state, solver_dt, gamma);
 
 **Critical note:** `scatter_to_global_kernel` MUST use `atomicAdd` when writing to `d_rank_node_residual`, because multiple elements sharing a physical node (same node_id) will write concurrently to the same destination. The CPU version uses simple `+=` but is single-threaded; the GPU version needs atomics to be correct.
 
-- [ ] **Step 1: Rewrite the CUDA branch of the time loop** with corrected ordering and global PML
-- [ ] **Step 2: Implement `cuda_newmark_predict_global`** — same logic as `cuda_newmark_predict` but on `d_global_*` arrays
-- [ ] **Step 3: Implement `cuda_newmark_correct_global`** — operates on `d_global_*` arrays
-- [ ] **Step 4: Implement `cuda_pml_damping_global`** — direct damping on `d_rank_node_velocity`
-- [ ] **Step 5: Build and verify compilation**
-- [ ] **Step 6: Commit**
+- [x] **Step 1: Rewrite the CUDA branch of the time loop** with corrected ordering and global PML
+- [x] **Step 2: Implement `cuda_newmark_predict_global`** — same logic as `cuda_newmark_predict` but on `d_global_*` arrays
+- [x] **Step 3: Implement `cuda_newmark_correct_global`** — operates on `d_global_*` arrays
+- [x] **Step 4: Implement `cuda_pml_damping_global`** — direct damping on `d_rank_node_velocity`
+- [x] **Step 5: Build and verify compilation**
+- [x] **Step 6: Commit**
 
 ______________________________________________________________________
 
@@ -685,10 +685,10 @@ if (has_recording) {
 }
 ```
 
-- [ ] **Step 1: Update snapshot writing to gather global→element-local before strain computation**
-- [ ] **Step 2: Update recorded displacement extraction to use local_element2rank_node** (with corner node decoding)
-- [ ] **Step 3: Build and verify**
-- [ ] **Step 4: Commit**
+- [x] **Step 1: Update snapshot writing to gather global→element-local before strain computation**
+- [x] **Step 2: Update recorded displacement extraction to use local_element2rank_node** (with corner node decoding)
+- [x] **Step 3: Build and verify**
+- [x] **Step 4: Commit**
 
 ### Task 4.2: Verify Exchange Patterns with Global DOF Indices
 
@@ -701,9 +701,9 @@ if (has_recording) {
 
 **Verification needed:** After Task 0.3 conversion, send_dof and recv_dof within each pattern reference the same per-rank global DOF (shared physical node → same node_id on this rank). This is the CG-SEM accumulation pattern: rank A sends at node_id=K, rank B receives into node_id=K.
 
-- [ ] **Step 1: Verify exchange patterns contain global DOF indices (converted in Task 0.3 preprocessor step)**
-- [ ] **Step 2: Confirm `exchange_halo` accumulation logic (`buffer[d] += recv_buf[d]`) is correct for global arrays**
-- [ ] **Step 3: Commit**
+- [x] **Step 1: Verify exchange patterns contain global DOF indices (converted in Task 0.3 preprocessor step)**
+- [x] **Step 2: Confirm `exchange_halo` accumulation logic (`buffer[d] += recv_buf[d]`) is correct for global arrays**
+- [x] **Step 3: Commit**
 
 ### Task 4.3: Update Restart Writer
 
@@ -713,9 +713,9 @@ if (has_recording) {
 
 Restart currently saves/loads element-local state vectors. Update to save/load global arrays.
 
-- [ ] **Step 1: Update restart format to global-sized arrays**
-- [ ] **Step 2: Build and verify**
-- [ ] **Step 3: Commit**
+- [x] **Step 1: Update restart format to global-sized arrays**
+- [x] **Step 2: Build and verify**
+- [x] **Step 3: Commit**
 
 ______________________________________________________________________
 
@@ -734,9 +734,9 @@ Test cases:
 1. Element at domain corner → 4 elements meeting at a corner node → all share the same node_id
 1. Verify n_rank_node = number of unique physical GLL nodes
 
-- [ ] **Step 1: Write test cases**
-- [ ] **Step 2: Run tests and verify**
-- [ ] **Step 3: Commit**
+- [x] **Step 1: Write test cases**
+- [x] **Step 2: Run tests and verify**
+- [x] **Step 3: Commit**
 
 ### Task 5.2: Unit Tests for Scatter/Gather
 
@@ -750,31 +750,31 @@ Test cases:
 1. Gather from global → element-local produces correct values
 1. Round-trip: gather → modify → scatter → values preserved at non-shared nodes, summed at shared nodes
 
-- [ ] **Step 1: Write test cases**
-- [ ] **Step 2: Build and run tests**
-- [ ] **Step 3: Commit**
+- [x] **Step 1: Write test cases**
+- [x] **Step 2: Build and run tests**
+- [x] **Step 3: Commit**
 
 ### Task 5.3: Integration Test — Halfspace Example
 
-- [ ] **Step 1: Run full halfspace pipeline** — preprocess → forward (MPI, CPU) → postprocess
-- [ ] **Step 2: Check wavefield values are physically reasonable** — displacement magnitude at source ≈ 1e-7 to 1e-4 m (not 1e-11)
-- [ ] **Step 3: Check strain values are non-zero and propagate through element interfaces**
+- [x] **Step 1: Run full halfspace pipeline** — preprocess → forward (MPI, CPU) → postprocess
+- [x] **Step 2: Check wavefield values are physically reasonable** — displacement magnitude at source ≈ 1e-7 to 1e-4 m (not 1e-11)
+- [x] **Step 3: Check strain values are non-zero and propagate through element interfaces**
 - [ ] **Step 4: Run comparison with Lamb reference solution** — `bash compare.sh`
 - [ ] **Step 5: Verify rel_l2 error is reasonable** (should be ≪ 1.0)
 - [ ] **Step 6: Commit**
 
 ### Task 5.4: CUDA Integration Test
 
-- [ ] **Step 1: Run halfspace with CUDA solver** — verify same results as MPI CPU
+- [x] **Step 1: Run halfspace with CUDA solver** — verify same results as MPI CPU
 - [ ] **Step 2: Compare CUDA and MPI output record files** — should match within machine precision
 - [ ] **Step 3: Commit**
 
 ### Task 5.5: Verify Existing Test Suite
 
-- [ ] **Step 1: Run full pytest suite**: `python -m pytest tests/ -q`
-- [ ] **Step 2: Fix any regressions in existing tests**
-- [ ] **Step 3: All 182+ tests pass**
-- [ ] **Step 4: Commit**
+- [x] **Step 1: Run full pytest suite**: `python -m pytest tests/ -q`
+- [x] **Step 2: Fix any regressions in existing tests**
+- [x] **Step 3: All 182+ tests pass**
+- [x] **Step 4: Commit**
 
 ______________________________________________________________________
 

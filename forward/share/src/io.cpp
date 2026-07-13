@@ -186,8 +186,8 @@ RankData read_partition(const std::string& path, int /*rank*/) {
 
     // --- Read element counts ---
     auto local_ids = read_dataset_int64(fid, "/partition/local_element_ids");
-    auto ghost_ids = read_dataset_int64(fid, "/partition/ghost_element_ids");
-    auto ghost_owners = read_dataset_int32(fid, "/partition/ghost_owners");
+    auto ghost_ids = try_read_dataset<int64_t>(fid, "/partition/ghost_element_ids");
+    auto ghost_owners = try_read_dataset<int32_t>(fid, "/partition/ghost_owners");
 
     data.n_local_element = static_cast<int>(local_ids.size());
     data.n_ghost_element = static_cast<int>(ghost_ids.size());

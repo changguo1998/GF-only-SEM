@@ -80,8 +80,14 @@ void write_dset(hid_t loc_id, const std::string& name, const std::vector<double>
 }  // anonymous namespace
 
 RestartWriter::RestartWriter(const std::string& output_dir, const std::string& source_direction,
-                             int rank, int n_local_element, int ngll)
-    : file_id_(-1), n_elem_local_(n_local_element), ngll_(ngll), source_direction_(source_direction) {
+                             int rank, int n_local_element, int ngll, bool use_global_dof,
+                             int n_rank_node)
+    : file_id_(-1),
+      n_elem_local_(n_local_element),
+      ngll_(ngll),
+      source_direction_(source_direction),
+      use_global_dof_(use_global_dof),
+      n_rank_node_(n_rank_node) {
     std::string restart_dir = output_dir + "/" + source_direction;
     filepath_ = restart_dir + "/restart_" + std::to_string(rank) + ".h5";
 
@@ -97,6 +103,11 @@ RestartWriter::RestartWriter(const std::string& output_dir, const std::string& s
     write_string_attr(file_id_, "source_direction", source_direction);
     write_scalar_attr(file_id_, "rank", H5T_NATIVE_INT, &rank);
     write_scalar_attr(file_id_, "ngll", H5T_NATIVE_INT, &ngll);
+    int dof_flag = use_global_dof ? 1 : 0;
+    write_scalar_attr(file_id_, "use_global_dof", H5T_NATIVE_INT, &dof_flag);
+    if (use_global_dof) {
+        write_scalar_attr(file_id_, "n_rank_node", H5T_NATIVE_INT, &n_rank_node);
+    }
 }
 
 RestartWriter::~RestartWriter() {
@@ -118,15 +129,26 @@ void RestartWriter::write(int step, double time_s, const std::vector<double>& di
     write_scalar_attr(file_id_, "step", H5T_NATIVE_INT, &step);
     write_scalar_attr(file_id_, "time_s", H5T_NATIVE_DOUBLE, &time_s);
 
-    hsize_t dims4[4] = {static_cast<hsize_t>(n_elem_local_), static_cast<hsize_t>(ngll_),
-                        static_cast<hsize_t>(ngll_), static_cast<hsize_t>(ngll_)};
-    hsize_t dims4_3[5] = {static_cast<hsize_t>(n_elem_local_), static_cast<hsize_t>(ngll_),
-                          static_cast<hsize_t>(ngll_), static_cast<hsize_t>(ngll_), 3};
+    if (use_global_dof_) {
+        // Global DOF: flat 1D arrays of [n_rank_node * 3] for state, [n_rank_node] for damping
+        hsize_t dims_state[1] = {static_cast<hsize_t>(n_rank_node_ * 3)};
+        hsize_t dims_damp[1] = {static_cast<hsize_t>(n_rank_node_)};
+        write_dset(file_id_, "displacement", displacement, 1, dims_state);
+        write_dset(file_id_, "velocity", velocity, 1, dims_state);
+        write_dset(file_id_, "acceleration", acceleration, 1, dims_state);
+        write_dset(file_id_, "pml_damping", pml_damping, 1, dims_damp);
+    } else {
+        // Element-local: 5D/4D arrays [n_elem, NGLL, NGLL, NGLL, 3]
+        hsize_t dims4[4] = {static_cast<hsize_t>(n_elem_local_), static_cast<hsize_t>(ngll_),
+                            static_cast<hsize_t>(ngll_), static_cast<hsize_t>(ngll_)};
+        hsize_t dims4_3[5] = {static_cast<hsize_t>(n_elem_local_), static_cast<hsize_t>(ngll_),
+                              static_cast<hsize_t>(ngll_), static_cast<hsize_t>(ngll_), 3};
 
-    write_dset(file_id_, "displacement", displacement, 5, dims4_3);
-    write_dset(file_id_, "velocity", velocity, 5, dims4_3);
-    write_dset(file_id_, "acceleration", acceleration, 5, dims4_3);
-    write_dset(file_id_, "pml_damping", pml_damping, 4, dims4);
+        write_dset(file_id_, "displacement", displacement, 5, dims4_3);
+        write_dset(file_id_, "velocity", velocity, 5, dims4_3);
+        write_dset(file_id_, "acceleration", acceleration, 5, dims4_3);
+        write_dset(file_id_, "pml_damping", pml_damping, 4, dims4);
+    }
 }
 
 void RestartWriter::close() {
@@ -159,6 +181,23 @@ RestartState read_restart(const std::string& output_dir, const std::string& sour
     if (attr >= 0) {
         H5Aread(attr, H5T_NATIVE_DOUBLE, &state.time_s);
         H5Aclose(attr);
+    }
+
+    // Read format attributes
+    state.use_global_dof = false;
+    int dof_flag = 0;
+    attr = H5Aopen(fid, "use_global_dof", H5P_DEFAULT);
+    if (attr >= 0) {
+        H5Aread(attr, H5T_NATIVE_INT, &dof_flag);
+        H5Aclose(attr);
+        state.use_global_dof = (dof_flag != 0);
+    }
+    if (state.use_global_dof) {
+        attr = H5Aopen(fid, "n_rank_node", H5P_DEFAULT);
+        if (attr >= 0) {
+            H5Aread(attr, H5T_NATIVE_INT, &state.n_rank_node);
+            H5Aclose(attr);
+        }
     }
 
     // Helper lambda to read a dataset

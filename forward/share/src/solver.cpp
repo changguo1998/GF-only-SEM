@@ -54,8 +54,13 @@ inline void newmark_correct(double solver_dt, double beta, double gamma,
                             std::vector<double>& velocity, std::vector<double>& acceleration,
                             std::vector<double>& residual) {
     for (size_t i = 0; i < residual.size(); ++i) {
+        double m = mass[i / 3];
+        if (m <= 0.0) {
+            acceleration[i] = 0.0;
+            continue;
+        }
         double a_old = acceleration[i];
-        double a_new = residual[i] / mass[i / 3];  // same mass for all 3 directions
+        double a_new = residual[i] / m;
         displacement[i] += solver_dt * velocity[i] +
                            solver_dt * solver_dt * ((0.5 - beta) * a_old + beta * a_new);
         velocity[i] += solver_dt * ((1.0 - gamma) * a_old + gamma * a_new);
@@ -193,6 +198,20 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                     rank_node_damping[node_id] = part.pml_damping[e * n_node + n];
                 }
             }
+
+            if (!exchange_patterns.empty()) {
+                std::vector<double> mass_exchange(n_rank_dof, 0.0);
+                for (int node_id = 0; node_id < part.n_rank_node; ++node_id) {
+                    double m = rank_node_mass[node_id];
+                    mass_exchange[node_id * 3 + 0] = m;
+                    mass_exchange[node_id * 3 + 1] = m;
+                    mass_exchange[node_id * 3 + 2] = m;
+                }
+                exchange_halo(exchange_patterns, mass_exchange, 3);
+                for (int node_id = 0; node_id < part.n_rank_node; ++node_id) {
+                    rank_node_mass[node_id] = mass_exchange[node_id * 3 + 0];
+                }
+            }
         }
 
         // === Initialize record writer ===
@@ -265,7 +284,8 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             restart_stride = cfg.restart_stride;
         }
         bool do_restart = (restart_stride > 0);
-        RestartWriter restart_writer(output_dir, direction, rank, n_local_element, ngll);
+        RestartWriter restart_writer(output_dir, direction, rank, n_local_element, ngll,
+                                      use_global_dof, part.n_rank_node);
         if (do_restart) {
             logger.info("  restart stride: " + std::to_string(restart_stride));
         } else {
@@ -412,7 +432,22 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 newmark_predict(solver_dt, beta, displacement, velocity, acceleration,
                                 displacement_tilde);
 
-                // 2. Gather predicted displacement → element-local for kernel
+                // 2. Sync predicted displacement at shared interface nodes.
+                //    Each rank's predictor uses its own (u,v,a) which may differ
+                //    at shared nodes. Averaging u_tilde before the element kernel
+                //    ensures both ranks use the same displacement → consistent
+                //    residual → correct assembled acceleration.
+                if (!exchange_patterns.empty()) {
+                    std::vector<double> ut_avg(displacement_tilde);
+                    exchange_halo(exchange_patterns, ut_avg, 3);
+                    for (const auto& pat : exchange_patterns) {
+                        for (int dof_idx : pat.recv_dof_indices) {
+                            displacement_tilde[dof_idx] = 0.5 * ut_avg[dof_idx];
+                        }
+                    }
+                }
+
+                // 3. Gather predicted displacement → element-local for kernel
                 gather_from_rank(displacement_tilde, part.local_element2rank_node, n_local_element, n_node,
                                    local_element_displacement);
 
@@ -468,10 +503,10 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 // 6. Scatter element-local → global (accumulates at shared nodes)
                 scatter_to_rank(local_element_residual, part.local_element2rank_node, n_local_element, n_node, residual);
 
-                // 7. MPI halo exchange on global residual
+                // 6. MPI halo exchange on global residual
                 exchange_halo(exchange_patterns, residual, 3);
 
-                // 8. Newmark corrector (global arrays, global mass)
+                // 7. Newmark corrector (global arrays, global mass)
                 newmark_correct(solver_dt, beta, gamma, rank_node_mass, displacement, velocity,
                                 acceleration, residual);
 

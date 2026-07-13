@@ -28,8 +28,8 @@ namespace {
 RankData build_single_element(int ngll) {
     RankData rd;
     rd.n_local_element = 1;
-    rd.n_ghost_elem = 0;
-    rd.n_total_elem = 1;
+    rd.n_ghost_element = 0;
+    rd.n_total_element = 1;
     rd.ngll = ngll;
 
     int n_node = ngll * ngll * ngll;
