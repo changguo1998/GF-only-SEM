@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""Plot comparison between Lamb reference and SEM Green's function results.
+"""Plot SEM vs reference Green's function comparison.
 
-All time series are normalized for visual comparison; text annotations
-report the actual (unnormalized) amplitude values.
+Produces 2 figures:
 
-Usage:
-    python plot_compare.py                          # uses ./lamb_comparison.npz
-    python plot_compare.py --input path/to/file.npz
-    python plot_compare.py --no-show                # save only, no display
+* ``compare_raw.png``       — raw (unnormalized) waveforms, 18 subplots (6×3)
+* ``compare_normalized.png`` — normalized waveforms, 18 subplots (6×3)
+
+Layout (both figures)
+---------------------
+Columns:  force directions  F_x, F_y, F_z
+Rows 1-3: displacement components  u_x, u_y, u_z
+Rows 4-6: difference (SEM − Reference) for each component
+
+*SCALED SEM* (best-fit linear scale) is also plotted if ``amplitude_scale != 0``.
 """
 
 from __future__ import annotations
@@ -19,34 +24,37 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
-matplotlib.use("Agg")  # headless-safe
+matplotlib.use("Agg")
 
 _FORCE_LABELS = ("F_x", "F_y", "F_z")
 _COMP_LABELS = ("u_x", "u_y", "u_z")
 _DIRECTIONS = ("x", "y", "z")
+
 _COLORS = {
-    "reference": "#1f77b4",
-    "sem": "#d62728",
-    "scaled_sem": "#2ca02c",
-    "difference": "#9467bd",
+    "reference": "#00008B",  # dark blue solid
+    "sem": "#d62728",  # red solid
+    "scaled_sem": "#2ca02c",  # green dash-dot
+    "difference": "#00008B",  # dark blue dashed for diff
 }
-_LINESTYLES = {"reference": "-", "sem": "--", "scaled_sem": ":", "difference": "-."}
+_LINESTYLES = {"reference": "-", "sem": "-", "scaled_sem": "-.", "difference": "--"}
 _LABELS = {
-    "reference": "Reference (Lamb)",
-    "sem": "SEM (raw)",
-    "scaled_sem": "SEM (best-fit scale)",
+    "reference": "Reference",
+    "sem": "SEM",
+    "scaled_sem": "SEM (scaled)",
     "difference": "Difference",
 }
+_LW = {"reference": 1.0, "sem": 0.8, "scaled_sem": 0.8, "difference": 0.6}
 
 
 def _amplitude_annotation(ax, y_pos: float, label: str, amplitude: float) -> None:
-    """Add a text annotation showing the actual amplitude next to the plot."""
     if amplitude == 0.0:
         text = f"{label}: 0.0"
-    elif amplitude < 1e-6:
+    elif abs(amplitude) < 1e-12:
         text = f"{label}: {amplitude:.3e} m"
-    elif amplitude < 1.0:
-        text = f"{label}: {amplitude:.3f} m"
+    elif abs(amplitude) < 1e-9:
+        text = f"{label}: {amplitude:.3e} m"
+    elif abs(amplitude) < 1.0:
+        text = f"{label}: {amplitude:.6f} m"
     else:
         text = f"{label}: {amplitude:.3f} m"
     ax.text(
@@ -54,248 +62,184 @@ def _amplitude_annotation(ax, y_pos: float, label: str, amplitude: float) -> Non
         y_pos,
         text,
         transform=ax.transAxes,
-        fontsize=7,
+        fontsize=6.5,
         verticalalignment="center",
         horizontalalignment="right",
         fontfamily="monospace",
-        bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor="gray", alpha=0.8),
+        bbox=dict(boxstyle="round,pad=0.15", facecolor="white", edgecolor="gray", alpha=0.8),
     )
 
 
 def _normalize(series: np.ndarray) -> tuple[np.ndarray, float]:
-    """Normalize to [-1, 1]; return (normalized, max_abs)."""
     mx = float(np.max(np.abs(series)))
     if mx <= 0.0:
         return np.zeros_like(series), 0.0
     return series / mx, mx
 
 
-def _make_waveform_plot(
+def _plot_component(
+    ax,
     time: np.ndarray,
-    ref: np.ndarray,
-    sem: np.ndarray,
-    sem_scaled: np.ndarray,
-    scale: float,
-    output_dir: Path,
+    ref_series: np.ndarray,
+    sem_series: np.ndarray,
+    sem_scaled_series: np.ndarray | None,
+    normalize: bool,
 ) -> None:
-    """3x3 grid: rows=force direction, cols=displacement component."""
-    fig, axes = plt.subplots(3, 3, figsize=(16, 12), sharex=True, sharey=False)
-    fig.suptitle("Waveform Comparison — Normalized", fontsize=14, fontweight="bold")
-
-    for fi, fd in enumerate(_DIRECTIONS):
-        for ci, comp in enumerate(_COMP_LABELS):
-            ax = axes[fi, ci]
-
-            ref_series = ref[:, ci, fi]
-            sem_series = sem[:, ci, fi]
-            sem_scaled_series = sem_scaled[:, ci, fi]
-
-            # Normalize each series independently
-            ref_norm, ref_max = _normalize(ref_series)
-            sem_norm, sem_max = _normalize(sem_series)
-            ssc_norm, ssc_max = _normalize(sem_scaled_series)
-
-            ax.plot(
-                time,
-                ref_norm,
-                color=_COLORS["reference"],
-                ls=_LINESTYLES["reference"],
-                lw=1.2,
-                label=_LABELS["reference"],
+    if normalize:
+        ref_plt, ref_mx = _normalize(ref_series)
+        sem_plt, sem_mx = _normalize(sem_series)
+        if sem_scaled_series is not None:
+            ssc_plt, ssc_mx = _normalize(sem_scaled_series)
+        else:
+            ssc_plt = ssc_mx = None
+    else:
+        ref_plt = ref_series
+        ref_mx = float(np.max(np.abs(ref_series))) if ref_series.size > 0 else 0.0
+        sem_plt = sem_series
+        sem_mx = float(np.max(np.abs(sem_series))) if sem_series.size > 0 else 0.0
+        if sem_scaled_series is not None:
+            ssc_plt = sem_scaled_series
+            ssc_mx = (
+                float(np.max(np.abs(sem_scaled_series))) if sem_scaled_series.size > 0 else 0.0
             )
-            ax.plot(
-                time,
-                sem_norm,
-                color=_COLORS["sem"],
-                ls=_LINESTYLES["sem"],
-                lw=1.0,
-                alpha=0.7,
-                label=_LABELS["sem"],
-            )
-            if scale > 0:
-                ax.plot(
-                    time,
-                    ssc_norm,
-                    color=_COLORS["scaled_sem"],
-                    ls=_LINESTYLES["scaled_sem"],
-                    lw=1.0,
-                    alpha=0.8,
-                    label=_LABELS["scaled_sem"],
-                )
+        else:
+            ssc_plt = ssc_mx = None
 
-            # Annotate actual amplitudes
-            _amplitude_annotation(ax, 0.96, "Ref max", ref_max)
-            _amplitude_annotation(ax, 0.88, "SEM max", sem_max)
-            if scale > 0:
-                _amplitude_annotation(ax, 0.80, "Scaled max", ssc_max)
-
-            ax.set_title(f"F={fd.upper()}, comp={comp}")
-            ax.grid(True, alpha=0.3)
-            if fi == 2:
-                ax.set_xlabel("Time (s)")
-            if ci == 0:
-                ax.set_ylabel("Normalized amplitude")
-
-    # Single legend at bottom
-    handles = [
-        plt.Line2D([0], [0], color=_COLORS[k], ls=_LINESTYLES[k], lw=1.5, label=_LABELS[k])
-        for k in ("reference", "sem", "scaled_sem")
-    ]
-    fig.legend(handles=handles, loc="lower center", ncol=3, fontsize=10)
-    fig.tight_layout(rect=[0, 0.03, 1, 0.97])
-    fig.savefig(output_dir / "compare_waveforms.png", dpi=150)
-    print(f"  Saved {output_dir / 'compare_waveforms.png'}")
-    plt.close(fig)
-
-
-def _make_direction_plots(
-    time: np.ndarray,
-    ref: np.ndarray,
-    sem: np.ndarray,
-    sem_scaled: np.ndarray,
-    scale: float,
-    output_dir: Path,
-) -> None:
-    """One panel per force direction, 3 subplots (one per component)."""
-    for fi, fd in enumerate(_DIRECTIONS):
-        fig, axes = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
-        fig.suptitle(
-            f"Direction {fd.upper()} — Normalized, best-fit scale={scale:.3e}",
-            fontsize=13,
-            fontweight="bold",
+    # Reference — dark blue solid
+    ax.plot(
+        time,
+        ref_plt,
+        color=_COLORS["reference"],
+        ls=_LINESTYLES["reference"],
+        lw=_LW["reference"],
+        label=_LABELS["reference"],
+    )
+    # SEM — red solid
+    ax.plot(
+        time,
+        sem_plt,
+        color=_COLORS["sem"],
+        ls=_LINESTYLES["sem"],
+        lw=_LW["sem"],
+        label=_LABELS["sem"],
+    )
+    # Scaled SEM if available
+    if ssc_plt is not None:
+        ax.plot(
+            time,
+            ssc_plt,
+            color=_COLORS["scaled_sem"],
+            ls=_LINESTYLES["scaled_sem"],
+            lw=_LW["scaled_sem"],
+            label=_LABELS["scaled_sem"],
         )
 
-        for ci, comp in enumerate(_COMP_LABELS):
-            ax = axes[ci]
+    # Annotations
+    y_off = 0.0
+    if ref_mx > 0:
+        _amplitude_annotation(ax, 0.96 - y_off, "Ref", ref_mx)
+        y_off += 0.08
+    if sem_mx > 0:
+        _amplitude_annotation(ax, 0.96 - y_off, "SEM", sem_mx)
+        y_off += 0.08
+    if ssc_mx is not None and ssc_mx > 0:
+        _amplitude_annotation(ax, 0.96 - y_off, "Scaled", ssc_mx)
 
-            ref_series = ref[:, ci, fi]
-            sem_series = sem[:, ci, fi]
-            sem_scaled_series = sem_scaled[:, ci, fi]
-
-            ref_norm, ref_max = _normalize(ref_series)
-            sem_norm, sem_max = _normalize(sem_series)
-            ssc_norm, ssc_max = _normalize(sem_scaled_series)
-
-            ax.plot(
-                time,
-                ref_norm,
-                color=_COLORS["reference"],
-                ls=_LINESTYLES["reference"],
-                lw=1.2,
-                label=_LABELS["reference"],
-            )
-            ax.plot(
-                time,
-                sem_norm,
-                color=_COLORS["sem"],
-                ls=_LINESTYLES["sem"],
-                lw=1.0,
-                alpha=0.7,
-                label=_LABELS["sem"],
-            )
-            if scale > 0:
-                ax.plot(
-                    time,
-                    ssc_norm,
-                    color=_COLORS["scaled_sem"],
-                    ls=_LINESTYLES["scaled_sem"],
-                    lw=1.0,
-                    alpha=0.8,
-                    label=_LABELS["scaled_sem"],
-                )
-
-            _amplitude_annotation(ax, 0.96, "Ref max", ref_max)
-            _amplitude_annotation(ax, 0.88, "SEM max", sem_max)
-            if scale > 0:
-                _amplitude_annotation(ax, 0.80, "Scaled max", ssc_max)
-
-            ax.set_title(f"Component {comp}")
-            ax.grid(True, alpha=0.3)
-            if ci == 2:
-                ax.set_xlabel("Time (s)")
-            ax.set_ylabel("Normalized amplitude")
-
-        handles = [
-            plt.Line2D([0], [0], color=_COLORS[k], ls=_LINESTYLES[k], lw=1.5, label=_LABELS[k])
-            for k in ("reference", "sem", "scaled_sem")
-        ]
-        fig.legend(handles=handles, loc="lower center", ncol=3, fontsize=10)
-        fig.tight_layout(rect=[0, 0.03, 1, 0.97])
-        path = output_dir / f"compare_direction_{fd}.png"
-        fig.savefig(path, dpi=150)
-        print(f"  Saved {path}")
-        plt.close(fig)
+    ax.grid(True, alpha=0.25)
 
 
-def _make_difference_plot(
+def _plot_difference(
+    ax, time: np.ndarray, ref_series: np.ndarray, sem_series: np.ndarray, normalize: bool
+) -> None:
+    diff = sem_series - ref_series
+    if normalize:
+        diff_plt, diff_mx = _normalize(diff)
+    else:
+        diff_plt = diff
+        diff_mx = float(np.max(np.abs(diff))) if diff.size > 0 else 0.0
+
+    ax.plot(
+        time,
+        diff_plt,
+        color=_COLORS["difference"],
+        ls=_LINESTYLES["difference"],
+        lw=_LW["difference"],
+        label=_LABELS["difference"],
+    )
+    ax.axhline(0, color="gray", lw=0.4)
+    if diff_mx > 0:
+        _amplitude_annotation(ax, 0.96, "Max diff", diff_mx)
+    ax.grid(True, alpha=0.25)
+
+
+def _make_comparison_figure(
     time: np.ndarray,
     ref: np.ndarray,
     sem: np.ndarray,
-    sem_scaled: np.ndarray,
+    sem_scaled: np.ndarray | None,
     scale: float,
+    normalize: bool,
     output_dir: Path,
+    suffix: str,
+    title_suffix: str,
 ) -> None:
-    """Difference (error) plot — 3x3 grid showing normalized difference + amplitude."""
-    fig, axes = plt.subplots(3, 3, figsize=(16, 12), sharex=True, sharey=False)
-    fig.suptitle("Difference (SEM − Reference) — Normalized", fontsize=14, fontweight="bold")
+    """Single figure: 6 rows × 3 columns.
 
-    for fi, fd in enumerate(_DIRECTIONS):
-        for ci, comp in enumerate(_COMP_LABELS):
-            ax = axes[fi, ci]
+    Rows 1-3: displacement components  u_x, u_y, u_z
+    Rows 4-6: difference SEM − Reference for each component
+    """
+    fig, axes = plt.subplots(6, 3, figsize=(16, 18), sharex=True, sharey=False)
+    fig.suptitle(f"Waveform Comparison — {title_suffix}", fontsize=14, fontweight="bold")
 
+    for fi, fd in enumerate(_DIRECTIONS):  # columns = force directions
+        for ci, comp in enumerate(_COMP_LABELS):  # rows 1-3 = displacement components
+            # ── Row 1-3: displacement comparison ──
+            ax = axes[ci, fi]
             ref_series = ref[:, ci, fi]
             sem_series = sem[:, ci, fi]
-            diff_raw = sem_series - ref_series
-            sem_scaled_series = sem_scaled[:, ci, fi] if scale > 0 else sem_series
-            diff_scaled = sem_scaled_series - ref_series
+            scaled_series = sem_scaled[:, ci, fi] if sem_scaled is not None else None
+            _plot_component(ax, time, ref_series, sem_series, scaled_series, normalize)
 
-            diff_raw_norm, diff_raw_max = _normalize(diff_raw)
-            diff_scaled_norm, diff_scaled_max = _normalize(diff_scaled)
-
-            ax.plot(
-                time,
-                diff_raw_norm,
-                color=_COLORS["sem"],
-                ls=_LINESTYLES["sem"],
-                lw=1.0,
-                alpha=0.7,
-                label="Raw difference",
-            )
-            if scale > 0:
-                ax.plot(
-                    time,
-                    diff_scaled_norm,
-                    color=_COLORS["scaled_sem"],
-                    ls=_LINESTYLES["scaled_sem"],
-                    lw=1.0,
-                    alpha=0.8,
-                    label="Scaled difference",
+            ax.set_title(f"F={fd.upper()}, {comp}", fontsize=9)
+            if ci == 2:
+                ax.set_xlabel("Time (s)", fontsize=8)
+            if fi == 0:
+                ax.set_ylabel(
+                    "Displacement" if not normalize else "Normalized displacement", fontsize=8
                 )
 
-            _amplitude_annotation(ax, 0.96, "Raw diff max", diff_raw_max)
-            if scale > 0:
-                _amplitude_annotation(ax, 0.88, "Scaled diff max", diff_scaled_max)
+            # ── Row 4-6: difference ──
+            ax = axes[ci + 3, fi]
+            _plot_difference(ax, time, ref_series, sem_series, normalize)
+            ax.set_title(f"F={fd.upper()}, {comp} — diff", fontsize=9)
+            if ci + 3 == 5:
+                ax.set_xlabel("Time (s)", fontsize=8)
+            if fi == 0:
+                ax.set_ylabel(
+                    "Difference" if not normalize else "Normalized difference", fontsize=8
+                )
 
-            ax.set_title(f"F={fd.upper()}, comp={comp}")
-            ax.grid(True, alpha=0.3)
-            if fi == 2:
-                ax.set_xlabel("Time (s)")
-            if ci == 0:
-                ax.set_ylabel("Normalized amplitude")
-
+    # Legend
+    keys = ["reference", "sem"]
+    if sem_scaled is not None and scale > 0:
+        keys.append("scaled_sem")
     handles = [
-        plt.Line2D([0], [0], color=_COLORS[k], ls=_LINESTYLES[k], lw=1.5, label=label)
-        for k, label in [("sem", "Raw difference"), ("scaled_sem", "Scaled difference")]
+        plt.Line2D([0], [0], color=_COLORS[k], ls=_LINESTYLES[k], lw=1.5, label=_LABELS[k])
+        for k in keys
     ]
-    fig.legend(handles=handles, loc="lower center", ncol=2, fontsize=10)
-    fig.tight_layout(rect=[0, 0.03, 1, 0.97])
-    fig.savefig(output_dir / "compare_difference.png", dpi=150)
-    print(f"  Saved {output_dir / 'compare_difference.png'}")
+    fig.legend(handles=handles, loc="lower center", ncol=len(keys), fontsize=10)
+
+    fig.tight_layout(rect=[0, 0.02, 1, 0.97])
+    fname = f"compare_{suffix}.png"
+    fig.savefig(output_dir / fname, dpi=150, bbox_inches="tight")
+    print(f"  Saved {output_dir / fname}")
     plt.close(fig)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Plot Lamb vs SEM comparison.")
+    parser = argparse.ArgumentParser(
+        description="Plot SEM vs reference Green's function comparison."
+    )
     parser.add_argument(
         "--input",
         type=Path,
@@ -339,19 +283,30 @@ def main(argv: list[str] | None = None) -> int:
 
     print("Generating plots ...")
 
-    # ── 3×3 grid ──
-    _make_waveform_plot(
-        time, ref_displacement, sem_displacement, sem_scaled, scale, args.output_dir
+    # Figure 1 — raw (unnormalized)
+    _make_comparison_figure(
+        time,
+        ref_displacement,
+        sem_displacement,
+        sem_scaled if scale > 0 else None,
+        scale,
+        normalize=False,
+        output_dir=args.output_dir,
+        suffix="raw",
+        title_suffix="Raw Waveforms",
     )
 
-    # ── Per-direction panels ──
-    _make_direction_plots(
-        time, ref_displacement, sem_displacement, sem_scaled, scale, args.output_dir
-    )
-
-    # ── Difference plot ──
-    _make_difference_plot(
-        time, ref_displacement, sem_displacement, sem_scaled, scale, args.output_dir
+    # Figure 2 — normalized
+    _make_comparison_figure(
+        time,
+        ref_displacement,
+        sem_displacement,
+        sem_scaled if scale > 0 else None,
+        scale,
+        normalize=True,
+        output_dir=args.output_dir,
+        suffix="normalized",
+        title_suffix="Normalized Waveforms",
     )
 
     print("\nAll plots saved.")
