@@ -361,7 +361,9 @@ inline std::vector<StepGroup> group_by_step(const std::vector<RecordFileInfo>& f
 inline bool read_record_into(const RecordFileInfo& fi, int64_t n_vertex,
                              std::vector<float>& full_strain,  // [n_vertex, 6]
                              std::vector<bool>& full_mask,
-                             std::vector<float>& full_displacement  // [n_vertex, 3]
+                             std::vector<float>& full_displacement,  // [n_vertex, 3]
+                             std::vector<float>& full_velocity,      // [n_vertex, 3]
+                             std::vector<float>& full_acceleration   // [n_vertex, 3]
 ) {
     hid_t fid = H5Fopen(fi.path.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
     if (fid < 0) {
@@ -393,6 +395,18 @@ inline bool read_record_into(const RecordFileInfo& fi, int64_t n_vertex,
     read_field_1xNx3(fid, "displacement", ndv, disp_buf);
     bool has_displacement = (ndv == n_local && !disp_buf.empty());
 
+    // Read velocity [1, n_local, 3] (optional)
+    hsize_t nvv = 0;
+    std::vector<float> vel_buf;
+    read_field_1xNx3(fid, "velocity", nvv, vel_buf);
+    bool has_velocity = (nvv == n_local && !vel_buf.empty());
+
+    // Read acceleration [1, n_local, 3] (optional)
+    hsize_t nav = 0;
+    std::vector<float> acc_buf;
+    read_field_1xNx3(fid, "acceleration", nav, acc_buf);
+    bool has_acceleration = (nav == n_local && !acc_buf.empty());
+
     H5Fclose(fid);
 
     // Scatter strain by vertex_id (1-based → 0-based)
@@ -418,6 +432,22 @@ inline bool read_record_into(const RecordFileInfo& fi, int64_t n_vertex,
             float* ddst = full_displacement.data() + gid * 3;
             for (int c = 0; c < 3; ++c)
                 ddst[c] = dsrc[c];
+        }
+
+        // Scatter velocity if available
+        if (has_velocity) {
+            float* vsrc = vel_buf.data() + li * 3;
+            float* vdst = full_velocity.data() + gid * 3;
+            for (int c = 0; c < 3; ++c)
+                vdst[c] = vsrc[c];
+        }
+
+        // Scatter acceleration if available
+        if (has_acceleration) {
+            float* asrc = acc_buf.data() + li * 3;
+            float* adst = full_acceleration.data() + gid * 3;
+            for (int c = 0; c < 3; ++c)
+                adst[c] = asrc[c];
         }
     }
     return true;

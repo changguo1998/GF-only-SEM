@@ -142,7 +142,9 @@ inline void write_tile(const std::string& path, int tile_x, int tile_y, double x
                        const std::vector<float>& tile_greens,  // [nt, n_local, 6, 3]
                        const double source_xyz_m[3],
                        const std::vector<double>& tile_vertex_coords,  // [n_local, 3]
-                       const float* displacement_tensor                // nullptr = strain-only
+                       const float* displacement_tensor,               // nullptr = strain-only
+                       const float* velocity_tensor = nullptr,         // [nt, n_local, 3, 3]
+                       const float* acceleration_tensor = nullptr      // [nt, n_local, 3, 3]
 ) {
     hid_t fid = H5Fcreate(path.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
     if (fid < 0) {
@@ -205,7 +207,11 @@ inline void write_tile(const std::string& path, int tile_x, int tile_y, double x
         H5Sclose(space);
     }
     write_str_attr("source_directions", "x,y,z");
-    write_str_attr("greens_quantities", displacement_tensor ? "strain,displacement" : "strain");
+    std::string qstr = "strain";
+    if (displacement_tensor) qstr += ",displacement";
+    if (velocity_tensor) qstr += ",velocity";
+    if (acceleration_tensor) qstr += ",acceleration";
+    write_str_attr("greens_quantities", qstr.c_str());
 
     // excludes_pml: int
     {
@@ -302,6 +308,42 @@ inline void write_tile(const std::string& path, int tile_x, int tile_y, double x
             H5Dclose(dds);
             H5Pclose(dplist);
             H5Sclose(dspace);
+        }
+
+        // velocity_tensor: [nt, n_local, 3, 3] float32 (optional)
+        if (velocity_tensor != nullptr) {
+            hsize_t vdims[4] = {(hsize_t)nt, (hsize_t)n_local, 3, 3};
+            hid_t vspace = H5Screate_simple(4, vdims, nullptr);
+            hid_t vplist = H5Pcreate(H5P_DATASET_CREATE);
+            H5Pset_shuffle(vplist);
+            hsize_t vchunk[4] = {1, (hsize_t)n_local, 3, 3};
+            if (n_local == 0) vchunk[1] = 1;
+            H5Pset_chunk(vplist, 4, vchunk);
+            H5Pset_deflate(vplist, 4);
+            hid_t vds = H5Dcreate2(field_gid, "velocity_tensor", H5T_NATIVE_FLOAT, vspace,
+                                   H5P_DEFAULT, vplist, H5P_DEFAULT);
+            H5Dwrite(vds, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, velocity_tensor);
+            H5Dclose(vds);
+            H5Pclose(vplist);
+            H5Sclose(vspace);
+        }
+
+        // acceleration_tensor: [nt, n_local, 3, 3] float32 (optional)
+        if (acceleration_tensor != nullptr) {
+            hsize_t adims[4] = {(hsize_t)nt, (hsize_t)n_local, 3, 3};
+            hid_t aspace = H5Screate_simple(4, adims, nullptr);
+            hid_t aplist = H5Pcreate(H5P_DATASET_CREATE);
+            H5Pset_shuffle(aplist);
+            hsize_t achunk[4] = {1, (hsize_t)n_local, 3, 3};
+            if (n_local == 0) achunk[1] = 1;
+            H5Pset_chunk(aplist, 4, achunk);
+            H5Pset_deflate(aplist, 4);
+            hid_t ads = H5Dcreate2(field_gid, "acceleration_tensor", H5T_NATIVE_FLOAT, aspace,
+                                   H5P_DEFAULT, aplist, H5P_DEFAULT);
+            H5Dwrite(ads, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, acceleration_tensor);
+            H5Dclose(ads);
+            H5Pclose(aplist);
+            H5Sclose(aspace);
         }
     }
     H5Gclose(field_gid);

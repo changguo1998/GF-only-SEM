@@ -89,16 +89,17 @@ class GreenFunctionLibrary:
         receiver_xyz:
             Real receiver (station) coordinate ``[x, y, z]`` in meters.
         quantity:
-            One of ``"strain"``, ``"displacement"``, or ``"both"``.
+            One of ``"strain"``, ``"displacement"``, ``"velocity"``, ``"acceleration"``, or ``"both"``.
 
         Returns
         -------
         GreenQuery
             Populated query result.
         """
-        if quantity not in ("strain", "displacement", "both"):
+        if quantity not in ("strain", "displacement", "velocity", "acceleration", "both"):
             raise ValueError(
-                f"quantity must be one of 'strain', 'displacement', or 'both', got {quantity!r}"
+                f"quantity must be one of 'strain', 'displacement', 'velocity', "
+                f"'acceleration', or 'both', got {quantity!r}"
             )
         receiver = np.asarray(receiver_xyz, dtype=np.float64)
         source = np.asarray(source_xyz, dtype=np.float64)
@@ -148,7 +149,7 @@ class GreenFunctionLibrary:
             If shape ``(n_src, 3)``, paired element-wise with *sources*.
             If shape ``(1, 3)`` or ``(3,)``, broadcast to all sources.
         quantity:
-            One of ``"strain"``, ``"displacement"``, or ``"both"``.
+            One of ``"strain"``, ``"displacement"``, ``"velocity"``, ``"acceleration"``, or ``"both"``.
 
         Returns
         -------

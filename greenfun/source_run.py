@@ -53,6 +53,8 @@ class SourceRun:
         self.vertex_coords: npt.NDArray[np.float64] | None = None
         self.greens_tensor: npt.NDArray[np.float32] | None = None
         self.displacement_tensor: npt.NDArray[np.float32] | None = None
+        self.velocity_tensor: npt.NDArray[np.float32] | None = None
+        self.acceleration_tensor: npt.NDArray[np.float32] | None = None
         self.n_tiles: int = 0
         self._interpolator: TrilinearInterpolator | None = None
         self._kdtree: KDTree | None = None
@@ -85,6 +87,10 @@ class SourceRun:
         all_greens: list[np.ndarray] = []
         all_displacements: list[np.ndarray] = []
         seen_ids: set[int] = set()
+        all_velocities: list[np.ndarray] = []
+        all_accelerations: list[np.ndarray] = []
+        has_velocity = False
+        has_acceleration = False
         has_displacement = False
 
         for tile_path in tile_paths:
@@ -92,6 +98,20 @@ class SourceRun:
                 vertex_ids = h5["/mesh/vertex_ids"][:]
                 vertex_coords = h5["/mesh/vertex_coords"][:]
                 greens = h5["/field/greens_tensor"][:]
+
+                has_vel = "/field/velocity_tensor" in h5
+                if has_vel:
+                    velocity = h5["/field/velocity_tensor"][:]
+                    has_velocity = True
+                else:
+                    velocity = None
+
+                has_acc = "/field/acceleration_tensor" in h5
+                if has_acc:
+                    acceleration = h5["/field/acceleration_tensor"][:]
+                    has_acceleration = True
+                else:
+                    acceleration = None
 
                 has_disp = "/field/displacement_tensor" in h5
                 if has_disp:
@@ -116,6 +136,10 @@ class SourceRun:
             all_greens.append(greens[:, keep_mask, :, :])
             if displacement is not None:
                 all_displacements.append(displacement[:, keep_mask, :, :])
+            if velocity is not None:
+                all_velocities.append(velocity[:, keep_mask, :, :])
+            if acceleration is not None:
+                all_accelerations.append(acceleration[:, keep_mask, :, :])
 
         # Concatenate into unified arrays.
         self.vertex_coords = np.concatenate(all_vertex_coords, axis=0).astype(np.float64)
@@ -125,6 +149,16 @@ class SourceRun:
             self.displacement_tensor = np.concatenate(all_displacements, axis=1).astype(np.float32)
         else:
             self.displacement_tensor = None
+
+        if has_velocity and all_velocities:
+            self.velocity_tensor = np.concatenate(all_velocities, axis=1).astype(np.float32)
+        else:
+            self.velocity_tensor = None
+
+        if has_acceleration and all_accelerations:
+            self.acceleration_tensor = np.concatenate(all_accelerations, axis=1).astype(np.float32)
+        else:
+            self.acceleration_tensor = None
 
         self.n_tiles = len(tile_paths)
         self._interpolator = TrilinearInterpolator(self.vertex_coords)
@@ -139,16 +173,17 @@ class SourceRun:
         source_xyz_m:
             Real source coordinate ``[x, y, z]`` in meters.
         quantity:
-            One of ``"strain"``, ``"displacement"``, or ``"both"``.
+            One of ``"strain"``, ``"displacement"``, ``"velocity"``, ``"acceleration"``, or ``"both"``.
 
         Returns
         -------
         GreenQuery
             Fully populated query result.
         """
-        if quantity not in ("strain", "displacement", "both"):
+        if quantity not in ("strain", "displacement", "velocity", "acceleration", "both"):
             raise ValueError(
-                f"quantity must be one of 'strain', 'displacement', or 'both', got {quantity!r}"
+                f"quantity must be one of 'strain', 'displacement', 'velocity', "
+                f"'acceleration', or 'both', got {quantity!r}"
             )
         if not self._loaded:
             self.load()
@@ -166,6 +201,8 @@ class SourceRun:
         # expects [n_vertices, ...], so we move the vertex dimension first.
         strain: npt.NDArray[np.float32] | None = None
         displacement: npt.NDArray[np.float32] | None = None
+        velocity: npt.NDArray[np.float32] | None = None
+        acceleration: npt.NDArray[np.float32] | None = None
 
         if quantity in ("strain", "both"):
             values_vtx_first = np.moveaxis(self.greens_tensor, 0, 1)  # -> [n_vertices, nt, 6, 3]
@@ -184,6 +221,18 @@ class SourceRun:
                 )
                 displacement = np.asarray(result, dtype=np.float32)  # [nt, 3, 3]
 
+        if quantity in ("velocity", "both"):
+            if self.velocity_tensor is not None:
+                values_vtx_first = np.moveaxis(self.velocity_tensor, 0, 1)
+                result = self._interpolator.interpolate(point, values_vtx_first)
+                velocity = np.asarray(result, dtype=np.float32)
+
+        if quantity in ("acceleration", "both"):
+            if self.acceleration_tensor is not None:
+                values_vtx_first = np.moveaxis(self.acceleration_tensor, 0, 1)
+                result = self._interpolator.interpolate(point, values_vtx_first)
+                acceleration = np.asarray(result, dtype=np.float32)
+
         return GreenQuery(
             source_xyz=point,
             receiver_xyz=point,
@@ -191,6 +240,8 @@ class SourceRun:
             time=self.time,  # type: ignore[arg-type]
             strain=strain,
             displacement=displacement,
+            velocity=velocity,
+            acceleration=acceleration,
             n_tiles_used=self.n_tiles,
             interpolation_used=interpolation_used,
         )

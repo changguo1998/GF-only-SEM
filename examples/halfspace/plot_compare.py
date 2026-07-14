@@ -3,8 +3,9 @@
 
 Output
 ------
-* ``compare_displacement_raw.png``       — displacement, 3×3 subplot grid, raw amplitudes
-* ``compare_displacement_normalized.png`` — displacement, 3×3 subplot grid, normalized to [-1,1]
+For each quantity (displacement, velocity, acceleration):
+* ``compare_<quantity>_raw.png``       — 3×3 subplot grid, raw amplitudes
+* ``compare_<quantity>_normalized.png`` — 3×3 subplot grid, normalized to [-1,1]
 
 Layout (3 rows × 3 columns)
 ----------------------------
@@ -14,8 +15,6 @@ Columns: displacement components  u_x, u_y, u_z
 Each subplot has exactly 2 lines:
 - Reference (dark blue solid)
 - SEM (red solid)
-
-Each subplot has exactly 2 lines: Reference (dark blue solid) and SEM (red solid).
 """
 
 from __future__ import annotations
@@ -32,6 +31,8 @@ matplotlib.use("Agg")
 _FORCE_LABELS = ("F_x", "F_y", "F_z")
 _COMP_LABELS = ("u_x", "u_y", "u_z")
 _DIRECTIONS = ("x", "y", "z")
+_QUANTITIES = ("displacement", "velocity", "acceleration")
+_UNITS = {"displacement": "m", "velocity": "m/s", "acceleration": "m/s\u00b2"}
 
 _COLORS = {"reference": "#00008B", "sem": "#d62728"}
 _LINESTYLES = {"reference": "-", "sem": "-"}
@@ -39,17 +40,17 @@ _LABELS = {"reference": "Reference", "sem": "SEM"}
 _LW = {"reference": 1.0, "sem": 0.8}
 
 
-def _amplitude_annotation(ax, y_pos: float, label: str, amplitude: float) -> None:
+def _amplitude_annotation(ax, y_pos: float, label: str, amplitude: float, unit: str = "m") -> None:
     if amplitude == 0.0:
         text = f"{label}: 0.0"
     elif abs(amplitude) < 1e-12:
-        text = f"{label}: {amplitude:.3e} m"
+        text = f"{label}: {amplitude:.3e} {unit}"
     elif abs(amplitude) < 1e-9:
-        text = f"{label}: {amplitude:.3e} m"
+        text = f"{label}: {amplitude:.3e} {unit}"
     elif abs(amplitude) < 1.0:
-        text = f"{label}: {amplitude:.6f} m"
+        text = f"{label}: {amplitude:.6f} {unit}"
     else:
-        text = f"{label}: {amplitude:.3f} m"
+        text = f"{label}: {amplitude:.3f} {unit}"
     ax.text(
         0.98,
         y_pos,
@@ -77,16 +78,17 @@ def _make_comparison_figure(
     normalize: bool,
     output_dir: Path,
     suffix: str,
+    quantity: str = "displacement",
 ) -> None:
     """Single figure: 3 rows × 3 columns.
 
     Rows: force directions  F_x, F_y, F_z
     Columns: displacement components  u_x, u_y, u_z
     """
+    q_label = quantity.capitalize()
+    unit = _UNITS.get(quantity, "m")
     fig, axes = plt.subplots(3, 3, figsize=(14, 10), sharex=True, sharey=False)
-    title = (
-        "Displacement Waveforms — Raw" if not normalize else "Displacement Waveforms — Normalized"
-    )
+    title = f"{q_label} Waveforms — Raw" if not normalize else f"{q_label} Waveforms — Normalized"
     fig.suptitle(title, fontsize=14, fontweight="bold")
 
     for fi, fd in enumerate(_DIRECTIONS):  # rows = force direction
@@ -127,10 +129,10 @@ def _make_comparison_figure(
             # Annotations
             y_off = 0.0
             if ref_mx > 0:
-                _amplitude_annotation(ax, 0.96 - y_off, "Ref", ref_mx)
+                _amplitude_annotation(ax, 0.96 - y_off, "Ref", ref_mx, unit)
                 y_off += 0.11
             if sem_mx > 0:
-                _amplitude_annotation(ax, 0.96 - y_off, "SEM", sem_mx)
+                _amplitude_annotation(ax, 0.96 - y_off, "SEM", sem_mx, unit)
 
             ax.set_title(f"F={fd.upper()}, {comp}", fontsize=9)
             ax.grid(True, alpha=0.25)
@@ -138,7 +140,7 @@ def _make_comparison_figure(
                 ax.set_xlabel("Time (s)", fontsize=8)
             if ci == 0:
                 ax.set_ylabel(
-                    "Displacement" if not normalize else "Normalized displacement", fontsize=8
+                    q_label if not normalize else f"Normalized {q_label.lower()}", fontsize=8
                 )
 
     # Legend at bottom
@@ -149,7 +151,7 @@ def _make_comparison_figure(
     ]
     fig.legend(handles=handles, loc="lower center", ncol=len(keys), fontsize=10)
     fig.tight_layout(rect=[0, 0.03, 1, 0.97])
-    fname = f"compare_displacement_{suffix}.png"
+    fname = f"compare_{quantity}_{suffix}.png"
     fig.savefig(output_dir / fname, dpi=150, bbox_inches="tight")
     print(f"  Saved {output_dir / fname}")
     plt.close(fig)
@@ -177,6 +179,17 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _load_quantity(data: np.lib.npyio.NpzFile, prefix: str, time: np.ndarray) -> np.ndarray | None:
+    """Load *prefix from data, or compute velocity/acceleration from displacement."""
+    ref_key = f"reference_{prefix}"
+    sem_key = f"sem_{prefix}"
+    if ref_key in data and sem_key in data:
+        ref = np.asarray(data[ref_key], dtype=np.float64)
+        sem = np.asarray(data[sem_key], dtype=np.float64)
+        return ref, sem
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -185,26 +198,31 @@ def main(argv: list[str] | None = None) -> int:
     data = np.load(args.input, allow_pickle=False)
 
     time = np.asarray(data["time"], dtype=np.float64)
-    ref = np.asarray(data["reference_displacement"], dtype=np.float64)
-    sem = np.asarray(data["sem_displacement"], dtype=np.float64)
-
     print(f"  time: {len(time)} steps [{time[0]:.3f}, {time[-1]:.3f}] s")
-    print(f"  ref_displacement:      {ref.shape}")
-    print(f"  sem_displacement:      {sem.shape}")
-    print()
-    print(f"Note: velocity and acceleration are not stored in the Green's function library.")
-    print(f"      Only displacement comparison is available.")
-    print()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     print("Generating plots ...")
 
-    _make_comparison_figure(
-        time, ref, sem, normalize=False, output_dir=args.output_dir, suffix="raw"
-    )
-    _make_comparison_figure(
-        time, ref, sem, normalize=True, output_dir=args.output_dir, suffix="normalized"
-    )
+    for q in _QUANTITIES:
+        pair = _load_quantity(data, q, time)
+        if pair is None:
+            print(f"  {q}: data not available in .npz, skipping")
+            continue
+        ref, sem = pair
+        print(f"  {q}: ref={ref.shape}, sem={sem.shape}")
+
+        _make_comparison_figure(
+            time, ref, sem, normalize=False, output_dir=args.output_dir, suffix="raw", quantity=q
+        )
+        _make_comparison_figure(
+            time,
+            ref,
+            sem,
+            normalize=True,
+            output_dir=args.output_dir,
+            suffix="normalized",
+            quantity=q,
+        )
 
     print("\nAll plots saved.")
     return 0

@@ -21,6 +21,8 @@ class GreenQuery:
         time: Time axis array [nt].
         strain: Strain Green tensor [nt, 6, 3] or None if not requested/available.
         displacement: Displacement Green tensor [nt, 3, 3] or None.
+        velocity: Velocity Green tensor [nt, 3, 3] or None.
+        acceleration: Acceleration Green tensor [nt, 3, 3] or None.
         n_tiles_used: Number of tiles that contributed to this query.
         interpolation_used: True if the result was interpolated from vertices,
             False if the query source exactly matched a recorded vertex.
@@ -32,6 +34,8 @@ class GreenQuery:
     time: npt.NDArray[np.float64]
     strain: npt.NDArray[np.float32] | None = None
     displacement: npt.NDArray[np.float32] | None = None
+    velocity: npt.NDArray[np.float32] | None = None
+    acceleration: npt.NDArray[np.float32] | None = None
     n_tiles_used: int = 0
     interpolation_used: bool = False
 
@@ -47,6 +51,10 @@ class GreenQuery:
         ]
         if self.strain is not None:
             lines.append(f"strain             : {self.strain.shape}")
+        if self.velocity is not None:
+            lines.append(f"velocity           : {self.velocity.shape}")
+        if self.acceleration is not None:
+            lines.append(f"acceleration       : {self.acceleration.shape}")
         if self.displacement is not None:
             lines.append(f"displacement       : {self.displacement.shape}")
         return "\n".join(lines)
@@ -86,7 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--quantity",
         type=str,
-        choices=["strain", "displacement", "both"],
+        choices=["strain", "displacement", "velocity", "acceleration", "both"],
         default="strain",
         help="Green's quantity to return (default: strain)",
     )
@@ -123,6 +131,10 @@ def main(argv: list[str] | None = None) -> int:
             data["strain"] = np.asarray(result.strain)
         if result.displacement is not None:
             data["displacement"] = np.asarray(result.displacement)
+        if result.velocity is not None:
+            data["velocity"] = np.asarray(result.velocity)
+        if result.acceleration is not None:
+            data["acceleration"] = np.asarray(result.acceleration)
         np.savez_compressed(out_path, **data)
         print(f"Wrote {out_path}")
     else:

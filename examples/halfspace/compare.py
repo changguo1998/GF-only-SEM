@@ -168,9 +168,42 @@ def main(argv: list[str] | None = None) -> int:
     if not np.allclose(reference["time"], sem_result.time):
         raise ValueError("Reference and SEM time axes do not match")
 
+    # Compute reference velocity/acceleration via central differences
+    dt = float(reference["time"][1] - reference["time"][0]) if len(reference["time"]) > 1 else 1.0
+    ref_disp = np.asarray(reference["displacement"], dtype=np.float64)
+    ref_vel = np.zeros_like(ref_disp)
+    ref_vel[1:-1] = (ref_disp[2:] - ref_disp[:-2]) / (2.0 * dt)
+    ref_vel[0] = (ref_disp[1] - ref_disp[0]) / dt  # forward
+    ref_vel[-1] = (ref_disp[-1] - ref_disp[-2]) / dt  # backward
+    ref_acc = np.zeros_like(ref_disp)
+    ref_acc[1:-1] = (ref_disp[2:] - 2.0 * ref_disp[1:-1] + ref_disp[:-2]) / (dt * dt)
+    ref_acc[0] = ref_acc[1]
+    ref_acc[-1] = ref_acc[-2]
+
     reference_displacement = np.asarray(reference["displacement"], dtype=np.float64)
     sem_displacement = np.asarray(sem_result.displacement, dtype=np.float64)
     displacement_difference = sem_displacement - reference_displacement
+
+    # Query velocity/acceleration from library (may be None if tiles lack these)
+    try:
+        sem_vel_result = library.query(source_xyz_m, receiver_xyz_m, quantity="velocity")
+        sem_velocity = (
+            np.asarray(sem_vel_result.velocity, dtype=np.float64)
+            if sem_vel_result.velocity is not None
+            else None
+        )
+    except Exception:
+        sem_velocity = None
+
+    try:
+        sem_acc_result = library.query(source_xyz_m, receiver_xyz_m, quantity="acceleration")
+        sem_acceleration = (
+            np.asarray(sem_acc_result.acceleration, dtype=np.float64)
+            if sem_acc_result.acceleration is not None
+            else None
+        )
+    except Exception:
+        sem_acceleration = None
 
     normalized_rel_l2 = None
     amplitude_scale = None
@@ -189,6 +222,18 @@ def main(argv: list[str] | None = None) -> int:
         "reference_displacement": reference_displacement,
         "sem_displacement": sem_displacement,
         "displacement_difference": displacement_difference,
+        "reference_velocity": ref_vel,
+        "sem_velocity": sem_velocity if sem_velocity is not None else np.zeros_like(ref_vel),
+        "velocity_difference": (sem_velocity - ref_vel)
+        if sem_velocity is not None
+        else np.zeros_like(ref_vel),
+        "reference_acceleration": ref_acc,
+        "sem_acceleration": sem_acceleration
+        if sem_acceleration is not None
+        else np.zeros_like(ref_acc),
+        "acceleration_difference": (sem_acceleration - ref_acc)
+        if sem_acceleration is not None
+        else np.zeros_like(ref_acc),
     }
     if scaled_sem_displacement is not None:
         output["scaled_sem_displacement"] = scaled_sem_displacement
@@ -206,6 +251,19 @@ def main(argv: list[str] | None = None) -> int:
     if normalized_rel_l2 is not None and amplitude_scale is not None:
         print(f"best-fit SEM scale          : {amplitude_scale:.6e}")
         print(f"scaled displacement rel_l2  : {normalized_rel_l2:.6e}")
+
+    if sem_velocity is not None:
+        print(
+            "velocity rel_l2/max_abs: "
+            f"{_relative_l2_error(ref_vel, sem_velocity):.6e} / "
+            f"{_max_abs_error(ref_vel, sem_velocity):.6e}"
+        )
+    if sem_acceleration is not None:
+        print(
+            "acceleration rel_l2/max_abs: "
+            f"{_relative_l2_error(ref_acc, sem_acceleration):.6e} / "
+            f"{_max_abs_error(ref_acc, sem_acceleration):.6e}"
+        )
 
     if args.csv_output is not None:
         if args.component is None:
