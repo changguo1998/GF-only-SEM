@@ -11,8 +11,19 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from preprocess.gll_geometry import _get_cell_vertex_ids
+from preprocess.gll_geometry import HEX_REF_CORNERS, _get_cell_vertex_ids
 from preprocess.topology_reader import TopologyData
+
+# The forward solver records displacement at element corner GLL nodes using a
+# 3-bit corner index: bit 0 -> i = NGLL-1, bit 1 -> j = NGLL-1, bit 2 -> k = NGLL-1
+# (see forward/share/src/solver.cpp RecordWriter usage). _get_cell_vertex_ids
+# returns vertices in GMSH hex order (HEX_REF_CORNERS), whose (xi, eta, zeta) signs
+# differ from the bit-flag order at positions 2<->3 and 6<->7. Convert the GMSH
+# positional index to the solver bit-flag corner so each recorded vertex maps to
+# the GLL corner node it actually coincides with.
+_GMSH_CORNER_TO_BITFLAG = [
+    int((c[0] > 0) | ((c[1] > 0) << 1) | ((c[2] > 0) << 2)) for c in HEX_REF_CORNERS
+]
 
 
 def build_recording_map(
@@ -211,7 +222,8 @@ def _build_rank_recording(
         if elem_idx not in local_set:
             continue
         local_idx = element_to_local_index[elem_idx]
-        for corner_index, global_vertex_id in enumerate(vertex_ids):
+        for gmsh_pos, global_vertex_id in enumerate(vertex_ids):
+            corner_index = _GMSH_CORNER_TO_BITFLAG[gmsh_pos]
             if global_vertex_id not in vertex_set:
                 continue
             if global_vertex_id not in vert_to_elem:

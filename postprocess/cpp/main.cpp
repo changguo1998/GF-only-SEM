@@ -153,17 +153,20 @@ static MergedDirection merge_direction(const char* dir_path, int64_t n_vertex) {
             {
                 hid_t ds = H5Dopen2(probe, "displacement", H5P_DEFAULT);
                 result.has_displacement = (ds >= 0);
-                if (ds >= 0) H5Dclose(ds);
+                if (ds >= 0)
+                    H5Dclose(ds);
             }
             {
                 hid_t ds = H5Dopen2(probe, "velocity", H5P_DEFAULT);
                 result.has_velocity = (ds >= 0);
-                if (ds >= 0) H5Dclose(ds);
+                if (ds >= 0)
+                    H5Dclose(ds);
             }
             {
                 hid_t ds = H5Dopen2(probe, "acceleration", H5P_DEFAULT);
                 result.has_acceleration = (ds >= 0);
-                if (ds >= 0) H5Dclose(ds);
+                if (ds >= 0)
+                    H5Dclose(ds);
             }
             H5Fclose(probe);
         }
@@ -334,8 +337,7 @@ int main(int argc, char** argv) {
     bool has_acceleration = fx.has_acceleration && fy.has_acceleration && fz.has_acceleration;
 
     fprintf(stderr, "[postprocess]   displacement=%s velocity=%s acceleration=%s\n",
-            has_displacement ? "yes" : "no",
-            has_velocity ? "yes" : "no",
+            has_displacement ? "yes" : "no", has_velocity ? "yes" : "no",
             has_acceleration ? "yes" : "no");
 
     // Allocate subset displacement arrays [n_steps, n_recorded, 3]
@@ -518,15 +520,18 @@ int main(int argc, char** argv) {
                 // fx → dir 0
                 float* src_fx = fx_vel_subset.data() + base;
                 float* d0 = vel_subset.data() + d_base + 0 * 3;
-                for (int c = 0; c < 3; ++c) d0[c] = src_fx[c];
+                for (int c = 0; c < 3; ++c)
+                    d0[c] = src_fx[c];
                 // fy → dir 1
                 float* src_fy = fy_vel_subset.data() + base;
                 float* d1 = vel_subset.data() + d_base + 1 * 3;
-                for (int c = 0; c < 3; ++c) d1[c] = src_fy[c];
+                for (int c = 0; c < 3; ++c)
+                    d1[c] = src_fy[c];
                 // fz → dir 2
                 float* src_fz = fz_vel_subset.data() + base;
                 float* d2 = vel_subset.data() + d_base + 2 * 3;
-                for (int c = 0; c < 3; ++c) d2[c] = src_fz[c];
+                for (int c = 0; c < 3; ++c)
+                    d2[c] = src_fz[c];
             }
         }
     }
@@ -543,15 +548,18 @@ int main(int argc, char** argv) {
                 // fx → dir 0
                 float* src_fx = fx_acc_subset.data() + base;
                 float* d0 = acc_subset.data() + d_base + 0 * 3;
-                for (int c = 0; c < 3; ++c) d0[c] = src_fx[c];
+                for (int c = 0; c < 3; ++c)
+                    d0[c] = src_fx[c];
                 // fy → dir 1
                 float* src_fy = fy_acc_subset.data() + base;
                 float* d1 = acc_subset.data() + d_base + 1 * 3;
-                for (int c = 0; c < 3; ++c) d1[c] = src_fy[c];
+                for (int c = 0; c < 3; ++c)
+                    d1[c] = src_fy[c];
                 // fz → dir 2
                 float* src_fz = fz_acc_subset.data() + base;
                 float* d2 = acc_subset.data() + d_base + 2 * 3;
-                for (int c = 0; c < 3; ++c) d2[c] = src_fz[c];
+                for (int c = 0; c < 3; ++c)
+                    d2[c] = src_fz[c];
             }
         }
     }

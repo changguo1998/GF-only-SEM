@@ -208,9 +208,12 @@ inline void write_tile(const std::string& path, int tile_x, int tile_y, double x
     }
     write_str_attr("source_directions", "x,y,z");
     std::string qstr = "strain";
-    if (displacement_tensor) qstr += ",displacement";
-    if (velocity_tensor) qstr += ",velocity";
-    if (acceleration_tensor) qstr += ",acceleration";
+    if (displacement_tensor)
+        qstr += ",displacement";
+    if (velocity_tensor)
+        qstr += ",velocity";
+    if (acceleration_tensor)
+        qstr += ",acceleration";
     write_str_attr("greens_quantities", qstr.c_str());
 
     // excludes_pml: int
@@ -317,7 +320,8 @@ inline void write_tile(const std::string& path, int tile_x, int tile_y, double x
             hid_t vplist = H5Pcreate(H5P_DATASET_CREATE);
             H5Pset_shuffle(vplist);
             hsize_t vchunk[4] = {1, (hsize_t)n_local, 3, 3};
-            if (n_local == 0) vchunk[1] = 1;
+            if (n_local == 0)
+                vchunk[1] = 1;
             H5Pset_chunk(vplist, 4, vchunk);
             H5Pset_deflate(vplist, 4);
             hid_t vds = H5Dcreate2(field_gid, "velocity_tensor", H5T_NATIVE_FLOAT, vspace,
@@ -335,7 +339,8 @@ inline void write_tile(const std::string& path, int tile_x, int tile_y, double x
             hid_t aplist = H5Pcreate(H5P_DATASET_CREATE);
             H5Pset_shuffle(aplist);
             hsize_t achunk[4] = {1, (hsize_t)n_local, 3, 3};
-            if (n_local == 0) achunk[1] = 1;
+            if (n_local == 0)
+                achunk[1] = 1;
             H5Pset_chunk(aplist, 4, achunk);
             H5Pset_deflate(aplist, 4);
             hid_t ads = H5Dcreate2(field_gid, "acceleration_tensor", H5T_NATIVE_FLOAT, aspace,
