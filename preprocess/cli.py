@@ -21,7 +21,6 @@ import numpy as np
 from preprocess.config_loader import load_config
 from preprocess.topology_reader import read_topology
 
-
 # ── Logging ──
 
 
@@ -373,7 +372,7 @@ def step_lame_and_cfl(
     lam = density * (vp**2 - 2.0 * vs**2)
 
     logger.info("Computing CFL (Python)...")
-    from preprocess.cfl_validator import compute_cfl_dt, compute_solver_dt
+    from preprocess.cfl_validator import compute_solver_dt
 
     vp_max = float(vp.max())
     cfl_dt = float(config.cfl_safety) * h_min / vp_max
@@ -458,7 +457,7 @@ def main() -> None:
     cfl_dt = lame["cfl_dt"]
 
     # ── Step 6: Source location ──
-    source_z = getattr(config, 'source_z_m', None)
+    source_z = getattr(config, "source_z_m", None)
     if source_z is None:
         source_z = float(domain_bounds["zmin"])
         logger.info("Locating source on free surface...")

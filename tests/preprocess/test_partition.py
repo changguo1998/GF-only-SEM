@@ -422,7 +422,9 @@ class TestComputeLocalElement2RankNode:
         local_element2rank_node, n_rank_node = compute_local_element2rank_node(gll_coords, [0, 1])
 
         # Shared face: E0 k=1 == E1 k=0
-        assert np.array_equal(local_element2rank_node[0, :, :, 1], local_element2rank_node[1, :, :, 0])
+        assert np.array_equal(
+            local_element2rank_node[0, :, :, 1], local_element2rank_node[1, :, :, 0]
+        )
         # 16 GLL nodes, 4 shared = 12 unique
         assert n_rank_node == 12
         assert local_element2rank_node.shape == (2, 2, 2, 2)

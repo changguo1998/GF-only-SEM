@@ -26,9 +26,11 @@ struct RestartState {
 ///   Attributes: rank, source_direction, step, time_s, ngll
 ///               use_global_dof (int, 0 or 1)
 ///               n_rank_node (int, only when use_global_dof=1)
-///   Datasets (element-local): displacement, velocity, acceleration (float64, 5D: [n_elem,NGLL,NGLL,NGLL,3])
+///   Datasets (element-local): displacement, velocity, acceleration (float64, 5D:
+///   [n_elem,NGLL,NGLL,NGLL,3])
 ///                                pml_damping (float64, 4D: [n_elem,NGLL,NGLL,NGLL])
-///   Datasets (global DOF):     displacement, velocity, acceleration (float64, 1D: [n_rank_node * 3])
+///   Datasets (global DOF):     displacement, velocity, acceleration (float64, 1D: [n_rank_node *
+///   3])
 ///                                pml_damping (float64, 1D: [n_rank_node])
 ///
 /// Overwrites the same file each time — latest only.
@@ -42,7 +44,8 @@ public:
     /// \param n_local_element  Number of local elements on this rank
     /// \param ngll             Number of GLL points per axis (N+1)
     /// \param use_global_dof   If true, state vectors are n_rank_node-sized (flat 1D)
-    /// \param n_rank_node      Number of unique nodes on this rank (only used when use_global_dof=true)
+    /// \param n_rank_node      Number of unique nodes on this rank (only used when
+    /// use_global_dof=true)
     RestartWriter(const std::string& output_dir, const std::string& source_direction, int rank,
                   int n_local_element, int ngll, bool use_global_dof = false, int n_rank_node = 0);
 

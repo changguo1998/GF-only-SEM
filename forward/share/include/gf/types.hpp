@@ -42,8 +42,9 @@ struct RankData {
     std::vector<double> pml_damping;      // PML damping, 0=interior
 
     // Rank-level node numbering (CG-SEM assembly)
-    std::vector<int32_t> local_element2rank_node;     // [n_local_element * n_node] — maps (elem,node)→node_id (0-based)
-    int n_rank_node = 0;                  // unique rank-level nodes on this rank
+    std::vector<int32_t> local_element2rank_node;  // [n_local_element * n_node] — maps
+                                                   // (elem,node)→node_id (0-based)
+    int n_rank_node = 0;                           // unique rank-level nodes on this rank
 
     // Precomputed exchange patterns (from /partition/exchange/neighbor_{N}/)
     // Face-pair send/recv lists per neighbor

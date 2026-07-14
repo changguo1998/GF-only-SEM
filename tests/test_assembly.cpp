@@ -61,7 +61,8 @@ TEST_CASE("assemble_residual does not touch elements beyond n_local_element", "[
         REQUIRE(global_r[i] == 1.0);
     }
     // Extra slot should be untouched
-    for (int i = n_local_element * n_dof_per_elem; i < (n_local_element + n_extra) * n_dof_per_elem; ++i) {
+    for (int i = n_local_element * n_dof_per_elem;
+         i < (n_local_element + n_extra) * n_dof_per_elem; ++i) {
         REQUIRE(global_r[i] == -5.0);
     }
 }
@@ -147,21 +148,22 @@ TEST_CASE("scatter_to_rank accumulates shared-node contributions", "[scatter]") 
     const int n_local_element = 2;
     const int n_node = 2;
 
-    std::vector<int32_t> local_element2rank_node = {0, 1,  // elem 0: node0→glob0, node1→glob1
-                                  1, 2}; // elem 1: node0→glob1, node1→glob2
+    std::vector<int32_t> local_element2rank_node = {0, 1,   // elem 0: node0→glob0, node1→glob1
+                                                    1, 2};  // elem 1: node0→glob1, node1→glob2
     int n_rank_node = 3;
 
     // elem0: n0=[10,20,30], n1=[40,50,60]
     // elem1: n0=[100,200,300], n1=[400,500,600]
     std::vector<double> local_element_residual = {
-        10.0, 20.0, 30.0,   // elem0 node0
-        40.0, 50.0, 60.0,   // elem0 node1
-        100.0, 200.0, 300.0, // elem1 node0
-        400.0, 500.0, 600.0  // elem1 node1
+        10.0,  20.0,  30.0,   // elem0 node0
+        40.0,  50.0,  60.0,   // elem0 node1
+        100.0, 200.0, 300.0,  // elem1 node0
+        400.0, 500.0, 600.0   // elem1 node1
     };
 
     std::vector<double> rank_node_residual(n_rank_node * 3, -1.0);
-    scatter_to_rank(local_element_residual, local_element2rank_node, n_local_element, n_node, rank_node_residual);
+    scatter_to_rank(local_element_residual, local_element2rank_node, n_local_element, n_node,
+                    rank_node_residual);
 
     // glob0: only elem0 node0 → [10, 20, 30]
     REQUIRE_THAT(rank_node_residual[0], WithinAbs(10.0, 1e-12));
@@ -181,8 +183,8 @@ TEST_CASE("gather_from_rank copies global values to element-local", "[gather]") 
     const int n_local_element = 2;
     const int n_node = 2;
 
-    std::vector<int32_t> local_element2rank_node = {0, 1,  // elem 0: node0→glob0, node1→glob1
-                                  1, 2}; // elem 1: node0→glob1, node1→glob2
+    std::vector<int32_t> local_element2rank_node = {0, 1,   // elem 0: node0→glob0, node1→glob1
+                                                    1, 2};  // elem 1: node0→glob1, node1→glob2
 
     // Global displacement: glob0=[1,2,3], glob1=[4,5,6], glob2=[7,8,9]
     std::vector<double> global_disp = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};
@@ -229,14 +231,15 @@ TEST_CASE("scatter-gather round-trip with shared nodes", "[scatter][gather]") {
 
     // Set element-local to known values (like residual computation)
     for (int d = 0; d < 3; ++d) {
-        elem_disp[0 + d] = 100.0 + d;   // elem0 = [100, 101, 102]
-        elem_disp[3 + d] = 200.0 + d;   // elem1 = [200, 201, 202]
-        elem_disp[6 + d] = 300.0 + d;   // elem2 = [300, 301, 302]
+        elem_disp[0 + d] = 100.0 + d;  // elem0 = [100, 101, 102]
+        elem_disp[3 + d] = 200.0 + d;  // elem1 = [200, 201, 202]
+        elem_disp[6 + d] = 300.0 + d;  // elem2 = [300, 301, 302]
     }
 
     // Scatter back: glob0 = elem0 + elem2, glob1 = elem1
     std::vector<double> rank_node_residual(n_rank_node * 3, 0.0);
-    scatter_to_rank(elem_disp, local_element2rank_node, n_local_element, n_node, rank_node_residual);
+    scatter_to_rank(elem_disp, local_element2rank_node, n_local_element, n_node,
+                    rank_node_residual);
 
     // glob0: [100+300=400, 101+301=402, 102+302=404]
     REQUIRE_THAT(rank_node_residual[0], WithinAbs(400.0, 1e-12));

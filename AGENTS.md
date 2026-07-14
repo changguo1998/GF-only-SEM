@@ -68,15 +68,18 @@ and spack-installed `llvm` for clang-format.
 
 ## Project State
 
-CG-SEM global-DOF assembly fix complete — waves now correctly propagate across element interfaces (both within-rank and cross-rank). All 207 tests pass (188 Python + 19 C++ Catch2).
+CG-SEM global-DOF assembly fix complete — waves now correctly propagate across element interfaces (both within-rank and cross-rank). All 221 tests pass (202 Python + 19 C++ Catch2).
 
 Elastic-only forward solver (SLS/attenuation deferred).
 
+Buried source support implemented (`source_z_m = None`→free surface, `float`→buried). Preprocessor auto-detects surface vs buried mode and excludes PML elements for buried sources.
+
 | Solver variant | Multi-rank | DOF numbering | Status |
 |---------------|------------|---------------|--------|
-| CPU + MPI     | ✅ (16 ranks) | Global (ibool) | ✅ Verified — halfspace 2.5e-12 m |
-| CUDA single   | N/A         | Element-local | ✅ 1000 steps / 2.4s |
-| CUDA + MPI    | Untested    | Per-rank ibool | ⚠ Not tested yet |
+| CPU + MPI | ✅ (16 ranks) | Global (ibool) | ✅ Verified — halfspace 2.5e-12 m |
+| CUDA single | N/A | Element-local | ✅ 1000 steps / 2.4s |
+| CUDA + MPI | Untested | Per-rank ibool | ⚠ Not tested yet |
+
 ## Cross-Cutting Conventions
 
 - **Naming**: X2Y for topology relations, 1-based with signed direction

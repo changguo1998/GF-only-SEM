@@ -111,8 +111,7 @@ def _geometric_partition(
 
 
 def compute_local_element2rank_node(
-    gll_coords: npt.NDArray[np.float64],
-    element_ids: list[int],
+    gll_coords: npt.NDArray[np.float64], element_ids: list[int]
 ) -> tuple[npt.NDArray[np.int32], int]:
     """Compute per-rank local_element2rank_node mapping from GLL coordinates (SPECFEM get_global).
 
@@ -165,7 +164,9 @@ def compute_local_element2rank_node(
     sorted_node = node_idx[order]
 
     # Vectorised diff: a new node_id starts when ANY coordinate differs > tol
-    is_new = np.any(np.abs(np.diff(sorted_xyz, axis=0, prepend=sorted_xyz[:1] - tol - 1.0)) > tol, axis=1)
+    is_new = np.any(
+        np.abs(np.diff(sorted_xyz, axis=0, prepend=sorted_xyz[:1] - tol - 1.0)) > tol, axis=1
+    )
     rank_node_id_vals = np.cumsum(is_new, dtype=np.int32) - 1  # 0-based for C++
 
     # Scatter back to local_element2rank_node[e, i, j, k]
@@ -394,7 +395,9 @@ def partition(topology: TopologyData, gll_coords: npt.NDArray[np.float64], n_ran
 
         # Compute local_element2rank_node for all elements (locals before ghosts)
         all_elem_ids = locals_list + ghosts_list
-        local_element2rank_node_4d, n_rank_node = compute_local_element2rank_node(gll_coords, all_elem_ids)
+        local_element2rank_node_4d, n_rank_node = compute_local_element2rank_node(
+            gll_coords, all_elem_ids
+        )
         rd["local_element2rank_node"] = local_element2rank_node_4d
         rd["n_rank_node"] = n_rank_node
 

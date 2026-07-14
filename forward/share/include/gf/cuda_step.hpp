@@ -30,16 +30,17 @@ struct CudaDeviceState {
     int* d_src_elem_offsets = nullptr;  // [n_src_elements] local element index for source elems
 
     // --- Global DOF arrays (CG-SEM assembly) ---
-    double* d_rank_node_mass = nullptr;              // [n_rank_node] — per-node mass
-    double* d_rank_node_damping = nullptr;           // [n_rank_node] — per-node damping
-    int* d_local_element2rank_node = nullptr;          // [n_local_element * n_node] — flat element→node id map
+    double* d_rank_node_mass = nullptr;     // [n_rank_node] — per-node mass
+    double* d_rank_node_damping = nullptr;  // [n_rank_node] — per-node damping
+    int* d_local_element2rank_node =
+        nullptr;  // [n_local_element * n_node] — flat element→node id map
 
     // --- Per-node state vectors (CG-SEM, allocated when use_global_dof) ---
-    double* d_rank_node_displacement = nullptr;       // [n_rank_node * 3]
-    double* d_rank_node_displacement_tilde = nullptr; // [n_rank_node * 3] — predictor output
-    double* d_rank_node_velocity = nullptr;           // [n_rank_node * 3]
-    double* d_rank_node_acceleration = nullptr;       // [n_rank_node * 3]
-    double* d_rank_node_residual = nullptr;           // [n_rank_node * 3] — global residual
+    double* d_rank_node_displacement = nullptr;        // [n_rank_node * 3]
+    double* d_rank_node_displacement_tilde = nullptr;  // [n_rank_node * 3] — predictor output
+    double* d_rank_node_velocity = nullptr;            // [n_rank_node * 3]
+    double* d_rank_node_acceleration = nullptr;        // [n_rank_node * 3]
+    double* d_rank_node_residual = nullptr;            // [n_rank_node * 3] — global residual
 
     // --- Element-local temp arrays for kernel (always element-local) ---
     double* d_local_element_displacement = nullptr;  // [n_local_element * n_node * 3]
@@ -60,27 +61,24 @@ struct CudaDeviceState {
     int n_total_nodes = 0;
     int n_vertices = 0;
     int n_src_elements = 0;
-    int n_node = 0;  // NGLL^3
-    int n_rank_node = 0;   // unique rank-level nodes (0 = not using global DOF)
-    int n_local_element = 0; // number of local elements
+    int n_node = 0;           // NGLL^3
+    int n_rank_node = 0;      // unique rank-level nodes (0 = not using global DOF)
+    int n_local_element = 0;  // number of local elements
     bool use_global_dof = false;
 
     bool allocated = false;
 };
 
 /// Allocate GPU state and upload read-only data (mass, pml, source weights, recording map).
-CudaDeviceState cuda_allocate_state(int n_local_element, int ngll, const std::vector<double>& mass,
-                                    const std::vector<double>& pml_damping,
-                                    const std::vector<double>& dxi_dx,
-                                    const std::vector<double>& jacobian,
-                                    const std::vector<double>& lambda_,
-                                    const std::vector<double>& mu_, const double* h_D,
-                                    const double* h_weights, const ConfigData& cfg,
-                                    const RankData::RecordingMap& rec_map, int n_local_element_dof,
-                                    const std::vector<int32_t>& local_element2rank_node = {},
-                                    int n_rank_node = 0,
-                                    const std::vector<double>& rank_node_mass = {},
-                                    const std::vector<double>& rank_node_damping = {});
+CudaDeviceState cuda_allocate_state(
+    int n_local_element, int ngll, const std::vector<double>& mass,
+    const std::vector<double>& pml_damping, const std::vector<double>& dxi_dx,
+    const std::vector<double>& jacobian, const std::vector<double>& lambda_,
+    const std::vector<double>& mu_, const double* h_D, const double* h_weights,
+    const ConfigData& cfg, const RankData::RecordingMap& rec_map, int n_local_element_dof,
+    const std::vector<int32_t>& local_element2rank_node = {}, int n_rank_node = 0,
+    const std::vector<double>& rank_node_mass = {},
+    const std::vector<double>& rank_node_damping = {});
 
 /// Free all device buffers.
 void cuda_free_state(CudaDeviceState& state);

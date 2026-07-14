@@ -203,9 +203,11 @@ def _find_candidate_elements(
     for e in range(n_cell):
         if is_pml is not None and bool(is_pml[e]):
             continue
-        if (x_min[e] - margin <= sx <= x_max[e] + margin
-                and y_min[e] - margin <= sy <= y_max[e] + margin
-                and z_min[e] - margin <= sz <= z_max[e] + margin):
+        if (
+            x_min[e] - margin <= sx <= x_max[e] + margin
+            and y_min[e] - margin <= sy <= y_max[e] + margin
+            and z_min[e] - margin <= sz <= z_max[e] + margin
+        ):
             candidates.append(e)
 
     return candidates
@@ -352,7 +354,8 @@ def locate_source(
         logger.warning(
             "Buried source at %s found in %d element(s) — may lie on element "
             "face/edge. Verify source position is correct.",
-            source_xyz, len(element_ids),
+            source_xyz,
+            len(element_ids),
         )
 
     # Normalize weights across all containing elements

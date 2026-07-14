@@ -39,7 +39,7 @@ Mathematical formulation for all methods below: [`docs/math.md`](math.md)
 - **Directions**: 3 orthogonal (x, y, z)
 - **Green's tensor**: Full 3×3 strain GF requires 3 forward runs (one per orthogonal force direction x, y, z)
 - **Injection**: Lagrange interpolation to surrounding GLL nodes (sub-node accuracy)
-- **Source position**: User specifies source_x_m, source_y_m only. source_z is auto-placed on top free surface (z ≈ z_min) by preprocessor.
+  | **Source depth**: User specifies `source_x_m`, `source_y_m`. `source_z` is optionally **buried** via config field `source_z_m = None` (free surface, default) or `source_z_m = float` (debugging/validation). Preprocessor auto-detects surface vs buried mode.
 - **Source weights**: Preprocessor writes source elements, natural coords, and weights. Forward only distributes them.
 - **Source interpolation weights**: Normalized across all sharing surface elements so Σ w_ijk = 1
 - **STF**: External — user-defined Python function in config script, evaluated by preprocessor
@@ -50,8 +50,11 @@ Mathematical formulation for all methods below: [`docs/math.md`](math.md)
 ## 5. Architecture
 
 - **Language (core)**: C++17
+
 - **Build system**: CMake
+
 - **Glue language**: Python
+
 - **Project structure**:
 
   ```
@@ -237,7 +240,7 @@ config.h5
 │   └── pml_thickness          : int32[6]    — xmin,xmax,ymin,ymax,zmin,zmax
 │
 └── /source/
-    ├── x, y                   : float64            — source position (z auto-placed on top free surface)
+    │   ├── x, y, z                : float64            — source position (z = z_min for surface, source_z_m for buried)
     ├── stf                     : float64[nsteps]    — pre-evaluated STF time series (amplitude at t = n·solver_dt)
     ├── n_src_elements         : attr int32         — number of containing elements
     └── /elements/

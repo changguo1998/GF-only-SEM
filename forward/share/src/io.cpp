@@ -228,7 +228,8 @@ RankData read_partition(const std::string& path, int /*rank*/) {
     data.pml_damping = try_read_dataset<double>(fid, "/field/element/damping");
 
     // --- Read local_element2rank_node and n_rank_node (CG-SEM rank-level node mapping) ---
-    data.local_element2rank_node = try_read_dataset<int32_t>(fid, "/field/element/local_element2rank_node");
+    data.local_element2rank_node =
+        try_read_dataset<int32_t>(fid, "/field/element/local_element2rank_node");
     {
         hid_t felem = H5Gopen2(fid, "/field/element", H5P_DEFAULT);
         if (felem >= 0) {

@@ -192,7 +192,8 @@ pml_thickness = {"xmin": 3, "xmax": 3, "ymin": 3, "ymax": 3, "zmin": 0, "zmax": 
 # Source position (z is auto-placed on free surface at z ≈ z_min)
 source_x_m = 500.0
 source_y_m = 500.0
-# source_z auto-placed on top free surface (z ≈ z_min) by preprocessor
+source_z_m = None  # None→free surface, float→buried (debugging only)
+# source_z auto-placed on top free surface (z ≈ z_min) by preprocessor when source_z_m is None
 
 # Source direction is NOT in config.py — preprocessor generates one config.h5.
 # Forward solver takes direction via CLI flag --direction {x,y,z}
@@ -223,7 +224,7 @@ def stf_func(t_s):
 | tilex_elements | list[int], positive, sum(tilex)+pml_xmin+pml_xmax==nx_elements |
 | tiley_elements | list[int], positive, sum(tiley)+pml_ymin+pml_ymax==ny_elements |
 | storage_limit_gb | > 0 |
-| source position | source_x_m and source_y_m within xy domain bounds (auto-detected from mesh), z auto-placed on free surface |
+|| source position | source_x_m and source_y_m within xy domain bounds; source_z_m = None (surface) or float (buried, debugging); buried mode excludes PML elements |
 | stf_func | callable, signature `(float) -> float`, returns finite non-NaN values for t ∈ [0, nsteps×solver_dt] |
 | vp_m_s, vs_m_s, density_kg_m3 | callable, each signature `(float, float, float) -> float`, returns positive values |
 | n_ranks | ≥ 1, integer |
@@ -348,13 +349,16 @@ layers deep. The `is_pml` flag is computed in two stages:
    center coordinates. Faces at `z ≈ z_min` → free surface (tag=1), faces on domain
    bounds → absorbing (tag=2), others → interior (tag=0). Cells with any absorbing
    face get a preliminary 1-layer `is_pml=True`.
+
 1. **Layer expansion** (`cli.py`): for structured hex meshes, expand `is_pml` by
    `pml_thickness` using element grid position `(i,j,k)`:
+
    ```
    is_pml ← i < pml_xmin OR i ≥ nx − pml_xmax
          OR j < pml_ymin OR j ≥ ny − pml_ymax
          OR k ≥ nz − pml_zmax
    ```
+
    This ensures the PML zone matches the configured thickness. Non-structured
    topologies fall back to the 1-layer surface detection only.
 
@@ -378,7 +382,7 @@ Comprehensive validation before partition and writing. Runs as a checklist; with
 1. **Mesh quality**: `det(J) > 0` at all GLL nodes (no inverted elements); warn on extreme aspect ratios
 1. **CFL/time**: validate `solver_dt ≤ cfl_dt`, integer strides, and `nsteps % snapshot_stride == 0`; log all derived values
 1. **Boundary**: require free and absorbing surfaces; validate `pml_thickness`; warn if absorbing face has \<2 PML elements
-1. **Source**: within xy domain bounds; Newton iteration found at least one containing element on free surface; sum of normalized Lagrange weights ≈ 1
+1. **Source**: within xy domain bounds; `source_z_m = None` → surface mode (search free-surface elements) or `float` → buried mode (search non-PML elements); Newton iteration finds ≥1 containing element; sum of normalized Lagrange weights ≈ 1
 1. **STF**: all values finite (no NaN/Inf); warn if non-zero DC component
 1. **Partition**: `n_ranks ≤ n_cell` (pre-check before calling METIS)
 1. **Recording map**: snap requested depth to `record_depth_actual_m`; mark non-PML elements/vertices above it.
@@ -442,6 +446,13 @@ Call `config.stf_func(t_s)` at `t_s = 0, solver_dt, 2*solver_dt, ..., (nsteps-1)
 Output: `stf[nsteps]` time series array → written to config.h5 `/source/`.
 
 ### 12. Locate Source Elements + Precompute Interpolation Weights
+
+Source position:
+
+- **Surface mode** (default, `source_z_m = None`): source z = z_min (free surface). Search only free-surface elements (boundary_tag == 1).
+- **Buried mode** (`source_z_m = float`): source z = user-specified depth (debugging/validation only). Search all non-PML elements via AABB bounding box + Newton iteration.
+
+For both modes:
 
 Source z = z_min (auto-placed on top free surface). Source is only specified by `source_x_m` and `source_y_m` in config.py.
 
@@ -516,7 +527,7 @@ config.h5
 │   └── pml_thickness          : int32[6]         — [xmin,xmax,ymin,ymax,zmin,zmax] in element layers
 │
 └── /source/
-    ├── x, y                   : float64          — source position (z auto-placed on top free surface)
+    │   ├── x, y, z                : float64          — source position (z = z_min for surface, source_z_m for buried)
     ├── stf                     : float64[nsteps]  — precomputed STF time series (amplitude at t = n·solver_dt)
     ├── n_src_elements         : attr int32        — number of containing elements
     └── /elements/

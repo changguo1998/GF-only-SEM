@@ -14,7 +14,6 @@ from preprocess.source_locator import (
 )
 from preprocess.topology_reader import TopologyData
 
-
 # ---------------------------------------------------------------------------
 # Helpers: build small meshes for testing
 # ---------------------------------------------------------------------------
@@ -29,12 +28,9 @@ def _two_cell_topology_and_coords(N=3):
     n_cell = 2
     n_surface = 12
 
-    c2s = np.array(
-        [[1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12]],
-        dtype=np.int64,
-    )
+    c2s = np.array([[1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12]], dtype=np.int64)
     bt = np.full(n_surface, 2, dtype=np.int64)
-    bt[4] = 1   # cell0 face 5 (z=0)
+    bt[4] = 1  # cell0 face 5 (z=0)
     bt[10] = 1  # cell1 face 5 (z=0)
 
     e2v = np.zeros((12, 2), dtype=np.int64)
@@ -132,20 +128,36 @@ class TestHelpers:
 
     def test_newton_find_xi(self):
         """Newton finds correct natural coords for interior point."""
-        corners = np.array([
-            [0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [2.0, 2.0, 0.0], [0.0, 2.0, 0.0],
-            [0.0, 0.0, 2.0], [2.0, 0.0, 2.0], [2.0, 2.0, 2.0], [0.0, 2.0, 2.0],
-        ])
+        corners = np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [2.0, 0.0, 0.0],
+                [2.0, 2.0, 0.0],
+                [0.0, 2.0, 0.0],
+                [0.0, 0.0, 2.0],
+                [2.0, 0.0, 2.0],
+                [2.0, 2.0, 2.0],
+                [0.0, 2.0, 2.0],
+            ]
+        )
         xi = _newton_find_xi(np.array([1.0, 1.0, 1.0]), corners)
         assert xi is not None
         assert np.allclose(xi, [0.0, 0.0, 0.0], atol=1e-10)
 
     def test_newton_rejects_outside(self):
         """Newton returns None for point outside element."""
-        corners = np.array([
-            [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 1.0], [0.0, 1.0, 1.0],
-        ])
+        corners = np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 1.0],
+                [1.0, 1.0, 1.0],
+                [0.0, 1.0, 1.0],
+            ]
+        )
         assert _newton_find_xi(np.array([10.0, 10.0, 10.0]), corners) is None
 
     def test_get_element_corners(self):
@@ -185,13 +197,7 @@ class TestLocateSourceSurface:
     def test_surface_source_at_vertex_four_elements(self):
         """Source at (1,1,0) shared by 4 surface elements."""
         topology, gll_coords, bt = _four_cell_surface_topology_and_coords(3)
-        result = locate_source(
-            topology,
-            np.array([1.0, 1.0, 0.0]),
-            gll_coords,
-            bt,
-            N=3,
-        )
+        result = locate_source(topology, np.array([1.0, 1.0, 0.0]), gll_coords, bt, N=3)
         assert result["n_src_elem"] == 4
         assert result["mode"] == "surface"
         total = float(np.sum(result["weights"]))
@@ -200,13 +206,7 @@ class TestLocateSourceSurface:
     def test_surface_source_legacy_no_is_pml(self):
         """locate_source without is_pml argument."""
         topology, gll_coords, bt = _four_cell_surface_topology_and_coords(3)
-        result = locate_source(
-            topology,
-            np.array([0.5, 0.5, 0.0]),
-            gll_coords,
-            bt,
-            N=3,
-        )
+        result = locate_source(topology, np.array([0.5, 0.5, 0.0]), gll_coords, bt, N=3)
         assert result["n_src_elem"] >= 1
         assert result["mode"] == "surface"
 
@@ -224,12 +224,7 @@ class TestLocateSourceBuried:
         """Buried source at element center."""
         topology, gll_coords, bt, is_pml = two_cell_setup
         result = locate_source(
-            topology,
-            np.array([0.5, 0.5, 0.5]),
-            gll_coords,
-            bt,
-            N=3,
-            is_pml=is_pml,
+            topology, np.array([0.5, 0.5, 0.5]), gll_coords, bt, N=3, is_pml=is_pml
         )
         assert result["n_src_elem"] == 1
         assert result["mode"] == "buried"
@@ -241,12 +236,7 @@ class TestLocateSourceBuried:
         """Buried source in element 1."""
         topology, gll_coords, bt, is_pml = two_cell_setup
         result = locate_source(
-            topology,
-            np.array([1.5, 0.5, 0.5]),
-            gll_coords,
-            bt,
-            N=3,
-            is_pml=is_pml,
+            topology, np.array([1.5, 0.5, 0.5]), gll_coords, bt, N=3, is_pml=is_pml
         )
         assert result["n_src_elem"] == 1
         assert result["element_ids"][0] == 2
@@ -256,26 +246,14 @@ class TestLocateSourceBuried:
         topology, gll_coords, bt, is_pml = two_cell_setup
         is_pml[0] = True
         with pytest.raises(ValueError, match="not contained in any non-PML"):
-            locate_source(
-                topology,
-                np.array([0.5, 0.5, 0.5]),
-                gll_coords,
-                bt,
-                N=3,
-                is_pml=is_pml,
-            )
+            locate_source(topology, np.array([0.5, 0.5, 0.5]), gll_coords, bt, N=3, is_pml=is_pml)
 
     def test_buried_source_outside_domain_raises(self, two_cell_setup):
         """Source outside domain raises ValueError."""
         topology, gll_coords, bt, is_pml = two_cell_setup
         with pytest.raises(ValueError, match="non-PML"):
             locate_source(
-                topology,
-                np.array([10.0, 10.0, 10.0]),
-                gll_coords,
-                bt,
-                N=3,
-                is_pml=is_pml,
+                topology, np.array([10.0, 10.0, 10.0]), gll_coords, bt, N=3, is_pml=is_pml
             )
 
     def test_buried_source_without_is_pml_uses_surface_mode(self, two_cell_setup):
@@ -284,12 +262,7 @@ class TestLocateSourceBuried:
         # z=0.5 matches zmin=0.0 → not considered buried. is_pml=None → surface mode.
         # Surface mode finds cell0 (it has a free-surface face) and cell0 contains (0.5,0.5,0.5).
         result = locate_source(
-            topology,
-            np.array([0.5, 0.5, 0.5]),
-            gll_coords,
-            bt,
-            N=3,
-            is_pml=None,
+            topology, np.array([0.5, 0.5, 0.5]), gll_coords, bt, N=3, is_pml=None
         )
         assert result["n_src_elem"] == 1
         assert result["mode"] == "surface"

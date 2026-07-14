@@ -8,8 +8,8 @@
 namespace gf {
 
 void scatter_to_rank(const std::vector<double>& local_element_residual,
-                       const std::vector<int32_t>& local_element2rank_node, int n_local_element, int n_node,
-                       std::vector<double>& rank_node_residual) {
+                     const std::vector<int32_t>& local_element2rank_node, int n_local_element,
+                     int n_node, std::vector<double>& rank_node_residual) {
     // Zero global residual before accumulation
     std::fill(rank_node_residual.begin(), rank_node_residual.end(), 0.0);
 
@@ -26,8 +26,8 @@ void scatter_to_rank(const std::vector<double>& local_element_residual,
 }
 
 void gather_from_rank(const std::vector<double>& rank_node_field,
-                        const std::vector<int32_t>& local_element2rank_node, int n_local_element, int n_node,
-                        std::vector<double>& local_element_field) {
+                      const std::vector<int32_t>& local_element2rank_node, int n_local_element,
+                      int n_node, std::vector<double>& local_element_field) {
     for (int e = 0; e < n_local_element; ++e) {
         for (int n = 0; n < n_node; ++n) {
             int node_id = local_element2rank_node[e * n_node + n];
@@ -42,8 +42,8 @@ void gather_from_rank(const std::vector<double>& rank_node_field,
 
 // ---- Legacy API (for existing tests) ----
 
-void assemble_residual(const std::vector<double>& local_element_residual, const RankData& rank_data,
-                       std::vector<double>& rank_node_residual) {
+void assemble_residual(const std::vector<double>& local_element_residual,
+                       const RankData& rank_data, std::vector<double>& rank_node_residual) {
     const int ngll = rank_data.ngll;
     const int n_node = ngll * ngll * ngll;
     const int n_dof_per_elem = n_node * 3;

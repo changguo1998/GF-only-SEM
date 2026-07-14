@@ -277,13 +277,17 @@ def _write_partition_files(
                 arr = fields.get(key)
                 if arr is None:
                     continue
-                local_data = arr[local_zero] if n_local_element > 0 else np.array([], dtype=arr.dtype)
+                local_data = (
+                    arr[local_zero] if n_local_element > 0 else np.array([], dtype=arr.dtype)
+                )
                 _write_dataset(felem_grp, key, local_data, compression=True)
 
             # Write tile_index to partition file
             if global_tile_index is not None:
                 local_tile = (
-                    global_tile_index[local_zero] if n_local_element > 0 else np.array([], dtype=np.int64)
+                    global_tile_index[local_zero]
+                    if n_local_element > 0
+                    else np.array([], dtype=np.int64)
                 )
                 _write_dataset(felem_grp, "tile_index", local_tile, dtype="int64")
 
@@ -293,8 +297,16 @@ def _write_partition_files(
                 # local_element2rank_node_4d: [n_local_element+n_ghost, NGLL, NGLL, NGLL]
                 # Write only local-element slice, flattened
                 n_node = int(local_element2rank_node_4d[0].size)  # NGLL³
-                local_element2rank_node_local = local_element2rank_node_4d[:n_local_element].ravel().astype(np.int32)
-                _write_dataset(felem_grp, "local_element2rank_node", local_element2rank_node_local, dtype="int32", compression=True)
+                local_element2rank_node_local = (
+                    local_element2rank_node_4d[:n_local_element].ravel().astype(np.int32)
+                )
+                _write_dataset(
+                    felem_grp,
+                    "local_element2rank_node",
+                    local_element2rank_node_local,
+                    dtype="int32",
+                    compression=True,
+                )
             n_rank_node = rk.get("n_rank_node")
             if n_rank_node is not None:
                 felem_grp.attrs["n_rank_node"] = int(n_rank_node)

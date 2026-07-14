@@ -87,8 +87,10 @@ __global__ void newmark_correct_kernel(double* d_disp, double* d_vel, double* d_
 /// Scatter element-local residual → global residual.
 /// Uses atomicAdd because multiple elements sharing a physical node (same
 /// node_id) write concurrently to the same destination DOF.
-__global__ void scatter_to_rank_kernel(const double* d_local_element_residual, const int* d_local_element2rank_node,
-                                         double* d_rank_node_residual, int n_local_element, int n_node) {
+__global__ void scatter_to_rank_kernel(const double* d_local_element_residual,
+                                       const int* d_local_element2rank_node,
+                                       double* d_rank_node_residual, int n_local_element,
+                                       int n_node) {
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
     int total = n_local_element * n_node * 3;
     if (idx < total) {
@@ -102,8 +104,9 @@ __global__ void scatter_to_rank_kernel(const double* d_local_element_residual, c
 
 /// Gather global field → element-local.
 /// One-to-one mapping, no atomics needed.
-__global__ void gather_from_rank_kernel(const double* d_rank_node_field, const int* d_local_element2rank_node,
-                                          double* d_elem_field, int n_local_element, int n_node) {
+__global__ void gather_from_rank_kernel(const double* d_rank_node_field,
+                                        const int* d_local_element2rank_node, double* d_elem_field,
+                                        int n_local_element, int n_node) {
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
     int total = n_local_element * n_node * 3;
     if (idx < total) {
@@ -116,8 +119,8 @@ __global__ void gather_from_rank_kernel(const double* d_rank_node_field, const i
 }
 
 /// PML damping on global velocity (direct — each physical node appears once).
-__global__ void pml_damping_rank_kernel(double* d_rank_node_velocity, const double* d_rank_node_damping,
-                                          int n_rank_node) {
+__global__ void pml_damping_rank_kernel(double* d_rank_node_velocity,
+                                        const double* d_rank_node_damping, int n_rank_node) {
     int node_id = blockDim.x * blockIdx.x + threadIdx.x;
     if (node_id < n_rank_node) {
         double d = d_rank_node_damping[node_id];
@@ -132,8 +135,8 @@ __global__ void pml_damping_rank_kernel(double* d_rank_node_velocity, const doub
 
 /// Newmark predictor on global arrays.
 __global__ void newmark_predict_rank_kernel(double* d_disp_tilde, const double* d_disp,
-                                              const double* d_vel, const double* d_acc, double dt,
-                                              double beta_factor, int n_rank_dof) {
+                                            const double* d_vel, const double* d_acc, double dt,
+                                            double beta_factor, int n_rank_dof) {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
     if (i < n_rank_dof) {
         d_disp_tilde[i] = d_disp[i] + dt * d_vel[i] + beta_factor * d_acc[i];
@@ -142,8 +145,9 @@ __global__ void newmark_predict_rank_kernel(double* d_disp_tilde, const double* 
 
 /// Newmark corrector on global arrays.  Uses per-node global mass.
 __global__ void newmark_correct_rank_kernel(double* d_disp, double* d_vel, double* d_acc,
-                                              const double* d_residual, const double* d_rank_node_mass,
-                                              double dt, double gamma, int n_rank_dof) {
+                                            const double* d_residual,
+                                            const double* d_rank_node_mass, double dt,
+                                            double gamma, int n_rank_dof) {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
     if (i < n_rank_dof) {
         int node_id = i / 3;
@@ -215,9 +219,9 @@ __global__ void recorded_strain_kernel(const double* d_disp, const double* d_dxi
 
     // Symmetric strain (Voigt order)
     double* out = &d_strain[v * 6];
-    out[0] = du_dx[0][0];                         // eps_xx
-    out[1] = du_dx[1][1];                         // eps_yy
-    out[2] = du_dx[2][2];                         // eps_zz
+    out[0] = du_dx[0][0];                        // eps_xx
+    out[1] = du_dx[1][1];                        // eps_yy
+    out[2] = du_dx[2][2];                        // eps_zz
     out[3] = 0.5 * (du_dx[0][1] + du_dx[1][0]);  // eps_xy
     out[4] = 0.5 * (du_dx[0][2] + du_dx[2][0]);  // eps_xz
     out[5] = 0.5 * (du_dx[1][2] + du_dx[2][1]);  // eps_yz
@@ -249,7 +253,8 @@ void cuda_newmark_predict(CudaDeviceState& state, double dt, double beta) {
 
 void cuda_zero_residual(CudaDeviceState& state) {
     if (state.use_global_dof) {
-        GF_CUDA_CHECK(cudaMemset(state.d_local_element_residual, 0, state.n_local_element_dof * sizeof(double)));
+        GF_CUDA_CHECK(cudaMemset(state.d_local_element_residual, 0,
+                                 state.n_local_element_dof * sizeof(double)));
     } else {
         GF_CUDA_CHECK(cudaMemset(state.d_residual, 0, state.n_dof * sizeof(double)));
     }
@@ -261,7 +266,7 @@ void cuda_pml_damping(CudaDeviceState& state) {
             state.d_rank_node_velocity, state.d_rank_node_damping, state.n_rank_node);
     } else {
         pml_damping_kernel<<<grid_blocks(state.n_dof), 256>>>(state.d_velocity, state.d_pml,
-                                                               state.n_dof, state.n_total_nodes);
+                                                              state.n_dof, state.n_total_nodes);
     }
     GF_CUDA_CHECK(cudaGetLastError());
 }
@@ -301,8 +306,9 @@ void cuda_newmark_correct(CudaDeviceState& state, double dt, double gamma) {
     if (state.use_global_dof) {
         int n = state.n_rank_node * 3;
         newmark_correct_rank_kernel<<<grid_blocks(n), 256>>>(
-            state.d_rank_node_displacement, state.d_rank_node_velocity, state.d_rank_node_acceleration,
-            state.d_rank_node_residual, state.d_rank_node_mass, dt, gamma, n);
+            state.d_rank_node_displacement, state.d_rank_node_velocity,
+            state.d_rank_node_acceleration, state.d_rank_node_residual, state.d_rank_node_mass, dt,
+            gamma, n);
     } else {
         newmark_correct_kernel<<<grid_blocks(state.n_dof), 256>>>(
             state.d_displacement, state.d_velocity, state.d_acceleration, state.d_residual,
@@ -333,7 +339,8 @@ void cuda_compute_strain(CudaDeviceState& state, const double* h_D, int ngll,
     // When using global DOF, displacement has been gathered into local_element_displacement
     // before calling this function (done in solver.cpp).
     // The strain kernel always reads from the element-local displacement array.
-    double* d_strain_disp = state.use_global_dof ? state.d_local_element_displacement : state.d_displacement;
+    double* d_strain_disp =
+        state.use_global_dof ? state.d_local_element_displacement : state.d_displacement;
 
     recorded_strain_kernel<<<grid, block>>>(d_strain_disp, state.d_dxi_dx, d_D_cache, ngll,
                                             state.d_rec_src_elem, state.d_rec_corner,
@@ -362,8 +369,8 @@ void cuda_copy_state_to_host(const CudaDeviceState& state, std::vector<double>& 
     } else {
         GF_CUDA_CHECK(cudaMemcpy(h_displacement.data(), state.d_displacement,
                                  state.n_dof * sizeof(double), cudaMemcpyDeviceToHost));
-        GF_CUDA_CHECK(cudaMemcpy(h_velocity.data(), state.d_velocity,
-                                 state.n_dof * sizeof(double), cudaMemcpyDeviceToHost));
+        GF_CUDA_CHECK(cudaMemcpy(h_velocity.data(), state.d_velocity, state.n_dof * sizeof(double),
+                                 cudaMemcpyDeviceToHost));
         GF_CUDA_CHECK(cudaMemcpy(h_acceleration.data(), state.d_acceleration,
                                  state.n_dof * sizeof(double), cudaMemcpyDeviceToHost));
     }
@@ -375,23 +382,23 @@ void cuda_copy_state_to_host(const CudaDeviceState& state, std::vector<double>& 
 
 void cuda_scatter_to_rank(CudaDeviceState& state) {
     scatter_to_rank_kernel<<<grid_blocks(state.n_local_element_dof), 256>>>(
-        state.d_local_element_residual, state.d_local_element2rank_node, state.d_rank_node_residual, state.n_local_element,
-        state.n_node);
+        state.d_local_element_residual, state.d_local_element2rank_node,
+        state.d_rank_node_residual, state.n_local_element, state.n_node);
     GF_CUDA_CHECK(cudaGetLastError());
 }
 
 void cuda_gather_from_rank(CudaDeviceState& state) {
     gather_from_rank_kernel<<<grid_blocks(state.n_local_element_dof), 256>>>(
-        state.d_rank_node_displacement, state.d_local_element2rank_node, state.d_local_element_displacement, state.n_local_element,
-        state.n_node);
+        state.d_rank_node_displacement, state.d_local_element2rank_node,
+        state.d_local_element_displacement, state.n_local_element, state.n_node);
     GF_CUDA_CHECK(cudaGetLastError());
 }
 
 /// Gather predicted displacement (displacement_tilde) for the element kernel.
 void cuda_gather_predicted(CudaDeviceState& state) {
     gather_from_rank_kernel<<<grid_blocks(state.n_local_element_dof), 256>>>(
-        state.d_rank_node_displacement_tilde, state.d_local_element2rank_node, state.d_local_element_displacement, state.n_local_element,
-        state.n_node);
+        state.d_rank_node_displacement_tilde, state.d_local_element2rank_node,
+        state.d_local_element_displacement, state.n_local_element, state.n_node);
     GF_CUDA_CHECK(cudaGetLastError());
 }
 
@@ -399,17 +406,14 @@ void cuda_gather_predicted(CudaDeviceState& state) {
 // Allocation / free
 // =======================================================================
 
-CudaDeviceState cuda_allocate_state(int n_local_element, int ngll, const std::vector<double>& mass,
-                                    const std::vector<double>& pml_damping,
-                                    const std::vector<double>& dxi_dx,
-                                    const std::vector<double>& jacobian,
-                                    const std::vector<double>& lambda_,
-                                    const std::vector<double>& mu_, const double* h_D,
-                                    const double* h_weights, const ConfigData& cfg,
-                                    const RankData::RecordingMap& rec_map, int n_local_element_dof,
-                                    const std::vector<int32_t>& local_element2rank_node, int n_rank_node,
-                                    const std::vector<double>& rank_node_mass,
-                                    const std::vector<double>& rank_node_damping) {
+CudaDeviceState cuda_allocate_state(
+    int n_local_element, int ngll, const std::vector<double>& mass,
+    const std::vector<double>& pml_damping, const std::vector<double>& dxi_dx,
+    const std::vector<double>& jacobian, const std::vector<double>& lambda_,
+    const std::vector<double>& mu_, const double* h_D, const double* h_weights,
+    const ConfigData& cfg, const RankData::RecordingMap& rec_map, int n_local_element_dof,
+    const std::vector<int32_t>& local_element2rank_node, int n_rank_node,
+    const std::vector<double>& rank_node_mass, const std::vector<double>& rank_node_damping) {
     CudaDeviceState state;
     state.n_dof = n_local_element_dof;
     state.n_local_element_dof = n_local_element_dof;
@@ -462,7 +466,8 @@ CudaDeviceState cuda_allocate_state(int n_local_element, int ngll, const std::ve
     if (state.use_global_dof) {
         // --- Global DOF arrays ---
         alloc_d(state.d_local_element2rank_node, state.n_total_nodes * sizeof(int));
-        upload(state.d_local_element2rank_node, local_element2rank_node.data(), state.n_total_nodes * sizeof(int32_t));
+        upload(state.d_local_element2rank_node, local_element2rank_node.data(),
+               state.n_total_nodes * sizeof(int32_t));
 
         alloc_d(state.d_rank_node_mass, n_rank_node * sizeof(double));
         upload(state.d_rank_node_mass, rank_node_mass.data(), n_rank_node * sizeof(double));
@@ -482,13 +487,16 @@ CudaDeviceState cuda_allocate_state(int n_local_element, int ngll, const std::ve
         GF_CUDA_CHECK(cudaMemset(state.d_rank_node_velocity, 0, n_glob_dof * sizeof(double)));
         GF_CUDA_CHECK(cudaMemset(state.d_rank_node_acceleration, 0, n_glob_dof * sizeof(double)));
         GF_CUDA_CHECK(cudaMemset(state.d_rank_node_residual, 0, n_glob_dof * sizeof(double)));
-        GF_CUDA_CHECK(cudaMemset(state.d_rank_node_displacement_tilde, 0, n_glob_dof * sizeof(double)));
+        GF_CUDA_CHECK(
+            cudaMemset(state.d_rank_node_displacement_tilde, 0, n_glob_dof * sizeof(double)));
 
         // Element-local temp arrays for kernel
         alloc_d(state.d_local_element_displacement, n_local_element_dof * sizeof(double));
         alloc_d(state.d_local_element_residual, n_local_element_dof * sizeof(double));
-        GF_CUDA_CHECK(cudaMemset(state.d_local_element_displacement, 0, n_local_element_dof * sizeof(double)));
-        GF_CUDA_CHECK(cudaMemset(state.d_local_element_residual, 0, n_local_element_dof * sizeof(double)));
+        GF_CUDA_CHECK(cudaMemset(state.d_local_element_displacement, 0,
+                                 n_local_element_dof * sizeof(double)));
+        GF_CUDA_CHECK(
+            cudaMemset(state.d_local_element_residual, 0, n_local_element_dof * sizeof(double)));
     } else {
         // --- Legacy element-local state ---
         alloc_d(state.d_displacement, n_local_element_dof * sizeof(double));
@@ -501,7 +509,8 @@ CudaDeviceState cuda_allocate_state(int n_local_element, int ngll, const std::ve
         GF_CUDA_CHECK(cudaMemset(state.d_velocity, 0, n_local_element_dof * sizeof(double)));
         GF_CUDA_CHECK(cudaMemset(state.d_acceleration, 0, n_local_element_dof * sizeof(double)));
         GF_CUDA_CHECK(cudaMemset(state.d_residual, 0, n_local_element_dof * sizeof(double)));
-        GF_CUDA_CHECK(cudaMemset(state.d_displacement_tilde, 0, n_local_element_dof * sizeof(double)));
+        GF_CUDA_CHECK(
+            cudaMemset(state.d_displacement_tilde, 0, n_local_element_dof * sizeof(double)));
     }
 
     // Strain buffer

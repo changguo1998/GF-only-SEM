@@ -264,8 +264,8 @@ void cuda_launch_element_residual(const CudaDeviceState& state, int ngll, int n_
 
     GF_CUDA_CHECK(cudaMemset(d_output, 0, n_elem * n_node * 3 * sizeof(double)));
     element_residual_kernel<<<grid, block>>>(state.d_dxi_dx, state.d_jacobian, state.d_lambda_,
-                                              state.d_mu_, state.d_D, state.d_weights, ngll,
-                                              d_input, d_output);
+                                             state.d_mu_, state.d_D, state.d_weights, ngll,
+                                             d_input, d_output);
     GF_CUDA_CHECK(cudaGetLastError());
     GF_CUDA_CHECK(cudaDeviceSynchronize());
 }
