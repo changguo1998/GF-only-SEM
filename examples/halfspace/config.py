@@ -77,7 +77,7 @@ pml_thickness = {
 # source_z_m=None → free surface (zmin); float → buried source for debugging
 source_x_m = 5000.0
 source_y_m = 5000.0
-source_z_m = None
+source_z_m = None      # None → 自由表面 (zmin); float → 埋藏震源（调试用）
 
 
 # ── Source time function (callable) ───
