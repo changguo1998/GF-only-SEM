@@ -458,15 +458,21 @@ def main() -> None:
     cfl_dt = lame["cfl_dt"]
 
     # ── Step 6: Source location ──
-    logger.info("Locating source on free surface...")
+    source_z = getattr(config, 'source_z_m', None)
+    if source_z is None:
+        source_z = float(domain_bounds["zmin"])
+        logger.info("Locating source on free surface...")
+    else:
+        logger.info(f"Locating BURIED source at depth z={source_z} m...")
     from preprocess.source_locator import locate_source
 
-    source_z = float(domain_bounds["zmin"])
     source_xyz_arr = np.array([config.source_x_m, config.source_y_m, source_z], dtype=np.float64)
-    src_result = locate_source(topology, source_xyz_arr, coords, boundary_tag, N)
+    # is_pml is needed for buried mode to exclude PML elements
+    src_result = locate_source(topology, source_xyz_arr, coords, boundary_tag, N, is_pml=is_pml)
+    mode_label = "BURIED" if source_z != float(domain_bounds["zmin"]) else "on free surface"
     logger.info(
         f"  Source at ({config.source_x_m}, {config.source_y_m}, {source_z}), "
-        f"in {src_result['n_src_elem']} element(s)"
+        f"{mode_label}, in {src_result['n_src_elem']} element(s)"
     )
 
     # ── Step 7: STF ──

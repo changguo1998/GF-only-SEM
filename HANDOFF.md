@@ -94,7 +94,7 @@ u_rankA ≠ u_rankB (共享节点)
 
 | 文件 | 用途 |
 |------|------|
-| `docs/design/fix-plan.md` | 修复方案（82/82 完成） |
+| `docs/superpowers/plans/2026-07-12-cg-sem-assembly-fix.md` | 修复方案（82/82 完成） |
 | `docs/design/algorithm-verification.md` | 与 SPECFEM3D 算法一致性检查 |
 | `docs/design-decisions.md` | 架构设计决策 |
 | `docs/design/naming-convention.md` | X2Y 命名约定 |

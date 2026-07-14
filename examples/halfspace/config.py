@@ -74,8 +74,10 @@ pml_thickness = {
 
 # ── Source ───
 # Point force at center of free surface (z=0)
+# source_z_m=None → free surface (zmin); float → buried source for debugging
 source_x_m = 5000.0
 source_y_m = 5000.0
+source_z_m = None
 
 
 # ── Source time function (callable) ───

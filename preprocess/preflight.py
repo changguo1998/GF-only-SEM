@@ -184,7 +184,8 @@ def _check_source(
         )
     if not z_on_surface:
         result.add_warning(
-            f"Source: z = {source_z} is not on free surface (z_min = {domain_bounds['zmin']})."
+            f"Source: z = {source_z} is not on free surface (z_min = {domain_bounds['zmin']}). "
+            f"Buried source — only for debugging/validation."
         )
 
 

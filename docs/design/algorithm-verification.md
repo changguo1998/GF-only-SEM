@@ -1,7 +1,7 @@
 # fix-plan 与 SPECFEM3D 算法一致性检查报告
 
 > 检查日期: 2026-07-12
-> 审查范围: `docs/design/fix-plan.md` 全部 5 Phase, 17 Tasks
+> 审查范围: `docs/superpowers/plans/2026-07-12-cg-sem-assembly-fix.md` 全部 5 Phase, 17 Tasks
 > 参考代码: `external_reference_codes/specfem3d/`
 
 ______________________________________________________________________
