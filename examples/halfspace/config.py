@@ -73,11 +73,12 @@ pml_thickness = {
 }
 
 # ── Source ───
-# Point force at center of free surface (z=0)
-# source_z_m=None → free surface (zmin); float → buried source for debugging
+# Point force at center of domain
+# source_z_m=None -> free surface (zmin); float -> buried source
+# Set to 10.0 m to match the analytic Lamb reference (--source-depth-m 10.0)
 source_x_m = 5000.0
 source_y_m = 5000.0
-source_z_m = None  # None → 自由表面 (zmin); float → 埋藏震源（调试用）
+source_z_m = 10.0  # buried at 10 m to match analytic reference depth
 
 
 # ── Source time function (callable) ───

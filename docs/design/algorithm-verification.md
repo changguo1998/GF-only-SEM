@@ -145,11 +145,16 @@ ______________________________________________________________________
 ## 10. 多 rank 稳定性（实现中发现）
 
 fix-plan 假设 scatter/gather + MPI exchange 足够确保多 rank 正确性。
-实现中发现两个额外需求：
+实现中发现四项额外需求：
 
 | 维度 | 问题 | 修复 | 原因 |
 |------|------|------|------|
 | **质量 exchange** | 共享节点 `a = r_local + r_neighbor / m_local` → 加速度 2x 正常 → 爆炸 | exchange 后 `m_shared = m_local + m_neighbor` | rank_node_mass 只含本地元素贡献，不含 ghost 元素。SPECFEM3D 无此问题因 ghost 元素包含在分区文件中。 |
 | **u_tilde sync** | 两 rank 共享节点位移漂移 → 元素核用不同位移 → 残差不一致 → 正反馈 | 元素核前 exchange + average u_tilde | fix-plan 未考虑位移状态在 rank 间自然漂移。SPECFEM3D 无此问题因 ghost 元素直接读取邻居 rank 的节点值。 |
 
-**根因对比**: SPECFEM3D 将 ghost 元素数据（含 ibool）包含在分区文件中，每个 rank 有完整边界区域 → 元素核自动使用一致位移 → 无分歧。fix-plan 的简化（无 ghost 元素在分区中存储）需要显式的 mass exchange 和 u_tilde sync。
+| **exchange DOF 去重** | exchange_halo 的 `+=` 累加对重复 DOF 重复计分 → 残差 2-3x、质量 2-3x → 加速度异常 → 爆炸 | 每 neighbor 的 send_dof/recv_dof 转换为 rank_node ID 后去重 | 同 rank 上多元素共享同 neighbor 的界面时，边/角 GLL 节点每面添加一次 → 33% 重复 (rank 0 neighbor_1: 4506/13725)。SPECFEM3D 的 `ibool_interfaces_ext_mesh` 自动合并，无此问题。 |
+
+| **1/n_sharing 平均** | u_tilde sync 用 `0.5*(local+sum_neighbors)`，假设恰好 2 rank 共享 → 3 rank 共享的节点被 1.5x 高估 → 能量注入 | 预计算 `node_share_count = 1 + n_neighbor_rank` (从 exchange recv_dof 统计)，用 `ut_avg / node_share_count` 替代 `0.5 * ut_avg` | 16 rank 分区中 2843 节点(5.8%)被 3 rank 共享，0.5 应为 1/3。SPECFEM3D 的 ghost 元素机制无此问题，因为每个共享节点只在界面出现一次。 |
+|------|------|------|------|
+
+**根因对比**: SPECFEM3D 将 ghost 元素数据（含 ibool）包含在分区文件中，每个 rank 有完整边界区域 → 元素核自动使用一致位移 → 无分歧。fix-plan 的简化（无 ghost 元素在分区中存储）需要显式的 mass exchange、u_tilde sync、exchange DOF 去重和 1/n_sharing 平均。
