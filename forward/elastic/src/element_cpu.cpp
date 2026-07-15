@@ -85,9 +85,12 @@ void compute_element_residual<BackendCPU>(int n_elem, const double* dxi_dx, cons
                     for (int l = 0; l < 3; ++l) {
                         for (int m = 0; m < 3; ++m) {
                             eps[l][m] = 0.5 * (du_dx[l][m] + du_dx[m][l]);
-                            if (std::abs(eps[l][m]) < 1.0e-14) {
-                                eps[l][m] = 0.0;
-                            }
+                            // NOTE: strain truncation threshold removed. The hard cutoff
+                            // at 1e-14 makes the stiffness nonlinear (K jumps between 0
+                            // and its full value as strain crosses the threshold), which
+                            // injects energy under Newmark central-difference integration
+                            // and drives a slow secular instability. Standard SEM does
+                            // not truncate strain.
                         }
                     }
 

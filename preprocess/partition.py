@@ -157,16 +157,25 @@ def compute_local_element2rank_node(
     elem_idx = np.repeat(np.arange(n_elem, dtype=np.int32), n_node)
     node_idx = np.tile(np.arange(n_node, dtype=np.int32), n_elem)
 
-    # Sort by (x, y, z) — identical coordinates cluster together
-    order = np.lexsort((coords_flat[:, 2], coords_flat[:, 1], coords_flat[:, 0]))
-    sorted_xyz = coords_flat[order]
+    # Quantize coordinates onto an integer grid (scale = 1/tol) so that
+    # floating-point LSB differences (~1e-13) between physically identical
+    # GLL nodes on shared element faces do not split them into separate
+    # sorted positions.  Sorting integers is exact (no LSB ambiguity), and
+    # the adjacency diff becomes an exact equality check.  This is the
+    # standard remedy for the SPECFEM get_global coordinate-sort pitfall
+    # where two nodes at the same position with a 1-ULP coordinate difference
+    # get separated by intervening nodes and assigned different global IDs,
+    # breaking CG-SEM assembly (lost stiffness at shared nodes -> instability).
+    scale = np.float64(1.0) / tol
+    iquan = np.rint(coords_flat * scale).astype(np.int64)
+    order = np.lexsort((iquan[:, 2], iquan[:, 1], iquan[:, 0]))
+    sorted_iquan = iquan[order]
     sorted_elem = elem_idx[order]
     sorted_node = node_idx[order]
 
-    # Vectorised diff: a new node_id starts when ANY coordinate differs > tol
-    is_new = np.any(
-        np.abs(np.diff(sorted_xyz, axis=0, prepend=sorted_xyz[:1] - tol - 1.0)) > tol, axis=1
-    )
+    # A new node_id starts when ANY quantized coordinate differs (exact
+    # integer comparison — shared GLL nodes now cluster identically).
+    is_new = np.any(np.diff(sorted_iquan, axis=0, prepend=sorted_iquan[:1] - 1) != 0, axis=1)
     rank_node_id_vals = np.cumsum(is_new, dtype=np.int32) - 1  # 0-based for C++
 
     # Scatter back to local_element2rank_node[e, i, j, k]

@@ -108,9 +108,9 @@ __global__ void element_residual_kernel(const double* __restrict__ dxi_dx,
     for (int l = 0; l < 3; ++l) {
         for (int m = 0; m < 3; ++m) {
             eps[l][m] = 0.5 * (du_dx[l][m] + du_dx[m][l]);
-            if (fabs(eps[l][m]) < 1.0e-14) {
-                eps[l][m] = 0.0;
-            }
+            // NOTE: strain truncation threshold removed — see element_cpu.cpp for
+            // rationale (nonlinear K injects energy under central-difference
+            // integration, causing secular instability).
         }
     }
 
