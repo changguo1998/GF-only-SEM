@@ -16,7 +16,9 @@ SLS spans preprocess and forward.
 Needed:
 
 - Compute per-GLL-node τ_σ_l and τ_ε_l from q_kappa, q_mu, f_min, f_max, and n_sls.
+
 - Write HDF5 datasets:
+
   ```
   /field/element/tau_sigma[n_cell, NGLL, NGLL, NGLL, n_sls]
   /field/element/tau_epsilon[n_cell, NGLL, NGLL, NGLL, n_sls]
@@ -78,6 +80,38 @@ Same pattern as CUDA: add tag struct, source file, CMake branch. See [`design/gp
 
 ______________________________________________________________________
 
+## 6. SEM Force Normalization — Amplitude Discrepancy
+
+**Status:** Deferred. SEM displacement is systematically larger than analytic/PyFK references.
+
+Both example pipelines run end-to-end, but the SEM result has a residual amplitude
+error that points to a force-normalization issue in the source application path:
+
+- **Halfspace** (Lamb analytic reference): SEM displacement is ~3× larger than the
+  analytic reference after the convolution-truncation fix (`mode='same'`→`mode='full'`).
+  Off-diagonal components (F_z→u_x, F_x→u_z) are severely underestimated (0.07–0.13×),
+  suggesting a radiation-pattern or free-surface treatment issue.
+- **Layer** (PyFK reference): SEM displacement is ~3×10⁵ larger than the PyFK reference
+  after aligning coordinates and adding STF convolution.
+
+### Investigation targets
+
+1. `forward/share/src/source.cpp` — `PointForceSource::apply()`: verify GLL quadrature
+   weights integrate to 1 (force → RHS normalization).
+1. `forward/share/src/assembly.cpp` — `add_source_to_rhs()`: confirm the source term
+   scaling matches a unit point force (1 N).
+1. `postprocess/` — Green's function extraction: check for any unintended scaling or
+   truncation factor in displacement → Green tensor assembly.
+1. PyFK unit convention: confirm displacement output is in metres for 1 N force
+   (static-limit check: u_z = F/(4πμr) gives ~2.9×10⁻¹⁴ m for the layer geometry).
+
+### Context
+
+- Convolution truncation bug (`mode='same'`) fixed in both `reference.py` files.
+- Coordinate convention unified across `reference.py` and `compare.py`
+  (`--source` = observation point, `--receiver` = source-match point).
+- Commit `49d3455` documents the pipeline alignment; amplitude fix is the next step.
+
 ## Summary
 
 | Item | Module | Priority | Effort |
@@ -86,3 +120,4 @@ ______________________________________________________________________
 | Compress integration | forward/ | Low | Tiny |
 | Compression benchmark | compress | Low | Small |
 | HIP/SYCL backends | forward/elastic/ | Low | Medium |
+| Force normalization | forward/share + postprocess | High | Medium |

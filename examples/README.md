@@ -40,11 +40,13 @@ bash examples/halfspace/forward.sh      # Stage 3: forward solver
 bash examples/halfspace/postprocess.sh  # Stage 4: Green's function extraction
 
 # Generate analytic reference + compare (no PYTHONPATH needed)
+# --source = displacement observation point; --receiver = point matching SEM source
 python examples/halfspace/reference.py examples/halfspace/greenfun \
-  --source 6000 5000 0 --receiver 5000 5000 0 --output /tmp/lamb_ref.npz
+  --source 5500 5000 0 --receiver 5000 5000 500 --source-depth-m 500.0 \
+  --output /tmp/lamb_ref.npz
 
 python examples/halfspace/compare.py examples/halfspace/greenfun \
-  --source 6000 5000 0 --receiver 5000 5000 0 \
+  --source 5500 5000 0 --receiver 5000 5000 500 \
   --reference /tmp/lamb_ref.npz --output /tmp/lamb_cmp.npz --fit-scale
 ```
 
@@ -98,18 +100,24 @@ Two-layer model (soft 500 m layer over stiff half-space) with PyFK reference.
 |------|---------|
 | `layer/config.py` | SEM + PyFK configuration (depth-dependent vp/vs/rho) |
 | `layer/mesh_gen.py` | Regular hex mesh generator (standalone) |
-| `layer/reference.py` | PyFK layered reference waveform (needs Python 3.9 venv) |
-| `layer/compare.sh` | Reference generation orchestration (future: SEM + compare) |
+| `layer/reference.py` | PyFK layered reference Green tensor (needs Python 3.9 venv) |
+| `layer/compare.py` | Compare reference vs SEM GreenFunctionLibrary result |
+| `layer/compare.sh` | **Full validation pipeline** — SEM → PyFK reference → comparison |
 
 **Quick start:**
 
 ```bash
-# Generate PyFK reference waveform
+# End-to-end: SEM pipeline → PyFK layered reference → comparison
 bash examples/layer/compare.sh
 
-# Or manually:
-examples/layer/.pyfk-venv/bin/python examples/layer/reference.py \
-  --source 0 0 490 --receiver 5000 0 0 --output /tmp/layer_ref.npz
+# Or manually (after SEM pipeline has run):
+# --source = displacement observation point; --receiver = point matching SEM source
+examples/layer/.pyfk-venv/bin/python examples/layer/reference.py examples/layer/greenfun \
+  --source 5500 5000 0 --receiver 5000 5000 250 --output /tmp/layer_ref.npz
+
+python examples/layer/compare.py examples/layer/greenfun \
+  --source 5500 5000 0 --receiver 5000 5000 250 \
+  --reference /tmp/layer_ref.npz --output /tmp/layer_cmp.npz --fit-scale
 ```
 
 **Model:**
@@ -128,7 +136,7 @@ piecewise functions compatible with the SEM preprocessor.
 cd examples/layer
 uv venv .pyfk-venv --python 3.9
 .pyfk-venv/bin/python -m ensurepip --upgrade
-.pyfk-venv/bin/python -m pip install pyfk obspy
+.pyfk-venv/bin/python -m pip install pyfk obspy h5py
 ```
 
 ## Adding a New Example
