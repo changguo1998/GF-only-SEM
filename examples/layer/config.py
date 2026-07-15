@@ -154,7 +154,7 @@ N_TIME = 1000  # 10 s total
 
 # PyFK solver parameters
 SAMPLES_BEFORE_FIRST_ARRIVAL = 100
-FORCE_AMPLITUDE = 1.0
+FORCE_AMPLITUDE = 1e5  # 1 N = 1e5 dyne (PyFK uses CGS internally; sf source m0 = amp * 1e-15)
 QS_DEFAULT = 100.0
 QP_DEFAULT = 200.0
 DK = 0.3
