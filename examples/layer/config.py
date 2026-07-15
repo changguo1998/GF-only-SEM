@@ -79,10 +79,10 @@ pml_thickness = {
 }
 
 # ── Source ───
-# Point force at 490m depth near domain center (matching PyFK reference depth)
-source_x_m = 3333.333333333333
-source_y_m = 3333.333333333333
-source_z_m = 490.0  # buried at 490m depth, 10m above layer interface
+# Point force at 250m depth near domain center (middle of layer 1, away from interface).
+source_x_m = 5000.0
+source_y_m = 5000.0
+source_z_m = 250.0  # buried at 250m depth, middle of layer 1 (0-500m)
 
 
 # ── Source time function (callable) ───

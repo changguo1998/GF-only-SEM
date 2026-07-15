@@ -75,10 +75,10 @@ pml_thickness = {
 # ── Source ───
 # Point force at center of domain
 # source_z_m=None -> free surface (zmin); float -> buried source
-# Set to 10.0 m to match the analytic Lamb reference (--source-depth-m 10.0)
+# Source at 500 m depth for stable Lamb reference integration (theta=45 deg).
 source_x_m = 5000.0
 source_y_m = 5000.0
-source_z_m = 10.0  # buried at 10 m to match analytic reference depth
+source_z_m = 500.0  # buried at 500 m depth
 
 
 # ── Source time function (callable) ───

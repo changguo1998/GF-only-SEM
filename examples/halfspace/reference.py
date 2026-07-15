@@ -282,10 +282,15 @@ def convolve_with_stf(
     s(t) is the source time function and G = dG^H/dt.
     """
     g_fn = impulse_response_from_step(g_step, dt)
+    nt = g_fn.shape[0]
     u = np.zeros_like(g_fn)
     for i in range(3):
         for j in range(3):
-            u[:, i, j] = np.convolve(g_fn[:, i, j], source_values, mode="same") * dt
+            # mode='full' then trim to first nt samples (causal: output at t
+            # depends on inputs at tau <= t).  mode='same' would truncate the
+            # convolution peak for early-arriving impulse responses.
+            full = np.convolve(g_fn[:, i, j], source_values, mode="full") * dt
+            u[:, i, j] = full[:nt]
     return u
 
 

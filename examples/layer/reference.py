@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import h5py
 import numpy as np
 import numpy.typing as npt
 
@@ -31,12 +32,12 @@ _PROJECT_ROOT = (_SCRIPT_DIR / "../..").resolve()
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from greenfun.index_cache import load_or_rebuild_index  # noqa: E402
+
 # Layered model parameters
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import (  # noqa: E402  # isort: skip
     LAYER_MODEL,
-    DT_S,
-    N_TIME,
     FORCE_AMPLITUDE,
     DK,
     SMTH,
@@ -203,17 +204,80 @@ def _ricker(time: npt.NDArray[np.float64], freq: float, delay: float) -> npt.NDA
     return (1.0 - 2.0 * x**2) * np.exp(-(x**2))
 
 
+def _match_saved_receiver(
+    library_root: Path, receiver_xyz_m: npt.NDArray[np.float64], tolerance_m: float
+) -> npt.NDArray[np.float64]:
+    """Find the nearest saved SEM source coordinate to *receiver_xyz_m*."""
+    index = load_or_rebuild_index(library_root)
+    if not index.sources:
+        raise ValueError(f"No saved SEM source coordinates found in {library_root}")
+    saved = np.asarray([e.source_xyz_m for e in index.sources], dtype=np.float64)
+    distances = np.linalg.norm(saved - receiver_xyz_m[None, :], axis=1)
+    nearest_idx = int(np.argmin(distances))
+    nearest_dist = float(distances[nearest_idx])
+    if nearest_dist > tolerance_m:
+        raise ValueError(
+            f"receiver_xyz {receiver_xyz_m} is {nearest_dist:.3f} m from nearest "
+            f"SEM source coordinate {saved[nearest_idx]}; tolerance is {tolerance_m:.3f} m"
+        )
+    return saved[nearest_idx].copy()
+
+
+def _read_time_and_stf(
+    work_dir: Path,
+) -> tuple[npt.NDArray[np.float64], float, npt.NDArray[np.float64]]:
+    """Read the SEM output time grid and STF values from config.h5."""
+    with h5py.File(work_dir / "config.h5", "r") as cfg:
+        sim = cfg["simulation"].attrs
+        stride = int(sim["snapshot_stride"])
+        output_dt_s = float(sim["output_dt_s"])
+        stf_t = np.asarray(cfg["source/stf_t"], dtype=np.float64)
+        stf_v = np.asarray(cfg["source/stf_values"], dtype=np.float64)
+    output_time_s = stf_t[::stride]
+    source_values = np.interp(output_time_s, stf_t, stf_v)
+    return output_time_s, output_dt_s, source_values
+
+
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="PyFK reference waveform for a layered half-space.")
-    p.add_argument(
-        "--source", type=float, nargs=3, default=(0.0, 0.0, 500.0), metavar=("X", "Y", "Z")
+    p = argparse.ArgumentParser(
+        description="PyFK reference Green tensor for a layered half-space."
+        "  Convention matches compare.py: --source is the displacement"
+        " observation point, --receiver selects the SEM source run."
     )
     p.add_argument(
-        "--receiver", type=float, nargs=3, default=(5000.0, 0.0, 0.0), metavar=("X", "Y", "Z")
+        "library_root",
+        type=Path,
+        help="Green function library root (contains source index / greenfun)",
+    )
+    p.add_argument(
+        "--source",
+        type=float,
+        nargs=3,
+        required=True,
+        metavar=("X", "Y", "Z"),
+        help="Displacement observation point [m]",
+    )
+    p.add_argument(
+        "--receiver",
+        type=float,
+        nargs=3,
+        required=True,
+        metavar=("X", "Y", "Z"),
+        help="Point near the SEM source used to select the source run [m]",
     )
     p.add_argument("--output", type=Path, required=True, help="Output .npz path")
-    p.add_argument("--n-time", type=int, default=N_TIME, help="Number of time samples")
-    p.add_argument("--dt", type=float, default=DT_S, help="Time step [s]")
+    p.add_argument(
+        "--source-depth-m",
+        type=float,
+        default=None,
+        help="Override source depth [m]; default uses SEM source depth",
+    )
+    p.add_argument(
+        "--receiver-tolerance-m",
+        type=float,
+        default=100.0,
+        help="Tolerance for matching --receiver to a saved SEM source [m]",
+    )
     p.add_argument(
         "--force-amplitude",
         type=float,
@@ -237,16 +301,48 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    source = np.asarray(args.source, dtype=np.float64)
-    receiver = np.asarray(args.receiver, dtype=np.float64)
-    time = np.arange(args.n_time, dtype=np.float64) * args.dt
 
-    greens_fn = compute_green_tensor(source, receiver, time, force_amplitude=args.force_amplitude)
+    library_root = args.library_root.resolve()
+    source_xyz_m = np.asarray(args.source, dtype=np.float64)
+    receiver_xyz_m = np.asarray(args.receiver, dtype=np.float64)
+
+    # Match the SEM source run and read the output time grid.
+    sem_source_xyz_m = _match_saved_receiver(
+        library_root, receiver_xyz_m, args.receiver_tolerance_m
+    )
+    time, output_dt_s, source_values = _read_time_and_stf(library_root.parent)
+
+    # Place the PyFK source at the matched SEM source location (depth override optional).
+    pyfk_source_xyz = sem_source_xyz_m.copy()
+    if args.source_depth_m is not None:
+        pyfk_source_xyz[2] = max(pyfk_source_xyz[2], args.source_depth_m)
+
+    # Convention: --source = observation point (PyFK receiver),
+    #             SEM source = PyFK source (force location).
+    # PyFK returns the step response (impulse Green tensor).  The SEM stores
+    # displacement convolved with the source time function, so we must apply
+    # the same STF to the PyFK result for a fair comparison.
+    greens_step = compute_green_tensor(
+        source_xyz_m=pyfk_source_xyz,
+        receiver_xyz_m=source_xyz_m,
+        time=time,
+        force_amplitude=args.force_amplitude,
+    )
+
+    nt = greens_step.shape[0]
+    greens_fn = np.zeros_like(greens_step)
+    for i in range(3):
+        for j in range(3):
+            full = np.convolve(greens_step[:, i, j], source_values, mode="full") * output_dt_s
+            greens_fn[:, i, j] = full[:nt]
 
     output: dict[str, npt.NDArray[np.float64]] = {
         "time": time,
-        "source_xyz_m": source,
-        "receiver_xyz_m": receiver,
+        "source_xyz_m": source_xyz_m,
+        "receiver_xyz_m": receiver_xyz_m,
+        "sem_source_xyz_m": sem_source_xyz_m,
+        "source_time_function": source_values,
+        "step_response": greens_step,
         "displacement": greens_fn,
     }
 
@@ -255,18 +351,21 @@ def main(argv: list[str] | None = None) -> int:
         synth = np.zeros_like(greens_fn)
         for i in range(3):
             for j in range(3):
-                synth[:, i, j] = np.convolve(greens_fn[:, i, j], wavelet, mode="same") * args.dt
-        output["source_time_function"] = wavelet
+                full = np.convolve(greens_fn[:, i, j], wavelet, mode="full") * output_dt_s
+                synth[:, i, j] = full[:nt]
+        output["ricker_wavelet"] = wavelet
         output["synthetic_displacement"] = synth
         print(f"Ricker wavelet: f={args.ricker_freq} Hz, delay={args.ricker_delay} s")
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(args.output, **output)
     print(f"Wrote {args.output}")
-    print(f"source     : {source}")
-    print(f"receiver   : {receiver}")
-    print(f"time       : {time.shape}")
-    print(f"displacement : {greens_fn.shape}")
+    print(f"source (obs)     : {source_xyz_m}")
+    print(f"receiver (match) : {receiver_xyz_m}")
+    print(f"sem_source       : {sem_source_xyz_m}")
+    print(f"pyfk_source      : {pyfk_source_xyz}")
+    print(f"time             : {time.shape}")
+    print(f"displacement     : {greens_fn.shape}")
     return 0
 
 
