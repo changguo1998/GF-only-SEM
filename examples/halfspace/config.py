@@ -75,10 +75,11 @@ pml_thickness = {
 # ── Source ───
 # Point force at center of domain
 # source_z_m=None -> free surface (zmin); float -> buried source
-# Source at 500 m depth for stable Lamb reference integration (theta=45 deg).
-source_x_m = 5000.0
-source_y_m = 5000.0
-source_z_m = 500.0  # buried at 500 m depth
+# Source at element interior (not on shared edge) to test radiation pattern.
+# Element (9,9,0) center: xi=eta=zeta=0, all 125 GLL nodes get non-zero weights.
+source_x_m = 5278.0
+source_y_m = 5278.0
+source_z_m = 278.0  # buried at 278 m depth (element center)
 
 
 # ── Source time function (callable) ───
