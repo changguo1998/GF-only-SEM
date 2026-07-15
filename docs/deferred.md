@@ -80,37 +80,60 @@ Same pattern as CUDA: add tag struct, source file, CMake branch. See [`design/gp
 
 ______________________________________________________________________
 
-## 6. SEM Force Normalization — Amplitude Discrepancy
+## 6. SEM Amplitude & Radiation Pattern Discrepancy
 
-**Status:** Deferred. SEM displacement is systematically larger than analytic/PyFK references.
+**Status:** Partially resolved. PyFK force unit fixed (dyne→Newton). Residual
+~3× diagonal and off-diagonal radiation pattern issues remain.
 
-Both example pipelines run end-to-end, but the SEM result has a residual amplitude
-error that points to a force-normalization issue in the source application path:
+### Resolved: PyFK force unit (commit `8e4cd8e`)
 
-- **Halfspace** (Lamb analytic reference): SEM displacement is ~3× larger than the
-  analytic reference after the convolution-truncation fix (`mode='same'`→`mode='full'`).
-  Off-diagonal components (F_z→u_x, F_x→u_z) are severely underestimated (0.07–0.13×),
-  suggesting a radiation-pattern or free-surface treatment issue.
-- **Layer** (PyFK reference): SEM displacement is ~3×10⁵ larger than the PyFK reference
-  after aligning coordinates and adding STF convolution.
+PyFK uses CGS internally: `sf` source amplitude in dyne, displacement in cm.
+The `1e-15` scaling in `SourceModel._update_source_mechanism` converts the
+user-specified `force_amplitude` to internal `m0`. Setting `FORCE_AMPLITUDE=1e5`
+makes PyFK compute for 1 N (1 N = 1e5 dyne). The `_sync_trace_to_time`
+function already converts cm→m (×0.01).
 
-### Investigation targets
+Static calibration confirmed: PyFK static for `force_amp=1.0` (1 dyne) matches
+the analytic formula u = F/(4πμr) within 14%.
 
-1. `forward/share/src/source.cpp` — `PointForceSource::apply()`: verify GLL quadrature
-   weights integrate to 1 (force → RHS normalization).
-1. `forward/share/src/assembly.cpp` — `add_source_to_rhs()`: confirm the source term
-   scaling matches a unit point force (1 N).
-1. `postprocess/` — Green's function extraction: check for any unintended scaling or
-   truncation factor in displacement → Green tensor assembly.
-1. PyFK unit convention: confirm displacement output is in metres for 1 N force
-   (static-limit check: u_z = F/(4πμr) gives ~2.9×10⁻¹⁴ m for the layer geometry).
+### Verified correct: SEM force normalization
 
-### Context
+1. `source_locator.py` — GLL Lagrange basis weights, normalized to sum=1
+   across shared elements. For a source on a shared edge of 4 elements, each
+   contributes ¼ weight; `scatter_to_rank` accumulates to full weight at
+   shared nodes. ✓
+1. `preprocess/cpp/main.cpp` + `cli.py:448` — mass = ρ·J·w_i·w_j·w_k
+   (geometric part from C++, density multiplied in Python). ✓
+1. `solver.cpp` — Newmark-β (β=¼, γ=½), standard implementation. ✓
+1. Total force = `stf_val × Σ(weights)` = 1.0 N. ✓
 
-- Convolution truncation bug (`mode='same'`) fixed in both `reference.py` files.
-- Coordinate convention unified across `reference.py` and `compare.py`
-  (`--source` = observation point, `--receiver` = source-match point).
-- Commit `49d3455` documents the pipeline alignment; amplitude fix is the next step.
+### Remaining issues
+
+**Issue A — Diagonal ~3× discrepancy** (both halfspace and layer):
+
+SEM displacement is 1.7–3× larger than analytic/PyFK references on diagonal
+components (F_z→u_z, F_x→u_x, F_y→u_y). Possible causes:
+
+- Near-field effects (source-receiver distance ~1 wavelength at f0=2 Hz)
+- PML reflections adding energy
+- Source at shared element edge (4 elements meet at xi=±1, eta=±1)
+
+**Issue B — Off-diagonal radiation pattern** (both halfspace and layer):
+
+F_z→u_x and F_x→u_z are severely underestimated in SEM (0.09–0.18× of
+reference). The vertical-force horizontal radiation and horizontal-force
+vertical radiation are too weak. Possible causes:
+
+- Free surface boundary condition (stress-free enforced via weak form)
+- P-SV conversion at the free surface not correctly captured
+- Source at shared edge affecting horizontal radiation pattern
+
+### Next investigation steps
+
+1. Move source to element interior (not shared edge) to isolate edge effects
+1. Increase source-receiver distance to far-field to isolate near-field effects
+1. Check free surface displacement components (u_x from F_z) at the surface
+1. Compare SEM radiation pattern with analytic P-SV radiation coefficients
 
 ## Summary
 
