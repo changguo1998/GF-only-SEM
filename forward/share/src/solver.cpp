@@ -11,6 +11,7 @@
 #include <ctime>
 #include <iomanip>
 #include <iostream>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -213,6 +214,21 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 for (int node_id = 0; node_id < part.n_rank_node; ++node_id) {
                     rank_node_mass[node_id] = mass_exchange[node_id * 3 + 0];
                 }
+            }
+        }
+        // === Compute node sharing count for shared-node averaging ===
+        // Each shared GLL node may be owned by 2+ ranks. The u_tilde sync
+        // averages the predicted displacement across all sharing ranks.
+        // node_share_count[node] = 1 (self) + number of neighbor ranks that
+        // also own this node (counted from exchange recv_dof patterns).
+        std::vector<int> node_share_count(part.n_rank_node, 1);
+        if (use_global_dof && !exchange_patterns.empty()) {
+            for (const auto& pat : exchange_patterns) {
+                std::set<int> nodes_in_pat;
+                for (int dof_idx : pat.recv_dof_indices)
+                    nodes_in_pat.insert(dof_idx / 3);
+                for (int node_id : nodes_in_pat)
+                    node_share_count[node_id]++;
             }
         }
 
@@ -440,14 +456,19 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 // 2. Sync predicted displacement at shared interface nodes.
                 //    Each rank's predictor uses its own (u,v,a) which may differ
                 //    at shared nodes. Averaging u_tilde before the element kernel
-                //    ensures both ranks use the same displacement → consistent
-                //    residual → correct assembled acceleration.
+                //    ensures all sharing ranks use the same displacement ->
+                //    consistent residual -> correct assembled acceleration.
+                //    The divisor is node_share_count (1 + n_neighbors), not a
+                //    hardcoded 0.5, so nodes shared by 3+ ranks are averaged
+                //    correctly.
                 if (!exchange_patterns.empty()) {
                     std::vector<double> ut_avg(displacement_tilde);
                     exchange_halo(exchange_patterns, ut_avg, 3);
                     for (const auto& pat : exchange_patterns) {
                         for (int dof_idx : pat.recv_dof_indices) {
-                            displacement_tilde[dof_idx] = 0.5 * ut_avg[dof_idx];
+                            int node_id = dof_idx / 3;
+                            displacement_tilde[dof_idx] =
+                                ut_avg[dof_idx] / node_share_count[node_id];
                         }
                     }
                 }

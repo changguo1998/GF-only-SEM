@@ -226,7 +226,18 @@ class TestPartition:
     def test_exchange_patterns_consistency(self):
         """Exchange patterns should have send_dof/recv_dof for shared faces."""
         topo = _make_two_cube_topo()
-        gll_coords = np.zeros((2, 3, 3, 3, 3), dtype=np.float64)  # NGLL=3
+        # NGLL=3: GLL nodes at 0, 0.5, 1.0 in each axis.  Cube 0 spans
+        # z=[0,1], cube 1 spans z=[1,2]; they share the z=1 face.
+        # Distinct coordinates ensure each of the 9 shared-face GLL nodes
+        # gets a unique rank_node_id (the all-zeros degenerate case
+        # collapses them to one node).
+        pts = [0.0, 0.5, 1.0]
+        gll_coords = np.zeros((2, 3, 3, 3, 3), dtype=np.float64)
+        for i in range(3):
+            for j in range(3):
+                for k in range(3):
+                    gll_coords[0, i, j, k] = [pts[i], pts[j], pts[k]]
+                    gll_coords[1, i, j, k] = [pts[i], pts[j], pts[k] + 1.0]
 
         result = partition(topo, gll_coords, n_ranks=2)
 

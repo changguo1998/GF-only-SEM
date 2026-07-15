@@ -436,4 +436,24 @@ def partition(topology: TopologyData, gll_coords: npt.NDArray[np.float64], n_ran
 
                 ex[key] = new_dofs
 
+            # Deduplicate exchange DOFs.  When multiple local elements on
+            # this rank share interface faces with the same neighbor, the
+            # shared edge/corner GLL nodes are appended once per face.
+            # After conversion to rank_node IDs these become exact
+            # integer duplicates.  exchange_halo does field[recv] += val
+            # per entry, so duplicates cause double (or triple) counting
+            # of residual and mass at shared nodes -- a major source of
+            # multi-rank instability.
+            seen: set[int] = set()
+            uniq_send: list[int] = []
+            uniq_recv: list[int] = []
+            for s, r in zip(ex["send_dof"], ex["recv_dof"]):
+                # send_dof == recv_dof (same node_id*3+dir) by construction
+                if s not in seen:
+                    seen.add(s)
+                    uniq_send.append(s)
+                    uniq_recv.append(r)
+            ex["send_dof"] = uniq_send
+            ex["recv_dof"] = uniq_recv
+
     return {"element_to_rank": element_to_rank, "n_ranks": n_ranks, "per_rank": per_rank}
