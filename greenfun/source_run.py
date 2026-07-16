@@ -15,7 +15,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.spatial import KDTree
 
-from greenfun.interpolator import TrilinearInterpolator
+from greenfun.interpolator import EXACT_VERTEX_TOLERANCE_M, TrilinearInterpolator
 from greenfun.query import GreenQuery
 
 
@@ -192,9 +192,9 @@ class SourceRun:
         if point.shape != (3,):
             raise ValueError(f"source_xyz_m must have shape (3,), got {point.shape}")
 
-        # Check for exact vertex match.
+        # Check for exact vertex match (tolerance absorbs float64 rounding at large coords).
         nn_distance, _ = self._kdtree.query(point, k=1)  # type: ignore[union-attr]
-        interpolation_used = bool(nn_distance >= 1e-15)
+        interpolation_used = bool(nn_distance >= EXACT_VERTEX_TOLERANCE_M)
 
         # Interpolate requested quantities.
         # Tensors are stored as [nt, n_vertices, ...] but TrilinearInterpolator

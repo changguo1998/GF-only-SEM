@@ -465,5 +465,5 @@ class TestGreenFunctionLibraryEdgeCases:
             lib.query(
                 source_xyz=np.array([5.0, 5.0, 5.0]),
                 receiver_xyz=np.array([10.0, 0.0, 0.0]),
-                quantity="velocity",
+                quantity="bogus_quantity",
             )

@@ -30,7 +30,7 @@ cd "${WORK_DIR}"
 "${PYFK_PYTHON}" "${WORK_DIR}/reference.py" \
 	"${WORK_DIR}/greenfun" \
 	--source 5500 5000 0 \
-	--receiver 5000 5000 250 \
+	--receiver 5278 5278 250 \
 	--output "${WORK_DIR}/layer_reference.npz"
 
 # ── Stage L3: Compare ───
@@ -40,7 +40,7 @@ cd "${WORK_DIR}"
 python "${SCRIPT_DIR}/compare.py" \
 	"${WORK_DIR}/greenfun" \
 	--source 5500 5000 0 \
-	--receiver 5000 5000 250 \
+	--receiver 5278 5278 250 \
 	--reference "${WORK_DIR}/layer_reference.npz" \
 	--output "${WORK_DIR}/layer_comparison.npz" \
 	--fit-scale

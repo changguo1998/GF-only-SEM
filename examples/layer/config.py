@@ -79,9 +79,11 @@ pml_thickness = {
 }
 
 # ── Source ───
-# Point force at 250m depth near domain center (middle of layer 1, away from interface).
-source_x_m = 5000.0
-source_y_m = 5000.0
+# Point force at element interior (not on a shared grid node) to avoid the
+# 4-element shared-node source-inflation bug (see commit e1ac709, deferred.md §6).
+# Element (9,9,0) center: x=y=5278 m is 9.5*dx, safely inside element [5000,5556].
+source_x_m = 5278.0
+source_y_m = 5278.0
 source_z_m = 250.0  # buried at 250m depth, middle of layer 1 (0-500m)
 
 

@@ -253,7 +253,7 @@ class TestSourceRunQuery:
         """Invalid quantity names fail loudly instead of returning empty data."""
         run = self._make_run(tmp_path)
         with pytest.raises(ValueError, match="quantity"):
-            run.query(source_xyz_m=np.array([5.0, 5.0, 5.0]), quantity="velocity")
+            run.query(source_xyz_m=np.array([5.0, 5.0, 5.0]), quantity="bogus_quantity")
 
     def test_exact_vertex_match_no_interpolation(self, tmp_path: Path) -> None:
         """Exact vertex match returns exact value (no interpolation)."""

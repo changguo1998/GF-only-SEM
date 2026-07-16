@@ -7,6 +7,13 @@ import numpy.typing as npt
 from scipy.spatial import KDTree
 
 
+# Tolerance for treating a query point as an exact mesh-vertex match.
+# float64 rounding at geophysical coordinate scales (~1e3–1e6 m) is ~1e-12 to
+# ~1e-10 m, well above 1e-15. 1e-6 m (1 µm) safely absorbs that error while
+# staying far below any realistic mesh spacing (metres to hundreds of metres).
+EXACT_VERTEX_TOLERANCE_M = 1e-6
+
+
 class TrilinearInterpolator:
     """Trilinear interpolation over a regular Cartesian hex mesh.
 
@@ -92,7 +99,7 @@ class TrilinearInterpolator:
         #     that the cell-lookup below would reject as out-of-bounds).
         # ------------------------------------------------------------------
         nn_distance, nn_index = self._tree.query(point, k=1)
-        if nn_distance < 1e-15:
+        if nn_distance < EXACT_VERTEX_TOLERANCE_M:
             return values[int(nn_index)]
 
         # ------------------------------------------------------------------
