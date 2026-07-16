@@ -11,8 +11,10 @@ source "$HOME/.spack/share/spack/setup-env.sh"
 spack load llvm
 
 # find target files
-SKIP_DIRS=(.venv build .git .pytest_cache __pycache__ .ruff_cache
-	build_test build_tmp build.bak '*.egg-info' log wavefields)
+SKIP_DIRS=(.venv '*.pyfk-venv' '*.egg-info' __pycache__ .pytest_cache .ruff_cache
+	build build_mpi build_test build_tmp build.bak bin CMakeFiles
+	.git .pi .pi-subagents
+	log wavefields vtk greenfun partitions external_reference_codes)
 SKIP_EXPR=()
 for d in "${SKIP_DIRS[@]}"; do SKIP_EXPR+=(-path "*/$d" -prune -o); done
 ALL_TMP=$(mktemp)
