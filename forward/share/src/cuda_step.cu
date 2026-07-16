@@ -61,7 +61,7 @@ __global__ void source_injection_kernel(double* d_residual, const double* d_src_
 
 __global__ void newmark_correct_kernel(double* d_disp, double* d_vel, double* d_acc,
                                        const double* d_residual, const double* d_mass, double dt,
-                                       double gamma, int n_dof, int n_nodes) {
+                                       double beta, double gamma, int n_dof, int n_nodes) {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
     if (i < n_dof) {
         int node = i / 3;
@@ -73,7 +73,7 @@ __global__ void newmark_correct_kernel(double* d_disp, double* d_vel, double* d_
             }
             double a_old = d_acc[i];
             double a_new = d_residual[i] / m;
-            d_disp[i] += dt * d_vel[i] + 0.5 * dt * dt * a_old;
+            d_disp[i] += dt * d_vel[i] + dt * dt * ((0.5 - beta) * a_old + beta * a_new);
             d_vel[i] += dt * ((1.0 - gamma) * a_old + gamma * a_new);
             d_acc[i] = a_new;
         }
@@ -144,9 +144,10 @@ __global__ void newmark_predict_rank_kernel(double* d_disp_tilde, const double* 
 }
 
 /// Newmark corrector on global arrays.  Uses per-node global mass.
+/// u += dt*v + dt²*((0.5-β)*a_old + β*a_new), v += dt*((1-γ)*a_old + γ*a_new)
 __global__ void newmark_correct_rank_kernel(double* d_disp, double* d_vel, double* d_acc,
                                             const double* d_residual,
-                                            const double* d_rank_node_mass, double dt,
+                                            const double* d_rank_node_mass, double dt, double beta,
                                             double gamma, int n_rank_dof) {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
     if (i < n_rank_dof) {
@@ -158,7 +159,7 @@ __global__ void newmark_correct_rank_kernel(double* d_disp, double* d_vel, doubl
         }
         double a_old = d_acc[i];
         double a_new = d_residual[i] / m;
-        d_disp[i] += dt * d_vel[i] + 0.5 * dt * dt * a_old;
+        d_disp[i] += dt * d_vel[i] + dt * dt * ((0.5 - beta) * a_old + beta * a_new);
         d_vel[i] += dt * ((1.0 - gamma) * a_old + gamma * a_new);
         d_acc[i] = a_new;
     }
@@ -302,17 +303,17 @@ void cuda_source_injection(CudaDeviceState& state, int direction, double stf_val
     GF_CUDA_CHECK(cudaGetLastError());
 }
 
-void cuda_newmark_correct(CudaDeviceState& state, double dt, double gamma) {
+void cuda_newmark_correct(CudaDeviceState& state, double dt, double beta, double gamma) {
     if (state.use_global_dof) {
         int n = state.n_rank_node * 3;
         newmark_correct_rank_kernel<<<grid_blocks(n), 256>>>(
             state.d_rank_node_displacement, state.d_rank_node_velocity,
             state.d_rank_node_acceleration, state.d_rank_node_residual, state.d_rank_node_mass, dt,
-            gamma, n);
+            beta, gamma, n);
     } else {
         newmark_correct_kernel<<<grid_blocks(state.n_dof), 256>>>(
             state.d_displacement, state.d_velocity, state.d_acceleration, state.d_residual,
-            state.d_mass, dt, gamma, state.n_dof, state.n_total_nodes);
+            state.d_mass, dt, beta, gamma, state.n_dof, state.n_total_nodes);
     }
     GF_CUDA_CHECK(cudaGetLastError());
     GF_CUDA_CHECK(cudaDeviceSynchronize());

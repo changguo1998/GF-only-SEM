@@ -360,7 +360,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 cuda_scatter_to_rank(gpu_state);
 
                 // No MPI exchange (single process)
-                cuda_newmark_correct(gpu_state, solver_dt, gamma);
+                cuda_newmark_correct(gpu_state, solver_dt, beta, gamma);
             } else {
                 // ---- Legacy element-local path ----
                 cuda_newmark_predict(gpu_state, solver_dt, beta);
@@ -378,7 +378,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                                               cfg.n_src_elements);
                     }
                 }
-                cuda_newmark_correct(gpu_state, solver_dt, gamma);
+                cuda_newmark_correct(gpu_state, solver_dt, beta, gamma);
             }
 
             // --- Write restart (every restart_stride solver steps) ---

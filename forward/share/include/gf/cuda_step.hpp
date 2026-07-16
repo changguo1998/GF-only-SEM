@@ -101,8 +101,10 @@ void cuda_pml_damping(CudaDeviceState& state);
 void cuda_source_injection(CudaDeviceState& state, int direction, double stf_val,
                            const double* h_src_weights, int n_src_elements);
 
-/// Newmark corrector: a_new = r/mass, u += dt*v + 0.5*dt^2*a_old, v += 0.5*dt*(a_old + a_new)
-void cuda_newmark_correct(CudaDeviceState& state, double dt, double gamma);
+/// Newmark corrector: a_new = r/mass,
+/// u += dt*v + dt²*((0.5-β)*a_old + β*a_new),
+/// v += dt*((1-γ)*a_old + γ*a_new)
+void cuda_newmark_correct(CudaDeviceState& state, double dt, double beta, double gamma);
 
 /// Compute strain at recorded vertices, store in d_strain_buffer (then copy to host for I/O).
 void cuda_compute_strain(CudaDeviceState& state, const double* h_D, int ngll,
