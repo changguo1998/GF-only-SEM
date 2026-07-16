@@ -2,9 +2,9 @@
 
 This config defines a two-layer elastic half-space:
   - Soft surface layer (500 m) over a stiffer half-space
-  - Free surface at z=0 (source here)
+  - Free surface at z=0
   - Absorbing boundaries on the 5 other sides (perfectly matched layers)
-  - A Ricker wavelet point force at domain center
+  - A Ricker wavelet point force buried at 250 m depth
 
 Material properties are depth-dependent piecewise functions matching
 the PyFK LAYER_MODEL for consistent comparison.
@@ -12,7 +12,7 @@ the PyFK LAYER_MODEL for consistent comparison.
 Domain: 10 km × 10 km × 5 km (x, y, z)
 Layer 1 (z < 500 m):  Vp=2500 m/s, Vs=1500 m/s, density=2200 kg/m³
 Layer 2 (z >= 500 m): Vp=5000 m/s, Vs=3000 m/s, density=2700 kg/m³
-Mesh: regular hexahedral, 10×10×10 = 1000 elements
+Mesh: regular hexahedral, 18×18×10 = 3240 elements
       (z-element boundary at 500 m aligns with layer interface)
 
 Run with:

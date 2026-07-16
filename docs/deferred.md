@@ -104,7 +104,7 @@ Full debug analysis: [`superpowers/plans/2026-07-16-pysv-coupling-debug.md`](sup
 
 1. GLL Lagrange weights normalized to sum=1 across shared elements ✓
 1. Mass = ρ·J·w_i·w_j·w_k, density applied in `cli.py:448` ✓
-1. Newmark-β (β=¼, γ=½) in solver.cpp:57–68 ✓
+1. Newmark explicit central difference (β=0, γ=½) in solver.cpp:57–68 ✓
 1. Total force = stf_val × Σ(weights) = 1.0 N ✓
 1. Element residual: isotropic elastic stress correct ✓
 
@@ -148,17 +148,12 @@ free-surface bugs or stiffness matrix errors.
 1. **Accept and calibrate** — diagonal & in-plane components are within 6%;
    P-SV coupling ~2× error may be acceptable for many applications
 
-### GPU Newmark corrector: hardcoded β=0
+### GPU Newmark corrector: hardcoded β=0 — FIXED
 
-The GPU `cuda_newmark_correct` and its kernels hardcode β=0 in the
-displacement update formula (`d_disp += dt*v + 0.5*dt²*a_old`)
-instead of using `dt² * ((0.5-β)*a_old + β*a_new)`. This is a latent
-bug — currently masked because the solver defaults to β=0, but any
-non-zero β would produce incorrect results on GPU.
-
-**Fix needed:** Pass β through `cuda_newmark_correct` to the kernels,
-update both `newmark_correct_kernel` and `newmark_correct_rank_kernel`
-to use the correct formula.
+**Fixed in `a54e320`:** The GPU `cuda_newmark_correct` and its kernels now accept
+`beta` as a parameter and use the correct formula `dt² * ((0.5-β)*a_old + β*a_new)`
+instead of hardcoding `0.5*dt²*a_old`. The solver.cpp GPU paths pass `beta`.
+Backward-compatible: with β=0 both formulas are identical.
 
 ## Summary
 
@@ -168,4 +163,4 @@ to use the correct formula.
 | Compress integration | forward/ | Low | Tiny |
 | Compression benchmark | compress | Low | Small |
 | HIP/SYCL backends | forward/elastic/ | Low | Medium |
-| Force normalization | forward/share + postprocess | High | Medium |
+| Cartesian mesh anisotropy | forward + preprocess | Medium | Medium |

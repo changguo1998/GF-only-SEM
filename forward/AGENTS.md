@@ -37,9 +37,16 @@ computing them from Vp, Vs, density every timestep.
 
 MPI is optional at link time: `gf_solver_elastic_cuda` links a no-op exchange stub
 and guards `MPI_Init` via `#ifndef GF_NO_MPI`. All other solvers use real MPI.
-The GPU backend replaces *only* `compute_element_residual` — Newmark, PML,
-source, exchange, I/O stay on CPU. After each GPU kernel, residual is copied
-back to host for MPI exchange.
+
+The GPU backend supports two modes:
+
+- **GPU-native** (default, single-GPU): All timestep operations (Newmark predict,
+  element residual, PML damping, source injection, scatter/gather, Newmark
+  correct) run on device via persistent GPU state buffers. Only I/O copies to
+  host.
+- **CPU-assisted** (multi-GPU via `gf_solver_elastic_mpi_cuda`): `compute_element_residual`
+  runs on GPU; Newmark, PML, source, exchange, I/O stay on CPU. Residual is
+  copied back to host for MPI exchange after each kernel.
 
 CMake `GF_DEVICE_BACKEND=CUDA` enables the CUDA path. All other solver components
 (Newmark, PML, source, exchange, I/O) remain on CPU.
@@ -88,16 +95,18 @@ Frozen paths from CWD:
 
 Caller creates directories.
 
-## Time Loop
+## Time Loop (CG-SEM global DOF)
 
 ```
-Newmark predict
+Newmark predict (global)
+→ sync predicted displacement (MPI — average at shared nodes)
+→ gather predicted → element-local
 → residual K·u  [dispatched to active backend]
-→ C-PML
-→ source
-→ MPI exchange
-→ Newmark correct
-→ strain + L2 smoothing
+→ PML damping on velocity (global)
+→ source injection (element-local)
+→ scatter element-local → global (atomic accumulation)
+→ MPI halo exchange on residual
+→ Newmark correct (global, with global mass)
 → write shallow strain if step % snapshot_stride == 0
 → overwrite restart if step % restart_stride == 0
 ```

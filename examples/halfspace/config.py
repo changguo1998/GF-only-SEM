@@ -1,13 +1,13 @@
 """Half-space simulation configuration.
 
 This config defines a homogeneous elastic half-space:
-  - Free surface at z=0 (source here)
+  - Free surface at z=0
   - Absorbing boundaries on the 5 other sides (perfectly matched layers)
-  - A Ricker wavelet (second derivative of Gaussian) point force at domain center
+  - A Ricker wavelet (second derivative of Gaussian) point force buried at 278 m
 
 Domain: 10 km × 10 km × 5 km (x, y, z)
 Material: Vp=5000 m/s, Vs=3000 m/s, density=2700 kg/m³ (granite-like)
-Mesh: regular hexahedral, 10×10×5 = 500 elements (read by mesh_gen.py via import)
+Mesh: regular hexahedral, 18×18×9 = 2916 elements (read by mesh_gen.py via import)
 
 Run with:
     cp this_file /path/to/workdir/config.py

@@ -2,8 +2,9 @@
 
 ## Status
 
-Investigation in progress. Diagonal components verified perfect (1.01-1.03×).
-Root causes identified; solutions pending investigation.
+Investigation complete. Root cause: Cartesian hex mesh anisotropy.
+Diagonal components verified perfect (1.01-1.03×).
+P-SV coupling bias (~0.5-2×) is a symptom, not a bug.
 
 ## Timeline
 
@@ -13,15 +14,16 @@ Root causes identified; solutions pending investigation.
 | `2e0cbff` | Updated docs: example pipeline status |
 | `8e4cd8e` | Fixed PyFK force unit: `FORCE_AMPLITUDE` 1.0→1e5 (dyne→Newton) |
 | `e1ac709` | Moved source to element interior: fixed diagonal ~3× discrepancy |
-| `7c1836e` | Updated deferred.md with debug findings |
-| Current | Investigating F_z→u_x (0.51×) and F_x→u_z (1.84×) systematic bias |
+| `ecc0d6d` | Root cause: Cartesian mesh E-W asymmetry (1.77×) — causes P-SV coupling bias |
+| `a54e320` | Fixed GPU Newmark corrector: pass beta parameter (was hardcoded to 0) |
+| Latest | Docs cleaned up: stale references removed, deferred.md §6 updated |
 
 ## Verified Correct
 
 1. **SEM force normalization** — GLL Lagrange weights sum to 1; normalization
    across shared elements correct (`source_locator.py:364`).
 1. **Mass matrix** — M = ρ·J·w_i·w_j·w_k; density applied in `cli.py:448`.
-1. **Newmark integration** — β=¼, γ=½, standard implementation (`solver.cpp:57-69`).
+1. **Newmark integration** — explicit central difference β=0, γ=½ (`solver.cpp:57-69`).
 1. **Element residual** — stress computation (`element_cpu.cpp:83-109`) correct;
    includes P-SV coupling via σ_xz = 2μ·ε_xz → x-component residual.
 1. **Source weights** — computed from Lagrange basis at source natural coordinates

@@ -74,12 +74,12 @@ Elastic-only forward solver (SLS/attenuation deferred).
 
 Buried source support implemented (`source_z_m = None`→free surface, `float`→buried). Preprocessor auto-detects surface vs buried mode and excludes PML elements for buried sources.
 
-**Example validation pipelines** (`examples/halfspace`, `examples/layer`) run end-to-end: SEM → reference → comparison. Residual amplitude discrepancy (SEM larger than analytic/PyFK reference) remains — force normalization investigation deferred. See [`docs/deferred.md`](docs/deferred.md) §6.
+**Example validation pipelines** (`examples/halfspace`, `examples/layer`) run end-to-end: SEM → reference → comparison. Diagonal displacement components match analytic/PyFK references within 3%. P-SV coupling components show ~0.5-2× bias due to Cartesian mesh anisotropy (documented in [`docs/deferred.md`](docs/deferred.md) §6 and [`docs/superpowers/plans/2026-07-16-pysv-coupling-debug.md`](docs/superpowers/plans/2026-07-16-pysv-coupling-debug.md)).
 
 | Solver variant | Multi-rank | DOF numbering | Status |
 |---------------|------------|---------------|--------|
-| CPU + MPI | ✅ (16 ranks) | Global (ibool) | ✅ Verified — halfspace 2.5e-12 m |
-| CUDA single | N/A | Element-local | ✅ 1000 steps / 2.4s |
+| CPU + MPI | ✅ (16 ranks) | Global (ibool) | ✅ Verified — diagonals 1.01-1.03× ref |
+| CUDA single | N/A | Global or element-local | ✅ 1000 steps / 2.4s |
 | CUDA + MPI | Untested | Per-rank ibool | ⚠ Not tested yet |
 
 ## Cross-Cutting Conventions

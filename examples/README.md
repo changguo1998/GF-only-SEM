@@ -12,7 +12,7 @@ Green's function extraction uses configured shallow mesh vertices. No receivers.
 
 ## Half-Space
 
-Homogeneous elastic half-space with a point force at the surface.
+Homogeneous elastic half-space with a buried point force at 278 m depth.
 
 | File | Purpose |
 |------|---------|
@@ -42,11 +42,11 @@ bash examples/halfspace/postprocess.sh  # Stage 4: Green's function extraction
 # Generate analytic reference + compare (no PYTHONPATH needed)
 # --source = displacement observation point; --receiver = point matching SEM source
 python examples/halfspace/reference.py examples/halfspace/greenfun \
-  --source 5500 5000 0 --receiver 5000 5000 500 --source-depth-m 500.0 \
+  --source 5556 5556 0 --receiver 5278 5278 278 --source-depth-m 278.0 \
   --output /tmp/lamb_ref.npz
 
 python examples/halfspace/compare.py examples/halfspace/greenfun \
-  --source 5500 5000 0 --receiver 5000 5000 500 \
+  --source 5556 5556 0 --receiver 5278 5278 278 \
   --reference /tmp/lamb_ref.npz --output /tmp/lamb_cmp.npz --fit-scale
 ```
 
@@ -54,7 +54,7 @@ python examples/halfspace/compare.py examples/halfspace/greenfun \
 
 1. Generates a 18×18×9 regular hex mesh (2916 elements, 10km×10km×5km)
 1. Runs preprocessor: GLL geometry, constant material (Vp=5000, Vs=3000, ρ=2700), PML boundaries, 16-rank METIS partition
-1. Runs CUDA forward solver in 3 directions (x, y, z) — ~2.2 s/direction
+1. Runs MPI forward solver in 3 directions (x, y, z) — 16 ranks, ~2-3 s/direction (CPU)
 1. Extracts Green's functions into spatial tiles
 1. Generates analytic Lamb (Johnson 1974) reference waveform
 1. Compares SEM result with analytic reference (relative L² error, best-fit amplitude scaling)
