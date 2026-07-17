@@ -2,90 +2,176 @@
 
 > Parent: [../design-decisions.md](../design-decisions.md)
 
-## Hierarchy
+## Two Orthogonal Axes
 
-### Scope (largest to smallest)
-
-| Level | Prefix | Definition | Example |
-|-------|--------|------------|---------|
-| `global` | `global_` | Across all MPI ranks — the entire physical domain | `global_node_xyz` |
-| `rank` | `rank_` | Per-MPI-rank assembled data (unique nodes after coordinate dedup) | `rank_node_displacement` |
-| `local` | `local_` | Elements owned by this rank (excludes ghost copies) | `local_element_displacement` |
-| `ghost` | `ghost_` | Halo element copies from neighbor ranks | `ghost_element_ids` |
-| `element` | `element_` | A single spectral element | `element_jacobian` |
-| `node` | `node_` | A single GLL quadrature point within an element | `node_coord` |
-
-### Geometry (smallest to largest)
-
-| Entity | Plural | Definition |
-|--------|--------|------------|
-| `node` | `nodes` | Mesh vertex or GLL quadrature point |
-| `edge` | `edges` | Line segment connecting two nodes |
-| `face` | `faces` | Quadrilateral surface bounded by 4 edges |
-| `cell` | `cells` | Hexahedral volume bounded by 6 faces |
-
-> In spectral element context, "cell" = "element". Use `element` for spectral elements, `cell` for mesh topology relations.
-
-## Rules
-
-### 1. Mapping Tables (X2Y)
+Every variable name encodes two independent dimensions:
 
 ```
-{scope}_{source}2{target}
+{scope}_{mesh}_{parameter}
 ```
 
-| Pattern | Example | Meaning |
-|---------|---------|---------|
-| `local_element2rank_node` | `local_element2rank_node[e*n_node+n] → node_id` | Local element GLL nodes → rank-level unique node IDs |
-| `global_node2xyz` | `global_node2xyz[iglob] → (x,y,z)` | Global node ID → physical coordinates |
-| `cell2face` | `cell2face[icell] → face_ids` | Cell → its bounding faces |
+| Axis | Question | Controlled by |
+|------|----------|---------------|
+| **scope** | Which subset of the data? | MPI rank layout, element ownership |
+| **mesh** | How many values exist for this parameter? | Intrinsic physics — the parameter's *dimensionality* |
 
-### 2. Scalar/Vector Arrays
+The same parameter at different scopes has the **same mesh** — because mesh describes the parameter's intrinsic size, not how you index it.
 
 ```
-{scope}_{entity}_{field}
+rank_node_velocity      ← rank scope, node mesh, velocity parameter
+global_node_velocity    ← global scope, same node mesh, same velocity parameter
 ```
 
-| Pattern | Example | Meaning |
-|---------|---------|---------|
-| `rank_node_displacement` | `rank_node_displacement[node_id*3+d]` | Displacement at each rank-level node, 3 DOF |
-| `local_element_node_mass` | `local_element_node_mass[e*n_node+n]` | Lumped mass at each local element GLL node |
-| `rank_node_mass` | `rank_node_mass[node_id]` | Assembled diagonal mass at each rank node |
+## Scope Taxonomy
+
+Scope describes the **index range** — which subset of the physical domain.
+
+| Scope | Prefix | Definition |
+|-------|--------|------------|
+| `global` | `global_` | Across all MPI ranks — the entire physical domain |
+| `rank` | `rank_` | Per-MPI-rank assembled data (unique nodes after coordinate dedup) |
+| `local` | `local_` | Elements owned by this rank (excludes ghost copies) |
+| `ghost` | `ghost_` | Halo element copies from neighbor ranks |
+| `element` | `element_` | A single spectral element |
+
+Scope hierarchy (largest → smallest): `global` ⊃ `rank` ⊃ `local` ⊃ `element`
+
+> `global` and `rank` always describe a rank-assembled, deduplicated view of data. `local` and `ghost` describe per-element duplication. `element` is the atomic unit.
+
+## Mesh Taxonomy
+
+Mesh describes the parameter's **intrinsic dimensionality** — how many values the parameter has, independent of scope.
+
+| Mesh | Entity | Dimension | Meaning |
+|------|--------|-----------|---------|
+| `node` | point | 0D | One value per unique GLL quadrature point |
+| `edge` | line | 1D | One value per edge |
+| `face` | surface | 2D | One value per face |
+| `cell` | volume | 3D | One value per spectral element |
+
+> `cellnode` (volume × point) exists in DG-SEM where each element keeps its own copy at shared nodes. Not used in CG-SEM.
+
+### How to choose mesh
+
+Ask: *"What is the length of this array, intrinsically?"*
+
+- Velocity has `n_node` values (one per GLL point) → mesh = `node`
+- PML damping alpha has `n_cell` values (one per spectral element) → mesh = `cell`
+- Element-kernel gather buffers have `n_local_cell × n_node × 3` values — indexed per element, GLL-point layout implicit in flat indexing → mesh = `cell`
+
+| Parameter | Intrinsic count | Mesh | CG-SEM example |
+|-----------|----------------|------|----------------|
+| displacement | `n_node` | `node` | `rank_node_displacement` |
+| velocity | `n_node` | `node` | `rank_node_velocity` |
+| acceleration | `n_node` | `node` | `rank_node_acceleration` |
+| residual | `n_node` | `node` | `rank_node_residual` |
+| mass | `n_node` | `node` | `rank_node_mass` |
+| pml_damping | `n_cell` | `cell` | `local_cell_pml_damping` |
+| jacobian | `n_cell` | `cell` | `local_cell_jacobian` |
+| dxi_dx | `n_cell` | `cell` | `local_cell_dxi_dx` |
+| element gather buffer | `n_cell × n_node` | `cell` | `local_cell_displacement` |
+
+### element vs cell — strict distinction
+
+- `element` is a **scope** (single spectral element). Never used as mesh.
+- `cell` is a **mesh** term (per-element dimensionality). Never used as scope.
+
+In SEM a spectral element *is* a hexahedral cell — same geometry, different conceptual roles in naming:
+
+- `element_*` = "within a single element" (scope)
+- `*_cell_*` = "has one value per element" (mesh)
+
+**Both existing and new code must strictly observe this distinction.**
+A variable like `local_element_displacement` — where `element` describes per-element dimensionality — is incorrect. Correct form: `local_cell_displacement`.
+
+## Patterns
+
+### 1. Scalar/Vector Arrays
+
+```
+{scope}_{mesh}_{parameter}
+```
+
+| Example | Scope | Mesh | Parameter | Meaning |
+|---------|-------|------|-----------|---------|
+| `rank_node_displacement` | rank | node | displacement | Assembled displacement at each rank-level node |
+| `global_node_velocity` | global | node | velocity | Velocity at every unique node in the domain |
+| `local_cell_pml_damping` | local | cell | pml_damping | PML damping per local element |
+| `local_cell_mass` | local | cell | mass | Lumped mass at each local element GLL node |
+| `local_cell_displacement` | local | cell | displacement | Gathered displacement for element kernel |
+| `local_cell_residual` | local | cell | residual | Element kernel output residual |
+
+### 2. Mapping Tables (X2Y)
+
+```
+{scope₁}_{mesh₁}2{scope₂}_{mesh₂}
+```
+
+Describes a lookup table from one indexing scheme to another.
+
+| Example | Meaning |
+|---------|---------|
+| `local_cell2rank_node` | Local element GLL nodes → rank-level unique node IDs |
+| `global_cell2global_node` | All elements → global unique node IDs |
+| `global_node2xyz` | Global node ID → physical coordinates (x,y,z) |
+| `cell2face` | Cell → bounding face IDs (topology, scopes omitted) |
 
 ### 3. Counters
 
 ```
-n_{scope}_{entity}
+n_{scope}_{mesh}
 ```
 
-| Pattern | Example | Meaning |
-|---------|---------|---------|
-| `n_rank_node` | `n_rank_node = 26498` | Number of unique rank-level nodes |
-| `n_local_element` | `n_local_element = 183` | Number of local elements on this rank |
-| `n_node` | `n_node = NGLL³ = 125` | Number of GLL quadrature points per element |
+| Example | Meaning |
+|---------|---------|
+| `n_global_node` | Number of unique nodes across all ranks |
+| `n_rank_node` | Number of unique nodes on this rank |
+| `n_local_cell` | Number of local elements on this rank |
+| `n_local_cell_dof` | `n_local_cell × n_node × 3` — element-local DOF count |
+| `n_node` | `NGLL³` — GLL points per element (scope omitted when unambiguous) |
 
-### 4. Exceptions
+## Parameter Naming
 
-- **Struct fields**: The struct name provides scope context; internal field names may omit the scope prefix (e.g. `RankData::mass` instead of `RankData::local_element_node_mass`).
-- **Function parameters**: Use full prefixed names in declarations for clarity.
-- **MPI exchange buffers**: Standard MPI convention (`send_buf`, `recv_buf`).
-- **HDF5 dataset/group names**: Follow the same convention. HDF5 attribute names may be shorter where context is clear from the parent group.
+Parameters use **full English words**, not single letters or abbreviations.
+No `u`, `v`, `a`, `dt`, `ss`, `vid` — even in local scope.
 
-## Key Variables
+| Correct | Wrong |
+|---------|-------|
+| `displacement` | `u` |
+| `velocity` | `v` |
+| `acceleration` | `a` |
+| `solver_dt` | `dt` |
+| `snapshot_stride` | `ss` |
 
-### Preprocessor → Solver Pipeline
+Exception: pure math indices `i`, `j`, `k` in tight loops.
+
+## SI-Unit Suffixes
+
+Config fields carry SI-unit suffixes: `_m`, `_s`, `_m_s`, `_kg_m3`, etc.
+
+## Exceptions
+
+- **Struct fields**: The struct name provides scope + mesh context; internal field names may omit prefixes (e.g. `RankData::mass` instead of `RankData::local_cell_mass`).
+- **Function parameters**: Use full prefixed names in declarations.
+- **MPI exchange buffers**: Standard convention (`send_buf`, `recv_buf`).
+- **HDF5 dataset/group names**: Follow the same convention. Attributes in a group may shorten names when context is clear.
+- **Variable naming in Python**: Match the C++ convention. The `_4d` suffix (e.g. `local_cell2rank_node_4d`) denotes a 4D-tensor view `[n_elem, NGLL, NGLL, NGLL]` before flattening.
+
+## SPECFEM3D → Current
 
 | Old (SPECFEM3D) | New | HDF5 Location |
 |---|---|---|
-| `ibool` | `local_element2rank_node` | `/field/element/local_element2rank_node` |
-| `nglob` | `n_rank_node` | `/field/element` attr `n_rank_node` |
+| `ibool` | `local_cell2rank_node` | `/field/cell/local_cell2rank_node` |
+| `nglob` | `n_rank_node` | `/field/cell` attr `n_rank_node` |
+| `scatter_to_global` | `scatter_to_rank` | — |
+| `gather_from_global` | `gather_from_rank` | — |
 
-### Solver — Rank-Level (assembled)
+## Key Variables
+
+### Solver — Rank-Level (node mesh)
 
 | Variable | Size | Description |
 |----------|------|-------------|
-| `n_rank_node` | scalar | Number of unique rank-level nodes |
-| `n_rank_dof` | `= n_rank_node × 3` | Total rank-level DOF |
 | `rank_node_displacement` | `[n_rank_dof]` | Displacement at each rank node |
 | `rank_node_velocity` | `[n_rank_dof]` | Velocity at each rank node |
 | `rank_node_acceleration` | `[n_rank_dof]` | Acceleration at each rank node |
@@ -94,50 +180,34 @@ n_{scope}_{entity}
 | `rank_node_mass` | `[n_rank_node]` | Assembled diagonal mass at each rank node |
 | `rank_node_damping` | `[n_rank_node]` | PML damping coefficient at each rank node |
 
-### Solver — Element-Local
+### Solver — Element-Local (cell mesh, element kernel working buffers)
 
 | Variable | Size | Description |
 |----------|------|-------------|
-| `n_local_element` | scalar | Number of local elements on this rank |
-| `n_node` | `= NGLL³` | GLL quadrature points per element |
-| `n_local_element_dof` | `= n_local_element × n_node × 3` | Total element-local DOF |
-| `local_element_displacement` | `[n_local_element_dof]` | Gathered displacement for element kernel |
-| `local_element_residual` | `[n_local_element_dof]` | Element kernel output residual |
+| `local_cell_displacement` | `[n_local_cell_dof]` | Gathered displacement for element kernel |
+| `local_cell_residual` | `[n_local_cell_dof]` | Element kernel output residual |
 
-### Part Data (RankData struct fields)
+### Counters
 
-| Field | Shape | Description |
-|-------|-------|-------------|
-| `local_element2rank_node` | `[n_local_element × n_node]` | Element → rank node mapping |
-| `n_rank_node` | scalar | Unique rank-level nodes |
-| `n_local_element` | scalar | Local element count |
-| `mass` | `[n_local_element × n_node]` | Lumped mass per element GLL node |
-| `dxi_dx` | `[n_local_element × n_node × 9]` | Inverse Jacobian derivative |
-| `jacobian` | `[n_local_element × n_node]` | Determinant of Jacobian |
-| `coords` | `[n_local_element × n_node × 3]` | GLL node coordinates |
-| `pml_damping` | `[n_local_element × n_node]` | PML damping per element GLL node |
-| `lambda_` | `[n_local_element × n_node]` | First Lamé parameter |
-| `mu_` | `[n_local_element × n_node]` | Second Lamé parameter |
-| `vp`, `vs`, `density` | `[n_local_element × n_node]` | Material properties |
+| Variable | Meaning |
+|----------|---------|
+| `n_global_node` | Unique GLL nodes across all ranks |
+| `n_rank_node` | Unique GLL nodes on this rank |
+| `n_rank_dof` | `n_rank_node × 3` |
+| `n_local_cell` | Local elements on this rank |
+| `n_node` | `NGLL³` — GLL points per element |
+| `n_local_cell_dof` | `n_local_cell × n_node × 3` |
+
+### Mapping Tables
+
+| Variable | Size | Description |
+|----------|------|-------------|
+| `global_cell2global_node` | `[n_cell × n_node]` | Global element → global unique node ID |
+| `local_cell2rank_node` | `[n_local_cell × n_node]` | Local element → rank node ID (global IDs in partition files) |
 
 ### CUDA Device Pointers
 
-| Host Variable | Device Pointer | Size |
-|---|---|---|
-| `n_rank_node` | `d_rank_node_*` arrays | `n_rank_node` or `n_rank_dof` |
-| `n_local_element` | `d_local_element_*` arrays | `n_local_element × n_node × 3` |
-| `local_element2rank_node` | `d_local_element2rank_node` | `n_local_element × n_node` |
-
-### Function Names
-
-| Old | New | Description |
-|-----|-----|-------------|
-| `scatter_to_global` | `scatter_to_rank` | Element-local → rank-level assembly |
-| `gather_from_global` | `gather_from_rank` | Rank-level → element-local distribution |
-| `cuda_scatter_to_global` | `cuda_scatter_to_rank` | GPU scatter |
-| `cuda_gather_from_global` | `cuda_gather_from_rank` | GPU gather |
-| `cuda_gather_predicted` | `cuda_gather_predicted` | Keep (descriptive of operation) |
-| `scatter_to_global_kernel` | `scatter_to_rank_kernel` | CUDA kernel |
+Host variable `xyz` → GPU pointer `d_xyz`. Same naming convention, `d_` prefix.
 
 ## Examples
 
@@ -145,16 +215,17 @@ n_{scope}_{entity}
 
 ```cpp
 // Predict
-newmark_predict(solver_dt, beta, rank_node_displacement, rank_node_velocity,
+newmark_predict(solver_dt, beta,
+                rank_node_displacement, rank_node_velocity,
                 rank_node_acceleration, rank_node_displacement_tilde);
 
 // Gather rank → local element for kernel
-gather_from_rank(rank_node_displacement_tilde, local_element2rank_node,
-                 n_local_element, n_node, local_element_displacement);
+gather_from_rank(rank_node_displacement_tilde, local_cell2rank_node,
+                 n_local_cell, n_node, local_cell_displacement);
 
 // Element stiffness kernel
-compute_element_residual(n_local_element, ..., local_element_displacement,
-                          local_element_residual.data());
+compute_element_residual(n_local_cell, ..., local_cell_displacement,
+                         local_cell_residual.data());
 
 // PML damping (operates directly on rank-level velocity)
 for (int node_id = 0; node_id < n_rank_node; ++node_id) {
@@ -168,8 +239,8 @@ for (int node_id = 0; node_id < n_rank_node; ++node_id) {
 }
 
 // Scatter local element → rank (accumulates shared node contributions)
-scatter_to_rank(local_element_residual, local_element2rank_node,
-                n_local_element, n_node, rank_node_residual);
+scatter_to_rank(local_cell_residual, local_cell2rank_node,
+                n_local_cell, n_node, rank_node_residual);
 
 // MPI exchange on rank-level residual
 exchange_halo(exchange_patterns, rank_node_residual, 3);
@@ -183,14 +254,23 @@ newmark_correct(solver_dt, beta, gamma, rank_node_mass,
 ### Python Preprocessor
 
 ```python
-# Compute per-rank element → rank node mapping
-local_element2rank_node_4d, n_rank_node = compute_local_element2rank_node(
-    gll_coords, all_elem_ids
+# Compute global element → global node mapping (one pass, all elements)
+global_cell2global_node, n_global_node = compute_global_cell2global_node(
+    gll_coords
 )
 
-# Write to partition file
-local_element2rank_node_flat = local_element2rank_node_4d[:n_local_element].ravel()
-dset = felem_grp.create_dataset("local_element2rank_node",
-                                 data=local_element2rank_node_flat, dtype="int32")
+# Slice per-rank
+global_slice = global_cell2global_node[all_elem_ids]  # local + ghost
+local_slice = global_cell2global_node[local_ids]      # local only
+
+# Write to model.h5
+felem_grp.create_dataset("global_cell2global_node",
+                         data=global_cell2global_node.ravel(), dtype="int32")
+felem_grp.attrs["n_global_node"] = int(n_global_node)
+
+# Write to partition file (global IDs)
+local_flat = local_slice.ravel()
+felem_grp.create_dataset("local_cell2rank_node",
+                         data=local_flat, dtype="int32")
 felem_grp.attrs["n_rank_node"] = int(n_rank_node)
 ```
