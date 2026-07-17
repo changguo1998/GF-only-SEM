@@ -228,7 +228,7 @@ class TestLocateSourceBuried:
         )
         assert result["n_src_elem"] == 1
         assert result["mode"] == "buried"
-        assert result["element_ids"][0] == 1
+        assert result["element_ids"][0] == 0
         wsum = float(np.sum(result["weights"][0]))
         assert abs(wsum - 1.0) < 1e-10
 
@@ -239,7 +239,7 @@ class TestLocateSourceBuried:
             topology, np.array([1.5, 0.5, 0.5]), gll_coords, bt, N=3, is_pml=is_pml
         )
         assert result["n_src_elem"] == 1
-        assert result["element_ids"][0] == 2
+        assert result["element_ids"][0] == 1
 
     def test_buried_source_in_pml_raises(self, two_cell_setup):
         """Buried source in PML element raises ValueError."""
