@@ -79,8 +79,10 @@ Buried source support implemented (`source_z_m = None`→free surface, `float`�
 | Solver variant | Multi-rank | DOF numbering | Status |
 |---------------|------------|---------------|--------|
 | CPU + MPI | ✅ (16 ranks) | Global (ibool) | ✅ Verified — diagonals 1.01-1.03× ref |
-| CUDA single | N/A | Global or element-local | ✅ 1000 steps / 2.4s |
-| CUDA + MPI | Untested | Per-rank ibool | ⚠ Not tested yet |
+| CUDA single | N/A | Element-local (legacy) | ⚠ Completes but wrong — legacy element-local path (read_partition_all clears ibool → can't use CG-SEM). rel_l2≈1.0 (uncorrelated) |
+| CUDA + MPI | ✅ (4 ranks) | Global (ibool) | ✅ Verified — rel_l2=0.644 matches CPU 16-rank. MPI exchange + scatter fix (570c58b) |
+
+CUDA single-GPU falls back to legacy element-local path because `read_partition_all` clears `local_element2rank_node` (can't merge per-rank ibool into a single global numbering). The CG-SEM path requires per-rank partitions via `read_partition`. This is a known architectural limitation, not a correctness regression.
 
 ## Cross-Cutting Conventions
 
