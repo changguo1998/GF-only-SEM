@@ -339,6 +339,24 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 // ---- CG-SEM global assembly on GPU ----
                 cuda_newmark_predict(gpu_state, solver_dt, beta);
 
+                // Sync predicted displacement at shared interface nodes (multi-rank).
+                // Mirrors CPU CG-SEM step 2: exchange u_tilde, average by share count.
+                // No-op for single-GPU (exchange_patterns empty; exchange_halo is no-op
+                // under GF_NO_MPI).
+                if (!exchange_patterns.empty()) {
+                    cuda_copy_utilde_to_host(gpu_state, displacement_tilde.data());
+                    std::vector<double> ut_avg(displacement_tilde);
+                    exchange_halo(exchange_patterns, ut_avg, 3);
+                    for (const auto& pat : exchange_patterns) {
+                        for (int dof_idx : pat.recv_dof_indices) {
+                            int node_id = dof_idx / 3;
+                            displacement_tilde[dof_idx] =
+                                ut_avg[dof_idx] / node_share_count[node_id];
+                        }
+                    }
+                    cuda_copy_utilde_from_host(gpu_state, displacement_tilde.data());
+                }
+
                 // Gather predicted displacement → element-local for kernel
                 cuda_gather_predicted(gpu_state);
 
@@ -359,7 +377,14 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 // Scatter element-local → global (atomicAdd at shared nodes)
                 cuda_scatter_to_rank(gpu_state);
 
-                // No MPI exchange (single process)
+                // MPI halo exchange on global residual (multi-rank CG-SEM).
+                // Mirrors CPU CG-SEM step 6: accumulate neighbor contributions at
+                // shared nodes. No-op for single-GPU (exchange_patterns empty).
+                if (!exchange_patterns.empty()) {
+                    cuda_copy_residual_to_host(gpu_state, residual.data());
+                    exchange_halo(exchange_patterns, residual, 3);
+                    cuda_copy_residual_from_host(gpu_state, residual.data());
+                }
                 cuda_newmark_correct(gpu_state, solver_dt, beta, gamma);
             } else {
                 // ---- Legacy element-local path ----
@@ -377,6 +402,14 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                         cuda_source_injection(gpu_state, dir, stf_val, cfg.src_weights.data(),
                                               cfg.n_src_elements);
                     }
+                }
+
+                // MPI halo exchange on residual (multi-rank legacy path).
+                // Mirrors CPU legacy path. No-op for single-GPU.
+                if (!exchange_patterns.empty()) {
+                    cuda_copy_residual_to_host(gpu_state, residual.data());
+                    exchange_halo(exchange_patterns, residual, 3);
+                    cuda_copy_residual_from_host(gpu_state, residual.data());
                 }
                 cuda_newmark_correct(gpu_state, solver_dt, beta, gamma);
             }

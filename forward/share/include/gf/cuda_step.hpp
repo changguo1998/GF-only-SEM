@@ -130,4 +130,16 @@ void cuda_gather_from_rank(CudaDeviceState& state);
 /// CG-SEM global gather of predicted displacement for element kernel.
 void cuda_gather_predicted(CudaDeviceState& state);
 
+/// Copy predicted displacement (displacement_tilde) device → host for MPI exchange staging.
+void cuda_copy_utilde_to_host(const CudaDeviceState& state, double* host_buf);
+
+/// Copy predicted displacement host → device after MPI exchange + averaging.
+void cuda_copy_utilde_from_host(CudaDeviceState& state, const double* host_buf);
+
+/// Copy global residual device → host for MPI halo exchange staging.
+void cuda_copy_residual_to_host(const CudaDeviceState& state, double* host_buf);
+
+/// Copy global residual host → device after MPI halo exchange.
+void cuda_copy_residual_from_host(CudaDeviceState& state, const double* host_buf);
+
 }  // namespace gf

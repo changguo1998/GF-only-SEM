@@ -382,6 +382,11 @@ void cuda_copy_state_to_host(const CudaDeviceState& state, std::vector<double>& 
 // =======================================================================
 
 void cuda_scatter_to_rank(CudaDeviceState& state) {
+    // Zero global residual before accumulation (mirrors CPU scatter_to_rank
+    // which std::fill(rank_node_residual, 0) before += ). Without this, the
+    // atomicAdd accumulates across timesteps -> unbounded growth -> explosion.
+    GF_CUDA_CHECK(
+        cudaMemset(state.d_rank_node_residual, 0, state.n_rank_node * 3 * sizeof(double)));
     scatter_to_rank_kernel<<<grid_blocks(state.n_local_element_dof), 256>>>(
         state.d_local_element_residual, state.d_local_element2rank_node,
         state.d_rank_node_residual, state.n_local_element, state.n_node);
@@ -401,6 +406,43 @@ void cuda_gather_predicted(CudaDeviceState& state) {
         state.d_rank_node_displacement_tilde, state.d_local_element2rank_node,
         state.d_local_element_displacement, state.n_local_element, state.n_node);
     GF_CUDA_CHECK(cudaGetLastError());
+}
+
+// =======================================================================
+// MPI exchange staging (host-staged D2H/H2D for multi-rank CG-SEM)
+// =======================================================================
+// These copy state vectors device↔host so solver.cpp can run exchange_halo
+// (MPI) on host buffers. For single-GPU (GF_NO_MPI) exchange_halo is a no-op,
+// and exchange_patterns is empty, so these are never called.
+
+void cuda_copy_utilde_to_host(const CudaDeviceState& state, double* host_buf) {
+    GF_CUDA_CHECK(cudaMemcpy(host_buf, state.d_rank_node_displacement_tilde,
+                             state.n_rank_node * 3 * sizeof(double), cudaMemcpyDeviceToHost));
+}
+
+void cuda_copy_utilde_from_host(CudaDeviceState& state, const double* host_buf) {
+    GF_CUDA_CHECK(cudaMemcpy(state.d_rank_node_displacement_tilde, host_buf,
+                             state.n_rank_node * 3 * sizeof(double), cudaMemcpyHostToDevice));
+}
+
+void cuda_copy_residual_to_host(const CudaDeviceState& state, double* host_buf) {
+    if (state.use_global_dof) {
+        GF_CUDA_CHECK(cudaMemcpy(host_buf, state.d_rank_node_residual,
+                                 state.n_rank_node * 3 * sizeof(double), cudaMemcpyDeviceToHost));
+    } else {
+        GF_CUDA_CHECK(cudaMemcpy(host_buf, state.d_residual, state.n_dof * sizeof(double),
+                                 cudaMemcpyDeviceToHost));
+    }
+}
+
+void cuda_copy_residual_from_host(CudaDeviceState& state, const double* host_buf) {
+    if (state.use_global_dof) {
+        GF_CUDA_CHECK(cudaMemcpy(state.d_rank_node_residual, host_buf,
+                                 state.n_rank_node * 3 * sizeof(double), cudaMemcpyHostToDevice));
+    } else {
+        GF_CUDA_CHECK(cudaMemcpy(state.d_residual, host_buf, state.n_dof * sizeof(double),
+                                 cudaMemcpyHostToDevice));
+    }
 }
 
 // =======================================================================
