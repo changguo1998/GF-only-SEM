@@ -52,6 +52,40 @@ static void read_attr_int64(hid_t loc, const char* name, int64_t& val) {
     H5Aclose(attr);
 }
 
+// Read a string attribute (fixed-size or variable-length)
+static std::string read_attr_string(hid_t loc, const char* name,
+                                    const std::string& fallback = "") {
+    if (H5Aexists(loc, name) <= 0)
+        return fallback;
+    hid_t attr = H5Aopen(loc, name, H5P_DEFAULT);
+    if (attr < 0)
+        return fallback;
+    hid_t ftype = H5Aget_type(attr);
+    if (ftype < 0) {
+        H5Aclose(attr);
+        return fallback;
+    }
+    std::string result = fallback;
+    if (H5Tget_class(ftype) == H5T_STRING) {
+        if (H5Tis_variable_str(ftype) > 0) {
+            char* value = nullptr;
+            if (H5Aread(attr, ftype, &value) >= 0) {
+                result = value ? std::string(value) : std::string();
+                if (value)
+                    H5free_memory(value);
+            }
+        } else {
+            size_t sz = (size_t)H5Tget_size(ftype);
+            std::vector<char> buf(sz + 1, '\0');
+            if (H5Aread(attr, ftype, buf.data()) >= 0)
+                result = std::string(buf.data());
+        }
+    }
+    H5Tclose(ftype);
+    H5Aclose(attr);
+    return result;
+}
+
 // Read 1-D int64 dataset
 static std::vector<int64_t> read_int64_1d(hid_t loc, const char* name, hsize_t& n) {
     hid_t ds = H5Dopen2(loc, name, H5P_DEFAULT);
@@ -90,7 +124,7 @@ static std::vector<double> read_vertex_coords(hid_t loc) {
 
 // Read a 3-D float32 array [1, n_vertices, 6] (strain snapshot)
 static void read_strain_1xNx6(hid_t loc, const char* name, hsize_t& n_vertices,
-                              std::vector<float>& buf) {
+                              std::vector<double>& buf) {
     hid_t ds = H5Dopen2(loc, name, H5P_DEFAULT);
     if (ds < 0) {
         n_vertices = 0;
@@ -102,14 +136,14 @@ static void read_strain_1xNx6(hid_t loc, const char* name, hsize_t& n_vertices,
     n_vertices = dims[1];
     hsize_t total = dims[0] * dims[1] * dims[2];
     buf.resize(total);
-    H5Dread(ds, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, buf.data());
+    H5Dread(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, buf.data());
     H5Dclose(ds);
     H5Sclose(space);
 }
 
 // Read a 3-D float32 array [1, n_vertices, 3] (displacement/velocity/acceleration snapshot)
 static void read_field_1xNx3(hid_t loc, const char* name, hsize_t& n_vertices,
-                             std::vector<float>& buf) {
+                             std::vector<double>& buf) {
     hid_t ds = H5Dopen2(loc, name, H5P_DEFAULT);
     if (ds < 0) {
         n_vertices = 0;
@@ -121,7 +155,7 @@ static void read_field_1xNx3(hid_t loc, const char* name, hsize_t& n_vertices,
     n_vertices = dims[1];
     hsize_t total = dims[0] * dims[1] * dims[2];
     buf.resize(total);
-    H5Dread(ds, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, buf.data());
+    H5Dread(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, buf.data());
     H5Dclose(ds);
     H5Sclose(space);
 }
@@ -138,7 +172,8 @@ struct ConfigParams {
     int64_t nsteps = 0;
     double record_depth_max_m = 0.0;
     double record_depth_actual_m = 0.0;
-    double green_tile_size_m = -1.0;  // negative = not set
+    double green_tile_size_m = -1.0;             // negative = not set
+    std::string snapshot_precision = "float64";  // "float32" or "float64"
     // Source position
     double source_x_m = 0.0;
     double source_y_m = 0.0;
@@ -169,6 +204,7 @@ inline ConfigParams read_config(const char* config_path) {
     read_attr_int64(sim_gid, "nsteps", cfg.nsteps);
     read_attr_double(sim_gid, "record_depth_max_m", cfg.record_depth_max_m);
     read_attr_double(sim_gid, "record_depth_actual_m", cfg.record_depth_actual_m);
+    cfg.snapshot_precision = read_attr_string(sim_gid, "snapshot_precision", "float64");
 
     // PML thickness
     read_attr_int64(sim_gid, "pml_xmin", cfg.pml_xmin);
@@ -359,11 +395,11 @@ inline std::vector<StepGroup> group_by_step(const std::vector<RecordFileInfo>& f
 // full_mask: [n_vertex] bool output (pre-allocated, false-initialized)
 // Returns false on error.
 inline bool read_record_into(const RecordFileInfo& fi, int64_t n_vertex,
-                             std::vector<float>& full_strain,  // [n_vertex, 6]
+                             std::vector<double>& full_strain,  // [n_vertex, 6]
                              std::vector<bool>& full_mask,
-                             std::vector<float>& full_displacement,  // [n_vertex, 3]
-                             std::vector<float>& full_velocity,      // [n_vertex, 3]
-                             std::vector<float>& full_acceleration   // [n_vertex, 3]
+                             std::vector<double>& full_displacement,  // [n_vertex, 3]
+                             std::vector<double>& full_velocity,      // [n_vertex, 3]
+                             std::vector<double>& full_acceleration   // [n_vertex, 3]
 ) {
     hid_t fid = H5Fopen(fi.path.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
     if (fid < 0) {
@@ -381,7 +417,7 @@ inline bool read_record_into(const RecordFileInfo& fi, int64_t n_vertex,
 
     // Read strain [1, n_local, 6]
     hsize_t nv = 0;
-    std::vector<float> strain_buf;
+    std::vector<double> strain_buf;
     read_strain_1xNx6(fid, "strain", nv, strain_buf);
     if (nv != n_local) {
         fprintf(stderr, "WARNING: vertex_ids/strain size mismatch in %s\n", fi.path.c_str());
@@ -391,19 +427,19 @@ inline bool read_record_into(const RecordFileInfo& fi, int64_t n_vertex,
 
     // Read displacement [1, n_local, 3] (optional — backward compat)
     hsize_t ndv = 0;
-    std::vector<float> disp_buf;
+    std::vector<double> disp_buf;
     read_field_1xNx3(fid, "displacement", ndv, disp_buf);
     bool has_displacement = (ndv == n_local && !disp_buf.empty());
 
     // Read velocity [1, n_local, 3] (optional)
     hsize_t nvv = 0;
-    std::vector<float> vel_buf;
+    std::vector<double> vel_buf;
     read_field_1xNx3(fid, "velocity", nvv, vel_buf);
     bool has_velocity = (nvv == n_local && !vel_buf.empty());
 
     // Read acceleration [1, n_local, 3] (optional)
     hsize_t nav = 0;
-    std::vector<float> acc_buf;
+    std::vector<double> acc_buf;
     read_field_1xNx3(fid, "acceleration", nav, acc_buf);
     bool has_acceleration = (nav == n_local && !acc_buf.empty());
 
@@ -420,32 +456,32 @@ inline bool read_record_into(const RecordFileInfo& fi, int64_t n_vertex,
         // Partition-boundary vertices may appear in multiple rank files.
         // The last rank's value is used, which is correct for non-overlapping
         // partition ownership.
-        float* src = strain_buf.data() + li * 6;
-        float* dst = full_strain.data() + gid * 6;
+        double* src = strain_buf.data() + li * 6;
+        double* dst = full_strain.data() + gid * 6;
         for (int c = 0; c < 6; ++c)
             dst[c] = src[c];
         full_mask[gid] = true;
 
         // Scatter displacement if available
         if (has_displacement) {
-            float* dsrc = disp_buf.data() + li * 3;
-            float* ddst = full_displacement.data() + gid * 3;
+            double* dsrc = disp_buf.data() + li * 3;
+            double* ddst = full_displacement.data() + gid * 3;
             for (int c = 0; c < 3; ++c)
                 ddst[c] = dsrc[c];
         }
 
         // Scatter velocity if available
         if (has_velocity) {
-            float* vsrc = vel_buf.data() + li * 3;
-            float* vdst = full_velocity.data() + gid * 3;
+            double* vsrc = vel_buf.data() + li * 3;
+            double* vdst = full_velocity.data() + gid * 3;
             for (int c = 0; c < 3; ++c)
                 vdst[c] = vsrc[c];
         }
 
         // Scatter acceleration if available
         if (has_acceleration) {
-            float* asrc = acc_buf.data() + li * 3;
-            float* adst = full_acceleration.data() + gid * 3;
+            double* asrc = acc_buf.data() + li * 3;
+            double* adst = full_acceleration.data() + gid * 3;
             for (int c = 0; c < 3; ++c)
                 adst[c] = asrc[c];
         }

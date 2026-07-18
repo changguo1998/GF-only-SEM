@@ -130,6 +130,42 @@ inline TileBins bin_vertices(
 inline void write_double_attr_into(hid_t loc, const char* name, double val);
 inline void write_int_attr_into(hid_t loc, const char* name, int val);
 // -----------------------------------------------------------------------
+// Write a tensor dataset with configurable precision. dims=[nt, n_local, ...].
+// use_float32=true writes float32 (with conversion), false writes double directly.
+inline void write_tensor_ds(hid_t gid, const char* name, const double* data, const hsize_t* dims,
+                            int ndims, bool use_float32) {
+    hid_t space = H5Screate_simple(ndims, dims, nullptr);
+    hid_t plist = H5Pcreate(H5P_DATASET_CREATE);
+    H5Pset_shuffle(plist);
+    hsize_t chunk[4];
+    chunk[0] = 1;
+    for (int d = 1; d < ndims; ++d)
+        chunk[d] = dims[d];
+    if (ndims > 1 && dims[1] == 0)
+        chunk[1] = 1;
+    H5Pset_chunk(plist, ndims, chunk);
+    H5Pset_deflate(plist, 4);
+
+    if (use_float32) {
+        size_t total = 1;
+        for (int d = 0; d < ndims; ++d)
+            total *= (size_t)dims[d];
+        std::vector<float> fbuf(total);
+        for (size_t i = 0; i < total; ++i)
+            fbuf[i] = static_cast<float>(data[i]);
+        hid_t ds = H5Dcreate2(gid, name, H5T_NATIVE_FLOAT, space, H5P_DEFAULT, plist, H5P_DEFAULT);
+        H5Dwrite(ds, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, fbuf.data());
+        H5Dclose(ds);
+    } else {
+        hid_t ds =
+            H5Dcreate2(gid, name, H5T_NATIVE_DOUBLE, space, H5P_DEFAULT, plist, H5P_DEFAULT);
+        H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, data);
+        H5Dclose(ds);
+    }
+    H5Pclose(plist);
+    H5Sclose(space);
+}
+
 // Write a single tile HDF5 file
 // -----------------------------------------------------------------------
 
@@ -139,13 +175,13 @@ inline void write_tile(const std::string& path, int tile_x, int tile_y, double x
                        const std::vector<int64_t>& tile_vertex_ids,  // 1-based
                        const std::vector<double>& time_arr,          // [nt]
                        double solver_dt_s,
-                       const std::vector<float>& tile_greens,  // [nt, n_local, 6, 3]
+                       const std::vector<double>& tile_greens,  // [nt, n_local, 6, 3]
                        const double source_xyz_m[3],
                        const std::vector<double>& tile_vertex_coords,  // [n_local, 3]
-                       const float* displacement_tensor,               // nullptr = strain-only
-                       const float* velocity_tensor = nullptr,         // [nt, n_local, 3, 3]
-                       const float* acceleration_tensor = nullptr      // [nt, n_local, 3, 3]
-) {
+                       const double* displacement_tensor,              // nullptr = strain-only
+                       const double* velocity_tensor = nullptr,        // [nt, n_local, 3, 3]
+                       const double* acceleration_tensor = nullptr,    // [nt, n_local, 3, 3]
+                       bool use_float32 = true) {
     hid_t fid = H5Fcreate(path.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
     if (fid < 0) {
         fprintf(stderr, "ERROR: cannot create %s\n", path.c_str());
@@ -274,81 +310,28 @@ inline void write_tile(const std::string& path, int tile_x, int tile_y, double x
     // ---- /field group ----
     hid_t field_gid = H5Gcreate2(fid, "field", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
     {
-        // greens_tensor: [nt, n_local, 6, 3] float32
+        // greens_tensor: [nt, n_local, 6, 3]
         hsize_t gdims[4] = {(hsize_t)nt, (hsize_t)n_local, (hsize_t)ncomp, (hsize_t)ndir};
-        hid_t space = H5Screate_simple(4, gdims, nullptr);
+        write_tensor_ds(field_gid, "greens_tensor", tile_greens.data(), gdims, 4, use_float32);
 
-        // Enable gzip + shuffle compression
-        hid_t plist = H5Pcreate(H5P_DATASET_CREATE);
-        H5Pset_shuffle(plist);
-        hsize_t chunk_dims[4] = {1, (hsize_t)n_local, (hsize_t)ncomp, (hsize_t)ndir};
-        if (n_local == 0)
-            chunk_dims[1] = 1;
-        H5Pset_chunk(plist, 4, chunk_dims);
-        H5Pset_deflate(plist, 4);
-
-        hid_t ds = H5Dcreate2(field_gid, "greens_tensor", H5T_NATIVE_FLOAT, space, H5P_DEFAULT,
-                              plist, H5P_DEFAULT);
-        H5Dwrite(ds, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, tile_greens.data());
-        H5Dclose(ds);
-        H5Pclose(plist);
-        H5Sclose(space);
-
-        // displacement_tensor: [nt, n_local, 3, 3] float32 (optional)
+        // displacement_tensor: [nt, n_local, 3, 3] (optional)
         if (displacement_tensor != nullptr) {
             hsize_t ddims[4] = {(hsize_t)nt, (hsize_t)n_local, 3, 3};
-            hid_t dspace = H5Screate_simple(4, ddims, nullptr);
-            hid_t dplist = H5Pcreate(H5P_DATASET_CREATE);
-            H5Pset_shuffle(dplist);
-            hsize_t dchunk[4] = {1, (hsize_t)n_local, 3, 3};
-            if (n_local == 0)
-                dchunk[1] = 1;
-            H5Pset_chunk(dplist, 4, dchunk);
-            H5Pset_deflate(dplist, 4);
-            hid_t dds = H5Dcreate2(field_gid, "displacement_tensor", H5T_NATIVE_FLOAT, dspace,
-                                   H5P_DEFAULT, dplist, H5P_DEFAULT);
-            H5Dwrite(dds, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, displacement_tensor);
-            H5Dclose(dds);
-            H5Pclose(dplist);
-            H5Sclose(dspace);
+            write_tensor_ds(field_gid, "displacement_tensor", displacement_tensor, ddims, 4,
+                            use_float32);
         }
 
-        // velocity_tensor: [nt, n_local, 3, 3] float32 (optional)
+        // velocity_tensor: [nt, n_local, 3, 3] (optional)
         if (velocity_tensor != nullptr) {
             hsize_t vdims[4] = {(hsize_t)nt, (hsize_t)n_local, 3, 3};
-            hid_t vspace = H5Screate_simple(4, vdims, nullptr);
-            hid_t vplist = H5Pcreate(H5P_DATASET_CREATE);
-            H5Pset_shuffle(vplist);
-            hsize_t vchunk[4] = {1, (hsize_t)n_local, 3, 3};
-            if (n_local == 0)
-                vchunk[1] = 1;
-            H5Pset_chunk(vplist, 4, vchunk);
-            H5Pset_deflate(vplist, 4);
-            hid_t vds = H5Dcreate2(field_gid, "velocity_tensor", H5T_NATIVE_FLOAT, vspace,
-                                   H5P_DEFAULT, vplist, H5P_DEFAULT);
-            H5Dwrite(vds, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, velocity_tensor);
-            H5Dclose(vds);
-            H5Pclose(vplist);
-            H5Sclose(vspace);
+            write_tensor_ds(field_gid, "velocity_tensor", velocity_tensor, vdims, 4, use_float32);
         }
 
-        // acceleration_tensor: [nt, n_local, 3, 3] float32 (optional)
+        // acceleration_tensor: [nt, n_local, 3, 3] (optional)
         if (acceleration_tensor != nullptr) {
             hsize_t adims[4] = {(hsize_t)nt, (hsize_t)n_local, 3, 3};
-            hid_t aspace = H5Screate_simple(4, adims, nullptr);
-            hid_t aplist = H5Pcreate(H5P_DATASET_CREATE);
-            H5Pset_shuffle(aplist);
-            hsize_t achunk[4] = {1, (hsize_t)n_local, 3, 3};
-            if (n_local == 0)
-                achunk[1] = 1;
-            H5Pset_chunk(aplist, 4, achunk);
-            H5Pset_deflate(aplist, 4);
-            hid_t ads = H5Dcreate2(field_gid, "acceleration_tensor", H5T_NATIVE_FLOAT, aspace,
-                                   H5P_DEFAULT, aplist, H5P_DEFAULT);
-            H5Dwrite(ads, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, acceleration_tensor);
-            H5Dclose(ads);
-            H5Pclose(aplist);
-            H5Sclose(aspace);
+            write_tensor_ds(field_gid, "acceleration_tensor", acceleration_tensor, adims, 4,
+                            use_float32);
         }
     }
     H5Gclose(field_gid);

@@ -65,8 +65,9 @@ tile_xNNN_yNNN.h5
 │   ├── vertex_ids         : int64[n_local]
 │   └── vertex_coords      : float64[n_local, 3]    # NEW: self-contained coords [m]
 └── /field/
-    ├── greens_tensor       : float32[nt, n_local, 6, 3]   (strain, gzip 4 + shuffle)
-    └── displacement_tensor : float32[nt, n_local, 3, 3]   # NEW (displacement, gzip 4 + shuffle)
+    ├── greens_tensor       : <prec>[nt, n_local, 6, 3]   (strain, gzip 4 + shuffle)
+    └── displacement_tensor : <prec>[nt, n_local, 3, 3]   # NEW (displacement, gzip 4 + shuffle)
+        # <prec> = float32 or float64, following config snapshot_precision
 ```
 
 `displacement_tensor[t, i, c, d]` = displacement component `c` from force
@@ -166,7 +167,7 @@ Three files in `postprocess/cpp/`:
      `greens_quantities` ("strain,displacement")
    - `/mesh/vertex_coords` (float64[n_local, 3], from model
      `vertex_to_coord` indexed by vertex_id)
-   - `/field/displacement_tensor` (float32[nt, n_local, 3, 3], gzip 4 + shuffle)
+   - `/field/displacement_tensor` (<prec>[nt, n_local, 3, 3], gzip 4 + shuffle; prec follows config snapshot_precision)
 
 ### Backward compatibility
 

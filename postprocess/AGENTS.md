@@ -54,7 +54,7 @@ model.h5 + config.h5
 → assemble Green's tensor [nt, n_vertex, 6, 3]
 → subset to recorded vertices
 → bin vertices into tiles (element-count or spatial)
-→ write tile_x{i}_y{j}.h5 (gzip+shuffle compressed float32)
+→ write tile_x{i}_y{j}.h5 (gzip+shuffle compressed, precision follows config snapshot_precision)
 ```
 
 ## Build

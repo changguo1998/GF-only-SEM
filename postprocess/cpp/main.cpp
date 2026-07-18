@@ -92,15 +92,15 @@ static Args parse_args(int argc, char** argv) {
 }
 
 // -----------------------------------------------------------------------
-// Merge records for one direction: returns [n_steps, n_vertex, 6] float32
+// Merge records for one direction: returns [n_steps, n_vertex, 6] double
 // -----------------------------------------------------------------------
 
 struct MergedDirection {
-    std::vector<float> strain;        // [n_steps, n_vertex, 6]
-    std::vector<float> displacement;  // [n_steps, n_vertex, 3]
-    std::vector<float> velocity;      // [n_steps, n_vertex, 3]
-    std::vector<float> acceleration;  // [n_steps, n_vertex, 3]
-    std::vector<bool> vertex_mask;    // [n_vertex] — which vertices were recorded
+    std::vector<double> strain;        // [n_steps, n_vertex, 6]
+    std::vector<double> displacement;  // [n_steps, n_vertex, 3]
+    std::vector<double> velocity;      // [n_steps, n_vertex, 3]
+    std::vector<double> acceleration;  // [n_steps, n_vertex, 3]
+    std::vector<bool> vertex_mask;     // [n_vertex] — which vertices were recorded
     int64_t n_steps = 0;
     bool has_displacement = false;
     bool has_velocity = false;
@@ -140,10 +140,10 @@ static MergedDirection merge_direction(const char* dir_path, int64_t n_vertex) {
             (long long)files.size());
 
     // Allocate merged arrays
-    result.strain.resize((size_t)result.n_steps * (size_t)n_vertex * 6, 0.0f);
-    result.displacement.resize((size_t)result.n_steps * (size_t)n_vertex * 3, 0.0f);
-    result.velocity.resize((size_t)result.n_steps * (size_t)n_vertex * 3, 0.0f);
-    result.acceleration.resize((size_t)result.n_steps * (size_t)n_vertex * 3, 0.0f);
+    result.strain.resize((size_t)result.n_steps * (size_t)n_vertex * 6, 0.0);
+    result.displacement.resize((size_t)result.n_steps * (size_t)n_vertex * 3, 0.0);
+    result.velocity.resize((size_t)result.n_steps * (size_t)n_vertex * 3, 0.0);
+    result.acceleration.resize((size_t)result.n_steps * (size_t)n_vertex * 3, 0.0);
     result.vertex_mask.resize((size_t)n_vertex, false);
 
     // Check first file for dataset presence
@@ -174,16 +174,16 @@ static MergedDirection merge_direction(const char* dir_path, int64_t n_vertex) {
 
     for (int64_t snap_idx = 0; snap_idx < result.n_steps; ++snap_idx) {
         auto& group = groups[(size_t)snap_idx];
-        float* step_data = result.strain.data() + snap_idx * n_vertex * 6;
-        float* step_disp = result.displacement.data() + snap_idx * n_vertex * 3;
-        float* step_vel = result.velocity.data() + snap_idx * n_vertex * 3;
-        float* step_acc = result.acceleration.data() + snap_idx * n_vertex * 3;
+        double* step_data = result.strain.data() + snap_idx * n_vertex * 6;
+        double* step_disp = result.displacement.data() + snap_idx * n_vertex * 3;
+        double* step_vel = result.velocity.data() + snap_idx * n_vertex * 3;
+        double* step_acc = result.acceleration.data() + snap_idx * n_vertex * 3;
 
         // Per-rank scratch buffers for this step
-        std::vector<float> step_scratch((size_t)n_vertex * 6, 0.0f);
-        std::vector<float> step_disp_scratch((size_t)n_vertex * 3, 0.0f);
-        std::vector<float> step_vel_scratch((size_t)n_vertex * 3, 0.0f);
-        std::vector<float> step_acc_scratch((size_t)n_vertex * 3, 0.0f);
+        std::vector<double> step_scratch((size_t)n_vertex * 6, 0.0);
+        std::vector<double> step_disp_scratch((size_t)n_vertex * 3, 0.0);
+        std::vector<double> step_vel_scratch((size_t)n_vertex * 3, 0.0);
+        std::vector<double> step_acc_scratch((size_t)n_vertex * 3, 0.0);
         std::vector<bool> step_mask((size_t)n_vertex, false);
 
         for (auto& fi : group.files) {
@@ -194,32 +194,32 @@ static MergedDirection merge_direction(const char* dir_path, int64_t n_vertex) {
         // Copy to merged array and accumulate global mask
         for (int64_t vi = 0; vi < n_vertex; ++vi) {
             if (step_mask[(size_t)vi]) {
-                float* src = step_scratch.data() + vi * 6;
-                float* dst = step_data + vi * 6;
+                double* src = step_scratch.data() + vi * 6;
+                double* dst = step_data + vi * 6;
                 for (int c = 0; c < 6; ++c)
                     dst[c] = src[c];
                 result.vertex_mask[(size_t)vi] = true;
 
                 // Copy displacement if available
                 if (result.has_displacement) {
-                    float* dsrc = step_disp_scratch.data() + vi * 3;
-                    float* ddst = step_disp + vi * 3;
+                    double* dsrc = step_disp_scratch.data() + vi * 3;
+                    double* ddst = step_disp + vi * 3;
                     for (int c = 0; c < 3; ++c)
                         ddst[c] = dsrc[c];
                 }
 
                 // Copy velocity if available
                 if (result.has_velocity) {
-                    float* vsrc = step_vel_scratch.data() + vi * 3;
-                    float* vdst = step_vel + vi * 3;
+                    double* vsrc = step_vel_scratch.data() + vi * 3;
+                    double* vdst = step_vel + vi * 3;
                     for (int c = 0; c < 3; ++c)
                         vdst[c] = vsrc[c];
                 }
 
                 // Copy acceleration if available
                 if (result.has_acceleration) {
-                    float* asrc = step_acc_scratch.data() + vi * 3;
-                    float* adst = step_acc + vi * 3;
+                    double* asrc = step_acc_scratch.data() + vi * 3;
+                    double* adst = step_acc + vi * 3;
                     for (int c = 0; c < 3; ++c)
                         adst[c] = asrc[c];
                 }
@@ -327,9 +327,9 @@ int main(int argc, char** argv) {
     }
 
     // Allocate subset strain arrays
-    std::vector<float> fx_subset((size_t)n_steps * (size_t)n_recorded * 6, 0.0f);
-    std::vector<float> fy_subset((size_t)n_steps * (size_t)n_recorded * 6, 0.0f);
-    std::vector<float> fz_subset((size_t)n_steps * (size_t)n_recorded * 6, 0.0f);
+    std::vector<double> fx_subset((size_t)n_steps * (size_t)n_recorded * 6, 0.0);
+    std::vector<double> fy_subset((size_t)n_steps * (size_t)n_recorded * 6, 0.0);
+    std::vector<double> fz_subset((size_t)n_steps * (size_t)n_recorded * 6, 0.0);
 
     // Check if displacement data is available across all directions
     bool has_displacement = fx.has_displacement && fy.has_displacement && fz.has_displacement;
@@ -341,33 +341,33 @@ int main(int argc, char** argv) {
             has_acceleration ? "yes" : "no");
 
     // Allocate subset displacement arrays [n_steps, n_recorded, 3]
-    std::vector<float> fx_disp_subset;
-    std::vector<float> fy_disp_subset;
-    std::vector<float> fz_disp_subset;
+    std::vector<double> fx_disp_subset;
+    std::vector<double> fy_disp_subset;
+    std::vector<double> fz_disp_subset;
     if (has_displacement) {
-        fx_disp_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0f);
-        fy_disp_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0f);
-        fz_disp_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0f);
+        fx_disp_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0);
+        fy_disp_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0);
+        fz_disp_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0);
     }
 
     // Allocate subset velocity/acceleration arrays [n_steps, n_recorded, 3]
     // (reuse displacement pattern: same [nt, n_recorded, 3] shape per direction)
-    std::vector<float> fx_vel_subset;
-    std::vector<float> fy_vel_subset;
-    std::vector<float> fz_vel_subset;
+    std::vector<double> fx_vel_subset;
+    std::vector<double> fy_vel_subset;
+    std::vector<double> fz_vel_subset;
     if (has_velocity) {
-        fx_vel_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0f);
-        fy_vel_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0f);
-        fz_vel_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0f);
+        fx_vel_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0);
+        fy_vel_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0);
+        fz_vel_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0);
     }
 
-    std::vector<float> fx_acc_subset;
-    std::vector<float> fy_acc_subset;
-    std::vector<float> fz_acc_subset;
+    std::vector<double> fx_acc_subset;
+    std::vector<double> fy_acc_subset;
+    std::vector<double> fz_acc_subset;
     if (has_acceleration) {
-        fx_acc_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0f);
-        fy_acc_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0f);
-        fz_acc_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0f);
+        fx_acc_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0);
+        fy_acc_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0);
+        fz_acc_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0);
     }
 
     for (int64_t s = 0; s < n_steps; ++s) {
@@ -379,12 +379,12 @@ int main(int argc, char** argv) {
             size_t src_base = ((size_t)s * (size_t)n_vertex + (size_t)gv) * 6;
             size_t dst_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 6;
 
-            float* src_fx = fx.strain.data() + src_base;
-            float* src_fy = fy.strain.data() + src_base;
-            float* src_fz = fz.strain.data() + src_base;
-            float* dst_fx = fx_subset.data() + dst_base;
-            float* dst_fy = fy_subset.data() + dst_base;
-            float* dst_fz = fz_subset.data() + dst_base;
+            double* src_fx = fx.strain.data() + src_base;
+            double* src_fy = fy.strain.data() + src_base;
+            double* src_fz = fz.strain.data() + src_base;
+            double* dst_fx = fx_subset.data() + dst_base;
+            double* dst_fy = fy_subset.data() + dst_base;
+            double* dst_fz = fz_subset.data() + dst_base;
 
             for (int c = 0; c < 6; ++c) {
                 dst_fx[c] = src_fx[c];
@@ -396,12 +396,12 @@ int main(int argc, char** argv) {
             if (has_displacement) {
                 size_t dsrc_base = ((size_t)s * (size_t)n_vertex + (size_t)gv) * 3;
                 size_t ddst_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3;
-                float* dsrc_fx = fx.displacement.data() + dsrc_base;
-                float* dsrc_fy = fy.displacement.data() + dsrc_base;
-                float* dsrc_fz = fz.displacement.data() + dsrc_base;
-                float* ddst_fx = fx_disp_subset.data() + ddst_base;
-                float* ddst_fy = fy_disp_subset.data() + ddst_base;
-                float* ddst_fz = fz_disp_subset.data() + ddst_base;
+                double* dsrc_fx = fx.displacement.data() + dsrc_base;
+                double* dsrc_fy = fy.displacement.data() + dsrc_base;
+                double* dsrc_fz = fz.displacement.data() + dsrc_base;
+                double* ddst_fx = fx_disp_subset.data() + ddst_base;
+                double* ddst_fy = fy_disp_subset.data() + ddst_base;
+                double* ddst_fz = fz_disp_subset.data() + ddst_base;
                 for (int c = 0; c < 3; ++c) {
                     ddst_fx[c] = dsrc_fx[c];
                     ddst_fy[c] = dsrc_fy[c];
@@ -413,12 +413,12 @@ int main(int argc, char** argv) {
             if (has_velocity) {
                 size_t vsrc_base = ((size_t)s * (size_t)n_vertex + (size_t)gv) * 3;
                 size_t vdst_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3;
-                float* vsrc_fx = fx.velocity.data() + vsrc_base;
-                float* vsrc_fy = fy.velocity.data() + vsrc_base;
-                float* vsrc_fz = fz.velocity.data() + vsrc_base;
-                float* vdst_fx = fx_vel_subset.data() + vdst_base;
-                float* vdst_fy = fy_vel_subset.data() + vdst_base;
-                float* vdst_fz = fz_vel_subset.data() + vdst_base;
+                double* vsrc_fx = fx.velocity.data() + vsrc_base;
+                double* vsrc_fy = fy.velocity.data() + vsrc_base;
+                double* vsrc_fz = fz.velocity.data() + vsrc_base;
+                double* vdst_fx = fx_vel_subset.data() + vdst_base;
+                double* vdst_fy = fy_vel_subset.data() + vdst_base;
+                double* vdst_fz = fz_vel_subset.data() + vdst_base;
                 for (int c = 0; c < 3; ++c) {
                     vdst_fx[c] = vsrc_fx[c];
                     vdst_fy[c] = vsrc_fy[c];
@@ -430,12 +430,12 @@ int main(int argc, char** argv) {
             if (has_acceleration) {
                 size_t asrc_base = ((size_t)s * (size_t)n_vertex + (size_t)gv) * 3;
                 size_t adst_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3;
-                float* asrc_fx = fx.acceleration.data() + asrc_base;
-                float* asrc_fy = fy.acceleration.data() + asrc_base;
-                float* asrc_fz = fz.acceleration.data() + asrc_base;
-                float* adst_fx = fx_acc_subset.data() + adst_base;
-                float* adst_fy = fy_acc_subset.data() + adst_base;
-                float* adst_fz = fz_acc_subset.data() + adst_base;
+                double* asrc_fx = fx.acceleration.data() + asrc_base;
+                double* asrc_fy = fy.acceleration.data() + asrc_base;
+                double* asrc_fz = fz.acceleration.data() + asrc_base;
+                double* adst_fx = fx_acc_subset.data() + adst_base;
+                double* adst_fy = fy_acc_subset.data() + adst_base;
+                double* adst_fz = fz_acc_subset.data() + adst_base;
                 for (int c = 0; c < 3; ++c) {
                     adst_fx[c] = asrc_fx[c];
                     adst_fy[c] = asrc_fy[c];
@@ -448,7 +448,7 @@ int main(int argc, char** argv) {
     // ---- Assemble Green's tensor at recorded vertices ----
     fprintf(stderr, "[postprocess] Assembling Green's tensor...\n");
     // greens_subset: [n_steps, n_recorded, 6, 3]
-    std::vector<float> greens_subset((size_t)n_steps * (size_t)n_recorded * 6 * 3, 0.0f);
+    std::vector<double> greens_subset((size_t)n_steps * (size_t)n_recorded * 6 * 3, 0.0);
 
     for (int64_t s = 0; s < n_steps; ++s) {
         for (int64_t ri = 0; ri < n_recorded; ++ri) {
@@ -456,20 +456,20 @@ int main(int argc, char** argv) {
             size_t g_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 6 * 3;
 
             // fx → dir 0
-            float* src_fx = fx_subset.data() + base;
-            float* d0 = greens_subset.data() + g_base + 0 * 6;
+            double* src_fx = fx_subset.data() + base;
+            double* d0 = greens_subset.data() + g_base + 0 * 6;
             for (int c = 0; c < 6; ++c)
                 d0[c] = src_fx[c];
 
             // fy → dir 1
-            float* src_fy = fy_subset.data() + base;
-            float* d1 = greens_subset.data() + g_base + 1 * 6;
+            double* src_fy = fy_subset.data() + base;
+            double* d1 = greens_subset.data() + g_base + 1 * 6;
             for (int c = 0; c < 6; ++c)
                 d1[c] = src_fy[c];
 
             // fz → dir 2
-            float* src_fz = fz_subset.data() + base;
-            float* d2 = greens_subset.data() + g_base + 2 * 6;
+            double* src_fz = fz_subset.data() + base;
+            double* d2 = greens_subset.data() + g_base + 2 * 6;
             for (int c = 0; c < 6; ++c)
                 d2[c] = src_fz[c];
         }
@@ -478,20 +478,20 @@ int main(int argc, char** argv) {
     // ---- Assemble displacement tensor at recorded vertices ----
     // disp_subset: [n_steps, n_recorded, 3, 3]  — index order [disp_comp, force_dir],
     // mirroring greens_tensor [strain_comp, force_dir] (see docs/design/greenfun.md).
-    std::vector<float> disp_subset;
+    std::vector<double> disp_subset;
     if (has_displacement) {
-        disp_subset.resize((size_t)n_steps * (size_t)n_recorded * 3 * 3, 0.0f);
+        disp_subset.resize((size_t)n_steps * (size_t)n_recorded * 3 * 3, 0.0);
         for (int64_t s = 0; s < n_steps; ++s) {
             for (int64_t ri = 0; ri < n_recorded; ++ri) {
                 size_t base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3;
                 size_t d_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3 * 3;
 
                 // Transpose: disp_subset[d_base + c*3 + f] = component c from force f.
-                const float* src_fx = fx_disp_subset.data() + base;
-                const float* src_fy = fy_disp_subset.data() + base;
-                const float* src_fz = fz_disp_subset.data() + base;
+                const double* src_fx = fx_disp_subset.data() + base;
+                const double* src_fy = fy_disp_subset.data() + base;
+                const double* src_fz = fz_disp_subset.data() + base;
                 for (int c = 0; c < 3; ++c) {
-                    float* d = disp_subset.data() + d_base + c * 3;
+                    double* d = disp_subset.data() + d_base + c * 3;
                     d[0] = src_fx[c];  // force x
                     d[1] = src_fy[c];  // force y
                     d[2] = src_fz[c];  // force z
@@ -502,18 +502,18 @@ int main(int argc, char** argv) {
 
     // ---- Assemble velocity tensor at recorded vertices ----
     // vel_subset: [n_steps, n_recorded, 3, 3]  — [disp_comp, force_dir] (see above).
-    std::vector<float> vel_subset;
+    std::vector<double> vel_subset;
     if (has_velocity) {
-        vel_subset.resize((size_t)n_steps * (size_t)n_recorded * 3 * 3, 0.0f);
+        vel_subset.resize((size_t)n_steps * (size_t)n_recorded * 3 * 3, 0.0);
         for (int64_t s = 0; s < n_steps; ++s) {
             for (int64_t ri = 0; ri < n_recorded; ++ri) {
                 size_t base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3;
                 size_t d_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3 * 3;
-                const float* src_fx = fx_vel_subset.data() + base;
-                const float* src_fy = fy_vel_subset.data() + base;
-                const float* src_fz = fz_vel_subset.data() + base;
+                const double* src_fx = fx_vel_subset.data() + base;
+                const double* src_fy = fy_vel_subset.data() + base;
+                const double* src_fz = fz_vel_subset.data() + base;
                 for (int c = 0; c < 3; ++c) {
-                    float* d = vel_subset.data() + d_base + c * 3;
+                    double* d = vel_subset.data() + d_base + c * 3;
                     d[0] = src_fx[c];  // force x
                     d[1] = src_fy[c];  // force y
                     d[2] = src_fz[c];  // force z
@@ -524,18 +524,18 @@ int main(int argc, char** argv) {
 
     // ---- Assemble acceleration tensor at recorded vertices ----
     // acc_subset: [n_steps, n_recorded, 3, 3]  — [disp_comp, force_dir] (see above).
-    std::vector<float> acc_subset;
+    std::vector<double> acc_subset;
     if (has_acceleration) {
-        acc_subset.resize((size_t)n_steps * (size_t)n_recorded * 3 * 3, 0.0f);
+        acc_subset.resize((size_t)n_steps * (size_t)n_recorded * 3 * 3, 0.0);
         for (int64_t s = 0; s < n_steps; ++s) {
             for (int64_t ri = 0; ri < n_recorded; ++ri) {
                 size_t base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3;
                 size_t d_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3 * 3;
-                const float* src_fx = fx_acc_subset.data() + base;
-                const float* src_fy = fy_acc_subset.data() + base;
-                const float* src_fz = fz_acc_subset.data() + base;
+                const double* src_fx = fx_acc_subset.data() + base;
+                const double* src_fy = fy_acc_subset.data() + base;
+                const double* src_fz = fz_acc_subset.data() + base;
                 for (int c = 0; c < 3; ++c) {
-                    float* d = acc_subset.data() + d_base + c * 3;
+                    double* d = acc_subset.data() + d_base + c * 3;
                     d[0] = src_fx[c];  // force x
                     d[1] = src_fy[c];  // force y
                     d[2] = src_fz[c];  // force z
@@ -672,21 +672,21 @@ int main(int argc, char** argv) {
         }
 
         // Build tile greens: [n_steps, n_local, 6, 3]
-        std::vector<float> tile_greens((size_t)n_steps * (size_t)n_local * 6 * 3);
+        std::vector<double> tile_greens((size_t)n_steps * (size_t)n_local * 6 * 3);
         for (int64_t s = 0; s < n_steps; ++s) {
             for (int64_t li = 0; li < n_local; ++li) {
                 int64_t ri = vert_indices[(size_t)li];  // recorded index
                 size_t src_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 6 * 3;
                 size_t dst_base = ((size_t)s * (size_t)n_local + (size_t)li) * 6 * 3;
-                float* src = greens_subset.data() + src_base;
-                float* dst = tile_greens.data() + dst_base;
+                double* src = greens_subset.data() + src_base;
+                double* dst = tile_greens.data() + dst_base;
                 for (size_t k = 0; k < (size_t)(6 * 3); ++k)
                     dst[k] = src[k];
             }
         }
 
         // Build tile displacement: [n_steps, n_local, 3, 3] (nullable)
-        std::vector<float> tile_displacement;
+        std::vector<double> tile_displacement;
         if (has_displacement) {
             tile_displacement.resize((size_t)n_steps * (size_t)n_local * 3 * 3);
             for (int64_t s = 0; s < n_steps; ++s) {
@@ -694,8 +694,8 @@ int main(int argc, char** argv) {
                     int64_t ri = vert_indices[(size_t)li];  // recorded index
                     size_t src_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3 * 3;
                     size_t dst_base = ((size_t)s * (size_t)n_local + (size_t)li) * 3 * 3;
-                    float* src = disp_subset.data() + src_base;
-                    float* dst = tile_displacement.data() + dst_base;
+                    double* src = disp_subset.data() + src_base;
+                    double* dst = tile_displacement.data() + dst_base;
                     for (size_t k = 0; k < (size_t)(3 * 3); ++k)
                         dst[k] = src[k];
                 }
@@ -703,7 +703,7 @@ int main(int argc, char** argv) {
         }
 
         // Build tile velocity: [n_steps, n_local, 3, 3] (nullable)
-        std::vector<float> tile_velocity;
+        std::vector<double> tile_velocity;
         if (has_velocity) {
             tile_velocity.resize((size_t)n_steps * (size_t)n_local * 3 * 3);
             for (int64_t s = 0; s < n_steps; ++s) {
@@ -711,8 +711,8 @@ int main(int argc, char** argv) {
                     int64_t ri = vert_indices[(size_t)li];
                     size_t src_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3 * 3;
                     size_t dst_base = ((size_t)s * (size_t)n_local + (size_t)li) * 3 * 3;
-                    float* src = vel_subset.data() + src_base;
-                    float* dst = tile_velocity.data() + dst_base;
+                    double* src = vel_subset.data() + src_base;
+                    double* dst = tile_velocity.data() + dst_base;
                     for (size_t k = 0; k < (size_t)(3 * 3); ++k)
                         dst[k] = src[k];
                 }
@@ -720,7 +720,7 @@ int main(int argc, char** argv) {
         }
 
         // Build tile acceleration: [n_steps, n_local, 3, 3] (nullable)
-        std::vector<float> tile_acceleration;
+        std::vector<double> tile_acceleration;
         if (has_acceleration) {
             tile_acceleration.resize((size_t)n_steps * (size_t)n_local * 3 * 3);
             for (int64_t s = 0; s < n_steps; ++s) {
@@ -728,8 +728,8 @@ int main(int argc, char** argv) {
                     int64_t ri = vert_indices[(size_t)li];
                     size_t src_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3 * 3;
                     size_t dst_base = ((size_t)s * (size_t)n_local + (size_t)li) * 3 * 3;
-                    float* src = acc_subset.data() + src_base;
-                    float* dst = tile_acceleration.data() + dst_base;
+                    double* src = acc_subset.data() + src_base;
+                    double* dst = tile_acceleration.data() + dst_base;
                     for (size_t k = 0; k < (size_t)(3 * 3); ++k)
                         dst[k] = src[k];
                 }
@@ -752,6 +752,9 @@ int main(int argc, char** argv) {
         double tx_min, tx_max, ty_min, ty_max;
         compute_tile_bounds(key, tx_min, tx_max, ty_min, ty_max);
 
+        // Output precision follows config snapshot_precision
+        bool use_float32 = (cfg.snapshot_precision == "float32");
+
         // Build filename
         char fname[256];
         std::snprintf(fname, sizeof(fname), "%s/tile_x%03d_y%03d.h5", args.output_dir.c_str(),
@@ -762,7 +765,7 @@ int main(int argc, char** argv) {
                    cfg.solver_dt, tile_greens, source_xyz_m, tile_vertex_coords,
                    has_displacement ? tile_displacement.data() : nullptr,
                    has_velocity ? tile_velocity.data() : nullptr,
-                   has_acceleration ? tile_acceleration.data() : nullptr);
+                   has_acceleration ? tile_acceleration.data() : nullptr, use_float32);
     }
 
     // ---- Print machine-parseable stats ----
