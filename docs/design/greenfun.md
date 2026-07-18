@@ -64,10 +64,25 @@ tile_xNNN_yNNN.h5
 ├── /mesh/
 │   ├── vertex_ids         : int64[n_local]
 │   └── vertex_coords      : float64[n_local, 3]    # NEW: self-contained coords [m]
+├── /source/                                              # NEW: STF time series
+│   ├── stf_t             : float64[nt]                   # time points [s] at output_dt_s (downsampled)
+│   └── stf_values        : float64[nt]                   # force amplitude [N] (downsampled to match /time/t)
 └── /field/
     ├── greens_tensor       : <prec>[nt, n_local, 6, 3]   (strain, gzip 4 + shuffle)
     └── displacement_tensor : <prec>[nt, n_local, 3, 3]   # NEW (displacement, gzip 4 + shuffle)
         # <prec> = float32 or float64, following config snapshot_precision
+```
+
+**STF note**: The tensors in `/field/` are the STF-convolved response
+(strain/displacement/velocity/acceleration from the configured source time
+function), NOT the impulse (delta-function) Green's function. The STF is
+stored in `/source/stf_t` and `/source/stf_values` so users can deconvolve
+it to recover the impulse response if needed. The STF is downsampled from
+the solver timestep (`solver_dt`, `nsteps` samples) to the output snapshot
+rate (`output_dt_s`, `nt` samples) so it shares the same time axis as
+`/time/t` and the tensor datasets. STF is always stored as float64
+regardless of snapshot_precision.
+
 ```
 
 `displacement_tensor[t, i, c, d]` = displacement component `c` from force
@@ -77,13 +92,15 @@ direction `d` at recorded vertex `i`, time `t`. Layout mirrors
 ## Library Layout on Disk
 
 ```
-greenfun_library/                  # arbitrary library root
-└── src_XXXX/                      # one postprocess output per SEM source
-    ├── tile_x000_y000.h5
-    └── ...
+
+greenfun_library/ # arbitrary library root
+└── src_XXXX/ # one postprocess output per SEM source
+├── tile_x000_y000.h5
+└── ...
 src_YYYY/
-    └── ...
-_greenfun_index.h5                 # rebuildable cache (see below)
+└── ...
+\_greenfun_index.h5 # rebuildable cache (see below)
+
 ```
 
 ## Library Index Cache
@@ -93,22 +110,24 @@ bounds) is rebuilt by scanning tiles on first launch. To avoid re-scanning on
 every launch, the index is persisted as a rebuildable HDF5 cache:
 
 ```
-_greenfun_index.h5
+
+\_greenfun_index.h5
 ├── attrs:
-│   ├── library_hash   : str     # blake2b state hash
-│   ├── build_time     : str     # ISO timestamp
-│   ├── n_sources, n_tiles : int
-│   └── version        : "1.0"
+│ ├── library_hash : str # blake2b state hash
+│ ├── build_time : str # ISO timestamp
+│ ├── n_sources, n_tiles : int
+│ └── version : "1.0"
 ├── /sources
-│   ├── source_id      : int32[n_src]
-│   ├── dir_path       : str[n_src]       (relative to root, e.g. "src_0000")
-│   ├── source_xyz_m   : float64[n_src, 3]
-│   └── n_tiles        : int32[n_src]
+│ ├── source_id : int32[n_src]
+│ ├── dir_path : str[n_src] (relative to root, e.g. "src_0000")
+│ ├── source_xyz_m : float64[n_src, 3]
+│ └── n_tiles : int32[n_src]
 └── /tiles
-    ├── source_id      : int32[n_tiles]
-    ├── rel_path       : str[n_tiles]     (e.g. "src_0000/tile_x002_y003.h5")
-    ├── tile_ij        : int32[n_tiles, 2]
-    └── bounds_m       : float64[n_tiles, 6] (xmin,xmax,ymin,ymax,zmin,zmax)
+├── source_id : int32[n_tiles]
+├── rel_path : str[n_tiles] (e.g. "src_0000/tile_x002_y003.h5")
+├── tile_ij : int32[n_tiles, 2]
+└── bounds_m : float64[n_tiles, 6] (xmin,xmax,ymin,ymax,zmin,zmax)
+
 ```
 
 ### Hash algorithm
@@ -123,12 +142,15 @@ _greenfun_index.h5
 ### Startup flow
 
 ```
-GreenFunctionLibrary.__init__(root):
-  1. glob root/**/tile_*.h5  →  stat each  →  compute current_hash
-  2. read _greenfun_index.h5 library_hash
-  3. match?  →  load index datasets into memory, build KDTree on source_xyz
-  4. mismatch / missing?  →  open each tile, read source_xyz_m + bounds attrs,
-                              rebuild index → write _greenfun_index.h5 → build KDTree
+
+GreenFunctionLibrary.**init**(root):
+
+1. glob root/\*\*/tile\_\*.h5 → stat each → compute current_hash
+1. read \_greenfun_index.h5 library_hash
+1. match? → load index datasets into memory, build KDTree on source_xyz
+1. mismatch / missing? → open each tile, read source_xyz_m + bounds attrs,
+   rebuild index → write \_greenfun_index.h5 → build KDTree
+
 ```
 
 - Cache hit: no tile HDF5 opens; only stat + read the index file.
@@ -181,14 +203,16 @@ New root-level package `greenfun/` (alongside `preprocess/`, `forward/`,
 `postprocess/`):
 
 ```
+
 greenfun/
-├── __init__.py          # exports GreenFunctionLibrary
-├── library.py           # GreenFunctionLibrary: index + KDTree on SEM source xyz
-├── source_run.py        # SourceRun: single greenfun run, tile loading + vertex KDTree
-├── interpolator.py      # trilinear interpolation (structured hex mesh, 8 corners)
-├── index_cache.py       # _greenfun_index.h5 read/write + blake2b hash check
-└── query.py             # GreenQuery result dataclass + CLI entry gf_greenquery
-```
+├── **init**.py # exports GreenFunctionLibrary
+├── library.py # GreenFunctionLibrary: index + KDTree on SEM source xyz
+├── source_run.py # SourceRun: single greenfun run, tile loading + vertex KDTree
+├── interpolator.py # trilinear interpolation (structured hex mesh, 8 corners)
+├── index_cache.py # \_greenfun_index.h5 read/write + blake2b hash check
+└── query.py # GreenQuery result dataclass + CLI entry gf_greenquery
+
+````
 
 ### Core API
 
@@ -214,7 +238,7 @@ class GreenFunctionLibrary:
         receivers: ArrayLike,      # [n_rec, 3]
         quantity: str = "strain",
     ) -> dict[tuple[int, int], GreenQuery]: ...
-```
+````
 
 ```python
 class SourceRun:

@@ -169,19 +169,23 @@ inline void write_tensor_ds(hid_t gid, const char* name, const double* data, con
 // Write a single tile HDF5 file
 // -----------------------------------------------------------------------
 
-inline void write_tile(const std::string& path, int tile_x, int tile_y, double x_min_m,
-                       double x_max_m, double y_min_m, double y_max_m, double z_min_m,
-                       double z_max_m, double record_depth_max_m, double record_depth_actual_m,
-                       const std::vector<int64_t>& tile_vertex_ids,  // 1-based
-                       const std::vector<double>& time_arr,          // [nt]
-                       double solver_dt_s,
-                       const std::vector<double>& tile_greens,  // [nt, n_local, 6, 3]
-                       const double source_xyz_m[3],
-                       const std::vector<double>& tile_vertex_coords,  // [n_local, 3]
-                       const double* displacement_tensor,              // nullptr = strain-only
-                       const double* velocity_tensor = nullptr,        // [nt, n_local, 3, 3]
-                       const double* acceleration_tensor = nullptr,    // [nt, n_local, 3, 3]
-                       bool use_float32 = true) {
+inline void write_tile(
+    const std::string& path, int tile_x, int tile_y, double x_min_m, double x_max_m,
+    double y_min_m, double y_max_m, double z_min_m, double z_max_m, double record_depth_max_m,
+    double record_depth_actual_m,
+    const std::vector<int64_t>& tile_vertex_ids,  // 1-based
+    const std::vector<double>& time_arr,          // [nt]
+    double solver_dt_s,
+    const std::vector<double>& tile_greens,  // [nt, n_local, 6, 3]
+    const double source_xyz_m[3],
+    const std::vector<double>& tile_vertex_coords,  // [n_local, 3]
+    const double* displacement_tensor,              // nullptr = strain-only
+    const double* velocity_tensor = nullptr,        // [nt, n_local, 3, 3]
+    const double* acceleration_tensor = nullptr,    // [nt, n_local, 3, 3]
+    const std::vector<double>& stf_t = {},  // [nt] STF time [s], downsampled to output_dt_s
+    const std::vector<double>& stf_values =
+        {},  // [nt] STF amplitude [N], downsampled to output_dt_s
+    bool use_float32 = true) {
     hid_t fid = H5Fcreate(path.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
     if (fid < 0) {
         fprintf(stderr, "ERROR: cannot create %s\n", path.c_str());
@@ -306,6 +310,26 @@ inline void write_tile(const std::string& path, int tile_x, int tile_y, double x
         H5Sclose(space);
     }
     H5Gclose(mesh_gid);
+
+    // ---- /source group (STF time series) ----
+    // Stored as float64 (metadata, not compressed). The STF convolved with
+    // the Green's tensor produces the recorded response; storing it lets
+    // users deconvolve to recover the impulse response if desired.
+    if (!stf_t.empty()) {
+        hid_t src_gid = H5Gcreate2(fid, "source", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        hsize_t sdim = (hsize_t)stf_t.size();
+        hid_t space = H5Screate_simple(1, &sdim, nullptr);
+        hid_t ds_t = H5Dcreate2(src_gid, "stf_t", H5T_NATIVE_DOUBLE, space, H5P_DEFAULT,
+                                H5P_DEFAULT, H5P_DEFAULT);
+        H5Dwrite(ds_t, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, stf_t.data());
+        H5Dclose(ds_t);
+        hid_t ds_v = H5Dcreate2(src_gid, "stf_values", H5T_NATIVE_DOUBLE, space, H5P_DEFAULT,
+                                H5P_DEFAULT, H5P_DEFAULT);
+        H5Dwrite(ds_v, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, stf_values.data());
+        H5Dclose(ds_v);
+        H5Sclose(space);
+        H5Gclose(src_gid);
+    }
 
     // ---- /field group ----
     hid_t field_gid = H5Gcreate2(fid, "field", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);

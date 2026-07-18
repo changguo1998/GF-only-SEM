@@ -314,6 +314,28 @@ int main(int argc, char** argv) {
         time_arr[(size_t)s] = (double)s * cfg.output_dt_s;
     }
 
+    // ---- Downsample STF to tile time axis ----
+    // config.h5 stores stf_t/stf_values at solver_dt [nsteps_solver]. Tile
+    // time_arr is at output_dt_s [nt]. Resample STF to match tile time axis
+    // so users can deconvolve with a STF sampled at the same rate as the
+    // Green's function tensors.
+    std::vector<double> stf_t_ds, stf_values_ds;
+    if (!cfg.stf_t.empty() && n_steps > 0) {
+        int64_t nstf = (int64_t)cfg.stf_t.size();
+        int64_t stride = (n_steps > 0) ? nstf / n_steps : 1;
+        if (stride < 1)
+            stride = 1;
+        stf_t_ds.resize((size_t)n_steps);
+        stf_values_ds.resize((size_t)n_steps);
+        for (int64_t s = 0; s < n_steps; ++s) {
+            int64_t idx = s * stride;
+            if (idx >= nstf)
+                idx = nstf - 1;
+            stf_t_ds[(size_t)s] = cfg.stf_t[(size_t)idx];
+            stf_values_ds[(size_t)s] = cfg.stf_values[(size_t)idx];
+        }
+    }
+
     // ---- Subset strain to recorded vertices and assemble Green's tensor ----
     // First, subset each direction to recorded vertices
     // strain_fx: [n_steps, n_vertex, 6] → subset to [n_steps, n_recorded, 6]
@@ -765,7 +787,8 @@ int main(int argc, char** argv) {
                    cfg.solver_dt, tile_greens, source_xyz_m, tile_vertex_coords,
                    has_displacement ? tile_displacement.data() : nullptr,
                    has_velocity ? tile_velocity.data() : nullptr,
-                   has_acceleration ? tile_acceleration.data() : nullptr, use_float32);
+                   has_acceleration ? tile_acceleration.data() : nullptr, stf_t_ds, stf_values_ds,
+                   use_float32);
     }
 
     // ---- Print machine-parseable stats ----

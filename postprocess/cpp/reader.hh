@@ -104,6 +104,24 @@ static std::vector<int64_t> read_int64_1d(hid_t loc, const char* name, hsize_t& 
     return buf;
 }
 
+// Read 1-D double dataset
+static std::vector<double> read_double_1d(hid_t loc, const char* name, hsize_t& n) {
+    hid_t ds = H5Dopen2(loc, name, H5P_DEFAULT);
+    if (ds < 0) {
+        n = 0;
+        return {};
+    }
+    hid_t space = H5Dget_space(ds);
+    hsize_t dims[1];
+    H5Sget_simple_extent_dims(space, dims, nullptr);
+    n = dims[0];
+    std::vector<double> buf(n);
+    H5Dread(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, buf.data());
+    H5Dclose(ds);
+    H5Sclose(space);
+    return buf;
+}
+
 // Read 2-D double array [n, 3]
 static std::vector<double> read_vertex_coords(hid_t loc) {
     hid_t ds = H5Dopen2(loc, "vertex_to_coord", H5P_DEFAULT);
@@ -182,6 +200,9 @@ struct ConfigParams {
     int64_t pml_xmin = 0, pml_xmax = 0;
     int64_t pml_ymin = 0, pml_ymax = 0;
     int64_t pml_zmin = 0, pml_zmax = 0;
+    // Source time function (from /source/stf_t, /source/stf_values)
+    std::vector<double> stf_t;       // [nsteps] time points [s]
+    std::vector<double> stf_values;  // [nsteps] force amplitude [N]
     // Tile arrays
     std::vector<int64_t> tilex_elements;
     std::vector<int64_t> tiley_elements;
@@ -232,6 +253,10 @@ inline ConfigParams read_config(const char* config_path) {
         read_attr_double(src_gid, "x", cfg.source_x_m);
         read_attr_double(src_gid, "y", cfg.source_y_m);
         read_attr_double(src_gid, "z", cfg.source_z_m);
+        // Read STF time series [nsteps] each
+        hsize_t nstf = 0;
+        cfg.stf_t = read_double_1d(src_gid, "stf_t", nstf);
+        cfg.stf_values = read_double_1d(src_gid, "stf_values", nstf);
         H5Gclose(src_gid);
     }
 
