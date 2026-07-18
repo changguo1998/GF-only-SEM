@@ -386,32 +386,6 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                     cuda_copy_residual_from_host(gpu_state, residual.data());
                 }
                 cuda_newmark_correct(gpu_state, solver_dt, beta, gamma);
-            } else {
-                // ---- Legacy element-local path ----
-                cuda_newmark_predict(gpu_state, solver_dt, beta);
-                cuda_zero_residual(gpu_state);
-                cuda_launch_element_residual(gpu_state, ngll, n_local_cell);
-                cuda_pml_damping(gpu_state);
-                {
-                    int dir = (direction == "x") ? 0 : ((direction == "y") ? 1 : 2);
-                    double stf_val = 0.0;
-                    if (step < static_cast<int>(cfg.stf_t.size())) {
-                        stf_val = cfg.stf_values[step];
-                    }
-                    if (stf_val != 0.0) {
-                        cuda_source_injection(gpu_state, dir, stf_val, cfg.src_weights.data(),
-                                              cfg.n_src_cell);
-                    }
-                }
-
-                // MPI halo exchange on residual (multi-rank legacy path).
-                // Mirrors CPU legacy path. No-op for single-GPU.
-                if (!exchange_patterns.empty()) {
-                    cuda_copy_residual_to_host(gpu_state, residual.data());
-                    exchange_halo(exchange_patterns, residual, 3);
-                    cuda_copy_residual_from_host(gpu_state, residual.data());
-                }
-                cuda_newmark_correct(gpu_state, solver_dt, beta, gamma);
             }
 
             // --- Write restart (every restart_stride solver steps) ---
@@ -462,13 +436,6 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                                 rec_velocity[vertex_idx * 3 + d] = velocity[node_id * 3 + d];
                                 rec_acceleration[vertex_idx * 3 + d] =
                                     acceleration[node_id * 3 + d];
-                            }
-                        } else {
-                            int dof_base = (elem * n_node + corner_node) * 3;
-                            for (int d = 0; d < 3; ++d) {
-                                rec_displacement[vertex_idx * 3 + d] = displacement[dof_base + d];
-                                rec_velocity[vertex_idx * 3 + d] = velocity[dof_base + d];
-                                rec_acceleration[vertex_idx * 3 + d] = acceleration[dof_base + d];
                             }
                         }
                     }
@@ -568,54 +535,6 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 // 7. Newmark corrector (global arrays, global mass)
                 newmark_correct(solver_dt, beta, gamma, rank_node_mass, displacement, velocity,
                                 acceleration, residual);
-
-            } else {
-                // === Legacy element-local path (backward compat) ===
-                newmark_predict(solver_dt, beta, displacement, velocity, acceleration,
-                                displacement_tilde);
-
-                std::fill(residual.begin(), residual.end(), 0.0);
-
-                compute_element_residual<gf::ActiveBackend>(
-                    n_local_cell, part.dxi_dx.data(), part.jacobian.data(), part.lambda_.data(),
-                    part.mu_.data(), D_mat.data(), gll_wts.data(), ngll, displacement_tilde.data(),
-                    residual.data());
-
-                apply_pml_damping(part.pml_damping, displacement_tilde, velocity,
-                                  static_cast<int>(velocity.size()));
-
-                {
-                    int dir = (direction == "x") ? 0 : ((direction == "y") ? 1 : 2);
-                    double stf_val = 0.0;
-                    if (step < static_cast<int>(cfg.stf_t.size())) {
-                        stf_val = cfg.stf_values[step];
-                    }
-                    if (stf_val != 0.0) {
-                        for (int si = 0; si < cfg.n_src_cell; ++si) {
-                            int elem_idx = src_elem_to_local[si];
-                            if (elem_idx < 0)
-                                continue;
-                            int weight_off = si * n_node;
-                            int dof_base_elem = elem_idx * n_node * 3;
-                            for (int k = 0; k < ngll; ++k) {
-                                for (int j = 0; j < ngll; ++j) {
-                                    for (int i = 0; i < ngll; ++i) {
-                                        double w = cfg.src_weights[weight_off +
-                                                                   (i * ngll + j) * ngll + k];
-                                        if (w == 0.0)
-                                            continue;
-                                        int node_off = (i * ngll + j) * ngll + k;
-                                        residual[dof_base_elem + node_off * 3 + dir] +=
-                                            stf_val * w;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                exchange_halo(exchange_patterns, residual, 3);
-                newmark_correct(solver_dt, beta, gamma, part.mass, displacement, velocity,
-                                acceleration, residual);
             }
 
             // --- Write restart (every restart_stride solver steps) ---
@@ -652,11 +571,6 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                             int node_id = part.local_cell2rank_node[elem * n_node + corner_node];
                             for (int d = 0; d < ncomp; ++d) {
                                 dst[vertex_idx * ncomp + d] = src[node_id * 3 + d];
-                            }
-                        } else {
-                            int dof_base = (elem * n_node + corner_node) * 3;
-                            for (int d = 0; d < ncomp; ++d) {
-                                dst[vertex_idx * ncomp + d] = src[dof_base + d];
                             }
                         }
                     }
