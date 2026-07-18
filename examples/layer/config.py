@@ -86,17 +86,24 @@ source_x_m = 5278.0
 source_y_m = 5278.0
 source_z_m = 250.0  # buried at 250m depth, middle of layer 1 (0-500m)
 
+# Source force amplitude [N]. STF returns force in Newtons; multiply the
+# dimensionless Ricker wavelet by this amplitude. Larger amplitude lifts
+# the Green's function values away from the float32 denormal zone (<1e-38),
+# reducing truncation error in float32 snapshot storage.
+source_force_amplitude_n = 1.0e20
+
 
 # ── Source time function (callable) ───
 def stf_func(t_s):
-    """Ricker wavelet (second derivative of Gaussian).
+    """Ricker wavelet (second derivative of Gaussian) scaled to source force [N].
 
     Peak frequency f0=2 Hz, peak time t0=1.0 s.
+    Returns force amplitude in Newtons (dimensionless Ricker × source_force_amplitude_n).
     """
     f0_hz = 2.0
     t0_s = 1.0
     a = np.pi * f0_hz * (t_s - t0_s)
-    return (1.0 - 2.0 * a**2) * np.exp(-(a**2))
+    return source_force_amplitude_n * (1.0 - 2.0 * a**2) * np.exp(-(a**2))
 
 
 # ── Material model — depth-dependent piecewise functions ───
