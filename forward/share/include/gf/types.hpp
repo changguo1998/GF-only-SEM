@@ -114,7 +114,7 @@ struct ConfigData {
 
     // Source elements (precomputed by preprocess/source_locator.py)
     std::vector<int64_t> src_cell_ids;  // global 1-based element IDs containing source
-    std::vector<double> src_weights;    // flat [n_src_elem, NGLL, NGLL, NGLL] Lagrange weights
+    std::vector<double> src_weights;    // flat [n_src_cell, NGLL, NGLL, NGLL] Lagrange weights
     int n_src_cell = 0;                 // convenience count
 };
 

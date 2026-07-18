@@ -471,7 +471,7 @@ def main() -> None:
     mode_label = "BURIED" if source_z != float(domain_bounds["zmin"]) else "on free surface"
     logger.info(
         f"  Source at ({config.source_x_m}, {config.source_y_m}, {source_z}), "
-        f"{mode_label}, in {src_result['n_src_elem']} element(s)"
+        f"{mode_label}, in {src_result['n_src_cell']} element(s)"
     )
 
     # ── Step 7: STF ──

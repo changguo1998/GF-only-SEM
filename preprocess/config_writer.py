@@ -136,12 +136,12 @@ def _write_source(
 
     # Write precomputed source element list + Lagrange weights
     if source_loc_result is not None:
-        n_src = source_loc_result.get("n_src_elem", 0)
+        n_src = source_loc_result.get("n_src_cell", 0)
         grp.attrs["n_src_cell"] = n_src
         if n_src > 0:
-            elem_grp = grp.create_group("elements")
-            elem_grp.create_dataset("cell_ids", data=source_loc_result["cell_ids"], dtype="int64")
-            elem_grp.create_dataset("xi", data=source_loc_result["xi"], dtype="float64")
-            elem_grp.create_dataset("eta", data=source_loc_result["eta"], dtype="float64")
-            elem_grp.create_dataset("zeta", data=source_loc_result["zeta"], dtype="float64")
-            elem_grp.create_dataset("weights", data=source_loc_result["weights"], dtype="float64")
+            src_grp = grp.create_group("cells")
+            src_grp.create_dataset("cell_ids", data=source_loc_result["cell_ids"], dtype="int64")
+            src_grp.create_dataset("xi", data=source_loc_result["xi"], dtype="float64")
+            src_grp.create_dataset("eta", data=source_loc_result["eta"], dtype="float64")
+            src_grp.create_dataset("zeta", data=source_loc_result["zeta"], dtype="float64")
+            src_grp.create_dataset("weights", data=source_loc_result["weights"], dtype="float64")

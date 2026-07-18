@@ -269,11 +269,11 @@ def locate_source(
     Returns:
         dict with:
           cell_ids: [n_src_cell] 0-based cell indices (match partition local_cell_ids).
-          xi:          [n_src_elem] xi natural coordinate.
-          eta:         [n_src_elem] eta natural coordinate.
-          zeta:        [n_src_elem] zeta natural coordinate.
-          weights:     [n_src_elem, NGLL, NGLL, NGLL] Lagrange w_ijk (normalized).
-          n_src_elem:  int count.
+          xi:          [n_src_cell] xi natural coordinate.
+          eta:         [n_src_cell] eta natural coordinate.
+          zeta:        [n_src_cell] zeta natural coordinate.
+          weights:     [n_src_cell, NGLL, NGLL, NGLL] Lagrange w_ijk (normalized).
+          n_src_cell:  int count.
           mode:        str, "surface" or "buried".
     """
     n_cell = topology.n_cell
