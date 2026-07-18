@@ -24,9 +24,9 @@ static std::string create_synth_partition(const std::string& path, int rank, int
 
     int n_node = n_local_cell * ngll * ngll * ngll;
 
-    // Create /field/element group
+    // Create /field/cell group
     hid_t field_grp = H5Gcreate2(file, "/field", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-    hid_t elem_grp = H5Gcreate2(file, "/field/element", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    hid_t elem_grp = H5Gcreate2(file, "/field/cell", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
 
     // coords: [n_local_cell, NGLL, NGLL, NGLL, 3]
     hsize_t dims5[5] = {(hsize_t)n_local_cell, (hsize_t)ngll, (hsize_t)ngll, (hsize_t)ngll, 3};

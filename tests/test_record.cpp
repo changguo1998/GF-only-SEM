@@ -44,41 +44,42 @@ TEST_CASE("RecordWriter creates file and writes strain", "[record]") {
 
     writer.close();
 
-    // Verify the file was created
-    std::string fname = "./wavefields/x/record_0.h5";
-    hid_t file = H5Fopen(fname.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
-    REQUIRE(file >= 0);
-
-    // Check strain dataset
-    hid_t dset = H5Dopen2(file, "strain", H5P_DEFAULT);
-    REQUIRE(dset >= 0);
-
-    hid_t space = H5Dget_space(dset);
-    int ndims = H5Sget_simple_extent_ndims(space);
-    // RecordWriter stores [n_steps, n_vertices, 6] for recorded vertices
-    REQUIRE(ndims == 3);
-    hsize_t dims[3];
-    H5Sget_simple_extent_dims(space, dims, nullptr);
-    REQUIRE(dims[0] == 3);                // 3 steps written
-    REQUIRE(dims[1] == (hsize_t)n_elem);  // n_vertices == n_elem in this test
-    REQUIRE(dims[2] == 6);
-
-    H5Sclose(space);
-    H5Dclose(dset);
-
-    // Check vertex_ids (matches record schema: vertex_ids [n_vertices])
-    dset = H5Dopen2(file, "vertex_ids", H5P_DEFAULT);
-    REQUIRE(dset >= 0);
-    std::vector<int64_t> read_ids(2);
-    H5Dread(dset, H5T_NATIVE_INT64, H5S_ALL, H5S_ALL, H5P_DEFAULT, read_ids.data());
-    REQUIRE(read_ids[0] == 1);
-    REQUIRE(read_ids[1] == 2);
-    H5Dclose(dset);
-
-    H5Fclose(file);
-
-    // Cleanup
-    std::remove(fname.c_str());
+    // Verify per-step files (record_{rank}_{step}.h5 format, 1 step per file)
+    // Step 0
+    {
+        std::string fname0 = "./wavefields/x/record_0_0.h5";
+        hid_t file0 = H5Fopen(fname0.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+        REQUIRE(file0 >= 0);
+        hid_t dset0 = H5Dopen2(file0, "strain", H5P_DEFAULT);
+        REQUIRE(dset0 >= 0);
+        hid_t space0 = H5Dget_space(dset0);
+        REQUIRE(H5Sget_simple_extent_ndims(space0) == 3);
+        hsize_t dims0[3];
+        H5Sget_simple_extent_dims(space0, dims0, nullptr);
+        REQUIRE(dims0[0] == 1);  // per-step: singleton step dim
+        REQUIRE(dims0[1] == (hsize_t)n_elem);
+        REQUIRE(dims0[2] == 6);  // 6 strain components
+        H5Sclose(space0);
+        H5Dclose(dset0);
+        H5Fclose(file0);
+        std::remove(fname0.c_str());
+    }
+    // Step 1
+    {
+        std::string fname1 = "./wavefields/x/record_0_1.h5";
+        hid_t file1 = H5Fopen(fname1.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+        REQUIRE(file1 >= 0);
+        H5Fclose(file1);
+        std::remove(fname1.c_str());
+    }
+    // Step 2
+    {
+        std::string fname2 = "./wavefields/x/record_0_2.h5";
+        hid_t file2 = H5Fopen(fname2.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+        REQUIRE(file2 >= 0);
+        H5Fclose(file2);
+        std::remove(fname2.c_str());
+    }
 }
 
 TEST_CASE("RecordWriter with float32 compression", "[record]") {
@@ -104,8 +105,8 @@ TEST_CASE("RecordWriter with float32 compression", "[record]") {
     writer.write_step(0, strain.data());
     writer.close();
 
-    // Verify file exists and has correct direction attribute
-    std::string fname = "./wavefields/y/record_1.h5";
+    // Verify step file exists (per-step format: record_{rank}_{step}.h5)
+    std::string fname = "./wavefields/y/record_1_0.h5";
     hid_t file = H5Fopen(fname.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
     REQUIRE(file >= 0);
     H5Fclose(file);

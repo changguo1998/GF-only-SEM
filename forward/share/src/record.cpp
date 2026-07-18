@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <stdexcept>
 #include <vector>
 
@@ -134,9 +135,13 @@ void RecordWriter::write_step(int step, const double* strain, const double* disp
     if (n_vertices_ == 0)
         return;
 
+    // Build directory path and create parent directories
+    std::string dirpath = output_dir_ + "/" + source_direction_;
+    std::filesystem::create_directories(dirpath);
+
     // Build file path: {output_dir}/{source_direction}/record_{rank}_{step}.h5
-    std::string filepath = output_dir_ + "/" + source_direction_ + "/record_" +
-                           std::to_string(rank_) + "_" + std::to_string(step) + ".h5";
+    std::string filepath =
+        dirpath + "/record_" + std::to_string(rank_) + "_" + std::to_string(step) + ".h5";
 
     hid_t file_id = H5Fcreate(filepath.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
     if (file_id < 0) {
