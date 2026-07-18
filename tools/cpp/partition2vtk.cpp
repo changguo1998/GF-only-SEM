@@ -79,8 +79,8 @@ int main(int argc, char** argv) {
     int64_t n_cell = (int64_t)cell_to_surface.size();
 
     std::vector<int8_t> is_pml_global(n_cell, 0);
-    if (dataset_exists(fm.id(), "field/element/is_pml")) {
-        auto pml = read_int32_1d(fm.id(), "field/element/is_pml");
+    if (dataset_exists(fm.id(), "field/cell/is_pml")) {
+        auto pml = read_int32_1d(fm.id(), "field/cell/is_pml");
         for (size_t i = 0; i < pml.size() && i < (size_t)n_cell; ++i)
             is_pml_global[i] = (int8_t)pml[i];
     }
@@ -131,7 +131,7 @@ int main(int argc, char** argv) {
 
         try {
             H5File fp(part_dir + "/" + pf);
-            auto local_zero = read_int64_1d(fp.id(), "partition/local_element_ids");
+            auto local_zero = read_int64_1d(fp.id(), "partition/local_cell_ids");
             rd.local_eids.assign(local_zero.begin(), local_zero.end());
             rd.n_local = (int64_t)rd.local_eids.size();
 
@@ -153,8 +153,8 @@ int main(int argc, char** argv) {
                 int64_t gid = rd.local_eids[li];
                 rd.cell_fields["PML_flag"][li] = (float)is_pml_global[gid];
             }
-            if (dataset_exists(fp.id(), "field/element/tile_index")) {
-                auto tile = read_float64_1d(fp.id(), "field/element/tile_index");
+            if (dataset_exists(fp.id(), "field/cell/tile_index")) {
+                auto tile = read_float64_1d(fp.id(), "field/cell/tile_index");
                 if ((int64_t)tile.size() == rd.n_local)
                     for (int64_t li = 0; li < rd.n_local; ++li)
                         rd.cell_fields["Tile_Index"][li] = (float)tile[li];
