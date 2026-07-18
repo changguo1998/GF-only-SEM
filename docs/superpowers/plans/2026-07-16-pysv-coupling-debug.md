@@ -2,7 +2,14 @@
 
 ## Status
 
-Investigation complete. Root cause: Cartesian hex mesh anisotropy.
+**CORRECTION (2026-07-19):** The conclusion below ("Cartesian mesh
+anisotropy") was WRONG. The E-W asymmetry was a CG-SEM interface assembly
+bug (fixed by global node numbering `cff2cd1`), and the P-SV coupling
+"bias" was a Green tensor index convention mismatch (transpose bug) in
+the postprocess (fixed 2026-07-19). After both fixes, all 9 components
+match the Lamb reference within 0.94–1.03× at raw vertices. See
+[`docs/deferred.md`](../../deferred.md) §6 for the corrected analysis. The
+body below is preserved as historical record.
 Diagonal components verified perfect (1.01-1.03×).
 P-SV coupling bias (~0.5-2×) is a symptom, not a bug.
 

@@ -476,8 +476,8 @@ int main(int argc, char** argv) {
     }
 
     // ---- Assemble displacement tensor at recorded vertices ----
-    // disp_subset: [n_steps, n_recorded, 3, 3]
-    // Force-x direction → column 0, force-y → column 1, force-z → column 2
+    // disp_subset: [n_steps, n_recorded, 3, 3]  — index order [disp_comp, force_dir],
+    // mirroring greens_tensor [strain_comp, force_dir] (see docs/design/greenfun.md).
     std::vector<float> disp_subset;
     if (has_displacement) {
         disp_subset.resize((size_t)n_steps * (size_t)n_recorded * 3 * 3, 0.0f);
@@ -486,30 +486,22 @@ int main(int argc, char** argv) {
                 size_t base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3;
                 size_t d_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3 * 3;
 
-                // fx → dir 0
-                float* src_fx = fx_disp_subset.data() + base;
-                float* d0 = disp_subset.data() + d_base + 0 * 3;
-                for (int c = 0; c < 3; ++c)
-                    d0[c] = src_fx[c];
-
-                // fy → dir 1
-                float* src_fy = fy_disp_subset.data() + base;
-                float* d1 = disp_subset.data() + d_base + 1 * 3;
-                for (int c = 0; c < 3; ++c)
-                    d1[c] = src_fy[c];
-
-                // fz → dir 2
-                float* src_fz = fz_disp_subset.data() + base;
-                float* d2 = disp_subset.data() + d_base + 2 * 3;
-                for (int c = 0; c < 3; ++c)
-                    d2[c] = src_fz[c];
+                // Transpose: disp_subset[d_base + c*3 + f] = component c from force f.
+                const float* src_fx = fx_disp_subset.data() + base;
+                const float* src_fy = fy_disp_subset.data() + base;
+                const float* src_fz = fz_disp_subset.data() + base;
+                for (int c = 0; c < 3; ++c) {
+                    float* d = disp_subset.data() + d_base + c * 3;
+                    d[0] = src_fx[c];  // force x
+                    d[1] = src_fy[c];  // force y
+                    d[2] = src_fz[c];  // force z
+                }
             }
         }
     }
 
     // ---- Assemble velocity tensor at recorded vertices ----
-    // vel_subset: [n_steps, n_recorded, 3, 3]
-    // Force-x direction → column 0, force-y → column 1, force-z → column 2
+    // vel_subset: [n_steps, n_recorded, 3, 3]  — [disp_comp, force_dir] (see above).
     std::vector<float> vel_subset;
     if (has_velocity) {
         vel_subset.resize((size_t)n_steps * (size_t)n_recorded * 3 * 3, 0.0f);
@@ -517,27 +509,21 @@ int main(int argc, char** argv) {
             for (int64_t ri = 0; ri < n_recorded; ++ri) {
                 size_t base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3;
                 size_t d_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3 * 3;
-                // fx → dir 0
-                float* src_fx = fx_vel_subset.data() + base;
-                float* d0 = vel_subset.data() + d_base + 0 * 3;
-                for (int c = 0; c < 3; ++c)
-                    d0[c] = src_fx[c];
-                // fy → dir 1
-                float* src_fy = fy_vel_subset.data() + base;
-                float* d1 = vel_subset.data() + d_base + 1 * 3;
-                for (int c = 0; c < 3; ++c)
-                    d1[c] = src_fy[c];
-                // fz → dir 2
-                float* src_fz = fz_vel_subset.data() + base;
-                float* d2 = vel_subset.data() + d_base + 2 * 3;
-                for (int c = 0; c < 3; ++c)
-                    d2[c] = src_fz[c];
+                const float* src_fx = fx_vel_subset.data() + base;
+                const float* src_fy = fy_vel_subset.data() + base;
+                const float* src_fz = fz_vel_subset.data() + base;
+                for (int c = 0; c < 3; ++c) {
+                    float* d = vel_subset.data() + d_base + c * 3;
+                    d[0] = src_fx[c];  // force x
+                    d[1] = src_fy[c];  // force y
+                    d[2] = src_fz[c];  // force z
+                }
             }
         }
     }
 
     // ---- Assemble acceleration tensor at recorded vertices ----
-    // acc_subset: [n_steps, n_recorded, 3, 3]
+    // acc_subset: [n_steps, n_recorded, 3, 3]  — [disp_comp, force_dir] (see above).
     std::vector<float> acc_subset;
     if (has_acceleration) {
         acc_subset.resize((size_t)n_steps * (size_t)n_recorded * 3 * 3, 0.0f);
@@ -545,21 +531,15 @@ int main(int argc, char** argv) {
             for (int64_t ri = 0; ri < n_recorded; ++ri) {
                 size_t base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3;
                 size_t d_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3 * 3;
-                // fx → dir 0
-                float* src_fx = fx_acc_subset.data() + base;
-                float* d0 = acc_subset.data() + d_base + 0 * 3;
-                for (int c = 0; c < 3; ++c)
-                    d0[c] = src_fx[c];
-                // fy → dir 1
-                float* src_fy = fy_acc_subset.data() + base;
-                float* d1 = acc_subset.data() + d_base + 1 * 3;
-                for (int c = 0; c < 3; ++c)
-                    d1[c] = src_fy[c];
-                // fz → dir 2
-                float* src_fz = fz_acc_subset.data() + base;
-                float* d2 = acc_subset.data() + d_base + 2 * 3;
-                for (int c = 0; c < 3; ++c)
-                    d2[c] = src_fz[c];
+                const float* src_fx = fx_acc_subset.data() + base;
+                const float* src_fy = fy_acc_subset.data() + base;
+                const float* src_fz = fz_acc_subset.data() + base;
+                for (int c = 0; c < 3; ++c) {
+                    float* d = acc_subset.data() + d_base + c * 3;
+                    d[0] = src_fx[c];  // force x
+                    d[1] = src_fy[c];  // force y
+                    d[2] = src_fz[c];  // force z
+                }
             }
         }
     }

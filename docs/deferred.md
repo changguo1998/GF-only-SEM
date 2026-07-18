@@ -82,71 +82,75 @@ ______________________________________________________________________
 
 ## 6. SEM Amplitude & Radiation Pattern Discrepancy
 
-**Status:** Root cause identified — Cartesian hex mesh anisotropy.
-Diagonal components correct (1.01–1.03×); P-SV coupling bias
-(~0.5–2×) is a symptom of direction-dependent wave propagation from
-a point force on a rectangular GLL grid. Resolution options remain
-open.
+**Status: RESOLVED.** The P-SV coupling "bias" (~0.5–2×) documented here
+was misdiagnosed as Cartesian mesh anisotropy. Investigation on 2026-07-19
+found it was a **Green tensor index convention mismatch** (transpose bug)
+in the postprocess. After the fix, all 9 Green tensor components match the
+Lamb analytic reference within 0.94–1.03× at raw vertices.
 
-Full debug analysis: [`superpowers/plans/2026-07-16-pysv-coupling-debug.md`](superpowers/plans/2026-07-16-pysv-coupling-debug.md)
+### Two separate issues, both now fixed
 
-### Resolved
+**Issue A — East-West wavefield asymmetry (1.77×):**
+Four surface vertices at identical distance R=481 m from a centered source
+showed 1.77× E/W asymmetry. This was NOT mesh anisotropy — it was a
+CG-SEM element-interface assembly bug. **Fixed by the global GLL node
+numbering repair** (`cff2cd1`, 2026-07-17): cross-element stiffness
+coupling was broken, producing directional wave propagation errors.
+After the fix, E/W ratio = 1.00 for all components.
+
+**Issue B — P-SV coupling component "bias" (0.51× / 1.84×):**
+The off-diagonal z-coupling components (F_z→u_x, F_x→u_z) appeared
+biased because the postprocess assembled `displacement_tensor` as
+`[force_dir, disp_comp]` while the documented convention (and
+`greens_tensor`, and the analytic reference, and `compare.py`) is
+`[disp_comp, force_dir]`. `compare.py` compared a transposed SEM tensor
+to the analytic reference, so the non-symmetric z-coupling components
+swapped. **Fixed 2026-07-19** (`postprocess/cpp/main.cpp`): displacement,
+velocity, and acceleration assembly transposed to `[disp, force]`, now
+mirroring `greens_tensor [strain, force]`.
+
+### Verified after both fixes (raw vertex, no interpolation)
+
+Source (5278, 5278, 278) → vertex (5556, 5556, 0), R=482 m:
+
+| Component | SEM/Lamb |
+|-----------|----------|
+| u_x(F_x), u_y(F_y), u_z(F_z) (diagonals) | 1.02–1.03 ✓ |
+| u_x(F_y), u_y(F_x) (in-plane off-diag) | 0.94 ✓ |
+| u_x(F_z), u_y(F_z) (horizontal←vertical) | 1.00 ✓ |
+| u_z(F_x), u_z(F_y) (vertical←horizontal) | 0.95 ✓ |
+
+rel_l2 (full waveform, raw vertex) = 0.21. All peak components within 6%.
+
+### Remaining: trilinear interpolation degradation
+
+The example `compare.sh` queries a receiver point that is NOT at a mesh
+vertex, so the library trilinearly interpolates the 3×3 Green tensor over
+8 corner vertices. Off-diagonal components vary strongly with azimuth and
+distance, so interpolating them across vertices with different geometries
+introduces error. This degrades the interpolated rel_l2 to ~0.58 (halfspace)
+and ~0.88 (layer). **Mitigation:** query at recorded vertices (no
+interpolation) for accurate comparison, or implement GLL-basis
+interpolation. This is a query-accuracy limitation, not a solver bug.
+
+### Resolved (historical)
 
 1. **PyFK force unit** (`8e4cd8e`): `FORCE_AMPLITUDE` 1.0→1e5 (dyne→Newton).
-   `_sync_trace_to_time` already converts cm→m.
 1. **Shared-edge source inflation** (`e1ac709`): source at 4-element
    shared edge caused ~3× diagonal inflation. Moved source to element
    interior (center) → diagonal 1.01–1.03×.
-1. **Convolution truncation** (`49d3455`): `mode='same'`→`mode='full'`
-   to preserve trailing STF energy.
+1. **Convolution truncation** (`49d3455`): `mode='same'`→`mode='full'`.
+1. **E-W asymmetry** (`cff2cd1`): global node numbering fixed interface coupling.
+1. **Green tensor convention** (2026-07-19): postprocess transpose to `[disp, force]`.
 
-### Verified correct
+### Verified correct (solver physics)
 
 1. GLL Lagrange weights normalized to sum=1 across shared elements ✓
-1. Mass = ρ·J·w_i·w_j·w_k, density applied in `cli.py:448` ✓
-1. Newmark explicit central difference (β=0, γ=½) in solver.cpp:57–68 ✓
+1. Mass = ρ·J·w_i·w_j·w_k, density applied in `cli.py` ✓
+1. Newmark explicit central difference (β=0, γ=½) in solver.cpp ✓
 1. Total force = stf_val × Σ(weights) = 1.0 N ✓
 1. Element residual: isotropic elastic stress correct ✓
-
-### Root cause: Cartesian mesh anisotropy
-
-**Critical finding (`ecc0d6d`):** 4 surface vertices at identical distance
-R=481m from the source show **1.77× East-West asymmetry** in displacement.
-For a vertical force in a halfspace, displacement should be axisymmetric.
-
-| Vertex | Position | F_z→u_z | F_x→u_x |
-|--------|----------|---------|----------|
-| NE (5556,5556,0) | East (x=5556) | 1.20e-14 | 9.32e-15 |
-| SE (5556,5000,0) | East (x=5556) | 1.20e-14 | 9.32e-15 |
-| NW (5000,5556,0) | West (x=5000) | 6.79e-15 | 5.20e-15 |
-| SW (5000,5000,0) | West (x=5000) | 6.79e-15 | 5.20e-15 |
-
-Source verified at exact element center. Mesh symmetric (±278m to
-both x-faces). PML symmetric (3 elements each side). The asymmetry
-originates from the Cartesian GLL grid: a point force is distributed
-to nodes on a rectangular grid, producing direction-dependent wave
-propagation.
-
-**Impact on P-SV coupling:**
-
-| Component | SEM/ref (raw vertex, no interp) |
-|-----------|--------------------------------|
-| F_x→u_x, F_y→u_y, F_z→u_z (diagonals) | 1.01–1.03 ✓ |
-| F_x→u_y, F_y→u_x (in-plane off-diag) | 0.94 ✓ |
-| F_z→u_x, F_z→u_y (z→horizontal) | **0.51** ❌ |
-| F_x→u_z, F_y→u_z (horizontal→z) | **1.84** ❌ |
-
-The P-SV coupling errors are symptoms of the mesh anisotropy — not
-free-surface bugs or stiffness matrix errors.
-
-### Resolution options
-
-1. **Finer mesh** — more elements → smaller anisotropy per element
-1. **Higher polynomial order** — more GLL points → smoother force distribution
-1. **Radial/unstructured mesh** around source — isotropic by construction
-1. **Moment-tensor source correction** — apply direction-dependent corrections
-1. **Accept and calibrate** — diagonal & in-plane components are within 6%;
-   P-SV coupling ~2× error may be acceptable for many applications
+1. E-W axisymmetry: centered source gives identical E/W displacement ✓
 
 ### GPU Newmark corrector: hardcoded β=0 — FIXED
 

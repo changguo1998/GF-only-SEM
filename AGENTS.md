@@ -74,7 +74,7 @@ Elastic-only forward solver (SLS/attenuation deferred).
 
 Buried source support implemented (`source_z_m = None`→free surface, `float`→buried). Preprocessor auto-detects surface vs buried mode and excludes PML elements for buried sources.
 
-**Example validation pipelines** (`examples/halfspace`, `examples/layer`) run end-to-end: SEM → reference → comparison. Diagonal displacement components match analytic/PyFK references within 3%. P-SV coupling components show ~0.5-2× bias due to Cartesian mesh anisotropy (documented in [`docs/deferred.md`](docs/deferred.md) §6 and [`docs/superpowers/plans/2026-07-16-pysv-coupling-debug.md`](docs/superpowers/plans/2026-07-16-pysv-coupling-debug.md)).
+**Example validation pipelines** (`examples/halfspace`, `examples/layer`) run end-to-end: SEM → reference → comparison. All 9 Green tensor components match analytic/PyFK references within 3–6% at raw mesh vertices (rel_l2≈0.21 full-waveform). The earlier "P-SV coupling bias" was a Green tensor index convention mismatch (transpose bug) in the postprocess, fixed 2026-07-19 — see [`docs/deferred.md`](docs/deferred.md) §6. Interpolated query points degrade accuracy due to trilinear interpolation of off-diagonal components.
 
 | Solver variant | Multi-rank | DOF numbering | Status |
 |---------------|------------|---------------|--------|
