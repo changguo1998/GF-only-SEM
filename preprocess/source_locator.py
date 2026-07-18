@@ -268,7 +268,7 @@ def locate_source(
 
     Returns:
         dict with:
-          element_ids: [n_src_elem] 0-based element indices (match partition local_cell_ids).
+          cell_ids: [n_src_cell] 0-based cell indices (match partition local_cell_ids).
           xi:          [n_src_elem] xi natural coordinate.
           eta:         [n_src_elem] eta natural coordinate.
           zeta:        [n_src_elem] zeta natural coordinate.
@@ -318,7 +318,7 @@ def locate_source(
         element_iter = free_surface_cells
 
     # Common: Newton iteration and weight computation for each candidate
-    element_ids: list[int] = []
+    src_cell_ids: list[int] = []
     xi_list: list[float] = []
     eta_list: list[float] = []
     zeta_list: list[float] = []
@@ -338,24 +338,24 @@ def locate_source(
         if w_sum < 1e-12:
             continue
 
-        element_ids.append(e)  # 0-based element index (matches partition local_cell_ids)
+        src_cell_ids.append(e)  # 0-based cell index (matches partition local_cell_ids)
         xi_list.append(float(xi_vec[0]))
         eta_list.append(float(xi_vec[1]))
         zeta_list.append(float(xi_vec[2]))
         weights_list.append(w)
 
-    if not element_ids:
+    if not src_cell_ids:
         raise ValueError(
             f"Source at {source_xyz} not contained in any candidate element. "
             f"Checked {len(element_iter)} candidate(s)."
         )
 
-    if is_buried and len(element_ids) > 1:
+    if is_buried and len(src_cell_ids) > 1:
         logger.warning(
             "Buried source at %s found in %d element(s) — may lie on element "
             "face/edge. Verify source position is correct.",
             source_xyz,
-            len(element_ids),
+            len(src_cell_ids),
         )
 
     # Normalize weights across all containing elements
@@ -365,11 +365,11 @@ def locate_source(
     weights_norm = [w / total_weight for w in weights_list]
 
     return {
-        "element_ids": np.array(element_ids, dtype=np.int64),
+        "cell_ids": np.array(src_cell_ids, dtype=np.int64),
         "xi": np.array(xi_list, dtype=np.float64),
         "eta": np.array(eta_list, dtype=np.float64),
         "zeta": np.array(zeta_list, dtype=np.float64),
         "weights": np.array(weights_norm, dtype=np.float64),
-        "n_src_elem": len(element_ids),
+        "n_src_cell": len(src_cell_ids),
         "mode": "buried" if is_buried else "surface",
     }

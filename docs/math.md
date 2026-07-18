@@ -133,7 +133,7 @@ Voigt ordering (6 components): ε_xx, ε_yy, ε_zz, ε_xy, ε_xz, ε_yz.
 where ε_kk = ε_xx + ε_yy + ε_zz is the trace.
 
 **Precomputed**: λ = ρ·(Vp² − 2·Vs²) and μ = ρ·Vs² are computed at
-all GLL nodes during preprocessing and stored in partition\_{r}.h5 (`/field/element/lambda`, `/field/element/mu`).
+all GLL nodes during preprocessing and stored in partition\_{r}.h5 (`/field/cell/lambda`, `/field/cell/mu`).
 The solver kernel reads these directly — no on-the-fly computation from Vp/Vs/density.
 
 ### 3.6 Internal Force (Element Residual)

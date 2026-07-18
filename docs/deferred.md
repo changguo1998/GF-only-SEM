@@ -20,8 +20,8 @@ Needed:
 - Write HDF5 datasets:
 
   ```
-  /field/element/tau_sigma[n_cell, NGLL, NGLL, NGLL, n_sls]
-  /field/element/tau_epsilon[n_cell, NGLL, NGLL, NGLL, n_sls]
+  /field/cell/tau_sigma[n_cell, NGLL, NGLL, NGLL, n_sls]
+  /field/cell/tau_epsilon[n_cell, NGLL, NGLL, NGLL, n_sls]
   ```
 
 ### Forward

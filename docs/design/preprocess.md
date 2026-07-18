@@ -78,7 +78,7 @@ step function checks binary availability independently and falls back to Python.
 
 - **Source**: `preprocess/cpp/main.cpp`
 - **Dependencies**: HDF5, Eigen3
-- **Data flow**: reads `/topology/`, writes `/field/element/{coords,dxi_dx,jacobian,mass,is_pml,damping}` + `/field/surface/boundary_tag`
+- **Data flow**: reads `/topology/`, writes `/field/cell/{coords,dxi_dx,jacobian,mass,is_pml,damping}` + `/field/surface/boundary_tag`
 - **CLI**: `gf_preprocess_cpp <model.h5> <N> <cfl_safety> <nx> <ny> [pml_xmin pml_xmax pml_ymin pml_ymax pml_zmin pml_zmax]`
 - **stdout**: prints `H_MIN=...`, `CFL_DT=...`, `OMP_THREADS=...`
 - **OpenMP**: auto-detected; single-thread fallback if unavailable
@@ -88,7 +88,7 @@ step function checks binary availability independently and falls back to Python.
 - **Source**: `preprocess/cpp/stage2_main.cpp`
 - **Dependencies**: HDF5 (no Eigen3 needed)
 - **Data flow**: reads `/field/element/{coords,jacobian,vp,vs,density}` + `/config/` attrs +
-  `/field/surface/boundary_tag`; writes `/field/element/{lambda,mu}`
+  `/field/surface/boundary_tag`; writes `/field/cell/{lambda,mu}`
 - **CLI**: `gf_preprocess_stage2 <model.h5>`
 - **stdout**: prints `STAT_NCELL`, `STAT_NGLL`, `STAT_SOLVER_DT`, `STAT_NSTEPS`, `STAT_SNAPSHOT_STRIDE`,
   `STAT_CFL_DT`, `STAT_LAM_MIN` etc. — parsed by `stage2_runner.py`
@@ -421,7 +421,7 @@ Green output is shallow mesh vertices, not full GLL. Preprocess builds the map o
 1. Select unique mesh vertices attached to selected elements.
 1. For each vertex, choose one owned source element and corner so forward writes it once.
 
-`tile_index` is computed per element and stored in `/field/element/tile_index`:
+`tile_index` is computed per cell and stored in `/field/cell/tile_index`:
 
 - PML elements → `-1`
 - Non-PML elements below `record_depth_actual_m` → `-1`
@@ -463,7 +463,7 @@ Source z = z_min (auto-placed on top free surface). Source is only specified by 
 1. Compute Lagrange interpolation weights: `w_ijk = l_i(ξ_s)·l_j(η_s)·l_k(ζ_s)` for each
    GLL node (i,j,k) in each containing element.
 1. Normalize Lagrange weights: Σ w_ijk = 1 across all sharing surface elements.
-1. Store element IDs, natural coordinates, and weights in config.h5 `/source/elements/`.
+1. Store element IDs, natural coordinates, and weights in config.h5 `/source/cells/`.
 
 The forward solver multiplies these precomputed weights by STF amplitude and adds to the
 residual — no runtime Newton iteration or element search needed.
@@ -477,17 +477,24 @@ residual — no runtime Newton iteration or element search needed.
 
 ## HDF5 Output
 
+> **Note:** Stage 1 (C++ mesh generator) writes to `/field/element/`. Stage 2 (Python preprocessor) reads from `/field/element/` and writes GLL-refined data to `/field/cell/`. The forward solver reads from `/field/cell/`.
+
 ### model.h5 (extended)
 
 The preprocessor reads topology from `model.h5` and writes back:
 
-- `/field/element/coords`, `/field/element/dxi_dx`, `/field/element/jacobian` — GLL geometry
-- `/field/element/is_pml` — int8 flag per element (1=PML, 0=ordinary); preprocessing also uses it to build `/recording/` maps
+- `/field/cell/coords`, `/field/cell/dxi_dx`, `/field/cell/jacobian` — GLL geometry (Stage 2)
+- `/field/cell/lambda`, `/field/cell/mu` — elastic coefficients
+- `/field/cell/mass` — lumped mass diagonal
+- `/field/cell/vp`, `/field/cell/vs`, `/field/cell/density` — material properties
+- `/field/cell/is_pml` — int8 flag per element (1=PML, 0=ordinary)
+- `/field/cell/damping` — PML damping factor
+- `/field/cell/tile_index` — tile assignment per cell (-1 for PML/deep)
+- `/field/cell/global_cell2global_node` — global node numbering table
 - `/field/surface/boundary_tag` — surface boundary tags (0=interior, 1=free surface, 2=absorbing)
+- `/field/element/*` — Stage 1 output (GLL geometry only, no material)
 
-Full schema for `/field/` groups in [mesh.md](mesh.md).
-
-Material, mass, C-PML, and partition data stay in per-rank `partition_{r}.h5` files.
+Full schema for `/field/` groups in [model.md](model.md).
 
 ### partition\_{r}.h5
 

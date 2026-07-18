@@ -6,11 +6,11 @@
 
 **Root cause:** The solver uses element-local DOF numbering (`n_dof = n_elem × NGLL³ × 3`) without any mechanism to enforce continuity at shared GLL nodes. This means each element evolves independently — waves cannot propagate between elements on the same rank. MPI exchange patterns exist for cross-rank interfaces, but within-rank shared nodes are never assembled.
 
-**Approach:** Introduce global DOF numbering (`local_element2rank_node` mapping from SPECFEM3D) throughout the preprocessing → solver pipeline. State vectors become globally-sized (`n_rank_node × 3`), element contributions are scattered to and accumulated at shared global nodes, and MPI exchange handles cross-rank accumulation on the global array.
+**Approach:** Introduce global DOF numbering (`local_cell2rank_node` mapping from SPECFEM3D) throughout the preprocessing → solver pipeline. State vectors become globally-sized (`n_rank_node × 3`), element contributions are scattered to and accumulated at shared global nodes, and MPI exchange handles cross-rank accumulation on the global array.
 
 **Architecture:** Five phases:
 
-1. **Preprocessor** — compute and store `local_element2rank_node` mapping + convert exchange patterns to global indices
+1. **Preprocessor** — compute and store `local_cell2rank_node` mapping + convert exchange patterns to global indices
 1. **Solver infrastructure** — add global arrays, scatter/gather routines, assemble global mass/damping
 1. **CPU solver loop** — rewrite Newmark and time loop for global numbering
 1. **CUDA solver loop** — parallel implementation with atomic scatter
@@ -21,7 +21,7 @@ ______________________________________________________________________
 
 ## Phase 0: Preprocessor — Global DOF Numbering
 
-### Task 0.1: Implement local_element2rank_node Computation in Preprocessor
+### Task 0.1: Implement local_cell2rank_node Computation in Preprocessor
 
 **Files:**
 
@@ -32,9 +32,9 @@ ______________________________________________________________________
 **Interfaces:**
 
 - Consumes: `TopologyData` (from `topology_reader.py`) with GLL coordinates for all elements
-- Produces: `local_element2rank_node` array `[n_cell, NGLL, NGLL, NGLL]` mapping `int32` — each entry is a unique per-rank global node ID (0-based for C++)
+- Produces: `local_cell2rank_node` array `[n_cell, NGLL, NGLL, NGLL]` mapping `int32` — each entry is a unique per-rank global node ID (0-based for C++)
 - Produces: `n_rank_node` scalar — count of unique global nodes on this rank
-- Note: local_element2rank_node is computed for all elements (local + ghost) in the preprocessor so that shared interface nodes receive the same node_id within a rank. Only the `[0:n_local_element]` slice is stored in the partition file — ghost elements have no geometry/material data in partitions (they exist only in exchange patterns). The solver runs the element kernel on local elements exclusively.
+- Note: local_cell2rank_node is computed for all elements (local + ghost) in the preprocessor so that shared interface nodes receive the same node_id within a rank. Only the `[0:n_local_cell]` slice is stored in the partition file — ghost elements have no geometry/material data in partitions (they exist only in exchange patterns). The solver runs the element kernel on local elements exclusively.
 
 **Algorithm (following SPECFEM's `get_global`):**
 
@@ -68,7 +68,7 @@ def compute_ibool(topology, gll_coords):
     tol = 1e-12 * domain_extent
     
     # Assign node_id: same coordinate → same node_id
-    local_element2rank_node = np.zeros((n_cell, NGLL, NGLL, NGLL), dtype=np.int32)
+    local_cell2rank_node = np.zeros((n_cell, NGLL, NGLL, NGLL), dtype=np.int32)
     node_id = 0  # 0-based for C++
     prev_x = prev_y = prev_z = None
     for (x, y, z, e, n) in sorted(points, key=lambda p: (p[0], p[1], p[2])):
@@ -76,10 +76,10 @@ def compute_ibool(topology, gll_coords):
             abs(y - prev_y) > tol or abs(z - prev_z) > tol):
             node_id += 1
         i, j, k = n // (NGLL * NGLL), (n // NGLL) % NGLL, n % NGLL
-        local_element2rank_node[e, i, j, k] = node_id - 1  # 0-based for C++
+        local_cell2rank_node[e, i, j, k] = node_id - 1  # 0-based for C++
         prev_x, prev_y, prev_z = x, y, z
     
-    return local_element2rank_node, node_id - 1  # n_rank_node
+    return local_cell2rank_node, node_id - 1  # n_rank_node
 ```
 
 - [x] **Step 1: Write `compute_ibool` function in `preprocess/partition.py`**
@@ -87,23 +87,23 @@ def compute_ibool(topology, gll_coords):
 - [x] **Step 3: Run test to verify**
 - [x] **Step 4: Commit**
 
-### Task 0.2: Write local_element2rank_node to Partition Files
+### Task 0.2: Write local_cell2rank_node to Partition Files
 
 **Files:**
 
 - Modify: `preprocess/model_writer.py`
-- Modify: `preprocess/cli.py` (pass local_element2rank_node/n_rank_node through pipeline)
+- Modify: `preprocess/cli.py` (pass local_cell2rank_node/n_rank_node through pipeline)
 
 **Interfaces:**
 
-- Produces: `/field/local_element2rank_node` dataset in each partition file — flat `[n_local * n_node]`, dtype int32 (maps (elem, node) → per-rank global node ID)
+- Produces: `/field/local_cell2rank_node` dataset in each partition file — flat `[n_local * n_node]`, dtype int32 (maps (elem, node) → per-rank global node ID)
 
 - Produces: `/field/n_rank_node` attribute in each partition file — scalar int32
-  **Flattening:** The preprocessor computes local_element2rank_node as a 4D array `[n_cell, NGLL, NGLL, NGLL]`. Before writing, slice to local elements and flatten: `ibool_local = local_element2rank_node[:n_local_element].reshape(-1)` → 1D array of shape `[n_local_element * n_node]`.
+  **Flattening:** The preprocessor computes local_cell2rank_node as a 4D array `[n_cell, NGLL, NGLL, NGLL]`. Before writing, slice to local elements and flatten: `ibool_local = local_cell2rank_node[:n_local_cell].reshape(-1)` → 1D array of shape `[n_local_cell * n_node]`.
 
-- [x] **Step 1: Add `local_element2rank_node` and `n_rank_node` fields to partition data dict in `partition.py`**
+- [x] **Step 1: Add `local_cell2rank_node` and `n_rank_node` fields to partition data dict in `partition.py`**
 
-- [x] **Step 2: Add writing code in `model_writer.py`** — write local_element2rank_node under `/field/`, n_rank_node as attr
+- [x] **Step 2: Add writing code in `model_writer.py`** — write local_cell2rank_node under `/field/`, n_rank_node as attr
 
 - [x] **Step 3: Run halfspace preprocessor** and verify datasets exist with `h5ls`
 
@@ -119,16 +119,16 @@ def compute_ibool(topology, gll_coords):
 
 **Key insight:** Within-rank assembly at shared nodes is handled by `scatter_to_rank` — two elements sharing a physical node get the same node_id, so scatter naturally accumulates both contributions. **No special within-rank exchange patterns are needed.** This task focuses solely on converting the existing cross-rank exchange patterns to global indexing.
 
-**Approach A (in preprocessor — REQUIRED):** Before writing exchange patterns to partition files, compute `global_dof = local_element2rank_node[e * n_node + node] * 3 + dir` for each DOF and write the global indices. The preprocessor has access to the full local_element2rank_node for all elements (local + ghost), so both send and recv DOFs can be converted correctly.
+**Approach A (in preprocessor — REQUIRED):** Before writing exchange patterns to partition files, compute `global_dof = local_cell2rank_node[e * n_node + node] * 3 + dir` for each DOF and write the global indices. The preprocessor has access to the full local_cell2rank_node for all elements (local + ghost), so both send and recv DOFs can be converted correctly.
 
-**Why Approach B (solver-side conversion) does NOT work:** The solver stores only `n_local_element` local_element2rank_node entries in its partition file. Ghost element data (coordinates, material params, local_element2rank_node) is NOT stored in partition files (verified: io.cpp reads only `[n_local_element, ...]` shaped datasets). Converting recv_dof indices that reference ghost elements would require `part.local_element2rank_node[ghost_elem * n_node + node]` — an out-of-bounds access. Only the preprocessor, which has the complete local_element2rank_node for all elements, can perform this conversion.
+**Why Approach B (solver-side conversion) does NOT work:** The solver stores only `n_local_cell` local_cell2rank_node entries in its partition file. Ghost element data (coordinates, material params, local_cell2rank_node) is NOT stored in partition files (verified: io.cpp reads only `[n_local_cell, ...]` shaped datasets). Converting recv_dof indices that reference ghost elements would require `part.local_cell2rank_node[ghost_elem * n_node + node]` — an out-of-bounds access. Only the preprocessor, which has the complete local_cell2rank_node for all elements, can perform this conversion.
 
 **Implementation sketch (in `partition.py`):**
 
 ```python
-# After local_element2rank_node is computed for all elements, before writing exchange patterns:
+# After local_cell2rank_node is computed for all elements, before writing exchange patterns:
 for rank_data in all_rank_data:
-    ibool_flat = rank_data['local_element2rank_node'].reshape(-1)  # [n_cell * n_node]
+    ibool_flat = rank_data['local_cell2rank_node'].reshape(-1)  # [n_cell * n_node]
     for neighbor_rank, send_list, recv_list in rank_data['exchange_dof']:
         for i in range(len(send_list)):
             elem_idx = send_list[i] // (n_node * 3)
@@ -149,14 +149,14 @@ for rank_data in all_rank_data:
 ````
 
 - [x] **Step 1: Implement the DOF index conversion in `partition.py`** (Approach A — preprocessor-side, see implementation sketch above)
-- [x] **Step 2: Verify exchange patterns use valid local_element2rank_node indices (0 ≤ idx < n_rank_node * 3) for both send and recv**
+- [x] **Step 2: Verify exchange patterns use valid local_cell2rank_node indices (0 ≤ idx < n_rank_node * 3) for both send and recv**
 - [x] **Step 3: Commit**
 
 ---
 
 ## Phase 1: Solver Data Structures
 
-### Task 1.1: Add local_element2rank_node and Global Array Support to RankData
+### Task 1.1: Add local_cell2rank_node and Global Array Support to RankData
 
 **Files:**
 - Modify: `forward/share/include/gf/types.hpp`
@@ -169,21 +169,21 @@ struct RankData {
     // ... existing fields ...
     
     // NEW: Global DOF numbering
-    std::vector<int32_t> local_element2rank_node;     // [n_local_element * n_node] — maps (elem, node) → global node ID (0-based)
+    std::vector<int32_t> local_cell2rank_node;     // [n_local_cell * n_node] — maps (elem, node) → global node ID (0-based)
     int n_rank_node = 0;                  // total unique global nodes on this rank (subset of global)
     
     // NEW: Reverse mapping for recording/strain
     // Element-local DOF → global DOF for each element's nodes
-    // Derived from local_element2rank_node: global_dof = local_element2rank_node[e * n_node + n] * 3 + d
+    // Derived from local_cell2rank_node: global_dof = local_cell2rank_node[e * n_node + n] * 3 + d
 };
 ````
 
-**Reading local_element2rank_node from partition file (io.cpp):**
+**Reading local_cell2rank_node from partition file (io.cpp):**
 
 ```cpp
 // In read_partition():
-// After reading existing fields, read local_element2rank_node:
-data.local_element2rank_node = read_dataset_int32(fid, "/field/local_element2rank_node");
+// After reading existing fields, read local_cell2rank_node:
+data.local_cell2rank_node = read_dataset_int32(fid, "/field/local_cell2rank_node");
 // Read as flat [n_local * n_node] for C++ convenience
 
 hid_t attr = H5Aopen(fid, "/field/n_rank_node", H5P_DEFAULT);
@@ -200,9 +200,9 @@ if (attr >= 0) {
 
 We still need element-local arrays for the element residual kernel (it operates element-by-element), but the main state vectors (displacement, velocity, acceleration, residual) should be global-sized.
 
-- [x] **Step 1: Add `local_element2rank_node` and `n_rank_node` fields to `RankData` struct**
+- [x] **Step 1: Add `local_cell2rank_node` and `n_rank_node` fields to `RankData` struct**
 - [x] **Step 2: Add reading code in `io.cpp` `read_partition()`**
-- [x] **Step 3: Build and verify** — compile forward solver, run with new partition files, check local_element2rank_node is loaded
+- [x] **Step 3: Build and verify** — compile forward solver, run with new partition files, check local_cell2rank_node is loaded
 - [x] **Step 4: Commit**
 
 ### Task 1.2: Add Global State Vector Allocation
@@ -251,17 +251,17 @@ namespace gf {
 /// After this, rank_node_residual[3*node_id + d] = Σ_e (element_residual from element e at node node_id)
 void scatter_to_rank(
     const std::vector<double>& local_element_residual,  // [n_local * n_node * 3]
-    const std::vector<int32_t>& local_element2rank_node,         // [n_local * n_node]
+    const std::vector<int32_t>& local_cell2rank_node,         // [n_local * n_node]
     int n_local,
     int n_node,
     std::vector<double>& rank_node_residual       // [n_rank_node * 3], accumulated
 );
 
 /// Gather global displacement to element-local array for element kernel.
-/// elem_disp[e * n_node * 3 + n * 3 + d] = global_disp[local_element2rank_node[e * n_node + n] * 3 + d]
+/// elem_disp[e * n_node * 3 + n * 3 + d] = global_disp[local_cell2rank_node[e * n_node + n] * 3 + d]
 void gather_from_rank(
     const std::vector<double>& rank_node_field,   // [n_rank_node * 3]
-    const std::vector<int32_t>& local_element2rank_node,         // [n_local * n_node]
+    const std::vector<int32_t>& local_cell2rank_node,         // [n_local * n_node]
     int n_local,
     int n_node,
     std::vector<double>& local_element_field            // [n_local * n_node * 3]
@@ -274,7 +274,7 @@ void gather_from_rank(
 // assembly.cpp implementation sketch:
 void scatter_to_rank(
     const std::vector<double>& local_element_residual,
-    const std::vector<int32_t>& local_element2rank_node,
+    const std::vector<int32_t>& local_cell2rank_node,
     int n_local,
     int n_node,
     std::vector<double>& rank_node_residual)
@@ -282,7 +282,7 @@ void scatter_to_rank(
     std::fill(rank_node_residual.begin(), rank_node_residual.end(), 0.0);
     for (int e = 0; e < n_local; ++e) {
         for (int n = 0; n < n_node; ++n) {
-            int node_id = local_element2rank_node[e * n_node + n];
+            int node_id = local_cell2rank_node[e * n_node + n];
             int elem_base = (e * n_node + n) * 3;
             int glob_base = node_id * 3;
             for (int d = 0; d < 3; ++d) {
@@ -304,15 +304,15 @@ void scatter_to_rank(
 
 - Modify: `forward/share/src/solver.cpp` (startup routine)
 
-**Purpose:** Before entering the time loop, assemble element-local `mass` and `pml_damping` into global-sized arrays using local_element2rank_node. This is a one-time operation at solver startup.
+**Purpose:** Before entering the time loop, assemble element-local `mass` and `pml_damping` into global-sized arrays using local_cell2rank_node. This is a one-time operation at solver startup.
 
 ```cpp
-// In solver.cpp, after loading partition and local_element2rank_node:
+// In solver.cpp, after loading partition and local_cell2rank_node:
 std::vector<double> rank_node_mass(part.n_rank_node, 0.0);
 std::vector<double> rank_node_damping(part.n_rank_node, 0.0);
 for (int e = 0; e < n_local; ++e) {
     for (int n = 0; n < n_node; ++n) {
-        int node_id = part.local_element2rank_node[e * n_node + n];
+        int node_id = part.local_cell2rank_node[e * n_node + n];
         rank_node_mass[node_id] += part.mass[e * n_node + n];
         // Assignment (not accumulation): all elements sharing the same
         // physical node have the same damping value.
@@ -400,7 +400,7 @@ for (int step = start_step; step < cfg.nsteps; ++step) {
                     displacement_tilde);
     
     // 2. Gather predicted displacement to element-local for element kernel
-    gather_from_rank(displacement_tilde, part.local_element2rank_node, n_local, n_node, local_element_displacement);
+    gather_from_rank(displacement_tilde, part.local_cell2rank_node, n_local, n_node, local_element_displacement);
     
     // 3. Zero element-local residual
     std::vector<double> local_element_residual(n_elem_dof, 0.0);
@@ -429,7 +429,7 @@ for (int step = start_step; step < cfg.nsteps; ++step) {
         double stf_val = 0.0;
         if (step < static_cast<int>(cfg.stf_t.size())) stf_val = cfg.stf_values[step];
         if (stf_val != 0.0) {
-            for (int si = 0; si < cfg.n_src_elements; ++si) {
+            for (int si = 0; si < cfg.n_src_cell; ++si) {
                 int elem_idx = src_elem_to_local[si];
                 if (elem_idx < 0) continue;
                 int weight_off = si * n_node;
@@ -444,7 +444,7 @@ for (int step = start_step; step < cfg.nsteps; ++step) {
     }
     
     // 7. Scatter element-local residual → global (accumulates at shared nodes)
-    scatter_to_rank(local_element_residual, part.local_element2rank_node, n_local, n_node, residual);
+    scatter_to_rank(local_element_residual, part.local_cell2rank_node, n_local, n_node, residual);
     
     // 8. MPI halo exchange on global residual
     exchange_halo(exchange_patterns, residual, 3);
@@ -534,7 +534,7 @@ struct CudaDeviceState {
     double* d_rank_node_residual = nullptr;            // [n_rank_node * 3]
     double* d_rank_node_mass = nullptr;                // [n_rank_node]
     double* d_rank_node_damping = nullptr;             // [n_rank_node]
-    int* d_local_element2rank_node = nullptr;                         // [n_local * n_node]
+    int* d_local_cell2rank_node = nullptr;                         // [n_local * n_node]
     int n_rank_dof = 0;
     
     // Keep these for element kernel:
@@ -552,14 +552,14 @@ struct CudaDeviceState {
 // Scatter element-local residual → global (accumulate)
 __global__ void scatter_to_global_kernel(
     const double* local_element_residual,    // [n_local * n_node * 3]
-    const int* local_element2rank_node,               // [n_local * n_node]
+    const int* local_cell2rank_node,               // [n_local * n_node]
     double* rank_node_residual,        // [n_rank_node * 3]
     int n_local, int n_node);
 
 // Gather global displacement → element-local
 __global__ void gather_from_global_kernel(
     const double* rank_node_field,     // [n_rank_node * 3]
-    const int* local_element2rank_node,               // [n_local * n_node]
+    const int* local_cell2rank_node,               // [n_local * n_node]
     double* local_element_field,             // [n_local * n_node * 3]
     int n_local, int n_node);
 ````
@@ -570,16 +570,16 @@ __global__ void gather_from_global_kernel(
 
 - **PML kernel**: Replace `pml_damping_kernel` (element-local) with `pml_damping_global_kernel` that operates on `d_rank_node_velocity` and `d_rank_node_damping` directly, matching the CPU approach
 
-- **`cuda_compute_strain` / `recorded_strain_kernel`**: Currently reads `state.d_displacement` with element-local indexing `(elem * n_node + corner_node) * 3`. After the change, `state.d_displacement` becomes `d_rank_node_displacement`. The kernel must be updated to use local_element2rank_node:
+- **`cuda_compute_strain` / `recorded_strain_kernel`**: Currently reads `state.d_displacement` with element-local indexing `(elem * n_node + corner_node) * 3`. After the change, `state.d_displacement` becomes `d_rank_node_displacement`. The kernel must be updated to use local_cell2rank_node:
 
   ```cuda
-  int node_id = d_local_element2rank_node[elem * n_node + corner_node];
+  int node_id = d_local_cell2rank_node[elem * n_node + corner_node];
   const double* disp_ptr = &d_rank_node_displacement[node_id * 3];
   ```
 
   This is one extra device memory read per vertex — negligible overhead.
 
-- [x] **Step 1: Add global array pointers (`d_global_*`, `d_rank_node_damping`, `d_local_element2rank_node`) to `CudaDeviceState`**
+- [x] **Step 1: Add global array pointers (`d_global_*`, `d_rank_node_damping`, `d_local_cell2rank_node`) to `CudaDeviceState`**
 
 - [x] **Step 2: Implement `scatter_to_global_kernel`** — MUST use `atomicAdd` because multiple elements sharing a node write to the same global DOF
 
@@ -587,9 +587,9 @@ __global__ void gather_from_global_kernel(
 
 - [x] **Step 4: Implement `pml_damping_global_kernel`** — operates directly on `d_rank_node_velocity`
 
-- [x] **Step 5: Update `cuda_allocate_state` to allocate global arrays and upload local_element2rank_node / rank_node_damping**
+- [x] **Step 5: Update `cuda_allocate_state` to allocate global arrays and upload local_cell2rank_node / rank_node_damping**
 
-- [x] **Step 6: Update `recorded_strain_kernel`** to use local_element2rank_node for displacement lookup
+- [x] **Step 6: Update `recorded_strain_kernel`** to use local_cell2rank_node for displacement lookup
 
 - [x] **Step 7: Commit**
 
@@ -608,7 +608,7 @@ cuda_newmark_predict_global(gpu_state, solver_dt, beta);
 
 // 2. Gather predicted global displacement → element-local for kernel
 gather_from_global_kernel<<<...>>>(gpu_state.d_rank_node_displacement_tilde,
-    gpu_state.d_local_element2rank_node, gpu_state.d_local_element_displacement, n_local, n_node);
+    gpu_state.d_local_cell2rank_node, gpu_state.d_local_element_displacement, n_local, n_node);
 
 // 3. Zero element-local residual
 cudaMemset(gpu_state.d_local_element_residual, 0, n_elem_dof * sizeof(double));
@@ -624,7 +624,7 @@ cuda_source_injection(gpu_state, ...);
 
 // 7. Scatter element-local residual → global (atomicAdd to accumulate at shared nodes)
 scatter_to_global_kernel<<<...>>>(gpu_state.d_local_element_residual,
-    gpu_state.d_local_element2rank_node, gpu_state.d_rank_node_residual, n_local, n_node);
+    gpu_state.d_local_cell2rank_node, gpu_state.d_rank_node_residual, n_local, n_node);
 
 // 8. CUDA Newmark corrector (global arrays)
 cuda_newmark_correct_global(gpu_state, solver_dt, gamma);
@@ -662,11 +662,11 @@ ______________________________________________________________________
 // In solver.cpp, snapshot writing:
 if (has_recording) {
     // Gather global → element-local for strain computation
-    gather_from_rank(displacement, part.local_element2rank_node, n_local, n_node, local_element_displacement);
+    gather_from_rank(displacement, part.local_cell2rank_node, n_local, n_node, local_element_displacement);
     cuda_compute_strain(gpu_state, D_mat.data(), ngll, part.dxi_dx);
     cuda_copy_strain_to_host(gpu_state, rec_strain.data());
     
-    // Extract recorded displacement from global array using local_element2rank_node
+    // Extract recorded displacement from global array using local_cell2rank_node
     for (size_t vertex_idx = 0; vertex_idx < n_vertices; ++vertex_idx) {
         int elem = part.recording.src_elem_local[vertex_idx];
         int corner = part.recording.src_corner[vertex_idx];
@@ -677,7 +677,7 @@ if (has_recording) {
         int corner_k = (corner & 4) ? (ngll - 1) : 0;
         int corner_node = (corner_i * ngll + corner_j) * ngll + corner_k;
 
-        int node_id = part.local_element2rank_node[elem * n_node + corner_node];
+        int node_id = part.local_cell2rank_node[elem * n_node + corner_node];
         for (int d = 0; d < 3; ++d) {
             rec_displacement[vertex_idx * 3 + d] = displacement[node_id * 3 + d];
         }
@@ -686,7 +686,7 @@ if (has_recording) {
 ```
 
 - [x] **Step 1: Update snapshot writing to gather global→element-local before strain computation**
-- [x] **Step 2: Update recorded displacement extraction to use local_element2rank_node** (with corner node decoding)
+- [x] **Step 2: Update recorded displacement extraction to use local_cell2rank_node** (with corner node decoding)
 - [x] **Step 3: Build and verify**
 - [x] **Step 4: Commit**
 
@@ -721,7 +721,7 @@ ______________________________________________________________________
 
 ## Phase 5: Testing and Validation
 
-### Task 5.1: Unit Tests for local_element2rank_node
+### Task 5.1: Unit Tests for local_cell2rank_node
 
 **Files:**
 
@@ -782,7 +782,7 @@ ______________________________________________________________________
 
 | Phase | Tasks | Depends On | Risk |
 |-------|-------|-----------|------|
-| 0: Preprocessor | 0.1-0.3 | None | Medium — local_element2rank_node algorithm correctness |
+| 0: Preprocessor | 0.1-0.3 | None | Medium — local_cell2rank_node algorithm correctness |
 | 1: Solver infra | 1.1-1.4 | Phase 0 | Low — pure additions, no behavioral change |
 | 2: CPU loop | 2.1-2.4 | Phase 1 | **High** — fundamental solver rewrite |
 | 3: CUDA loop | 3.1-3.2 | Phase 2 | Medium — follows CPU pattern, atomics required |
@@ -793,8 +793,8 @@ ______________________________________________________________________
 
 ## Key Design Decisions (Post-Review)
 
-1. **local_element2rank_node is per-rank**: Each rank computes local_element2rank_node from its local+ghost elements alone. Cross-rank exchange uses rank-local local_element2rank_node indices. This avoids the complexity of a globally-unique numbering scheme.
+1. **local_cell2rank_node is per-rank**: Each rank computes local_cell2rank_node from its local+ghost elements alone. Cross-rank exchange uses rank-local local_cell2rank_node indices. This avoids the complexity of a globally-unique numbering scheme.
 1. **Within-rank assembly via scatter_to_rank**: No special exchange patterns needed for same-rank shared nodes — scatter naturally accumulates both elements' contributions at the same node_id.
 1. **PML damping on global velocity directly**: Each physical node has exactly one velocity value in the global array. No gather/scatter overhead. No risk of double-counting.
 1. **CUDA scatter uses atomicAdd**: Multiple GPU threads (from different elements sharing a node) write to the same node_id simultaneously. Atomics guarantee correct accumulation.
-1. **Strain kernel reads global displacement via local_element2rank_node**: One extra device memory read per recorded vertex instead of an extra kernel launch for gather.
+1. **Strain kernel reads global displacement via local_cell2rank_node**: One extra device memory read per recorded vertex instead of an extra kernel launch for gather.

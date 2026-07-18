@@ -252,11 +252,11 @@ int main(int argc, char** argv) {
         // Read source coefficient from config.h5
         std::vector<double> source_coeff(n_cell * gll_per_cell, 0.0);
         if (dataset_exists(H5Fopen(config_path.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT),
-                           "source/elements/element_ids")) {
+                           "source/cells/cell_ids")) {
             H5File fc(config_path);
-            if (dataset_exists(fc.id(), "source/elements/element_ids") &&
+            if (dataset_exists(fc.id(), "source/cells/cell_ids") &&
                 dataset_exists(fc.id(), "source/elements/weights")) {
-                auto eids = read_int64_1d(fc.id(), "source/elements/element_ids");
+                auto eids = read_int64_1d(fc.id(), "source/cells/cell_ids");
                 std::vector<hsize_t> wsh;
                 auto weights = read_float64_nd(fc.id(), "source/elements/weights", wsh);
                 // wsh: [n_src, ngll, ngll, ngll]

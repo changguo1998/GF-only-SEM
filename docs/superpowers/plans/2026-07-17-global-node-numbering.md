@@ -81,8 +81,8 @@ Replace the per-rank `compute_local_element2rank_node` call inside the loop with
 ```python
 for rank in range(n_ranks):
     rd = per_rank[rank]
-    locals_list = list(rd["local_element_ids"])
-    ghosts_list = list(rd["ghost_element_ids"])
+    locals_list = list(data.local_cell_ids)
+    ghosts_list = list(data.ghost_cell_ids)
     n_local_cell = len(locals_list)
 
     all_elem_ids = locals_list + ghosts_list

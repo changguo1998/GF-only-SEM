@@ -198,7 +198,7 @@ class TestLocateSourceSurface:
         """Source at (1,1,0) shared by 4 surface elements."""
         topology, gll_coords, bt = _four_cell_surface_topology_and_coords(3)
         result = locate_source(topology, np.array([1.0, 1.0, 0.0]), gll_coords, bt, N=3)
-        assert result["n_src_elem"] == 4
+        assert result["n_src_cell"] == 4
         assert result["mode"] == "surface"
         total = float(np.sum(result["weights"]))
         assert abs(total - 1.0) < 1e-10
@@ -207,7 +207,7 @@ class TestLocateSourceSurface:
         """locate_source without is_pml argument."""
         topology, gll_coords, bt = _four_cell_surface_topology_and_coords(3)
         result = locate_source(topology, np.array([0.5, 0.5, 0.0]), gll_coords, bt, N=3)
-        assert result["n_src_elem"] >= 1
+        assert result["n_src_cell"] >= 1
         assert result["mode"] == "surface"
 
 
@@ -226,9 +226,9 @@ class TestLocateSourceBuried:
         result = locate_source(
             topology, np.array([0.5, 0.5, 0.5]), gll_coords, bt, N=3, is_pml=is_pml
         )
-        assert result["n_src_elem"] == 1
+        assert result["n_src_cell"] == 1
         assert result["mode"] == "buried"
-        assert result["element_ids"][0] == 0
+        assert result["cell_ids"][0] == 0
         wsum = float(np.sum(result["weights"][0]))
         assert abs(wsum - 1.0) < 1e-10
 
@@ -238,8 +238,8 @@ class TestLocateSourceBuried:
         result = locate_source(
             topology, np.array([1.5, 0.5, 0.5]), gll_coords, bt, N=3, is_pml=is_pml
         )
-        assert result["n_src_elem"] == 1
-        assert result["element_ids"][0] == 1
+        assert result["n_src_cell"] == 1
+        assert result["cell_ids"][0] == 1
 
     def test_buried_source_in_pml_raises(self, two_cell_setup):
         """Buried source in PML element raises ValueError."""
@@ -264,5 +264,5 @@ class TestLocateSourceBuried:
         result = locate_source(
             topology, np.array([0.5, 0.5, 0.5]), gll_coords, bt, N=3, is_pml=None
         )
-        assert result["n_src_elem"] == 1
+        assert result["n_src_cell"] == 1
         assert result["mode"] == "surface"

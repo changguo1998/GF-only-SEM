@@ -20,9 +20,10 @@ GMSH .msh v4.1
       │
       ▼
   preprocessor  (interpolation, boundaries, geometric precompute, partition)
-      │              extends model.h5 with /field/element/coords,
-      │              /field/element/dxi_dx, /field/element/jacobian,
-      │              /field/element/is_pml (PML flag for preprocess recording map)
+      │              extends model.h5:
+      │                Stage 1 → /field/element/{coords,dxi_dx,jacobian,is_pml}
+      │                Stage 2 → /field/cell/{coords,dxi_dx,jacobian,lambda,mu,
+      │                          mass,vp,vs,density,damping,is_pml,tile_index}
   partition_{0}.h5, partition_{1}.h5, …  (per-rank partition files)
   config.h5  (simulation + domain + source, rank-invariant)
       │
@@ -159,15 +160,15 @@ partition_{r}.h5
 │   └── cell_to_surface  : int64[n_cell_local, 6]
 │
 ├── /field/
-│   ├── /element/           ← full-rank arrays [n_elem_total, NGLL, NGLL, NGLL, …]
-│   │   ├── coords   : float64[n_elem_total, NGLL, NGLL, NGLL, 3]   — GLL node (x,y,z)
-│   │   ├── dxi_dx : float64[n_elem_total, NGLL, NGLL, NGLL, 3, 3] — ∂ξ_i/∂x_j
-│   │   ├── jacobian  : float64[n_elem_total, NGLL, NGLL, NGLL]       — det(J)
-│   │   ├── mass      : float64[n_elem_total, NGLL, NGLL, NGLL]       — lumped mass diagonal
+│   ├── /element/           ← full-rank arrays [n_total_cell, NGLL, NGLL, NGLL, …]
+│   │   ├── coords   : float64[n_total_cell, NGLL, NGLL, NGLL, 3]   — GLL node (x,y,z)
+│   │   ├── dxi_dx : float64[n_total_cell, NGLL, NGLL, NGLL, 3, 3] — ∂ξ_i/∂x_j
+│   │   ├── jacobian  : float64[n_total_cell, NGLL, NGLL, NGLL]       — det(J)
+│   │   ├── mass      : float64[n_total_cell, NGLL, NGLL, NGLL]       — lumped mass diagonal
 │   │   │
-│   │   ├── vp, vs, density, lambda, mu : float64[n_elem_total, NGLL, NGLL, NGLL]
+│   │   ├── vp, vs, density, lambda, mu : float64[n_total_cell, NGLL, NGLL, NGLL]
 │   │   │
-│   │   └── damping   : float64[n_elem_total, NGLL, NGLL, NGLL]       — linear-ramp PML damping
+│   │   └── damping   : float64[n_total_cell, NGLL, NGLL, NGLL]       — linear-ramp PML damping
 │   │
 │   └── /surface/
 │       └── boundary_tag  : int32[n_surface_local]  — 0=interior, 1=free surface, 2=absorbing
@@ -176,12 +177,12 @@ partition_{r}.h5
     ├── n_ranks                 : attr int32
     ├── element_to_rank         : int32[n_cell]         — full-rank METIS output
     │
-    ├── local_element_ids       : int64[n_elem_local]   — owned element global IDs
-    ├── ghost_element_ids       : int64[n_ghost]         — halo elements (other ranks)
-    ├── ghost_owners            : int32[n_ghost]         — which rank owns each ghost
-    ├── local_element2rank_node           : int64[n_elem_total, NGLL, NGLL, NGLL]
+    ├── local_cell_ids       : int64[n_local_cell]   — owned element global IDs
+    ├── ghost_cell_ids       : int64[n_ghost_cell]         — halo elements (other ranks)
+    ├── ghost_owners            : int32[n_ghost_cell]         — which rank owns each ghost
+    ├── local_cell2rank_node           : int64[n_total_cell, NGLL, NGLL, NGLL]
     │                               — GLL node (i,j,k) → global node ID
-    │                               — n_elem_total = n_elem_local + n_ghost
+    │                               — n_total_cell = n_local_cell + n_ghost_cell
     │                               — 1-based, 0 = null
     │
     └── /exchange/                                    — precomputed MPI patterns
@@ -204,10 +205,10 @@ partition_{r}.h5
 ### Design Notes — partition\_{r}.h5
 
 - **NGLL** = N+1, embedded in array shapes — no separate attribute needed. Polynomial order N is known to all components via array shapes.
-- All element-level fields use element-first layout: `[n_elem_total, NGLL, NGLL, NGLL, …]`
-- PML damping array (`/field/element/damping`) is precomputed by the preprocessor. Forward solver reads directly — no runtime PML computation.
-- `local_element2rank_node` is the CG-SEM assembly map (`ibool`). It maps each local/ghost GLL node to a global ID. Shared nodes accumulate into the same ID.
-- `n_elem_total = n_elem_local + n_ghost` — both owned and ghost elements share the same `local_element2rank_node` numbering space.
+- All element-level fields use element-first layout: `[n_total_cell, NGLL, NGLL, NGLL, …]`
+- PML damping array (`/field/cell/damping`) is precomputed by the preprocessor. Forward solver reads directly — no runtime PML computation.
+- `local_cell2rank_node` is the CG-SEM assembly map (`ibool`). It maps each local/ghost GLL node to a global ID. Shared nodes accumulate into the same ID.
+- `n_total_cell = n_local_cell + n_ghost_cell` — both owned and ghost elements share the same `local_cell2rank_node` numbering space.
 
 ## Boundary Tags
 

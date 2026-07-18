@@ -42,6 +42,8 @@ partitions/partition_{r}.h5 (local subset per rank: topology + field/element + P
     └── restart/{direction}/restart_{r}.h5    (latest-only full-volume restart)
 ```
 
+| `/field/cell/local_cell2global_node` | int64[n_local_cell × NGLL³] — global GLL node IDs (0-based). Written by preprocessor, used by `read_partition_all` for single-rank/GPU merge. Same size as `local_cell2rank_node`. |
+
 ### CLI
 
 ```
@@ -200,7 +202,7 @@ Material is stored directly at GLL nodes in partition\_{r}.h5 — no runtime int
 
 Single point force source on the free surface (z = z_min, top of domain). Precomputed by the preprocessor:
 
-- Element list + natural coordinates (ξ_s, η_s, ζ_s) + Lagrange weights w_ijk stored in config.h5 `/source/elements/`
+- Element list + natural coordinates (ξ_s, η_s, ζ_s) + Lagrange weights w_ijk stored in config.h5 `/source/cells/`
 - Forward solver reads these at startup — no runtime Newton iteration or element search
 - At each timestep, source injects into the global residual: `r(iglob) += STF(t) × w_ijk × direction_vector`
   where `direction_vector` = (1,0,0), (0,1,0), or (0,0,1) depending on the `--direction` CLI flag

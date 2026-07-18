@@ -615,8 +615,8 @@ ConfigData read_config(const std::string& path) {
     }
 
     // Source element location data (precomputed by source_locator.py)
-    cfg.src_cell_ids = try_read_dataset<int64_t>(fid, "/source/elements/element_ids");
-    cfg.src_weights = try_read_dataset<double>(fid, "/source/elements/weights");
+    cfg.src_cell_ids = try_read_dataset<int64_t>(fid, "/source/cells/cell_ids");
+    cfg.src_weights = try_read_dataset<double>(fid, "/source/cells/weights");
     cfg.n_src_cell = static_cast<int>(cfg.src_cell_ids.size());
     return cfg;
 }
