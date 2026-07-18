@@ -120,11 +120,11 @@ def write_model(
     """Extend model.h5 with field data and write partition files.
 
     model.h5 is extended (append mode) with:
-      /field/element/coords, /field/element/dxi_dx, /field/element/jacobian
-      /field/element/mass, /field/element/vp, /field/element/vs
-      /field/element/density, /field/element/lambda, /field/element/mu
-      /field/element/damping, /field/element/is_pml
-      /field/element/tile_index
+      /field/cell/coords, /field/cell/dxi_dx, /field/cell/jacobian
+      /field/cell/mass, /field/cell/vp, /field/cell/vs
+      /field/cell/density, /field/cell/lambda, /field/cell/mu
+      /field/cell/damping, /field/cell/is_pml
+      /field/cell/tile_index
       /field/surface/boundary_tag
 
     When partition_result is provided, per-rank partition_{r}.h5 files are
@@ -144,6 +144,20 @@ def write_model(
                      tilex_elements, tiley_elements.
     """
     _extend_model_h5(model_path, fields, boundary_tag, domain_bounds, tile_config=tile_config)
+
+    # Write global_cell2global_node to model.h5 after extending
+    if partition_result is not None:
+        global_cell2global_node = partition_result.get("global_cell2global_node")
+        n_global_node = partition_result.get("n_global_node")
+        if global_cell2global_node is not None:
+            with h5py.File(model_path, "a") as f:
+                felem = f["field"].require_group("cell")
+                _write_dataset(
+                    felem,
+                    "global_cell2global_node",
+                    global_cell2global_node.ravel().astype(np.int32),
+                )
+                felem.attrs["n_global_node"] = int(n_global_node)
 
     if partition_result is not None:
         _write_partition_files(
@@ -166,7 +180,7 @@ def _extend_model_h5(
 ) -> None:
     with h5py.File(model_path, "a") as f:
         fld = f.require_group("field")
-        felem = fld.require_group("element")
+        felem = fld.require_group("cell")
 
         _write_dataset(felem, "coords", fields.get("coords"), dtype="float64")
         _write_dataset(felem, "dxi_dx", fields.get("dxi_dx"), dtype="float64")
@@ -261,49 +275,45 @@ def _write_partition_files(
 
     for r in range(n_ranks):
         rk = per_rank.get(r, {})
-        local_ids = np.asarray(rk.get("local_element_ids", []), dtype=np.int64)
-        ghost_ids = np.asarray(rk.get("ghost_element_ids", []), dtype=np.int64)
+        local_ids = np.asarray(rk.get("local_cell_ids", []), dtype=np.int64)
+        ghost_ids = np.asarray(rk.get("ghost_cell_ids", []), dtype=np.int64)
         ghost_owners = np.asarray(rk.get("ghost_owners", []), dtype=np.int32)
 
         local_zero = local_ids  # already 0-based from partition.py
-        n_local_element = len(local_zero)
+        n_local_cell = len(local_zero)
 
         part_path = os.path.join(parts_dir, f"partition_{r}.h5")
         with h5py.File(part_path, "w") as f:
             fld_grp = f.create_group("field")
-            felem_grp = fld_grp.create_group("element")
+            felem_grp = fld_grp.create_group("cell")
 
             for key in field_keys:
                 arr = fields.get(key)
                 if arr is None:
                     continue
-                local_data = (
-                    arr[local_zero] if n_local_element > 0 else np.array([], dtype=arr.dtype)
-                )
+                local_data = arr[local_zero] if n_local_cell > 0 else np.array([], dtype=arr.dtype)
                 _write_dataset(felem_grp, key, local_data, compression=True)
 
             # Write tile_index to partition file
             if global_tile_index is not None:
                 local_tile = (
                     global_tile_index[local_zero]
-                    if n_local_element > 0
+                    if n_local_cell > 0
                     else np.array([], dtype=np.int64)
                 )
                 _write_dataset(felem_grp, "tile_index", local_tile, dtype="int64")
 
-            # Write local_element2rank_node and n_rank_node (per-rank global DOF mapping)
-            local_element2rank_node_4d = rk.get("local_element2rank_node")
-            if local_element2rank_node_4d is not None and n_local_element > 0:
-                # local_element2rank_node_4d: [n_local_element+n_ghost, NGLL, NGLL, NGLL]
-                # Write only local-element slice, flattened
-                n_node = int(local_element2rank_node_4d[0].size)  # NGLL³
-                local_element2rank_node_local = (
-                    local_element2rank_node_4d[:n_local_element].ravel().astype(np.int32)
+            # Write local_cell2rank_node and n_rank_node (compact solver ibool)
+            local_cell2rank_node_4d = rk.get("local_cell2rank_node")
+            if local_cell2rank_node_4d is not None and n_local_cell > 0:
+                n_node = int(local_cell2rank_node_4d[0].size)  # NGLL³
+                local_cell2rank_node_local = (
+                    local_cell2rank_node_4d[:n_local_cell].ravel().astype(np.int32)
                 )
                 _write_dataset(
                     felem_grp,
-                    "local_element2rank_node",
-                    local_element2rank_node_local,
+                    "local_cell2rank_node",
+                    local_cell2rank_node_local,
                     dtype="int32",
                     compression=True,
                 )
@@ -311,14 +321,28 @@ def _write_partition_files(
             if n_rank_node is not None:
                 felem_grp.attrs["n_rank_node"] = int(n_rank_node)
 
+            # Write local_cell2global_node (sparse global IDs for read_partition_all merge)
+            local_cell2global_node_4d = rk.get("local_cell2global_node")
+            if local_cell2global_node_4d is not None and n_local_cell > 0:
+                local_cell2global_node_local = (
+                    local_cell2global_node_4d[:n_local_cell].ravel().astype(np.int32)
+                )
+                _write_dataset(
+                    felem_grp,
+                    "local_cell2global_node",
+                    local_cell2global_node_local,
+                    dtype="int32",
+                    compression=True,
+                )
+
             fsurf_grp = fld_grp.create_group("surface")
             _write_dataset(fsurf_grp, "boundary_tag", boundary_tag, dtype="int64")
 
             part_grp = f.create_group("partition")
             part_grp.attrs["n_ranks"] = n_ranks
             _write_dataset(part_grp, "element_to_rank", element_to_rank, dtype="int32")
-            _write_dataset(part_grp, "local_element_ids", local_ids, dtype="int64")
-            _write_dataset(part_grp, "ghost_element_ids", ghost_ids, dtype="int64")
+            _write_dataset(part_grp, "local_cell_ids", local_ids, dtype="int64")
+            _write_dataset(part_grp, "ghost_cell_ids", ghost_ids, dtype="int64")
             _write_dataset(part_grp, "ghost_owners", ghost_owners, dtype="int32")
 
             exchange = rk.get("exchange", {})

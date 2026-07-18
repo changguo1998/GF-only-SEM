@@ -110,10 +110,10 @@ def _geometric_partition(
     return element_to_rank
 
 
-def compute_local_element2rank_node(
+def compute_local_cell2rank_node(
     gll_coords: npt.NDArray[np.float64], element_ids: list[int]
 ) -> tuple[npt.NDArray[np.int32], int]:
-    """Compute per-rank local_element2rank_node mapping from GLL coordinates (SPECFEM get_global).
+    """Compute per-rank local_cell2rank_node mapping from GLL coordinates (SPECFEM get_global).
 
     Sorts GLL node coordinates for the specified elements, then assigns
     the same per-rank global node ID (0-based) to nodes at identical
@@ -126,7 +126,7 @@ def compute_local_element2rank_node(
                      (local + ghost).  Local elements must come first.
 
     Returns:
-        local_element2rank_node: [n_elem, NGLL, NGLL, NGLL] int32 — per-element→node_id mapping.
+        local_cell2rank_node: [n_elem, NGLL, NGLL, NGLL] int32 — per-element→node_id mapping.
         n_rank_node: number of unique per-rank global nodes.
     """
     NGLL = gll_coords.shape[1]
@@ -178,15 +178,80 @@ def compute_local_element2rank_node(
     is_new = np.any(np.diff(sorted_iquan, axis=0, prepend=sorted_iquan[:1] - 1) != 0, axis=1)
     rank_node_id_vals = np.cumsum(is_new, dtype=np.int32) - 1  # 0-based for C++
 
-    # Scatter back to local_element2rank_node[e, i, j, k]
-    local_element2rank_node = np.zeros((n_elem, NGLL, NGLL, NGLL), dtype=np.int32)
+    # Scatter back to local_cell2rank_node[e, i, j, k]
+    local_cell2rank_node = np.zeros((n_elem, NGLL, NGLL, NGLL), dtype=np.int32)
     i_idx = sorted_node // (NGLL * NGLL)
     j_idx = (sorted_node // NGLL) % NGLL
     k_idx = sorted_node % NGLL
-    local_element2rank_node[sorted_elem, i_idx, j_idx, k_idx] = rank_node_id_vals
+    local_cell2rank_node[sorted_elem, i_idx, j_idx, k_idx] = rank_node_id_vals
 
     n_rank_node = int(rank_node_id_vals[-1]) + 1 if n_points > 0 else 0
-    return local_element2rank_node, n_rank_node
+    return local_cell2rank_node, n_rank_node
+
+
+def compute_global_cell2global_node(
+    gll_coords: npt.NDArray[np.float64],
+) -> tuple[npt.NDArray[np.int32], int]:
+    """Compute global element-to-node mapping from all GLL coordinates.
+
+    One-pass coordinate sort over ALL elements (cf. the per-rank
+    compute_local_cell2rank_node which operates on a subset).
+    Returns a mapping usable by every rank — slicing by local element
+    IDs produces each rank's ibool in a shared global numbering space.
+
+    Args:
+        gll_coords: [n_cell, NGLL, NGLL, NGLL, 3] — all elements' GLL coords.
+
+    Returns:
+        global_cell2global_node: [n_cell, NGLL, NGLL, NGLL] int32
+        n_global_node: number of unique global nodes.
+    """
+    n_cell = gll_coords.shape[0]
+    NGLL = gll_coords.shape[1]
+    n_node = NGLL * NGLL * NGLL
+
+    if n_cell == 0:
+        return np.zeros((0, NGLL, NGLL, NGLL), dtype=np.int32), 0
+
+    # Global domain extent for floating-point tolerance
+    extent = float(
+        max(
+            gll_coords[..., 0].max() - gll_coords[..., 0].min(),
+            gll_coords[..., 1].max() - gll_coords[..., 1].min(),
+            gll_coords[..., 2].max() - gll_coords[..., 2].min(),
+            np.finfo(np.float64).eps,
+        )
+    )
+    tol = np.float64(1e-12 * extent)
+
+    n_points = n_cell * n_node
+
+    # Flatten: 3-D coordinate columns + element/node indices
+    coords_flat = gll_coords.reshape(n_points, 3)
+    elem_idx = np.repeat(np.arange(n_cell, dtype=np.int32), n_node)
+    node_idx = np.tile(np.arange(n_node, dtype=np.int32), n_cell)
+
+    # Quantize coordinates onto an integer grid
+    scale = np.float64(1.0) / tol
+    iquan = np.rint(coords_flat * scale).astype(np.int64)
+    order = np.lexsort((iquan[:, 2], iquan[:, 1], iquan[:, 0]))
+    sorted_iquan = iquan[order]
+    sorted_elem = elem_idx[order]
+    sorted_node = node_idx[order]
+
+    # A new global_node_id starts when ANY quantized coordinate differs
+    is_new = np.any(np.diff(sorted_iquan, axis=0, prepend=sorted_iquan[:1] - 1) != 0, axis=1)
+    global_node_id_vals = np.cumsum(is_new, dtype=np.int32) - 1  # 0-based for C++
+
+    # Scatter back to global_cell2global_node[e, i, j, k]
+    global_cell2global_node = np.zeros((n_cell, NGLL, NGLL, NGLL), dtype=np.int32)
+    i_idx = sorted_node // (NGLL * NGLL)
+    j_idx = (sorted_node // NGLL) % NGLL
+    k_idx = sorted_node % NGLL
+    global_cell2global_node[sorted_elem, i_idx, j_idx, k_idx] = global_node_id_vals
+
+    n_global_node = int(global_node_id_vals[-1]) + 1 if n_points > 0 else 0
+    return global_cell2global_node, n_global_node
 
 
 def partition(topology: TopologyData, gll_coords: npt.NDArray[np.float64], n_ranks: int) -> dict:
@@ -207,11 +272,11 @@ def partition(topology: TopologyData, gll_coords: npt.NDArray[np.float64], n_ran
           element_to_rank: [n_cell] int64 array
           n_ranks: number of ranks
           per_rank: dict rank → dict with:
-            local_element_ids: list of 0-based element indices local to this rank
-            ghost_element_ids: list of 0-based element indices owned by other ranks
+            local_cell_ids: list of 0-based element indices local to this rank
+            ghost_cell_ids: list of 0-based element indices owned by other ranks
                                but needed by this rank
             ghost_owners: list of rank IDs for each ghost element
-            local_element2rank_node: [n_local_element+n_ghost, NGLL, NGLL, NGLL] int32 — per-rank global node IDs
+            local_cell2rank_node: [n_local_cell+n_ghost, NGLL, NGLL, NGLL] int32 — per-rank global node IDs
             n_rank_node: int — number of unique global nodes on this rank
             exchange: dict neighbor_rank → {
                 "send_dof": list of per-rank global DOF indices (node_id*3+dir),
@@ -286,8 +351,8 @@ def partition(topology: TopologyData, gll_coords: npt.NDArray[np.float64], n_ran
             if element_to_rank[e] == rank:
                 locals_list.append(e)
         per_rank[rank] = {
-            "local_element_ids": locals_list,
-            "ghost_element_ids": [],
+            "local_cell_ids": locals_list,
+            "ghost_cell_ids": [],
             "ghost_owners": [],
             "exchange": {},
         }
@@ -320,8 +385,8 @@ def partition(topology: TopologyData, gll_coords: npt.NDArray[np.float64], n_ran
 
                 for owner_rank, ghost_cell in [(r1, c2), (r2, c1)]:
                     rd = per_rank[owner_rank]
-                    if ghost_cell not in rd["ghost_element_ids"]:
-                        rd["ghost_element_ids"].append(ghost_cell)
+                    if ghost_cell not in rd["ghost_cell_ids"]:
+                        rd["ghost_cell_ids"].append(ghost_cell)
                         rd["ghost_owners"].append(int(element_to_rank[ghost_cell]))
 
     # Second pass: compute exchange DOF indices
@@ -331,12 +396,12 @@ def partition(topology: TopologyData, gll_coords: npt.NDArray[np.float64], n_ran
     for rank in range(n_ranks):
         rd = per_rank[rank]
         local_idx_map: dict[int, int] = {
-            e_global: idx for idx, e_global in enumerate(rd["local_element_ids"])
+            e_global: idx for idx, e_global in enumerate(rd["local_cell_ids"])
         }
-        ghost_set: set[int] = set(rd["ghost_element_ids"])  # elements owned by other ranks
+        ghost_set: set[int] = set(rd["ghost_cell_ids"])  # elements owned by other ranks
         # Build reverse map: ghost_elem → {neighbor_rank}
         ghost_to_owner: dict[int, list[int]] = {}
-        for idx, g_elem in enumerate(rd["ghost_element_ids"]):
+        for idx, g_elem in enumerate(rd["ghost_cell_ids"]):
             owner = int(rd["ghost_owners"][idx])
             if g_elem not in ghost_to_owner:
                 ghost_to_owner[g_elem] = []
@@ -392,28 +457,37 @@ def partition(topology: TopologyData, gll_coords: npt.NDArray[np.float64], n_ran
 
         rd["exchange"] = exchange_dof
 
-    # Third pass: compute local_element2rank_node for each rank and convert exchange DOF
-    # indices from element-local to per-rank global (node_id-based).
-    # local_element2rank_node is computed for local + ghost elements together so that
-    # shared interface nodes receive the same node_id within the rank.
+    # Third pass: compute global element-to-node mapping once, then slice per rank.
+    # Per-rank solver arrays use compact 0..n_rank_node-1 (local_cell2rank_node).
+    # A parallel local_cell2global_node table (sparse global IDs) is stored for
+    # read_partition_all merging across ranks.
+    global_cell2global_node, n_global_node = compute_global_cell2global_node(gll_coords)
+
     for rank in range(n_ranks):
         rd = per_rank[rank]
-        locals_list = list(rd["local_element_ids"])
-        ghosts_list = list(rd["ghost_element_ids"])
-        n_local_element = len(locals_list)
+        locals_list = list(rd["local_cell_ids"])
+        ghosts_list = list(rd["ghost_cell_ids"])
+        n_local_cell = len(locals_list)
 
-        # Compute local_element2rank_node for all elements (locals before ghosts)
+        # Slice global mapping for this rank's elements (local + ghost).
+        # Ghost elements are included so shared interface nodes receive the
+        # same compact node_id within the rank.
         all_elem_ids = locals_list + ghosts_list
-        local_element2rank_node_4d, n_rank_node = compute_local_element2rank_node(
-            gll_coords, all_elem_ids
-        )
-        rd["local_element2rank_node"] = local_element2rank_node_4d
+        ibool_global_4d = global_cell2global_node[all_elem_ids]
+
+        # Compact relabeling: unique sorted global IDs → 0..n_rank_node-1
+        _, inverse = np.unique(ibool_global_4d.ravel(), return_inverse=True)
+        ibool_compact_4d = inverse.reshape(ibool_global_4d.shape).astype(np.int32)
+        n_rank_node = ibool_compact_4d.max() + 1 if ibool_compact_4d.size > 0 else 0
+
+        rd["local_cell2rank_node"] = ibool_compact_4d
+        rd["local_cell2global_node"] = ibool_global_4d
         rd["n_rank_node"] = n_rank_node
 
-        # Build map: global element ID → local index in local_element2rank_node_4d
+        # Build map: global element ID → local index in ibool arrays
         all_elem_to_node_map = {e_global: idx for idx, e_global in enumerate(all_elem_ids)}
 
-        # Convert exchange DOF indices
+        # Convert exchange DOF indices: element-local → compact DOF
         for neighbor_rank, ex in rd["exchange"].items():
             for key in ("send_dof", "recv_dof"):
                 old_dofs = ex[key]
@@ -431,7 +505,7 @@ def partition(topology: TopologyData, gll_coords: npt.NDArray[np.float64], n_ran
                     j_idx = (node // NGLL) % NGLL
                     i_idx = node // (NGLL * NGLL)
 
-                    node_id = int(local_element2rank_node_4d[local_idx, i_idx, j_idx, k_idx])
+                    node_id = int(ibool_compact_4d[local_idx, i_idx, j_idx, k_idx])
                     new_dofs.append(node_id * 3 + direction)
 
                 ex[key] = new_dofs
@@ -456,4 +530,10 @@ def partition(topology: TopologyData, gll_coords: npt.NDArray[np.float64], n_ran
             ex["send_dof"] = uniq_send
             ex["recv_dof"] = uniq_recv
 
-    return {"element_to_rank": element_to_rank, "n_ranks": n_ranks, "per_rank": per_rank}
+    return {
+        "element_to_rank": element_to_rank,
+        "n_ranks": n_ranks,
+        "per_rank": per_rank,
+        "global_cell2global_node": global_cell2global_node,
+        "n_global_node": n_global_node,
+    }

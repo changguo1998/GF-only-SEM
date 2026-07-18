@@ -119,14 +119,14 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         if (eff_nprocs == 1) {
             // Single effective rank: merge all partitions into full domain
             part = read_partition_all(partition_dir);
-            logger.debug("  merged " + std::to_string(part.n_local_element) +
+            logger.debug("  merged " + std::to_string(part.n_local_cell) +
                          " elements from all partitions");
         } else if (eff_nprocs < nprocs) {
             // Reduced effective ranks: block-distribute partitions
             int eff_rank = rank % eff_nprocs;
             part = read_partition_range(partition_dir, eff_rank, eff_nprocs);
             logger.debug("  effective rank " + std::to_string(eff_rank) + ": " +
-                         std::to_string(part.n_local_element) + " elements");
+                         std::to_string(part.n_local_cell) + " elements");
         } else {
             std::string partition_path =
                 partition_dir + "/partition_" + std::to_string(rank) + ".h5";
@@ -136,24 +136,24 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             std::chrono::duration<double>(std::chrono::steady_clock::now() - t_io).count();
         logger.debug("  partition read: " + std::to_string(io_elapsed) + "s");
 
-        int n_local_element = part.n_local_element;
+        int n_local_cell = part.n_local_cell;
         int n_node = ngll * ngll * ngll;
-        int n_local_element_dof =
-            n_local_element * n_node * 3;  // element-local DOF for kernel temp arrays
+        int n_local_cell_dof =
+            n_local_cell * n_node * 3;  // element-local DOF for kernel temp arrays
 
-        // Use global DOF numbering if local_element2rank_node is available (CG-SEM assembly).
+        // Use global DOF numbering if local_cell2rank_node is available (CG-SEM assembly).
         // Fall back to element-local DOF (backward compat) otherwise.
-        bool use_global_dof = (part.n_rank_node > 0 && !part.local_element2rank_node.empty());
-        int n_rank_dof = use_global_dof ? part.n_rank_node * 3 : n_local_element_dof;
+        bool use_global_dof = (part.n_rank_node > 0 && !part.local_cell2rank_node.empty());
+        int n_rank_dof = use_global_dof ? part.n_rank_node * 3 : n_local_cell_dof;
 
-        logger.info("  n_local_element=" + std::to_string(n_local_element) +
+        logger.info("  n_local_cell=" + std::to_string(n_local_cell) +
                     " n_gll_per_elem=" + std::to_string(n_node) +
                     (use_global_dof ? " n_rank_node=" + std::to_string(part.n_rank_node)
-                                    : " dofs=" + std::to_string(n_local_element_dof)));
+                                    : " dofs=" + std::to_string(n_local_cell_dof)));
 
         // Memory estimate (8 bytes per double)
         size_t mem_bytes = n_rank_dof * 4 * 8;  // displacement, velocity, acceleration, residual
-        mem_bytes += n_local_element_dof * 2 * 8;  // elem temp arrays (displacement, residual)
+        mem_bytes += n_local_cell_dof * 2 * 8;  // elem temp arrays (displacement, residual)
         double mem_mb = static_cast<double>(mem_bytes) / (1024.0 * 1024.0);
         logger.debug("  est memory (state): " + std::to_string(mem_mb) + " MB");
 
@@ -173,30 +173,30 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         std::vector<double> displacement_tilde(n_rank_dof, 0.0);  // predicted displacement
 
         // Element-local temp arrays for kernel (always element-local)
-        std::vector<double> local_element_displacement(n_local_element_dof, 0.0);
-        std::vector<double> local_element_residual(n_local_element_dof, 0.0);
+        std::vector<double> local_cell_displacement(n_local_cell_dof, 0.0);
+        std::vector<double> local_cell_residual(n_local_cell_dof, 0.0);
 #ifdef GF_WITH_CUDA
         CudaDeviceState gpu_state;
 #endif
 
         // === Use precomputed exchange patterns from partition file ===
         // These contain send_dof and recv_dof indices for shared interface nodes.
-        // With local_element2rank_node-based global DOF (Phase 0.3), these are node_id*3+dir
-        // indices. Without local_element2rank_node (legacy), these are element-local
+        // With local_cell2rank_node-based global DOF (Phase 0.3), these are node_id*3+dir
+        // indices. Without local_cell2rank_node (legacy), these are element-local
         // (elem*n_node+node)*3+dir.
         const auto& exchange_patterns = part.exchange_patterns;
 
         // === Assemble global mass and damping (one-time, at startup) ===
-        // When local_element2rank_node is available, element-local mass/damping values are
+        // When local_cell2rank_node is available, element-local mass/damping values are
         // scattered to global-sized arrays.  Mass accumulates (shared node
         // masses sum); damping assigns (all sharing elements have the same
         // damping profile on shared faces).
         std::vector<double> rank_node_mass(n_rank_dof / 3, 0.0);     // [n_rank_node] — node-sized
         std::vector<double> rank_node_damping(n_rank_dof / 3, 0.0);  // [n_rank_node]
         if (use_global_dof) {
-            for (int e = 0; e < n_local_element; ++e) {
+            for (int e = 0; e < n_local_cell; ++e) {
                 for (int n = 0; n < n_node; ++n) {
-                    int node_id = part.local_element2rank_node[e * n_node + n];
+                    int node_id = part.local_cell2rank_node[e * n_node + n];
                     rank_node_mass[node_id] += part.mass[e * n_node + n];
                     rank_node_damping[node_id] = part.pml_damping[e * n_node + n];
                 }
@@ -248,34 +248,34 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         // === Build source element lookup table ===
         // Map precomputed source element IDs (from config.h5) to local element indices.
         // -1 means the source element is not on this rank.
-        std::vector<int> src_elem_to_local(cfg.n_src_elements, -1);
-        for (int si = 0; si < cfg.n_src_elements; ++si) {
-            for (int e = 0; e < n_local_element; ++e) {
-                if (part.local_element_ids[e] == cfg.src_element_ids[si]) {
+        std::vector<int> src_elem_to_local(cfg.n_src_cell, -1);
+        for (int si = 0; si < cfg.n_src_cell; ++si) {
+            for (int e = 0; e < n_local_cell; ++e) {
+                if (part.local_cell_ids[e] == cfg.src_cell_ids[si]) {
                     src_elem_to_local[si] = e;
                     break;
                 }
             }
         }
-        if (cfg.n_src_elements > 0) {
-            logger.debug("  source elements: " + std::to_string(cfg.n_src_elements));
+        if (cfg.n_src_cell > 0) {
+            logger.debug("  source elements: " + std::to_string(cfg.n_src_cell));
         }
 
 #ifdef GF_WITH_CUDA
         // === Allocate GPU state (single-GPU native path) ===
         {
-            gpu_state = cuda_allocate_state(n_local_element, ngll, part.mass, part.pml_damping,
+            gpu_state = cuda_allocate_state(n_local_cell, ngll, part.mass, part.pml_damping,
                                             part.dxi_dx, part.jacobian, part.lambda_, part.mu_,
                                             D_mat.data(), gll_wts.data(), cfg, part.recording,
-                                            n_local_element_dof, part.local_element2rank_node,
+                                            n_local_cell_dof, part.local_cell2rank_node,
                                             part.n_rank_node, rank_node_mass, rank_node_damping);
             // Copy source element offsets to device
-            std::vector<int> src_offsets(cfg.n_src_elements, -1);
-            for (int si = 0; si < cfg.n_src_elements; ++si) {
+            std::vector<int> src_offsets(cfg.n_src_cell, -1);
+            for (int si = 0; si < cfg.n_src_cell; ++si) {
                 src_offsets[si] = src_elem_to_local[si];
             }
             GF_CUDA_CHECK(cudaMemcpy(gpu_state.d_src_elem_offsets, src_offsets.data(),
-                                     cfg.n_src_elements * sizeof(int), cudaMemcpyHostToDevice));
+                                     cfg.n_src_cell * sizeof(int), cudaMemcpyHostToDevice));
         }
 #endif
 
@@ -302,7 +302,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             restart_stride = cfg.restart_stride;
         }
         bool do_restart = (restart_stride > 0);
-        RestartWriter restart_writer(output_dir, direction, rank, n_local_element, ngll,
+        RestartWriter restart_writer(output_dir, direction, rank, n_local_cell, ngll,
                                      use_global_dof, part.n_rank_node);
         if (do_restart) {
             logger.info("  restart stride: " + std::to_string(restart_stride));
@@ -361,7 +361,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 cuda_gather_predicted(gpu_state);
 
                 cuda_zero_residual(gpu_state);
-                cuda_launch_element_residual(gpu_state, ngll, n_local_element);
+                cuda_launch_element_residual(gpu_state, ngll, n_local_cell);
                 cuda_pml_damping(gpu_state);
                 {
                     int dir = (direction == "x") ? 0 : ((direction == "y") ? 1 : 2);
@@ -371,7 +371,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                     }
                     if (stf_val != 0.0) {
                         cuda_source_injection(gpu_state, dir, stf_val, cfg.src_weights.data(),
-                                              cfg.n_src_elements);
+                                              cfg.n_src_cell);
                     }
                 }
                 // Scatter element-local → global (atomicAdd at shared nodes)
@@ -390,7 +390,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 // ---- Legacy element-local path ----
                 cuda_newmark_predict(gpu_state, solver_dt, beta);
                 cuda_zero_residual(gpu_state);
-                cuda_launch_element_residual(gpu_state, ngll, n_local_element);
+                cuda_launch_element_residual(gpu_state, ngll, n_local_cell);
                 cuda_pml_damping(gpu_state);
                 {
                     int dir = (direction == "x") ? 0 : ((direction == "y") ? 1 : 2);
@@ -400,7 +400,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                     }
                     if (stf_val != 0.0) {
                         cuda_source_injection(gpu_state, dir, stf_val, cfg.src_weights.data(),
-                                              cfg.n_src_elements);
+                                              cfg.n_src_cell);
                     }
                 }
 
@@ -455,8 +455,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                         int corner_k = (corner & 4) ? (ngll - 1) : 0;
                         int corner_node = (corner_i * ngll + corner_j) * ngll + corner_k;
                         if (gpu_state.use_global_dof) {
-                            int node_id =
-                                part.local_element2rank_node[elem * n_node + corner_node];
+                            int node_id = part.local_cell2rank_node[elem * n_node + corner_node];
                             for (int d = 0; d < 3; ++d) {
                                 rec_displacement[vertex_idx * 3 + d] =
                                     displacement[node_id * 3 + d];
@@ -507,15 +506,15 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 }
 
                 // 3. Gather predicted displacement → element-local for kernel
-                gather_from_rank(displacement_tilde, part.local_element2rank_node, n_local_element,
-                                 n_node, local_element_displacement);
+                gather_from_rank(displacement_tilde, part.local_cell2rank_node, n_local_cell,
+                                 n_node, local_cell_displacement);
 
                 // 3. Zero element-local residual, compute element kernel
-                std::fill(local_element_residual.begin(), local_element_residual.end(), 0.0);
+                std::fill(local_cell_residual.begin(), local_cell_residual.end(), 0.0);
                 compute_element_residual<gf::ActiveBackend>(
-                    n_local_element, part.dxi_dx.data(), part.jacobian.data(), part.lambda_.data(),
+                    n_local_cell, part.dxi_dx.data(), part.jacobian.data(), part.lambda_.data(),
                     part.mu_.data(), D_mat.data(), gll_wts.data(), ngll,
-                    local_element_displacement.data(), local_element_residual.data());
+                    local_cell_displacement.data(), local_cell_residual.data());
 
                 // 4. PML damping on global velocity (direct — no gather/scatter)
                 for (int node_id = 0; node_id < part.n_rank_node; ++node_id) {
@@ -536,7 +535,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                         stf_val = cfg.stf_values[step];
                     }
                     if (stf_val != 0.0) {
-                        for (int si = 0; si < cfg.n_src_elements; ++si) {
+                        for (int si = 0; si < cfg.n_src_cell; ++si) {
                             int elem_idx = src_elem_to_local[si];
                             if (elem_idx < 0)
                                 continue;
@@ -550,8 +549,8 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                                         if (w == 0.0)
                                             continue;
                                         int node_off = (i * ngll + j) * ngll + k;
-                                        local_element_residual[dof_base_elem + node_off * 3 +
-                                                               dir] += stf_val * w;
+                                        local_cell_residual[dof_base_elem + node_off * 3 + dir] +=
+                                            stf_val * w;
                                     }
                                 }
                             }
@@ -560,8 +559,8 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 }
 
                 // 6. Scatter element-local → global (accumulates at shared nodes)
-                scatter_to_rank(local_element_residual, part.local_element2rank_node,
-                                n_local_element, n_node, residual);
+                scatter_to_rank(local_cell_residual, part.local_cell2rank_node, n_local_cell,
+                                n_node, residual);
 
                 // 6. MPI halo exchange on global residual
                 exchange_halo(exchange_patterns, residual, 3);
@@ -578,7 +577,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 std::fill(residual.begin(), residual.end(), 0.0);
 
                 compute_element_residual<gf::ActiveBackend>(
-                    n_local_element, part.dxi_dx.data(), part.jacobian.data(), part.lambda_.data(),
+                    n_local_cell, part.dxi_dx.data(), part.jacobian.data(), part.lambda_.data(),
                     part.mu_.data(), D_mat.data(), gll_wts.data(), ngll, displacement_tilde.data(),
                     residual.data());
 
@@ -592,7 +591,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                         stf_val = cfg.stf_values[step];
                     }
                     if (stf_val != 0.0) {
-                        for (int si = 0; si < cfg.n_src_elements; ++si) {
+                        for (int si = 0; si < cfg.n_src_cell; ++si) {
                             int elem_idx = src_elem_to_local[si];
                             if (elem_idx < 0)
                                 continue;
@@ -650,8 +649,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                         int corner_k = (corner & 4) ? (ngll - 1) : 0;
                         int corner_node = (corner_i * ngll + corner_j) * ngll + corner_k;
                         if (use_global_dof) {
-                            int node_id =
-                                part.local_element2rank_node[elem * n_node + corner_node];
+                            int node_id = part.local_cell2rank_node[elem * n_node + corner_node];
                             for (int d = 0; d < ncomp; ++d) {
                                 dst[vertex_idx * ncomp + d] = src[node_id * 3 + d];
                             }
@@ -668,12 +666,12 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                     // For global DOF: gather fresh displacement into element-local
                     // so strain derivative computation can access all GLL nodes.
                     if (use_global_dof) {
-                        gather_from_rank(displacement, part.local_element2rank_node,
-                                         n_local_element, n_node, local_element_displacement);
+                        gather_from_rank(displacement, part.local_cell2rank_node, n_local_cell,
+                                         n_node, local_cell_displacement);
                     }
                     // Pointer to the displacement array used for strain computation
                     const double* strain_disp =
-                        use_global_dof ? local_element_displacement.data() : displacement.data();
+                        use_global_dof ? local_cell_displacement.data() : displacement.data();
 
                     size_t n_vertices = part.recording.vertex_ids.size();
                     rec_strain.resize(n_vertices * 6, 0.0);
@@ -738,14 +736,14 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 } else if (!recording_mode) {
                     // For global DOF: gather displacement before full-volume strain
                     if (use_global_dof) {
-                        gather_from_rank(displacement, part.local_element2rank_node,
-                                         n_local_element, n_node, local_element_displacement);
+                        gather_from_rank(displacement, part.local_cell2rank_node, n_local_cell,
+                                         n_node, local_cell_displacement);
                     }
                     const double* strain_disp =
-                        use_global_dof ? local_element_displacement.data() : displacement.data();
+                        use_global_dof ? local_cell_displacement.data() : displacement.data();
 
-                    rec_strain.resize(n_local_element * n_node * 6, 0.0);
-                    for (int elem = 0; elem < n_local_element; ++elem) {
+                    rec_strain.resize(n_local_cell * n_node * 6, 0.0);
+                    for (int elem = 0; elem < n_local_cell; ++elem) {
                         for (int i = 0; i < ngll; ++i) {
                             for (int j = 0; j < ngll; ++j) {
                                 for (int k = 0; k < ngll; ++k) {

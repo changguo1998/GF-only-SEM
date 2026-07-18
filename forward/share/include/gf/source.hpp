@@ -16,7 +16,7 @@ namespace gf {
 ///
 /// Usage:
 ///   PointForceSource src;
-///   src.locate(px, py, pz, coords, dxi_dx, n_local_element, ngll);
+///   src.locate(px, py, pz, coords, dxi_dx, n_local_cell, ngll);
 ///   src.apply(fx, fy, fz, rank_data, rhs);
 class PointForceSource {
 public:
@@ -30,13 +30,13 @@ public:
     /// in natural coordinates (xi, eta, zeta) ∈ [-1, 1]³.
     ///
     /// @param[in] src_x,src_y,src_z  physical coordinates of source
-    /// @param[in] coords             [n_local_element * ngll^3 * 3] GLL nodal coordinates
-    /// @param[in] dxi_dx             [n_local_element * ngll^3 * 9] inverse Jacobian per GLL node
-    /// @param[in] n_local_element       number of local elements
+    /// @param[in] coords             [n_local_cell * ngll^3 * 3] GLL nodal coordinates
+    /// @param[in] dxi_dx             [n_local_cell * ngll^3 * 9] inverse Jacobian per GLL node
+    /// @param[in] n_local_cell       number of local elements
     /// @param[in] ngll               GLL order per axis
     /// @return true if source location was found in a local element
     bool locate(double src_x, double src_y, double src_z, const std::vector<double>& coords,
-                const std::vector<double>& dxi_dx, int n_local_element, int ngll);
+                const std::vector<double>& dxi_dx, int n_local_cell, int ngll);
 
     /// Apply the source force to the RHS at the current time step.
     ///

@@ -139,7 +139,7 @@ def build_recording_map(
     else:
         per_rank_recording = {}
         for rank, rank_data in per_rank.items():
-            local_ids = list(rank_data.get("local_element_ids", []))
+            local_ids = list(rank_data.get("local_cell_ids", []))
             local_set = set(local_ids)
             # Find which selected vertices belong to this rank
             rank_vertex_set = set()
@@ -190,7 +190,7 @@ def _get_face_vertices(
 
 def _build_rank_recording(
     rank: int,
-    local_element_ids: list[int],
+    local_cell_ids: list[int],
     vertex_set: set[int],
     elem_vertex_map: dict[int, list[int]],
 ) -> dict[str, Any]:
@@ -199,13 +199,13 @@ def _build_rank_recording(
     For each vertex, find a local element that contains it and assign
     the corner index.
     """
-    local_set = set(local_element_ids)
+    local_set = set(local_cell_ids)
     # save_element_mask: True for elements that contain at least one recorded vertex
     save_element_mask = [
         any(
             global_vertex_id in vertex_set for global_vertex_id in elem_vertex_map.get(elem_id, [])
         )
-        for elem_id in local_element_ids
+        for elem_id in local_cell_ids
     ]
 
     # Map vertex → (local_elem_idx, corner_idx)
@@ -213,7 +213,7 @@ def _build_rank_recording(
 
     # Pre-build element → local_index mapping (O(n) instead of O(n²))
     element_to_local_index: dict[int, int] = {
-        elem_id: idx for idx, elem_id in enumerate(local_element_ids)
+        elem_id: idx for idx, elem_id in enumerate(local_cell_ids)
     }
 
     # Build reverse: vertex → list of (local_elem_idx, corner_idx)

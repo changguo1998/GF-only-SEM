@@ -108,7 +108,7 @@ class TestModelWriter:
                 assert "field" in f
                 assert "domain" in f
 
-                felem = f["field/element"]
+                felem = f["field/cell"]
                 assert "coords" in felem
                 assert "dxi_dx" in felem
                 assert "jacobian" in felem
@@ -150,8 +150,8 @@ class TestModelWriter:
                 "n_ranks": 1,
                 "per_rank": {
                     0: {
-                        "local_element_ids": np.array([0], dtype=np.int64),
-                        "ghost_element_ids": np.array([], dtype=np.int64),
+                        "local_cell_ids": np.array([0], dtype=np.int64),
+                        "ghost_cell_ids": np.array([], dtype=np.int64),
                         "ghost_owners": np.array([], dtype=np.int32),
                         "exchange": {},
                     }
@@ -167,11 +167,11 @@ class TestModelWriter:
             assert os.path.isfile(part_path)
 
             with h5py.File(part_path, "r") as f:
-                assert "field/element" in f
+                assert "field/cell" in f
                 assert "field/surface" in f
                 assert "partition" in f
 
-                felem = f["field/element"]
+                felem = f["field/cell"]
                 assert "coords" in felem
                 assert "mass" in felem
                 assert "vp" in felem
@@ -181,7 +181,7 @@ class TestModelWriter:
 
                 part = f["partition"]
                 assert part.attrs["n_ranks"] == 1
-                assert np.array_equal(part["local_element_ids"][:], np.array([0], dtype=np.int64))
+                assert np.array_equal(part["local_cell_ids"][:], np.array([0], dtype=np.int64))
 
     def test_partition_multi_rank(self):
         with tempfile.TemporaryDirectory() as td:
@@ -196,8 +196,8 @@ class TestModelWriter:
                 "n_ranks": 1,
                 "per_rank": {
                     0: {
-                        "local_element_ids": np.array([0], dtype=np.int64),
-                        "ghost_element_ids": np.array([], dtype=np.int64),
+                        "local_cell_ids": np.array([0], dtype=np.int64),
+                        "ghost_cell_ids": np.array([], dtype=np.int64),
                         "ghost_owners": np.array([], dtype=np.int32),
                         "exchange": {1: {"send_dof": [1, 2, 3], "recv_dof": [1, 2, 3]}},
                     }
@@ -226,7 +226,7 @@ class TestModelWriter:
             write_model(model_path, topo, fields, boundary_tag, domain_bounds)
 
             with h5py.File(model_path, "r") as f:
-                is_pml_data = f["field/element/is_pml"][:]
+                is_pml_data = f["field/cell/is_pml"][:]
                 assert is_pml_data.dtype == np.int8
                 assert is_pml_data[0] == 1
 

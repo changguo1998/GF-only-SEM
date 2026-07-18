@@ -25,11 +25,11 @@ struct GLLQuad {
 // by local element + GLL node. No separate MaterialProperties/PMProfile structs --
 // everything is precomputed at GLL nodes in partition_{r}.h5.
 struct RankData {
-    int n_local_element = 0, n_ghost_element = 0, n_total_element = 0;
+    int n_local_cell = 0, n_ghost_cell = 0, n_total_cell = 0;
     int ngll = 0;  // N+1, extracted from partition array shapes
 
-    std::vector<int64_t> local_element_ids;  // 1-based global element IDs
-    std::vector<int64_t> ghost_element_ids;
+    std::vector<int64_t> local_cell_ids;  // 1-based global element IDs
+    std::vector<int64_t> ghost_cell_ids;
     std::vector<int32_t> ghost_owners;  // which rank owns each ghost
 
     // Precomputed fields at GLL nodes (element-first, flattened: [n_elem * NGLL^3, ...])
@@ -42,9 +42,9 @@ struct RankData {
     std::vector<double> pml_damping;      // PML damping, 0=interior
 
     // Rank-level node numbering (CG-SEM assembly)
-    std::vector<int32_t> local_element2rank_node;  // [n_local_element * n_node] — maps
-                                                   // (elem,node)→node_id (0-based)
-    int n_rank_node = 0;                           // unique rank-level nodes on this rank
+    std::vector<int32_t> local_cell2rank_node;  // [n_local_cell * n_node] — maps
+                                                // (elem,node)→node_id (0-based)
+    int n_rank_node = 0;                        // unique rank-level nodes on this rank
 
     // Precomputed exchange patterns (from /partition/exchange/neighbor_{N}/)
     // Face-pair send/recv lists per neighbor
@@ -111,9 +111,9 @@ struct ConfigData {
     double source_x = 0.0, source_y = 0.0, source_z = 0.0;
 
     // Source elements (precomputed by preprocess/source_locator.py)
-    std::vector<int64_t> src_element_ids;  // global 1-based element IDs containing source
-    std::vector<double> src_weights;       // flat [n_src_elem, NGLL, NGLL, NGLL] Lagrange weights
-    int n_src_elements = 0;                // convenience count
+    std::vector<int64_t> src_cell_ids;  // global 1-based element IDs containing source
+    std::vector<double> src_weights;    // flat [n_src_elem, NGLL, NGLL, NGLL] Lagrange weights
+    int n_src_cell = 0;                 // convenience count
 };
 
 }  // namespace gf

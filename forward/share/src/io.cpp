@@ -185,22 +185,22 @@ RankData read_partition(const std::string& path, int /*rank*/) {
     RankData data;
 
     // --- Read element counts ---
-    auto local_ids = read_dataset_int64(fid, "/partition/local_element_ids");
-    auto ghost_ids = try_read_dataset<int64_t>(fid, "/partition/ghost_element_ids");
+    auto local_ids = read_dataset_int64(fid, "/partition/local_cell_ids");
+    auto ghost_ids = try_read_dataset<int64_t>(fid, "/partition/ghost_cell_ids");
     auto ghost_owners = try_read_dataset<int32_t>(fid, "/partition/ghost_owners");
 
-    data.n_local_element = static_cast<int>(local_ids.size());
-    data.n_ghost_element = static_cast<int>(ghost_ids.size());
-    data.n_total_element = data.n_local_element + data.n_ghost_element;
+    data.n_local_cell = static_cast<int>(local_ids.size());
+    data.n_ghost_cell = static_cast<int>(ghost_ids.size());
+    data.n_total_cell = data.n_local_cell + data.n_ghost_cell;
 
-    data.local_element_ids = local_ids;
-    data.ghost_element_ids = ghost_ids;
+    data.local_cell_ids = local_ids;
+    data.ghost_cell_ids = ghost_ids;
     data.ghost_owners = ghost_owners;
 
     // --- Derive NGLL from array shape ---
     // coords has shape [n_elem, NGLL, NGLL, NGLL, 3]
     {
-        hid_t dset = H5Dopen2(fid, "/field/element/coords", H5P_DEFAULT);
+        hid_t dset = H5Dopen2(fid, "/field/cell/coords", H5P_DEFAULT);
         hid_t dspace = H5Dget_space(dset);
         int ndims = H5Sget_simple_extent_ndims(dspace);
         hsize_t dims[8];
@@ -215,23 +215,22 @@ RankData read_partition(const std::string& path, int /*rank*/) {
     }
 
     // --- Read geometry and material fields ---
-    // All stored under /field/element/ with shape [n_local_element, NGLL, NGLL, NGLL, ...]
-    data.coords = try_read_dataset<double>(fid, "/field/element/coords");
-    data.jacobian = try_read_dataset<double>(fid, "/field/element/jacobian");
-    data.dxi_dx = try_read_dataset<double>(fid, "/field/element/dxi_dx");
-    data.mass = try_read_dataset<double>(fid, "/field/element/mass");
-    data.vp = try_read_dataset<double>(fid, "/field/element/vp");
-    data.vs = try_read_dataset<double>(fid, "/field/element/vs");
-    data.density = try_read_dataset<double>(fid, "/field/element/density");
-    data.lambda_ = try_read_dataset<double>(fid, "/field/element/lambda");
-    data.mu_ = try_read_dataset<double>(fid, "/field/element/mu");
-    data.pml_damping = try_read_dataset<double>(fid, "/field/element/damping");
+    // All stored under /field/cell/ with shape [n_local_cell, NGLL, NGLL, NGLL, ...]
+    data.coords = try_read_dataset<double>(fid, "/field/cell/coords");
+    data.jacobian = try_read_dataset<double>(fid, "/field/cell/jacobian");
+    data.dxi_dx = try_read_dataset<double>(fid, "/field/cell/dxi_dx");
+    data.mass = try_read_dataset<double>(fid, "/field/cell/mass");
+    data.vp = try_read_dataset<double>(fid, "/field/cell/vp");
+    data.vs = try_read_dataset<double>(fid, "/field/cell/vs");
+    data.density = try_read_dataset<double>(fid, "/field/cell/density");
+    data.lambda_ = try_read_dataset<double>(fid, "/field/cell/lambda");
+    data.mu_ = try_read_dataset<double>(fid, "/field/cell/mu");
+    data.pml_damping = try_read_dataset<double>(fid, "/field/cell/damping");
 
-    // --- Read local_element2rank_node and n_rank_node (CG-SEM rank-level node mapping) ---
-    data.local_element2rank_node =
-        try_read_dataset<int32_t>(fid, "/field/element/local_element2rank_node");
+    // --- Read local_cell2rank_node and n_rank_node (CG-SEM rank-level node mapping) ---
+    data.local_cell2rank_node = try_read_dataset<int32_t>(fid, "/field/cell/local_cell2rank_node");
     {
-        hid_t felem = H5Gopen2(fid, "/field/element", H5P_DEFAULT);
+        hid_t felem = H5Gopen2(fid, "/field/cell", H5P_DEFAULT);
         if (felem >= 0) {
             read_attr_int(felem, "n_rank_node", data.n_rank_node);
             H5Gclose(felem);
@@ -328,6 +327,7 @@ RankData read_partition_all(const std::string& partition_dir) {
 
     RankData merged;
     int cumulative_elements = 0;
+    int cumulative_nodes = 0;
 
     for (int r = 0; r < n_partitions; ++r) {
         std::string path = partition_dir + "/partition_" + std::to_string(r) + ".h5";
@@ -340,16 +340,25 @@ RankData read_partition_all(const std::string& partition_dir) {
                                      std::to_string(merged.ngll));
         }
 
+        // Offset compact node IDs for CG-SEM merge: each rank's ibool uses
+        // 0..n_rank_node-1; offset by cumulative_nodes to avoid collisions.
+        if (r > 0 && cumulative_nodes > 0) {
+            for (auto& node_id : part.local_cell2rank_node) {
+                node_id += cumulative_nodes;
+            }
+        }
+
         if (r == 0) {
             // Move first partition into merged, then clear MPI-only fields
             merged = std::move(part);
             merged.exchange_patterns.clear();
-            merged.ghost_element_ids.clear();
+            merged.ghost_cell_ids.clear();
             merged.ghost_owners.clear();
-            cumulative_elements = merged.n_local_element;
+            cumulative_elements = merged.n_local_cell;
+            cumulative_nodes = merged.n_rank_node;
         } else {
             // Concatenate element-based arrays
-            concat_vec(merged.local_element_ids, part.local_element_ids);
+            concat_vec(merged.local_cell_ids, part.local_cell_ids);
             concat_vec(merged.coords, part.coords);
             concat_vec(merged.jacobian, part.jacobian);
             concat_vec(merged.dxi_dx, part.dxi_dx);
@@ -361,6 +370,9 @@ RankData read_partition_all(const std::string& partition_dir) {
             concat_vec(merged.mu_, part.mu_);
             concat_vec(merged.pml_damping, part.pml_damping);
 
+            // Merge ibool
+            concat_vec(merged.local_cell2rank_node, part.local_cell2rank_node);
+
             // Merge recording: adjust src_elem_local by cumulative element count
             if (part.recording.has_recording) {
                 merged.recording.has_recording = true;
@@ -371,19 +383,16 @@ RankData read_partition_all(const std::string& partition_dir) {
                 concat_vec(merged.recording.src_corner, part.recording.src_corner);
             }
 
-            cumulative_elements += part.n_local_element;
+            cumulative_elements += part.n_local_cell;
+            cumulative_nodes += part.n_rank_node;
         }
     }
 
-    merged.n_local_element = cumulative_elements;
-    merged.n_ghost_element = 0;
-    merged.n_total_element = merged.n_local_element;
+    merged.n_local_cell = cumulative_elements;
+    merged.n_ghost_cell = 0;
+    merged.n_total_cell = merged.n_local_cell;
 
-    // Per-rank local_element2rank_node (ibool) cannot be merged across
-    // partitions — each rank uses its own local node numbering. When all
-    // partitions are merged (single-GPU), fall back to element-local DOF.
-    merged.local_element2rank_node.clear();
-    merged.n_rank_node = 0;
+    merged.n_rank_node = cumulative_nodes;
 
     return merged;
 }
@@ -437,11 +446,11 @@ RankData read_partition_range(const std::string& partition_dir, int effective_ra
         if (i == 0) {
             merged = std::move(part);
             merged.exchange_patterns.clear();
-            merged.ghost_element_ids.clear();
+            merged.ghost_cell_ids.clear();
             merged.ghost_owners.clear();
-            cumulative_elements = merged.n_local_element;
+            cumulative_elements = merged.n_local_cell;
         } else {
-            concat_vec(merged.local_element_ids, part.local_element_ids);
+            concat_vec(merged.local_cell_ids, part.local_cell_ids);
             concat_vec(merged.coords, part.coords);
             concat_vec(merged.jacobian, part.jacobian);
             concat_vec(merged.dxi_dx, part.dxi_dx);
@@ -462,16 +471,16 @@ RankData read_partition_range(const std::string& partition_dir, int effective_ra
                 concat_vec(merged.recording.src_corner, part.recording.src_corner);
             }
 
-            cumulative_elements += part.n_local_element;
+            cumulative_elements += part.n_local_cell;
         }
     }
 
-    merged.n_local_element = cumulative_elements;
-    merged.n_ghost_element = 0;
-    merged.n_total_element = merged.n_local_element;
+    merged.n_local_cell = cumulative_elements;
+    merged.n_ghost_cell = 0;
+    merged.n_total_cell = merged.n_local_cell;
 
     // Clear per-rank ibool — cannot merge across partitions
-    merged.local_element2rank_node.clear();
+    merged.local_cell2rank_node.clear();
     merged.n_rank_node = 0;
 
     return merged;
@@ -604,9 +613,9 @@ ConfigData read_config(const std::string& path) {
     }
 
     // Source element location data (precomputed by source_locator.py)
-    cfg.src_element_ids = try_read_dataset<int64_t>(fid, "/source/elements/element_ids");
+    cfg.src_cell_ids = try_read_dataset<int64_t>(fid, "/source/elements/element_ids");
     cfg.src_weights = try_read_dataset<double>(fid, "/source/elements/weights");
-    cfg.n_src_elements = static_cast<int>(cfg.src_element_ids.size());
+    cfg.n_src_cell = static_cast<int>(cfg.src_cell_ids.size());
     return cfg;
 }
 

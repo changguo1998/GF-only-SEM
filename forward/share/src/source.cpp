@@ -15,7 +15,7 @@ static inline int idx3(int i, int j, int k, int ngll) {
 
 bool PointForceSource::locate(double src_x, double src_y, double src_z,
                               const std::vector<double>& coords, const std::vector<double>& dxi_dx,
-                              int n_local_element, int ngll) {
+                              int n_local_cell, int ngll) {
     const int n_node = ngll * ngll * ngll;
     const int stride3 = n_node * 3;
     const int stride9 = n_node * 9;
@@ -24,7 +24,7 @@ bool PointForceSource::locate(double src_x, double src_y, double src_z,
     const int max_iter = 20;
     const double tol = 1.0e-10;
 
-    for (int e = 0; e < n_local_element; ++e) {
+    for (int e = 0; e < n_local_cell; ++e) {
         int base3 = e * stride3;
         int base9 = e * stride9;
 
@@ -138,8 +138,8 @@ void PointForceSource::apply(double force_x, double force_y, double force_z,
     int n_node = ngll * ngll * ngll;
 
     int elem_idx = -1;
-    for (int e = 0; e < rank_data.n_local_element; ++e) {
-        if (rank_data.local_element_ids[e] == element_id) {
+    for (int e = 0; e < rank_data.n_local_cell; ++e) {
+        if (rank_data.local_cell_ids[e] == element_id) {
             elem_idx = e;
             break;
         }

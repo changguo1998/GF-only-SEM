@@ -9,32 +9,32 @@
 using namespace gf;
 using Catch::Matchers::WithinAbs;
 
-// Helper: build RankData with n_local_element elements
-static RankData make_rank(int n_local_element, int ngll) {
+// Helper: build RankData with n_local_cell elements
+static RankData make_rank(int n_local_cell, int ngll) {
     RankData rd;
-    rd.n_local_element = n_local_element;
-    rd.n_ghost_element = 0;
-    rd.n_total_element = n_local_element;
+    rd.n_local_cell = n_local_cell;
+    rd.n_ghost_cell = 0;
+    rd.n_total_cell = n_local_cell;
     rd.ngll = ngll;
     return rd;
 }
 
 TEST_CASE("assemble_residual copies element blocks to global", "[assembly]") {
     int ngll = 3;
-    int n_local_element = 2;
+    int n_local_cell = 2;
     int n_node = ngll * ngll * ngll;
     int n_dof_per_elem = n_node * 3;
-    auto rd = make_rank(n_local_element, ngll);
+    auto rd = make_rank(n_local_cell, ngll);
 
     // Build element residuals with distinct values per element
-    std::vector<double> elem_r(n_local_element * n_dof_per_elem, 0.0);
-    for (int e = 0; e < n_local_element; ++e) {
+    std::vector<double> elem_r(n_local_cell * n_dof_per_elem, 0.0);
+    for (int e = 0; e < n_local_cell; ++e) {
         for (int d = 0; d < n_dof_per_elem; ++d) {
             elem_r[e * n_dof_per_elem + d] = (e + 1) * 10.0 + d * 0.01;
         }
     }
 
-    std::vector<double> global_r(n_local_element * n_dof_per_elem, -1.0);
+    std::vector<double> global_r(n_local_cell * n_dof_per_elem, -1.0);
     assemble_residual(elem_r, rd, global_r);
 
     // Global residual should match element residual exactly (same layout)
@@ -43,36 +43,36 @@ TEST_CASE("assemble_residual copies element blocks to global", "[assembly]") {
     }
 }
 
-TEST_CASE("assemble_residual does not touch elements beyond n_local_element", "[assembly]") {
+TEST_CASE("assemble_residual does not touch elements beyond n_local_cell", "[assembly]") {
     int ngll = 3;
-    int n_local_element = 2;
+    int n_local_cell = 2;
     int n_extra = 1;  // extra slot in global that should remain untouched
     int n_node = ngll * ngll * ngll;
     int n_dof_per_elem = n_node * 3;
-    auto rd = make_rank(n_local_element, ngll);
+    auto rd = make_rank(n_local_cell, ngll);
 
-    std::vector<double> elem_r(n_local_element * n_dof_per_elem, 1.0);
-    std::vector<double> global_r((n_local_element + n_extra) * n_dof_per_elem, -5.0);
+    std::vector<double> elem_r(n_local_cell * n_dof_per_elem, 1.0);
+    std::vector<double> global_r((n_local_cell + n_extra) * n_dof_per_elem, -5.0);
 
     assemble_residual(elem_r, rd, global_r);
 
-    // First n_local_element elements should be overwritten
-    for (int i = 0; i < n_local_element * n_dof_per_elem; ++i) {
+    // First n_local_cell elements should be overwritten
+    for (int i = 0; i < n_local_cell * n_dof_per_elem; ++i) {
         REQUIRE(global_r[i] == 1.0);
     }
     // Extra slot should be untouched
-    for (int i = n_local_element * n_dof_per_elem;
-         i < (n_local_element + n_extra) * n_dof_per_elem; ++i) {
+    for (int i = n_local_cell * n_dof_per_elem; i < (n_local_cell + n_extra) * n_dof_per_elem;
+         ++i) {
         REQUIRE(global_r[i] == -5.0);
     }
 }
 
 TEST_CASE("add_source_to_rhs adds force at correct DOF", "[assembly]") {
     int ngll = 4;
-    int n_local_element = 1;
+    int n_local_cell = 1;
     int n_node = ngll * ngll * ngll;
-    int n_dof = n_local_element * n_node * 3;
-    auto rd = make_rank(n_local_element, ngll);
+    int n_dof = n_local_cell * n_node * 3;
+    auto rd = make_rank(n_local_cell, ngll);
 
     std::vector<double> rhs(n_dof, 0.0);
 
@@ -99,10 +99,10 @@ TEST_CASE("add_source_to_rhs adds force at correct DOF", "[assembly]") {
 
 TEST_CASE("add_source_to_rhs accumulates across calls", "[assembly]") {
     int ngll = 4;
-    int n_local_element = 1;
+    int n_local_cell = 1;
     int n_node = ngll * ngll * ngll;
-    int n_dof = n_local_element * n_node * 3;
-    auto rd = make_rank(n_local_element, ngll);
+    int n_dof = n_local_cell * n_node * 3;
+    auto rd = make_rank(n_local_cell, ngll);
 
     std::vector<double> rhs(n_dof, 0.0);
 
@@ -116,10 +116,10 @@ TEST_CASE("add_source_to_rhs accumulates across calls", "[assembly]") {
 
 TEST_CASE("add_source_to_rhs at different elements", "[assembly]") {
     int ngll = 4;
-    int n_local_element = 2;
+    int n_local_cell = 2;
     int n_node = ngll * ngll * ngll;
-    int n_dof = n_local_element * n_node * 3;
-    auto rd = make_rank(n_local_element, ngll);
+    int n_dof = n_local_cell * n_node * 3;
+    auto rd = make_rank(n_local_cell, ngll);
 
     std::vector<double> rhs(n_dof, 0.0);
 
@@ -143,18 +143,18 @@ TEST_CASE("add_source_to_rhs at different elements", "[assembly]") {
 
 TEST_CASE("scatter_to_rank accumulates shared-node contributions", "[scatter]") {
     // 2 elements, each with 2 GLL nodes (n_node=2).
-    // local_element2rank_node: elem0 n0→0, n1→1; elem1 n0→1, n1→2.
+    // local_cell2rank_node: elem0 n0→0, n1→1; elem1 n0→1, n1→2.
     // Global: [0] = elem0[0], [1] = elem0[1]+elem1[0], [2] = elem1[1].
-    const int n_local_element = 2;
+    const int n_local_cell = 2;
     const int n_node = 2;
 
-    std::vector<int32_t> local_element2rank_node = {0, 1,   // elem 0: node0→glob0, node1→glob1
-                                                    1, 2};  // elem 1: node0→glob1, node1→glob2
+    std::vector<int32_t> local_cell2rank_node = {0, 1,   // elem 0: node0→glob0, node1→glob1
+                                                 1, 2};  // elem 1: node0→glob1, node1→glob2
     int n_rank_node = 3;
 
     // elem0: n0=[10,20,30], n1=[40,50,60]
     // elem1: n0=[100,200,300], n1=[400,500,600]
-    std::vector<double> local_element_residual = {
+    std::vector<double> local_cell_residual = {
         10.0,  20.0,  30.0,   // elem0 node0
         40.0,  50.0,  60.0,   // elem0 node1
         100.0, 200.0, 300.0,  // elem1 node0
@@ -162,7 +162,7 @@ TEST_CASE("scatter_to_rank accumulates shared-node contributions", "[scatter]") 
     };
 
     std::vector<double> rank_node_residual(n_rank_node * 3, -1.0);
-    scatter_to_rank(local_element_residual, local_element2rank_node, n_local_element, n_node,
+    scatter_to_rank(local_cell_residual, local_cell2rank_node, n_local_cell, n_node,
                     rank_node_residual);
 
     // glob0: only elem0 node0 → [10, 20, 30]
@@ -180,17 +180,17 @@ TEST_CASE("scatter_to_rank accumulates shared-node contributions", "[scatter]") 
 }
 
 TEST_CASE("gather_from_rank copies global values to element-local", "[gather]") {
-    const int n_local_element = 2;
+    const int n_local_cell = 2;
     const int n_node = 2;
 
-    std::vector<int32_t> local_element2rank_node = {0, 1,   // elem 0: node0→glob0, node1→glob1
-                                                    1, 2};  // elem 1: node0→glob1, node1→glob2
+    std::vector<int32_t> local_cell2rank_node = {0, 1,   // elem 0: node0→glob0, node1→glob1
+                                                 1, 2};  // elem 1: node0→glob1, node1→glob2
 
     // Global displacement: glob0=[1,2,3], glob1=[4,5,6], glob2=[7,8,9]
     std::vector<double> global_disp = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};
-    std::vector<double> elem_disp(n_local_element * n_node * 3, -1.0);
+    std::vector<double> elem_disp(n_local_cell * n_node * 3, -1.0);
 
-    gather_from_rank(global_disp, local_element2rank_node, n_local_element, n_node, elem_disp);
+    gather_from_rank(global_disp, local_cell2rank_node, n_local_cell, n_node, elem_disp);
 
     // elem0 node0 → glob0 = [1,2,3]
     REQUIRE_THAT(elem_disp[0], WithinAbs(1.0, 1e-12));
@@ -211,19 +211,19 @@ TEST_CASE("gather_from_rank copies global values to element-local", "[gather]") 
 }
 
 TEST_CASE("scatter-gather round-trip with shared nodes", "[scatter][gather]") {
-    // 3 elements, 1 node each. local_element2rank_node: elem0→0, elem1→1, elem2→0 (shared).
-    const int n_local_element = 3;
+    // 3 elements, 1 node each. local_cell2rank_node: elem0→0, elem1→1, elem2→0 (shared).
+    const int n_local_cell = 3;
     const int n_node = 1;
 
-    std::vector<int32_t> local_element2rank_node = {0, 1, 0};
+    std::vector<int32_t> local_cell2rank_node = {0, 1, 0};
     int n_rank_node = 2;
 
     // Global: glob0=[10,20,30], glob1=[40,50,60]
     std::vector<double> global_disp = {10.0, 20.0, 30.0, 40.0, 50.0, 60.0};
-    std::vector<double> elem_disp(n_local_element * n_node * 3, 0.0);
+    std::vector<double> elem_disp(n_local_cell * n_node * 3, 0.0);
 
     // Gather
-    gather_from_rank(global_disp, local_element2rank_node, n_local_element, n_node, elem_disp);
+    gather_from_rank(global_disp, local_cell2rank_node, n_local_cell, n_node, elem_disp);
 
     // elem0 and elem2 both have glob0 values
     REQUIRE_THAT(elem_disp[0], WithinAbs(10.0, 1e-12));  // elem0 x
@@ -238,8 +238,7 @@ TEST_CASE("scatter-gather round-trip with shared nodes", "[scatter][gather]") {
 
     // Scatter back: glob0 = elem0 + elem2, glob1 = elem1
     std::vector<double> rank_node_residual(n_rank_node * 3, 0.0);
-    scatter_to_rank(elem_disp, local_element2rank_node, n_local_element, n_node,
-                    rank_node_residual);
+    scatter_to_rank(elem_disp, local_cell2rank_node, n_local_cell, n_node, rank_node_residual);
 
     // glob0: [100+300=400, 101+301=402, 102+302=404]
     REQUIRE_THAT(rank_node_residual[0], WithinAbs(400.0, 1e-12));

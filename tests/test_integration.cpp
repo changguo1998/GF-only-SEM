@@ -27,13 +27,13 @@ namespace {
 // Build a minimal RankData for a single element
 RankData build_single_element(int ngll) {
     RankData rd;
-    rd.n_local_element = 1;
-    rd.n_ghost_element = 0;
-    rd.n_total_element = 1;
+    rd.n_local_cell = 1;
+    rd.n_ghost_cell = 0;
+    rd.n_total_cell = 1;
     rd.ngll = ngll;
 
     int n_node = ngll * ngll * ngll;
-    rd.local_element_ids = {1};
+    rd.local_cell_ids = {1};
 
     // GLL nodes (unit cube [0,1]^3)
     auto nodes = gll_nodes(ngll - 1);

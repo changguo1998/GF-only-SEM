@@ -259,8 +259,8 @@ void cuda_launch_element_residual(const CudaDeviceState& state, int ngll, int n_
     dim3 grid(n_elem, 1, 1);
 
     const double* d_input =
-        state.use_global_dof ? state.d_local_element_displacement : state.d_displacement_tilde;
-    double* d_output = state.use_global_dof ? state.d_local_element_residual : state.d_residual;
+        state.use_global_dof ? state.d_local_cell_displacement : state.d_displacement_tilde;
+    double* d_output = state.use_global_dof ? state.d_local_cell_residual : state.d_residual;
 
     GF_CUDA_CHECK(cudaMemset(d_output, 0, n_elem * n_node * 3 * sizeof(double)));
     element_residual_kernel<<<grid, block>>>(state.d_dxi_dx, state.d_jacobian, state.d_lambda_,

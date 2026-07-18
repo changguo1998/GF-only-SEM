@@ -41,13 +41,13 @@ public:
     /// \param output_dir       Top-level output directory
     /// \param source_direction Force direction string ("x", "y", or "z")
     /// \param rank             MPI rank number
-    /// \param n_local_element  Number of local elements on this rank
+    /// \param n_local_cell  Number of local elements on this rank
     /// \param ngll             Number of GLL points per axis (N+1)
     /// \param use_global_dof   If true, state vectors are n_rank_node-sized (flat 1D)
     /// \param n_rank_node      Number of unique nodes on this rank (only used when
     /// use_global_dof=true)
     RestartWriter(const std::string& output_dir, const std::string& source_direction, int rank,
-                  int n_local_element, int ngll, bool use_global_dof = false, int n_rank_node = 0);
+                  int n_local_cell, int ngll, bool use_global_dof = false, int n_rank_node = 0);
 
     ~RestartWriter();
 

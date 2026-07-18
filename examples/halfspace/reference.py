@@ -349,11 +349,11 @@ def _read_settings(work_dir: Path, relative_tolerance: float) -> dict:
         source_values = np.interp(output_time_s, stf_t, stf_v)
 
     with h5py.File(work_dir / "model.h5", "r") as mod:
-        is_pml = np.asarray(mod["field/element/is_pml"], dtype=bool)
+        is_pml = np.asarray(mod["field/cell/is_pml"], dtype=bool)
         interior = ~is_pml
-        vp = np.asarray(mod["field/element/vp"][interior], dtype=np.float64)
-        vs = np.asarray(mod["field/element/vs"][interior], dtype=np.float64)
-        rho = np.asarray(mod["field/element/density"][interior], dtype=np.float64)
+        vp = np.asarray(mod["field/cell/vp"][interior], dtype=np.float64)
+        vs = np.asarray(mod["field/cell/vs"][interior], dtype=np.float64)
+        rho = np.asarray(mod["field/cell/density"][interior], dtype=np.float64)
 
     def _uniform(values: npt.NDArray[np.float64], name: str) -> float:
         center = float(np.median(values))

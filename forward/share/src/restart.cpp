@@ -80,10 +80,10 @@ void write_dset(hid_t loc_id, const std::string& name, const std::vector<double>
 }  // anonymous namespace
 
 RestartWriter::RestartWriter(const std::string& output_dir, const std::string& source_direction,
-                             int rank, int n_local_element, int ngll, bool use_global_dof,
+                             int rank, int n_local_cell, int ngll, bool use_global_dof,
                              int n_rank_node)
     : file_id_(-1),
-      n_elem_local_(n_local_element),
+      n_elem_local_(n_local_cell),
       ngll_(ngll),
       source_direction_(source_direction),
       use_global_dof_(use_global_dof),

@@ -14,7 +14,7 @@ namespace gf {
 ///
 /// Reads local subset data from HDF5 partition file:
 ///   - Geometry and material fields (coords, jacobian, dxi_dx, mass, vp, vs, density, pml_damping)
-///   - Topology (local_element_ids, ghost_element_ids, ghost_owners)
+///   - Topology (local_cell_ids, ghost_cell_ids, ghost_owners)
 ///   - Exchange patterns (neighbors)
 ///   - Polynomial order (ngll) from array shapes
 ///

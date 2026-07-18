@@ -268,7 +268,7 @@ def locate_source(
 
     Returns:
         dict with:
-          element_ids: [n_src_elem] 0-based element indices (match partition local_element_ids).
+          element_ids: [n_src_elem] 0-based element indices (match partition local_cell_ids).
           xi:          [n_src_elem] xi natural coordinate.
           eta:         [n_src_elem] eta natural coordinate.
           zeta:        [n_src_elem] zeta natural coordinate.
@@ -338,7 +338,7 @@ def locate_source(
         if w_sum < 1e-12:
             continue
 
-        element_ids.append(e)  # 0-based element index (matches partition local_element_ids)
+        element_ids.append(e)  # 0-based element index (matches partition local_cell_ids)
         xi_list.append(float(xi_vec[0]))
         eta_list.append(float(xi_vec[1]))
         zeta_list.append(float(xi_vec[2]))
