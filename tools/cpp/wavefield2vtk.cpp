@@ -314,8 +314,8 @@ int main(int argc, char** argv) {
     int64_t n_cell = (int64_t)cell_to_surface.size();
 
     std::vector<int8_t> is_pml(n_cell, 0);
-    if (dataset_exists(fm.id(), "field/element/is_pml")) {
-        auto pml = read_int32_1d(fm.id(), "field/element/is_pml");
+    if (dataset_exists(fm.id(), "field/cell/is_pml")) {
+        auto pml = read_int32_1d(fm.id(), "field/cell/is_pml");
         for (size_t i = 0; i < pml.size() && i < (size_t)n_cell; ++i)
             is_pml[i] = (int8_t)pml[i];
     }

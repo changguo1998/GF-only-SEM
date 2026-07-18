@@ -152,19 +152,19 @@ int main(int argc, char** argv) {
 
     // Read is_pml
     std::vector<int8_t> is_pml(n_cell, 0);
-    if (dataset_exists(fm.id(), "field/element/is_pml")) {
-        auto pml_data = read_int32_1d(fm.id(), "field/element/is_pml");
+    if (dataset_exists(fm.id(), "field/cell/is_pml")) {
+        auto pml_data = read_int32_1d(fm.id(), "field/cell/is_pml");
         for (size_t i = 0; i < pml_data.size() && i < (size_t)n_cell; ++i)
             is_pml[i] = (int8_t)pml_data[i];
     }
 
     // Read GLL coords
-    bool has_gll = dataset_exists(fm.id(), "field/element/coords");
+    bool has_gll = dataset_exists(fm.id(), "field/cell/coords");
     std::vector<hsize_t> gll_shape;
     std::vector<double> gll_coords_flat;
     int ngll = 0;
     if (has_gll) {
-        gll_coords_flat = read_float64_nd(fm.id(), "field/element/coords", gll_shape);
+        gll_coords_flat = read_float64_nd(fm.id(), "field/cell/coords", gll_shape);
         if (gll_shape.size() >= 4) {
             ngll = (int)gll_shape[1];  // [n_cell, ngll, ngll, ngll, 3]
         }
@@ -202,8 +202,8 @@ int main(int argc, char** argv) {
 
     cell_fields["Tile_Index"].assign(n_cell, -1.0f);
     // Try to read tile_index from model.h5
-    if (dataset_exists(fm.id(), "field/element/tile_index")) {
-        auto tile_raw = read_int64_1d(fm.id(), "field/element/tile_index");
+    if (dataset_exists(fm.id(), "field/cell/tile_index")) {
+        auto tile_raw = read_int64_1d(fm.id(), "field/cell/tile_index");
         for (size_t i = 0; i < tile_raw.size() && i < (size_t)n_cell; ++i)
             cell_fields["Tile_Index"][i] = (float)tile_raw[i];
     }
@@ -231,7 +231,7 @@ int main(int argc, char** argv) {
             // Read from partition files
             // (simplified: just read from model.h5 if available)
             for (const auto& name : gll_field_names) {
-                std::string path = "field/element/" + name;
+                std::string path = "field/cell/" + name;
                 if (dataset_exists(fm.id(), path)) {
                     std::vector<hsize_t> sh;
                     gll_fields[name] = read_float64_nd(fm.id(), path, sh);
@@ -241,7 +241,7 @@ int main(int argc, char** argv) {
             if (verbose)
                 std::cout << "[model_to_vtk] Reading fields from model.h5...\n";
             for (const auto& name : gll_field_names) {
-                std::string path = "field/element/" + name;
+                std::string path = "field/cell/" + name;
                 if (dataset_exists(fm.id(), path)) {
                     std::vector<hsize_t> sh;
                     gll_fields[name] = read_float64_nd(fm.id(), path, sh);

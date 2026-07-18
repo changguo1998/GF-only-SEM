@@ -25,11 +25,11 @@ partitions/partition_{r}.h5 (local subset per rank: topology + field/element + P
     ├── Newmark time loop (global DOF path)
     │   ├── NEWMARK PREDICT: ũ = u + dt·v + (dt²/2)·(1-2β)·a
     │   ├── ũ SYNC (multi-rank): exchange + average at shared interface nodes
-    │   ├── GATHER: ũ[rank_node] → elem_ũ[n_elem, n_node, 3] via local_element2rank_node
+    │   ├── GATHER: ũ[rank_node] → elem_ũ[n_elem, n_node, 3] via local_cell2rank_node
     │   ├── Element residual (matrix-free): K_e·elem_ũ → elem_r
     │   ├── PML damping on global velocity
     │   ├── Source injection into elem_r
-    │   ├── SCATTER: elem_r → residual[rank_node*3 + d] via local_element2rank_node
+    │   ├── SCATTER: elem_r → residual[rank_node*3 + d] via local_cell2rank_node
     │   ├── MPI halo exchange on residual (precomputed face-pair lists)
     │   ├── NEWMARK CORRECT: a_new = (r_j+r_k) / (m_j+m_k),
     │   │                    u += dt·v + dt²·(½-β)·a_old + dt²·β·a_new,
@@ -76,7 +76,7 @@ When MPI ranks exceed GPUs on a node, excess ranks exit and remaining ranks
 redistribute partitions via `read_partition_range()`. Single-rank mode (1 MPI rank or
 non-MPI) reads all partitions via `read_partition_all()` — no repartitioning needed.
 
-**Matrix-free assembly**: no global matrix. Elements add `r = Σ Bᵀ_e · σ_e` into `r[NDIM, n_global_nodes]` through `local_element2rank_node`. Shared nodes sum by using the same global ID.
+**Matrix-free assembly**: no global matrix. Elements add `r = Σ Bᵀ_e · σ_e` into `r[NDIM, n_global_nodes]` through `local_cell2rank_node`. Shared nodes sum by using the same global ID.
 
 Preprocess writes all mesh data to per-rank partitions. Rank `R` reads `partitions/partition_{R}.h5`. No global model file. No geometry recompute.
 
@@ -104,30 +104,30 @@ Preprocess writes all mesh data to per-rank partitions. Rank `R` reads `partitio
 
 Per-rank file from preprocess. Each rank reads only its file. Contains local element data and partition metadata.
 
-**Local element data** (layout `[n_local_element, NGLL, NGLL, NGLL, ...]`, NGLL = N+1):
+**Local element data** (layout `[n_local_cell, NGLL, NGLL, NGLL, ...]`, NGLL = N+1):
 
 | Group | Content |
 |-------|---------|
 | `/topology/` | Element connectivity for local + ghost elements (X2Y, 1-based, signed direction) |
-| `/field/element/coords` | GLL node (x,y,z) — physical domain, local elements only |
-| `/field/element/jacobian` | det(J) — integration factor |
-| `/field/element/dxi_dx` | ∂ξ_i/∂x_j — stiffness computation + strain |
-| `/field/element/mass` | Lumped mass diagonal — Newmark solve |
-| `/field/element/vp, vs, density, lambda, mu` | Elastic constants per GLL node (vp, vs, density from config; lambda, mu precomputed) |
-| `/field/element/damping` | PML damping profile (linear ramp) |
+| `/field/cell/coords` | GLL node (x,y,z) — physical domain, local elements only |
+| `/field/cell/jacobian` | det(J) — integration factor |
+| `/field/cell/dxi_dx` | ∂ξ_i/∂x_j — stiffness computation + strain |
+| `/field/cell/mass` | Lumped mass diagonal — Newmark solve |
+| `/field/cell/vp, vs, density, lambda, mu` | Elastic constants per GLL node (vp, vs, density from config; lambda, mu precomputed) |
+| `/field/cell/damping` | PML damping profile (linear ramp) |
 | `/field/surface/boundary_tag` | 0=interior, 1=free surface, 2=absorbing |
 **Partition metadata** (`/partition/`):
 
 | Group | Content |
 |-------|---------|
 | `/partition/n_ranks` | attr int32 — total number of MPI ranks |
-| `/partition/n_local_element` | attr int32 — number of local elements on this rank |
+| `/partition/n_local_cell` | attr int32 — number of local elements on this rank |
 | `/partition/n_rank_node` | attr int32 — unique GLL nodes on this rank (ibool range) |
 | `/partition/use_global_dof` | attr int8 — 1=CG-SEM global DOF, 0=legacy element-local (absent→0) |
-| `/partition/local_element_ids` | int64[n_local_element] — owned element IDs (1-based) |
-| `/partition/ghost_element_ids` | int64[n_ghost_elementent] — halo element IDs (1-based, absent if none) |
-| `/partition/ghost_owners` | int32[n_ghost_elementent] — source rank for each ghost (absent if none) |
-| `/field/element/local_element2rank_node` | int64[n_local_element × NGLL³] — flat ibool: per-rank GLL→node map (absent→legacy) |
+| `/partition/local_cell_ids` | int64[n_local_cell] — owned element IDs (1-based) |
+| `/partition/ghost_cell_ids` | int64[n_ghost_cellent] — halo element IDs (1-based, absent if none) |
+| `/partition/ghost_owners` | int32[n_ghost_cellent] — source rank for each ghost (absent if none) |
+| `/field/cell/local_cell2rank_node` | int64[n_local_cell × NGLL³] — flat ibool: per-rank GLL→node map (absent→legacy) |
 | `/recording/vertex_ids` | int64[n_record_vertices] — global mesh vertex IDs to write from this rank |
 | `/recording/source_element_local_index` | int32[n_record_vertices] — local source element for each recorded vertex |
 | `/recording/source_corner_index` | int32[n_record_vertices] — SEM corner index for each recorded vertex |
@@ -151,7 +151,7 @@ No `/attenuation/` — elastic-only, attenuation deferred. No `direction` — pa
 |-----------|---------------|
 | **gll** | GLL points/weights, Lagrange basis, derivative matrix (header-only, N-dependent) |
 | **element** | Matrix-free K_e·ũ: stiffness × displacement using precomputed dξ/dx and detJ. Reads/writes element-local temp arrays (gathered/scattered by assembly). |
-| **assembly** | `gather_from_rank()` / `scatter_to_rank()` via `local_element2rank_node`. Connects element-local temp arrays to rank-level global state vectors. |
+| **assembly** | `gather_from_rank()` / `scatter_to_rank()` via `local_cell2rank_node`. Connects element-local temp arrays to rank-level global state vectors. |
 | **pml** | Simple linear-ramp PML damping: v ← v - d(node)·v. Full recursive-convolution C-PML deferred |
 | **newmark** | NewmarkPredictor, NewmarkCorrector (2nd order explicit, β=0, γ=½) |
 | **source** | Reads precomputed element list + Lagrange weights from config.h5. Distributes STF(t) × w_ijk to global residual |
@@ -175,15 +175,15 @@ struct GLLQuad {
 
 // Per-rank data (subset of partition_{r}.h5)
 struct RankData {
-    int n_local_element, n_ghost_element, n_total_elem;
+    int n_local_cell, n_ghost_cell, n_total_cell;
     int64_t n_global_nodes;                   // unique GLL nodes on this rank
-    std::vector<int64_t> local_element_ids;   // owned
-    std::vector<int64_t> ghost_element_ids;   // halo
+    std::vector<int64_t> local_cell_ids;   // owned
+    std::vector<int64_t> ghost_cell_ids;   // halo
     std::vector<int32_t> ghost_owners;        // which rank owns each ghost
 
     // Global GLL node numbering: [n_elem_total, NGLL, NGLL, NGLL]
-    // local_element2rank_node[e][i][j][k] = global node ID (1-based, 0=null)
-    std::vector<int64_t> local_element2rank_node;
+    // local_cell2rank_node[e][i][j][k] = global node ID (1-based, 0=null)
+    std::vector<int64_t> local_cell2rank_node;
 
     // Precomputed fields at GLL nodes (coords, jacobian, dxi_dx, mass, material)
     // PML damping profile
@@ -215,7 +215,7 @@ velocity field. Precomputed by the preprocessor and stored in `partition_{r}.h5`
 as a single per-GLL-node damping array:
 
 ```
-/field/element/damping   float64[n_elem_total, NGLL, NGLL, NGLL]
+/field/cell/damping   float64[n_elem_total, NGLL, NGLL, NGLL]
 ```
 
 ### Update Formula
@@ -279,7 +279,7 @@ for step in 0..nsteps-1:
     3. Gather: rank-level → element-local
        For each element e:
          For each GLL node (i,j,k):
-           iglob = local_element2rank_node[e][i][j][k]
+           iglob = local_cell2rank_node[e][i][j][k]
            elem_ũ[e][i][j][k][d] = ũ[d, iglob]
 
     4. Element residual (matrix-free K·u):
@@ -302,7 +302,7 @@ for step in 0..nsteps-1:
     7. Scatter: element-local → rank-level global residual
        For each element e:
          For each GLL node (i,j,k):
-           iglob = local_element2rank_node[e][i][j][k]
+           iglob = local_cell2rank_node[e][i][j][k]
            r[d, iglob] += elem_r[e][i][j][k][d]
        (GPU: atomicAdd at shared nodes)
 
@@ -371,7 +371,7 @@ restart/{direction}/restart_{r}.h5
 │   ├── ngll                    : int32
 │   ├── use_global_dof          : int8    — 1=flat 1D arrays, 0=5D element-local (absent→0)
 │   ├── n_rank_node             : int32   — present only when use_global_dof=1
-│   ├── n_local_element         : int32   — present only when use_global_dof=1
+│   ├── n_local_cell         : int32   — present only when use_global_dof=1
 │
 │   Global DOF mode (use_global_dof=1):
 │   ├── displacement            : float64[n_rank_node × 3]    — flat 1D array
@@ -379,9 +379,9 @@ restart/{direction}/restart_{r}.h5
 │   ├── acceleration            : float64[n_rank_node × 3]
 │
 │   Legacy element-local mode (use_global_dof=0/absent):
-│   ├── displacement            : float64[n_local_element, NGLL, NGLL, NGLL, 3]
-│   ├── velocity                : float64[n_local_element, NGLL, NGLL, NGLL, 3]
-│   ├── acceleration            : float64[n_local_element, NGLL, NGLL, NGLL, 3]
+│   ├── displacement            : float64[n_local_cell, NGLL, NGLL, NGLL, 3]
+│   ├── velocity                : float64[n_local_cell, NGLL, NGLL, NGLL, 3]
+│   ├── acceleration            : float64[n_local_cell, NGLL, NGLL, NGLL, 3]
 │
 └── pml_damping                : float64[...]  # PML damping array for exact resume
 ```

@@ -37,7 +37,7 @@ def run_stage2(model_path: str) -> dict[str, str]:
     """Run gf_preprocess_stage2, return parsed STAT_* values.
 
     Args:
-        model_path: Path to model.h5 (must have /config/, /field/element/{vp,vs,density}).
+        model_path: Path to model.h5 (must have /config/, /field/cell/{vp,vs,density}).
 
     Returns:
         Dict of STAT_key → value string from C++ stdout.

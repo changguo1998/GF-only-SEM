@@ -35,9 +35,9 @@ ______________________________________________________________________
 
 | 维度 | SPECFEM3D | fix-plan | ✓/✗ |
 |------|-----------|--------|-----|
-| 读取全局位移 | `displ(:, iglob)` where `iglob = ibool(i,j,k,ispec)` | `gather_from_rank(displacement, ibool) → local_element_displacement` | ✓ 等价 |
+| 读取全局位移 | `displ(:, iglob)` where `iglob = ibool(i,j,k,ispec)` | `gather_from_rank(displacement, ibool) → local_cell_displacement` | ✓ 等价 |
 | 单元核 | `-K*displ` 使用 GLL 导数矩阵 `hprime_xx`, `hprimewgll_xx` | `K_e * u_tilde` 使用相同 GLL 导数 `dxi_dx`, `D_mat` | ✓ |
-| 写入全局 | 直接 `accel(:,iglob) += contribution` — 无独立 scatter 函数 | `scatter_to_rank(local_element_residual, ibool) → rank_node_residual` — 显式 scatter | ✓ 等价 |
+| 写入全局 | 直接 `accel(:,iglob) += contribution` — 无独立 scatter 函数 | `scatter_to_rank(local_cell_residual, ibool) → rank_node_residual` — 显式 scatter | ✓ 等价 |
 | 质量除法时机 | **单元核后、MPI 装配后**: `accel(iglob) *= rmass(iglob)` (compute_forces_viscoelastic_calling.F90:367-378) | **校步内**: `a_new[i] = residual[i] / mass[i/3]` | ✓ 等价 |
 | 质量数组 | `rmass(iglob)` — 预求逆 (× 而非 ÷) | `rank_node_mass[iglob]` — 直接除 | ✓ 等价 |
 
@@ -72,8 +72,8 @@ ______________________________________________________________________
 |------|-----------|--------|-----|
 | 定位方式 | 网格定位器找 1 个主包含单元 | Newton 迭代找**所有**自由面包含单元, 权重归一化 | 不同策略, 均有效 |
 | 权重类型 | `sourcearrays(isource, component, i, j, k)` — 多分量 | `src_weights[flat]` — 标量单分量 | 不同, 均有效 |
-| 注入方式 | `accel(iglob) += sourcearrays * stf` — 通过 ibool 直接写入全局 | 写入 `local_element_residual` → `scatter_to_rank` 分发 | ✓ 等价 |
-| 修改需求 | — | **无需修改 source.cpp** — 注入 local_element_residual 然后 scatter | — |
+| 注入方式 | `accel(iglob) += sourcearrays * stf` — 通过 ibool 直接写入全局 | 写入 `local_cell_residual` → `scatter_to_rank` 分发 | ✓ 等价 |
+| 修改需求 | — | **无需修改 source.cpp** — 注入 local_cell_residual 然后 scatter | — |
 
 ______________________________________________________________________
 
@@ -81,7 +81,7 @@ ______________________________________________________________________
 
 | 维度 | SPECFEM3D | fix-plan | ✓/✗ |
 |------|-----------|--------|-----|
-| 位移读取 | `displ(:, ibool(i,j,k,ispec))` — 通过 ibool 从全局读取 | `gather_from_rank(displacement, ibool) → local_element_displacement` | ✓ 等价 |
+| 位移读取 | `displ(:, ibool(i,j,k,ispec))` — 通过 ibool 从全局读取 | `gather_from_rank(displacement, ibool) → local_cell_displacement` | ✓ 等价 |
 | 应变公式 | GLL 导数 × 单元局部位移 | 相同: `dxi_dx`, `D_mat` | ✓ |
 | 顶点录制 | 角点位解码: `corner_i = (corner & 1) ? ...` | 相同解码模式 (已修复 corner_node 未定义问题) | ✓ |
 
@@ -98,15 +98,15 @@ update_displ_Newmark                        newmark_predict
   └─ a = 0                   [清零]
 
 compute_forces_viscoelastic_calling         gather_from_rank(u_tilde)
-  ├─ [phase 1] 计算外力 → accel(iglob) +=       → local_element_displacement
+  ├─ [phase 1] 计算外力 → accel(iglob) +=       → local_cell_displacement
   ├─ 加载源 → accel(iglob) +=
   ├─ MPI 异步发送 accel 边界                  compute_element_residual
-  ├─ [phase 2] MPI 接收 → accel += 接收缓存      → local_element_residual
+  ├─ [phase 2] MPI 接收 → accel += 接收缓存      → local_cell_residual
   ├─ 计算外力 → accel(iglob) +=
   ├─ PML → accel (C-PML)                      PML on global velocity [简化]
-  └─ accel(iglob) *= rmass(iglob) [质量除法]   加载源 → local_element_residual
+  └─ accel(iglob) *= rmass(iglob) [质量除法]   加载源 → local_cell_residual
 
-update_veloc_elastic                         scatter_to_rank(local_element_residual)
+update_veloc_elastic                         scatter_to_rank(local_cell_residual)
   └─ v = v + dt/2*a         [校步]            → rank_node_residual
 
                                               exchange_halo(rank_node_residual)

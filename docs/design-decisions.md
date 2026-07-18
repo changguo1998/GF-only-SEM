@@ -150,7 +150,7 @@ model.h5
 │   ├── surface_to_edge         : int64[n_surface, 4]
 │   └── cell_to_surface         : int64[n_cell, 6]
 │
-└── /field/element/             ← GLL-node level [n_cell, NGLL, NGLL, NGLL, ...]
+└── /field/cell/             ← GLL-node level [n_cell, NGLL, NGLL, NGLL, ...]
     ├── coords                  : float64[..., 3]   — GLL node (x,y,z)
     ├── jacobian                : float64[...]       — det(J)
     ├── dxi_dx                  : float64[..., 3,3]  — ∂ξ_i/∂x_j
@@ -171,18 +171,18 @@ Each partition file holds a local subset of all element data needed by one MPI r
 ```
 partition_{r}.h5
 ├── /topology/                  ← local subset of topology
-├── /field/element/*            ← local subset: coords, dxi_dx, jacobian, mass, vp, vs, density, lambda, mu, cpml/*
+├── /field/cell/*            ← local subset: coords, dxi_dx, jacobian, mass, vp, vs, density, lambda, mu, cpml/*
 │
 └── /partition/
     ├── n_ranks                 : attr int32
-    ├── n_local_element         : attr int32
-    ├── n_ghost_element         : attr int32
+    ├── n_local_cell         : attr int32
+    ├── n_ghost_cell         : attr int32
     ├── n_global_nodes          : attr int64              — unique GLL nodes on this rank (n_rank_node)
     ├── use_global_dof          : attr int8               — 1=CG-SEM global DOF, 0=legacy element-local
-    ├── local_element_ids       : int64[n_local_element]
-    ├── ghost_element_ids       : int64[n_ghost_element]
-    ├── ghost_owners            : int32[n_ghost_element]
-    ├── local_element2rank_node : int64[n_local_element * NGLL^3]  — ibool: flat per-rank GLL→node map (absent→legacy)
+    ├── local_cell_ids       : int64[n_local_cell]
+    ├── ghost_cell_ids       : int64[n_ghost_cell]
+    ├── ghost_owners            : int32[n_ghost_cell]
+    ├── local_cell2rank_node : int64[n_local_cell * NGLL^3]  — ibool: flat per-rank GLL→node map (absent→legacy)
     └── /exchange/              — precomputed face-pair lists per neighbor
 ```
 
@@ -242,11 +242,11 @@ config.h5
 └── /source/
     │   ├── x, y, z                : float64            — source position (z = z_min for surface, source_z_m for buried)
     ├── stf                     : float64[nsteps]    — pre-evaluated STF time series (amplitude at t = n·solver_dt)
-    ├── n_src_elements         : attr int32         — number of containing elements
+    ├── n_src_cell         : attr int32         — number of containing elements
     └── /elements/
-        ├── element_ids        : int64[n_src_elements]   — global element IDs (1-based)
-        ├── xi, eta, zeta      : float64[n_src_elements] — natural coordinates
-        └── weights            : float64[n_src_elements, NGLL, NGLL, NGLL] — Lagrange w_ijk (normalized)
+        ├── cell_ids        : int64[n_src_cell]   — global element IDs (1-based)
+        ├── xi, eta, zeta      : float64[n_src_cell] — natural coordinates
+        └── weights            : float64[n_src_cell, NGLL, NGLL, NGLL] — Lagrange w_ijk (normalized)
 ```
 
 Notes: no `/attenuation/`; SLS is deferred. No `direction`; runtime CLI sets it.
@@ -282,11 +282,11 @@ Each tile stores recorded vertices in its x/y bounds for all saved depths. Green
 - **Mesh output**: Preprocess adds GLL geometry and `is_pml` to `model.h5`. Rank-local data and `/recording/` go to `partition_{r}.h5`.
 - **STF precompute**: Preprocess samples `stf_func(t_s)` at `solver_dt` and writes an array. Forward does no STF eval.
 - **Mass computation**: After material interpolation (ρ needed for lumped mass).
-  - **CPML precompute**: Tag PML elements and write linear-ramp damping profile to `/field/element/damping`. Full C-PML (d/K/α per direction, convolution coefficients) is deferred.
+  - **CPML precompute**: Tag PML elements and write linear-ramp damping profile to `/field/cell/damping`. Full C-PML (d/K/α per direction, convolution coefficients) is deferred.
 - **Partitioning**: METIS k-way partition + GLL node global numbering (ibool equivalent) + precomputed exchange patterns. Each rank gets its own partition\_{r}.h5 with local subset.
-- **ibool (local_element2rank_node)**: Per-rank unique GLL node numbering computed via coordinate sorting (matching SPECFEM3D's `get_global.f90`). Written as flat `int64[n_local * NGLL^3]` to `/field/element/local_element2rank_node`. Backward-compatible: absent → element-local DOF. Per-rank `n_rank_node` written as attribute.
+- **ibool (local_cell2rank_node)**: Per-rank unique GLL node numbering computed via coordinate sorting (matching SPECFEM3D's `get_global.f90`). Written as flat `int64[n_local * NGLL^3]` to `/field/cell/local_cell2rank_node`. Backward-compatible: absent → element-local DOF. Per-rank `n_rank_node` written as attribute.
 - **Exchange pattern conversion**: Send/recv DOF indices use global per-rank DOF numbers (`iglob * 3 + dir`) instead of element-local (`elem * n_node * 3 + dir`).
-- **Geometric precompute**: GLL coords, Jacobian, dξ/dx, lumped mass, C-PML arrays — all at GLL nodes. Written to partition\_{r}.h5 `/field/element/.`
+- **Geometric precompute**: GLL coords, Jacobian, dξ/dx, lumped mass, C-PML arrays — all at GLL nodes. Written to partition\_{r}.h5 `/field/cell/.`
 
 ## 8. Forward Solver Decisions
 
@@ -294,10 +294,10 @@ Each tile stores recorded vertices in its x/y bounds for all saved depths. Green
 - **Matrix-free assembly**: No global system matrix. K·u computed element-by-element.
 - **Global assembly (dual path)**: Two DOF numbering modes controlled by `use_global_dof` flag:
   - **Global DOF (CG-SEM)**: Element-level temp arrays + explicit `scatter_to_rank`/`gather_from_rank`
-    via `local_element2rank_node` (ibool). MPI exchange sums contributions at shared interface nodes.
+    via `local_cell2rank_node` (ibool). MPI exchange sums contributions at shared interface nodes.
     Requires mass exchange + u_tilde sync for multi-rank stability.
   - **Element-local (legacy, backward compat)**: Direct element-level arrays, no cross-element assembly.
-    Used when partition file lacks `local_element2rank_node`.
+    Used when partition file lacks `local_cell2rank_node`.
 - **Precomputed data**: All mesh-dependent quantities read from partition\_{r}.h5 — no init phase.
 - **Material**: Read at GLL nodes from partition\_{r}.h5 — no runtime interpolation.
 - **Source injection**: Precomputed Lagrange weights and element list from config.h5 — forward solver distributes STF amplitude to GLL nodes via stored weights. No runtime Newton iteration.

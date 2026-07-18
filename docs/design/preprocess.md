@@ -400,15 +400,15 @@ Comprehensive validation before partition and writing. Runs as a checklist; with
 1. Validate: METIS returned valid partition (all ranks > 0 elements).
 1. Assign `element_to_rank[n_cell]`.
 1. For each rank, identify:
-   - `local_element_ids`: owned element global IDs
-   - `ghost_element_ids`: elements sharing a face with owned elements but owned by other ranks
+   - `local_cell_ids`: owned element global IDs
+   - `ghost_cell_ids`: elements sharing a face with owned elements but owned by other ranks
    - `ghost_owners`: which rank owns each ghost
-1. **GLL numbering**: assign 1-based global IDs; 0 = null. Build `local_element2rank_node[...]` (`ibool`). Match shared nodes by coordinate tolerance `1e-6 × min_element_size`.
+1. **GLL numbering**: assign 1-based global IDs; 0 = null. Build `local_cell2rank_node[...]` (`ibool`). Match shared nodes by coordinate tolerance `1e-6 × min_element_size`.
 1. For each neighbor rank, precompute face-pair exchange lists:
    - send: (owned_local_idx, face_idx) → (ghost_idx, ghost_face)
    - recv: ghost elements to receive into
 
-Output: one `partition_{r}.h5` per rank with owned/ghost data, metadata (`use_global_dof` flag, `n_rank_node`), `local_element2rank_node` (flat ibool), and `/recording/` map. The `use_global_dof` flag controls whether the forward solver uses CG-SEM global assembly (1) or legacy element-local DOF (0/absent). See [mesh.md](mesh.md).
+Output: one `partition_{r}.h5` per rank with owned/ghost data, metadata (`use_global_dof` flag, `n_rank_node`), `local_cell2rank_node` (flat ibool), and `/recording/` map. The `use_global_dof` flag controls whether the forward solver uses CG-SEM global assembly (1) or legacy element-local DOF (0/absent). See [mesh.md](mesh.md).
 
 ### 10. Build Shallow Recording Map
 
@@ -433,7 +433,7 @@ Output in each `partition_{r}.h5`:
 /recording/
   attrs: basis="mesh_vertices", record_depth_max_m, record_depth_actual_m,
          tilex_elements, tiley_elements, excludes_pml=true
-  save_element_mask          bool[n_local_element]
+  save_cell_mask          bool[n_local_cell]
   vertex_ids                 int64[n_record_vertices]
   source_element_local_index int32[n_record_vertices]
   source_corner_index        int32[n_record_vertices]
@@ -529,11 +529,11 @@ config.h5
 └── /source/
     │   ├── x, y, z                : float64          — source position (z = z_min for surface, source_z_m for buried)
     ├── stf                     : float64[nsteps]  — precomputed STF time series (amplitude at t = n·solver_dt)
-    ├── n_src_elements         : attr int32        — number of containing elements
+    ├── n_src_cell         : attr int32        — number of containing elements
     └── /elements/
-        ├── element_ids        : int64[n_src_elements]         — global element IDs (1-based)
-        ├── xi, eta, zeta      : float64[n_src_elements]       — natural coordinates in [-1, 1]
-        └── weights            : float64[n_src_elements, NGLL, NGLL, NGLL] — Lagrange w_ijk (normalized Σw = 1)
+        ├── cell_ids        : int64[n_src_cell]         — global element IDs (1-based)
+        ├── xi, eta, zeta      : float64[n_src_cell]       — natural coordinates in [-1, 1]
+        └── weights            : float64[n_src_cell, NGLL, NGLL, NGLL] — Lagrange w_ijk (normalized Σw = 1)
 ```
 
 Note: no `/attenuation/` group. Attenuation (SLS) is deferred to future work.

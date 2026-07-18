@@ -8,6 +8,23 @@
 
 **Tech Stack:** Python (preprocess), C++17 (solver), CUDA, HDF5, MPI.
 
+## Status: ✅ COMPLETE — 2026-07-18
+
+All 7 tasks completed across 6 commits (cff2cd1..88fbb8e):
+
+| Task | Commit | Key Result |
+|------|--------|------------|
+| 1. Global Numbering | cff2cd1 | `compute_global_cell2global_node()`, n_global_node=197173 |
+| 2. model_writer.py | cff2cd1 | HDF5 paths `/field/element/`→`/field/cell/`, merge tables written |
+| 3. Solver Headers | cff2cd1 | 30+ variable renames, `local_cell2global_node` field added |
+| 4. Solver Core | 93e8c32+2090249 | io.cpp merge via global IDs, legacy paths removed |
+| 5. Assembly+CUDA | cff2cd1 | scatter/gather, CUDA kernels renamed |
+| 6. Tests+Misc | cff2cd1 | 202 Python pass, C++ tests renamed |
+| 7. Docs+Verify | 764d898+88fbb8e | AGENTS.md updated, VTK tools fixed, single-GPU rel_l2=0.644 |
+
+**Single-GPU CG-SEM:** `read_partition_all` now merges ibool via `local_cell2global_node`
+(global ID dedup). n_rank_node = 197173 = n_global_node. rel_l2 = 0.644, matches CPU 16-rank.
+
 ## Global Constraints
 
 - `element` = scope only; `cell` = mesh only — strict distinction everywhere
@@ -35,7 +52,7 @@ ______________________________________________________________________
 
 **Produces:** `compute_global_cell2global_node()`, updated `partition()` return dict
 
-- [ ] **Step 1: Add compute_global_cell2global_node()**
+- [x] **Step 1: Add compute_global_cell2global_node()**
 
 Insert after `compute_local_element2rank_node` (line ~189), before `def partition(`. Copy the coordinate-sort logic from `compute_local_element2rank_node`, but operate on ALL elements (no `element_ids` subset). Function signature:
 
@@ -51,7 +68,7 @@ Implementation identical to `compute_local_element2rank_node` except:
 
 - Returns `(global_cell2global_node_4d, n_global_node)` where the array is `[n_cell, NGLL, NGLL, NGLL]` int32
 
-- [ ] **Step 2: Update partition() — third pass**
+- [x] **Step 2: Update partition() — third pass**
 
 Before the per-rank loop (currently L399), add one call:
 
@@ -110,7 +127,7 @@ for rank in range(n_ranks):
         ex["recv_dof"] = uniq_recv
 ```
 
-- [ ] **Step 3: Update return dict**
+- [x] **Step 3: Update return dict**
 
 Add to partition() return:
 
@@ -124,7 +141,7 @@ return {
 }
 ```
 
-- [ ] **Step 4: Verify preprocess runs**
+- [x] **Step 4: Verify preprocess runs**
 
 Run: `cd examples/halfspace && python -m preprocess`
 
@@ -136,7 +153,7 @@ Expected: completes without error. Check partition_0.h5 has both `local_cell2ran
 
 - Modify: `preprocess/model_writer.py`
 
-- [ ] **Step 1: Write global mapping to model.h5**
+- [x] **Step 1: Write global mapping to model.h5**
 
 In `write_model()`, write `global_cell2global_node` to model.h5:
 
@@ -154,11 +171,11 @@ if partition_result is not None:
             felem.attrs["n_global_node"] = int(n_global_node)
 ```
 
-- [ ] **Step 2: Rename HDF5 paths**
+- [x] **Step 2: Rename HDF5 paths**
 
 Replace all `/field/element/` → `/field/cell/` in `_extend_model_h5()` and `_write_partition_files()`. Change group creation from `require_group("element")` to `require_group("cell")`.
 
-- [ ] **Step 3: Write local_cell2global_node to partition files**
+- [x] **Step 3: Write local_cell2global_node to partition files**
 
 In `_write_partition_files()`, after writing `local_cell2rank_node`, also write:
 
@@ -177,7 +194,7 @@ if local_cell2global_node_4d is not None and n_local_cell > 0:
     )
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run preprocess, check model.h5 `/field/cell/global_cell2global_node` exists and partition files have `local_cell2global_node`.
 
@@ -191,7 +208,7 @@ Run preprocess, check model.h5 `/field/cell/global_cell2global_node` exists and 
 
 - Modify: `forward/share/include/gf/cuda_step.hpp`
 
-- [ ] **Step 1: io.hpp — Rename RankData fields**
+- [x] **Step 1: io.hpp — Rename RankData fields**
 
 | Old field | New field |
 |-----------|-----------|
@@ -204,11 +221,11 @@ Run preprocess, check model.h5 `/field/cell/global_cell2global_node` exists and 
 
 Add new field: `std::vector<int32_t> local_cell2global_node;`
 
-- [ ] **Step 2: assembly.hpp — Rename function signatures**
+- [x] **Step 2: assembly.hpp — Rename function signatures**
 
 In `scatter_to_rank` and `gather_from_rank` declarations: rename `local_element_residual` → `local_cell_residual`, `local_element2rank_node` → `local_cell2rank_node`, `n_local_element` → `n_local_cell`.
 
-- [ ] **Step 3: cuda_step.hpp — Rename CudaDeviceState fields**
+- [x] **Step 3: cuda_step.hpp — Rename CudaDeviceState fields**
 
 | Old | New |
 |-----|-----|
@@ -220,7 +237,7 @@ In `scatter_to_rank` and `gather_from_rank` declarations: rename `local_element_
 
 Rename function declarations: `cuda_copy_residual_*`, `cuda_copy_utilde_*` parameter types unchanged but update comments.
 
-- [ ] **Step 4: Build check**
+- [x] **Step 4: Build check**
 
 `cmake --build build --target gf_solver_elastic_mpi 2>&1 | tail -5`
 Expected: compile errors from source files not yet renamed. This is expected — proceed to Task 4.
@@ -233,7 +250,7 @@ Expected: compile errors from source files not yet renamed. This is expected —
 
 - Modify: `forward/share/src/solver.cpp`
 
-- [ ] **Step 1: io.cpp — Rename + read local_cell2global_node**
+- [x] **Step 1: io.cpp — Rename + read local_cell2global_node**
 
 In `read_partition()`:
 
@@ -245,7 +262,7 @@ In `read_partition()`:
 
 - Update HDF5 paths: `/field/element/` → `/field/cell/`
 
-- [ ] **Step 2: io.cpp — Fix read_partition_all**
+- [x] **Step 2: io.cpp — Fix read_partition_all**
 
 Delete the ibool-clear block (L382-386):
 
@@ -278,7 +295,7 @@ merged.n_rank_node = cumulative_nodes;
 
 Also concat `local_cell2global_node` if available (for postprocess/recording use).
 
-- [ ] **Step 3: solver.cpp — Rename all variables**
+- [x] **Step 3: solver.cpp — Rename all variables**
 
 Replace every occurrence:
 
@@ -298,7 +315,7 @@ logger.info("  n_local_cell=" + std::to_string(n_local_cell) +
                             : " dofs=" + std::to_string(n_local_cell_dof)));
 ```
 
-- [ ] **Step 4: solver.cpp — Remove single-GPU legacy fallback**
+- [x] **Step 4: solver.cpp — Remove single-GPU legacy fallback**
 
 Currently L146: `bool use_global_dof = (part.n_rank_node > 0 && !part.local_element2rank_node.empty());`
 
@@ -306,7 +323,7 @@ After this change, `read_partition_all` preserves `local_cell2rank_node`. So `us
 
 Delete or guard the legacy element-local code blocks (the `else` branches in the GPU and CPU time loops). Keep the CG-SEM path as the only path.
 
-- [ ] **Step 5: Build + quick test**
+- [x] **Step 5: Build + quick test**
 
 ```bash
 cmake --build build --target gf_solver_elastic_mpi 2>&1 | tail -5
@@ -326,23 +343,23 @@ Expected: compiles successfully (may need assembly.cpp renamed first — see Tas
 
 - Modify: `forward/share/src/cuda_step.cu`
 
-- [ ] **Step 1: assembly.cpp — Rename**
+- [x] **Step 1: assembly.cpp — Rename**
 
 Replace all `local_element_residual` → `local_cell_residual`, `local_element2rank_node` → `local_cell2rank_node`, `n_local_element` → `n_local_cell`, `local_element_field` → `local_cell_field`.
 
-- [ ] **Step 2: element_cpu.cpp — Rename**
+- [x] **Step 2: element_cpu.cpp — Rename**
 
 Replace `local_element_displacement` → `local_cell_displacement`, `local_element_residual` → `local_cell_residual`, `n_local_element` → `n_local_cell`.
 
-- [ ] **Step 3: element_cuda.cu — Rename**
+- [x] **Step 3: element_cuda.cu — Rename**
 
 Same replacements as element_cpu.cpp. Also rename kernel parameter names.
 
-- [ ] **Step 4: cuda_step.cu — Rename**
+- [x] **Step 4: cuda_step.cu — Rename**
 
 Replace all `d_local_element_*` → `d_local_cell_*`, `n_local_element` → `n_local_cell`, `n_local_element_dof` → `n_local_cell_dof`. Update `cuda_allocate_state` field assignments and `cuda_copy_*_to_host/from_host` functions.
 
-- [ ] **Step 5: Build check**
+- [x] **Step 5: Build check**
 
 ```bash
 cmake --build build 2>&1 | tail -5
@@ -372,12 +389,12 @@ Expected: all targets compile.
 
 - Modify: `tests/preprocess/test_source_locator.py`
 
-- [ ] **Step 1: source.cpp + restart.cpp — Rename**
+- [x] **Step 1: source.cpp + restart.cpp — Rename**
 
 In `source.cpp`: replace `local_element_residual` → `local_cell_residual` and related names.
 In `restart.cpp`: replace any `n_local_element` → `n_local_cell`, HDF5 paths.
 
-- [ ] **Step 2: Python tests — Update assertions**
+- [x] **Step 2: Python tests — Update assertions**
 
 In `tests/preprocess/test_partition.py`:
 
@@ -389,7 +406,7 @@ In `tests/preprocess/test_source_locator.py`:
 
 - Update `local_element2rank_node` → `local_cell2rank_node`
 
-- [ ] **Step 3: C++ tests — Rename references**
+- [x] **Step 3: C++ tests — Rename references**
 
 In each C++ test file, search-replace:
 
@@ -403,7 +420,7 @@ In each C++ test file, search-replace:
 
 In `test_io.cpp`: update HDF5 path strings `/field/element/` → `/field/cell/`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 pytest tests/ -q          # expect 202 passed
@@ -422,15 +439,15 @@ cd forward/build && ctest  # expect all Catch2 tests pass
 
 - Check: all module `AGENTS.md` files
 
-- [ ] **Step 1: Update HANDOFF.md**
+- [x] **Step 1: Update HANDOFF.md**
 
 Update variable names in examples and architecture sections to match new naming. Update "剩余工作" to mark single-GPU CG-SEM as resolved.
 
-- [ ] **Step 2: Update AGENTS.md**
+- [x] **Step 2: Update AGENTS.md**
 
 Update project state table: CUDA single row from "⚠ legacy element-local" to "✅ CG-SEM (global DOF)". Update variable names in cross-cutting conventions.
 
-- [ ] **Step 3: Format + commit**
+- [x] **Step 3: Format + commit**
 
 ```bash
 bash format.sh
@@ -446,7 +463,7 @@ git commit -m "refactor: global node numbering + strict naming convention
 - Single-GPU now uses CG-SEM path (use_global_dof=true)"
 ```
 
-- [ ] **Step 4: Full verification**
+- [x] **Step 4: Full verification**
 
 ```bash
 # Rebuild from clean
@@ -471,7 +488,7 @@ cd examples/layer && bash run.sh
 # → end-to-end succeeds
 ```
 
-- [ ] **Step 5: Push**
+- [x] **Step 5: Push**
 
 ```bash
 git push origin master

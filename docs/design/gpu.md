@@ -138,7 +138,7 @@ Buffers are freed on shape change (reallocation). Cleanup before MPI_Finalize is
 
 ## CG-SEM Global DOF Path on GPU
 
-When `use_global_dof=true` (partition file has `local_element2rank_node`), the GPU solver
+When `use_global_dof=true` (partition file has `local_cell2rank_node`), the GPU solver
 supports an alternative code path that mirrors the CPU CG-SEM assembly. Additional
 CUDA kernels in `cuda_step.cu` implement the global DOF operations:
 
@@ -162,8 +162,8 @@ cross-rank assembly (GPU→CPU copy avoids device-side MPI complexity).
 **Device state allocation**: `cuda_allocate_state()` in `cuda_step.cu` detects
 `use_global_dof` from partition data and allocates appropriate arrays:
 
-- Global DOF: `d_rank_node_*` arrays of size `[n_rank_node × 3]` + element-local temps `[n_local_element × n_node × 3]`
-- Legacy: `d_*` arrays of size `[n_local_element × n_node × 3]` (element-local only)
+- Global DOF: `d_rank_node_*` arrays of size `[n_rank_node × 3]` + element-local temps `[n_local_cell × n_node × 3]`
+- Legacy: `d_*` arrays of size `[n_local_cell × n_node × 3]` (element-local only)
 
 Both paths share the same element residual kernel. The global DOF path adds
 gather/scatter wrapper kernels and rank-level arrays.
