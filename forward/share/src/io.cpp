@@ -229,6 +229,8 @@ RankData read_partition(const std::string& path, int /*rank*/) {
 
     // --- Read local_cell2rank_node and n_rank_node (CG-SEM rank-level node mapping) ---
     data.local_cell2rank_node = try_read_dataset<int32_t>(fid, "/field/cell/local_cell2rank_node");
+    data.local_cell2global_node =
+        try_read_dataset<int32_t>(fid, "/field/cell/local_cell2global_node");
     {
         hid_t felem = H5Gopen2(fid, "/field/cell", H5P_DEFAULT);
         if (felem >= 0) {
@@ -327,7 +329,6 @@ RankData read_partition_all(const std::string& partition_dir) {
 
     RankData merged;
     int cumulative_elements = 0;
-    int cumulative_nodes = 0;
 
     for (int r = 0; r < n_partitions; ++r) {
         std::string path = partition_dir + "/partition_" + std::to_string(r) + ".h5";
@@ -340,22 +341,19 @@ RankData read_partition_all(const std::string& partition_dir) {
                                      std::to_string(merged.ngll));
         }
 
-        // Offset compact node IDs for CG-SEM merge: each rank's ibool uses
-        // 0..n_rank_node-1; offset by cumulative_nodes to avoid collisions.
-        if (r > 0 && cumulative_nodes > 0) {
-            for (auto& node_id : part.local_cell2rank_node) {
-                node_id += cumulative_nodes;
-            }
-        }
-
+        // Use local_cell2global_node for merged ibool — global IDs are already
+        // consistent across ranks (shared nodes have same global ID), so no offset
+        // is needed.  This correctly couples elements across original rank
+        // boundaries for single-GPU CG-SEM.
         if (r == 0) {
-            // Move first partition into merged, then clear MPI-only fields
+            // Save global ibool before move (part is consumed by std::move below)
+            auto global_ibool = std::move(part.local_cell2global_node);
             merged = std::move(part);
             merged.exchange_patterns.clear();
             merged.ghost_cell_ids.clear();
             merged.ghost_owners.clear();
+            merged.local_cell2rank_node = std::move(global_ibool);
             cumulative_elements = merged.n_local_cell;
-            cumulative_nodes = merged.n_rank_node;
         } else {
             // Concatenate element-based arrays
             concat_vec(merged.local_cell_ids, part.local_cell_ids);
@@ -370,8 +368,8 @@ RankData read_partition_all(const std::string& partition_dir) {
             concat_vec(merged.mu_, part.mu_);
             concat_vec(merged.pml_damping, part.pml_damping);
 
-            // Merge ibool
-            concat_vec(merged.local_cell2rank_node, part.local_cell2rank_node);
+            // Merge ibool using global node IDs (already unique across ranks)
+            concat_vec(merged.local_cell2rank_node, part.local_cell2global_node);
 
             // Merge recording: adjust src_elem_local by cumulative element count
             if (part.recording.has_recording) {
@@ -384,7 +382,6 @@ RankData read_partition_all(const std::string& partition_dir) {
             }
 
             cumulative_elements += part.n_local_cell;
-            cumulative_nodes += part.n_rank_node;
         }
     }
 
@@ -392,7 +389,12 @@ RankData read_partition_all(const std::string& partition_dir) {
     merged.n_ghost_cell = 0;
     merged.n_total_cell = merged.n_local_cell;
 
-    merged.n_rank_node = cumulative_nodes;
+    // n_rank_node = max global node ID + 1 (global IDs are 0..n_global_node-1)
+    if (!merged.local_cell2rank_node.empty()) {
+        int max_id = *std::max_element(merged.local_cell2rank_node.begin(),
+                                       merged.local_cell2rank_node.end());
+        merged.n_rank_node = max_id + 1;
+    }
 
     return merged;
 }
