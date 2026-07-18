@@ -194,8 +194,8 @@ static void process_snapshot(
     }
 
     // Element corner average → cell strain
-    std::vector<double> elem_strain(3 * n_cell_local * 6, 0.0);
-    std::vector<int> elem_nc(n_cell_local, 0);
+    std::vector<double> cell_strain(3 * n_cell_local * 6, 0.0);
+    std::vector<int> cell_nc(n_cell_local, 0);
 #pragma omp parallel for
     for (int64_t ci = 0; ci < n_cell_local; ++ci) {
         int cnt = 0;
@@ -204,17 +204,17 @@ static void process_snapshot(
             if (gvid >= 0 && gvid < n_vert && n_corners[gvid] > 0) {
                 for (int di = 0; di < 3; ++di)
                     for (int c = 0; c < 6; ++c)
-                        elem_strain[(di * n_cell_local + ci) * 6 + c] +=
+                        cell_strain[(di * n_cell_local + ci) * 6 + c] +=
                             dir_strain[di][gvid * 6 + c];
                 cnt++;
             }
         }
-        elem_nc[ci] = cnt;
+        cell_nc[ci] = cnt;
         if (cnt > 0) {
             double inv = 1.0 / cnt;
             for (int di = 0; di < 3; ++di)
                 for (int c = 0; c < 6; ++c)
-                    elem_strain[(di * n_cell_local + ci) * 6 + c] *= inv;
+                    cell_strain[(di * n_cell_local + ci) * 6 + c] *= inv;
         }
     }
 
@@ -245,7 +245,7 @@ static void process_snapshot(
             int di = (int)(fi / 6), ci = (int)(fi % 6);
             std::vector<float> fd(n_hex);
             for (int64_t ei = 0; ei < n_hex; ++ei)
-                fd[ei] = (float)elem_strain[(di * n_cell_local + ei) * 6 + ci];
+                fd[ei] = (float)cell_strain[(di * n_cell_local + ei) * 6 + ci];
             vtk.write_scalar_field(strain_field_names[fi], fd);
         }
 
@@ -256,7 +256,7 @@ static void process_snapshot(
 
         std::vector<float> nrec_f(n_hex);
         for (int64_t ei = 0; ei < n_hex; ++ei)
-            nrec_f[ei] = (float)elem_nc[ei];
+            nrec_f[ei] = (float)cell_nc[ei];
         vtk.write_scalar_field("n_recorded_corners", nrec_f);
 
     } catch (std::exception& e) {

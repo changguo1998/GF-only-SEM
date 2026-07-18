@@ -87,7 +87,9 @@ step function checks binary availability independently and falls back to Python.
 
 - **Source**: `preprocess/cpp/stage2_main.cpp`
 - **Dependencies**: HDF5 (no Eigen3 needed)
-- **Data flow**: reads `/field/element/{coords,jacobian,vp,vs,density}` + `/config/` attrs +
+- **Data flow**: C++ reads `/field/element/{coords,jacobian,vp,vs,density}` + `/config/` attrs +
+  `/field/surface/boundary_tag`; writes `/field/element/{lambda,mu}`.
+  Python wrapper copies all arrays from `/field/element/` to `/field/cell/` for forward solver.
   `/field/surface/boundary_tag`; writes `/field/cell/{lambda,mu}`
 - **CLI**: `gf_preprocess_stage2 <model.h5>`
 - **stdout**: prints `STAT_NCELL`, `STAT_NGLL`, `STAT_SOLVER_DT`, `STAT_NSTEPS`, `STAT_SNAPSHOT_STRIDE`,

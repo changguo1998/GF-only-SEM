@@ -370,8 +370,8 @@ def _write_partition_files(
                     rec_grp.attrs["excludes_pml"] = True
                     _write_dataset(
                         rec_grp,
-                        "save_element_mask",
-                        np.array(per_rank_rec["save_element_mask"], dtype=bool),
+                        "save_cell_mask",
+                        np.array(per_rank_rec["save_cell_mask"], dtype=bool),
                         dtype="bool",
                     )
                     _write_dataset(

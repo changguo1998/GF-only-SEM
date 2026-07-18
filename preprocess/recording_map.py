@@ -39,7 +39,7 @@ def build_recording_map(
     Args:
         topology: Mesh topology with cell→surface→edge→vertex relations.
         domain_bounds: Dict with xmin, xmax, ymin, ymax, zmin, zmax.
-        is_pml: [n_cell] bool/int8 — True for PML elements.
+        is_pml: [n_cell] bool/int8 — True for PML cells.
         record_depth_max_m: Requested recording depth from surface (z upward).
         element_to_rank: [n_cell] rank assignment (from partition).
         per_rank: Per-rank data dict from partition().
@@ -48,7 +48,7 @@ def build_recording_map(
         Dict with:
             record_depth_actual_m: Snapped actual depth.
             per_rank_recording: dict[int, dict] — per-rank recording data:
-                save_element_mask: list[bool] n_local_elem
+                save_cell_mask: list[bool] n_local_cell
                 vertex_ids: list[int] global vertex IDs
                 source_element_local_index: list[int]
                 source_corner_index: list[int]
@@ -69,25 +69,25 @@ def build_recording_map(
     n_cell = topology.n_cell
 
     # Precompute element centroids
-    elem_centroids = np.zeros((n_cell, 3), dtype=np.float64)
-    for elem in range(n_cell):
-        vertex_ids = _get_cell_vertex_ids(elem, cell_to_surface, surface_to_edge, edge_to_vertex)
+    cell_centroids = np.zeros((n_cell, 3), dtype=np.float64)
+    for cell in range(n_cell):
+        vertex_ids = _get_cell_vertex_ids(cell, cell_to_surface, surface_to_edge, edge_to_vertex)
         centroid = vertex_coords[vertex_ids - 1].mean(axis=0)
-        elem_centroids[elem] = centroid
+        cell_centroids[cell] = centroid
 
     # Snap record_depth_actual_m to the nearest element face boundary
     # Find the first horizontal element face at or below target_z
     # Horizontal faces have constant z (all 4 vertices at same z)
     elem_face_z_levels = []
-    for elem in range(n_cell):
-        vertex_ids = _get_cell_vertex_ids(elem, cell_to_surface, surface_to_edge, edge_to_vertex)
+    for cell in range(n_cell):
+        vertex_ids = _get_cell_vertex_ids(cell, cell_to_surface, surface_to_edge, edge_to_vertex)
         z_vals = vertex_coords[(np.array(vertex_ids, dtype=np.int64) - 1), 2]
         # Check each face (6 faces per hex)
         # Faces 0-3 are lateral, face 4 = zmin, face 5 = zmax (GMSH convention)
         for face_idx in range(6):
             # Get vertices of this face
             face_verts = _get_face_vertices(
-                elem, face_idx, cell_to_surface, surface_to_edge, edge_to_vertex
+                cell, face_idx, cell_to_surface, surface_to_edge, edge_to_vertex
             )
             if len(face_verts) < 4:
                 continue
@@ -112,20 +112,20 @@ def build_recording_map(
     actual_target_z = zmin + record_depth_actual_m
 
     # Select non-PML elements fully above depth
-    selected_elems = set()
-    for elem in range(n_cell):
-        if is_pml is not None and elem < len(is_pml) and is_pml[elem]:
+    selected_cells = set()
+    for cell in range(n_cell):
+        if is_pml is not None and cell < len(is_pml) and is_pml[cell]:
             continue
         # Element fully above depth if its centroid z is within depth
-        if elem_centroids[elem, 2] <= actual_target_z + 1e-12:
-            selected_elems.add(elem)
+        if cell_centroids[cell, 2] <= actual_target_z + 1e-12:
+            selected_cells.add(cell)
 
     # Collect unique global vertex IDs attached to selected elements
     selected_vertex_set: set[int] = set()
-    elem_vertex_map: dict[int, list[int]] = {}  # elem_idx → [8 vertex IDs]
-    for elem in sorted(selected_elems):
-        vertex_ids = _get_cell_vertex_ids(elem, cell_to_surface, surface_to_edge, edge_to_vertex)
-        elem_vertex_map[elem] = list(vertex_ids)
+    cell_vertex_map: dict[int, list[int]] = {}  # cell_idx → [8 vertex IDs]
+    for cell in sorted(selected_cells):
+        vertex_ids = _get_cell_vertex_ids(cell, cell_to_surface, surface_to_edge, edge_to_vertex)
+        cell_vertex_map[cell] = list(vertex_ids)
         for global_vertex_id in vertex_ids:
             selected_vertex_set.add(global_vertex_id)
 
@@ -134,7 +134,7 @@ def build_recording_map(
     if element_to_rank is None or per_rank is None:
         # Single-rank fallback: assign element 0 as source for all
         per_rank_recording: dict[int, dict] = {
-            0: _build_rank_recording(0, list(range(n_cell)), selected_vertex_set, elem_vertex_map)
+            0: _build_rank_recording(0, list(range(n_cell)), selected_vertex_set, cell_vertex_map)
         }
     else:
         per_rank_recording = {}
@@ -143,17 +143,17 @@ def build_recording_map(
             local_set = set(local_ids)
             # Find which selected vertices belong to this rank
             rank_vertex_set = set()
-            rank_elem_vertex_map: dict[int, list[int]] = {}
-            for elem in sorted(selected_elems):
-                if elem not in local_set:
+            rank_cell_vertex_map: dict[int, list[int]] = {}
+            for cell in sorted(selected_cells):
+                if cell not in local_set:
                     continue
-                vertex_ids = elem_vertex_map.get(elem, [])
-                rank_elem_vertex_map[elem] = vertex_ids
+                vertex_ids = cell_vertex_map.get(cell, [])
+                rank_cell_vertex_map[cell] = vertex_ids
                 for global_vertex_id in vertex_ids:
                     rank_vertex_set.add(global_vertex_id)
 
             per_rank_recording[rank] = _build_rank_recording(
-                rank, local_ids, rank_vertex_set, rank_elem_vertex_map
+                rank, local_ids, rank_vertex_set, rank_cell_vertex_map
             )
 
     return {
@@ -163,14 +163,14 @@ def build_recording_map(
 
 
 def _get_face_vertices(
-    elem: int, face_idx: int, cell_to_surface, surface_to_edge, edge_to_vertex
+    cell: int, face_idx: int, cell_to_surface, surface_to_edge, edge_to_vertex
 ) -> list[int]:
-    """Get 0-based vertex array indices for a face of element elem.
+    """Get 0-based vertex array indices for a face of cell `cell`.
 
     Returns 0-based indices into the vertex coordinate array (i.e. global
     vertex ID minus 1), suitable for direct indexing of vertex_to_coord.
     """
-    surf_id = abs(int(cell_to_surface[elem, face_idx])) - 1  # 0-based, handle signed
+    surf_id = abs(int(cell_to_surface[cell, face_idx])) - 1  # 0-based, handle signed
     if surf_id < 0:
         return []
     edge_ids = surface_to_edge[surf_id]
@@ -192,7 +192,7 @@ def _build_rank_recording(
     rank: int,
     local_cell_ids: list[int],
     vertex_set: set[int],
-    elem_vertex_map: dict[int, list[int]],
+    cell_vertex_map: dict[int, list[int]],
 ) -> dict[str, Any]:
     """Build recording map for one rank.
 
@@ -200,10 +200,10 @@ def _build_rank_recording(
     the corner index.
     """
     local_set = set(local_cell_ids)
-    # save_element_mask: True for elements that contain at least one recorded vertex
-    save_element_mask = [
+    # save_cell_mask: True for elements that contain at least one recorded vertex
+    save_cell_mask = [
         any(
-            global_vertex_id in vertex_set for global_vertex_id in elem_vertex_map.get(elem_id, [])
+            global_vertex_id in vertex_set for global_vertex_id in cell_vertex_map.get(elem_id, [])
         )
         for elem_id in local_cell_ids
     ]
@@ -218,7 +218,7 @@ def _build_rank_recording(
 
     # Build reverse: vertex → list of (local_elem_idx, corner_idx)
     vert_to_elem: dict[int, list[tuple[int, int]]] = {}
-    for elem_idx, vertex_ids in elem_vertex_map.items():
+    for elem_idx, vertex_ids in cell_vertex_map.items():
         if elem_idx not in local_set:
             continue
         local_idx = element_to_local_index[elem_idx]
@@ -233,7 +233,7 @@ def _build_rank_recording(
     for global_vertex_id in sorted(vertex_set):
         sources = vert_to_elem.get(global_vertex_id, [])
         if sources:
-            # Pick the first (lowest local elem index, lowest corner)
+            # Pick the first (lowest local cell index, lowest corner)
             vertex_source[global_vertex_id] = min(
                 sources, key=lambda source_pair: (source_pair[0], source_pair[1])
             )
@@ -246,7 +246,7 @@ def _build_rank_recording(
     source_corner = [vertex_source[global_vertex_id][1] for global_vertex_id in vertex_ids]
 
     return {
-        "save_element_mask": save_element_mask,
+        "save_cell_mask": save_cell_mask,
         "vertex_ids": vertex_ids,
         "source_element_local_index": source_elem_local,
         "source_corner_index": source_corner,

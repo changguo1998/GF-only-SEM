@@ -20,12 +20,12 @@ partitions/partition_{r}.h5 (local subset per rank: topology + field/element + P
     ├── allocate runtime arrays per rank
     │       two DOF modes (use_global_dof flag):
     │       · global DOF (CG-SEM): rank_node_*[n_rank_node * 3] + elem-local temps
-    │       · element-local (legacy): elem_dof[n_elem * n_node * 3]
+    │       · element-local (legacy): elem_dof[n_cell * n_node * 3]
     │       PML damping array (linear-ramp profile)
     ├── Newmark time loop (global DOF path)
     │   ├── NEWMARK PREDICT: ũ = u + dt·v + (dt²/2)·(1-2β)·a
     │   ├── ũ SYNC (multi-rank): exchange + average at shared interface nodes
-    │   ├── GATHER: ũ[rank_node] → elem_ũ[n_elem, n_node, 3] via local_cell2rank_node
+    │   ├── GATHER: ũ[rank_node] → elem_ũ[n_cell, n_node, 3] via local_cell2rank_node
     │   ├── Element residual (matrix-free): K_e·elem_ũ → elem_r
     │   ├── PML damping on global velocity
     │   ├── Source injection into elem_r
@@ -183,7 +183,7 @@ struct RankData {
     std::vector<int64_t> ghost_cell_ids;   // halo
     std::vector<int32_t> ghost_owners;        // which rank owns each ghost
 
-    // Global GLL node numbering: [n_elem_total, NGLL, NGLL, NGLL]
+    // Global GLL node numbering: [n_cell_total, NGLL, NGLL, NGLL]
     // local_cell2rank_node[e][i][j][k] = global node ID (1-based, 0=null)
     std::vector<int64_t> local_cell2rank_node;
 
@@ -196,7 +196,7 @@ struct RankData {
 
 ## Material at GLL Nodes
 
-Material is stored directly at GLL nodes in partition\_{r}.h5 — no runtime interpolation needed. Forward reads `[n_elem, NGLL, NGLL, NGLL]` arrays for lambda, mu, etc. directly.
+Material is stored directly at GLL nodes in partition\_{r}.h5 — no runtime interpolation needed. Forward reads `[n_cell, NGLL, NGLL, NGLL]` arrays for lambda, mu, etc. directly.
 
 ## Source Injection
 
@@ -217,7 +217,7 @@ velocity field. Precomputed by the preprocessor and stored in `partition_{r}.h5`
 as a single per-GLL-node damping array:
 
 ```
-/field/cell/damping   float64[n_elem_total, NGLL, NGLL, NGLL]
+/field/cell/damping   float64[n_cell_total, NGLL, NGLL, NGLL]
 ```
 
 ### Update Formula
@@ -334,7 +334,7 @@ for step in 0..nsteps-1:
     12. Restart overwrite (when step % restart_stride == 0):
          Format controlled by use_global_dof:
          · Global DOF: flat float64[n_rank_node * 3] per field
-         · Element-local: float64[n_elem, NGLL, NGLL, NGLL, 3] per field
+         · Element-local: float64[n_cell, NGLL, NGLL, NGLL, 3] per field
 ```
 
 ## Snapshot Output

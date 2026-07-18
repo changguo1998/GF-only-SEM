@@ -255,10 +255,10 @@ int main(int argc, char** argv) {
                            "source/cells/cell_ids")) {
             H5File fc(config_path);
             if (dataset_exists(fc.id(), "source/cells/cell_ids") &&
-                dataset_exists(fc.id(), "source/elements/weights")) {
+                dataset_exists(fc.id(), "source/cells/weights")) {
                 auto eids = read_int64_1d(fc.id(), "source/cells/cell_ids");
                 std::vector<hsize_t> wsh;
-                auto weights = read_float64_nd(fc.id(), "source/elements/weights", wsh);
+                auto weights = read_float64_nd(fc.id(), "source/cells/weights", wsh);
                 // wsh: [n_src, ngll, ngll, ngll]
                 if (wsh.size() >= 4 && (int)wsh[1] == ngll) {
                     int64_t src_gll = (int64_t)ngll * ngll * ngll;
@@ -415,10 +415,10 @@ int main(int argc, char** argv) {
     for (auto& kv : cell_fields) {
         std::vector<float> padded(total_cells, 0.0f);
         std::copy(kv.second.begin(), kv.second.end(), padded.begin());
-        // GLL cells get parent element value via elem_map
-        if (has_gll && ngll > 0 && !gll_cells.elem_map.empty()) {
-            for (size_t i = 0; i < gll_cells.elem_map.size(); ++i) {
-                padded[n_hex + i] = kv.second[gll_cells.elem_map[i]];
+        // GLL cells get parent cell value via cell_map
+        if (has_gll && ngll > 0 && !gll_cells.cell_map.empty()) {
+            for (size_t i = 0; i < gll_cells.cell_map.size(); ++i) {
+                padded[n_hex + i] = kv.second[gll_cells.cell_map[i]];
             }
         }
         vtk.write_scalar_field(kv.first, padded);

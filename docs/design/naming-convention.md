@@ -155,7 +155,7 @@ Config fields carry SI-unit suffixes: `_m`, `_s`, `_m_s`, `_kg_m3`, etc.
 - **Function parameters**: Use full prefixed names in declarations.
 - **MPI exchange buffers**: Standard convention (`send_buf`, `recv_buf`).
 - **HDF5 dataset/group names**: Follow the same convention. Attributes in a group may shorten names when context is clear.
-- **Variable naming in Python**: Match the C++ convention. The `_4d` suffix (e.g. `local_cell2rank_node_4d`) denotes a 4D-tensor view `[n_elem, NGLL, NGLL, NGLL]` before flattening.
+- **Variable naming in Python**: Match the C++ convention. The `_4d` suffix (e.g. `local_cell2rank_node_4d`) denotes a 4D-tensor view `[n_cell, NGLL, NGLL, NGLL]` before flattening.
 
 ## SPECFEM3D → Current
 

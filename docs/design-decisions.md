@@ -202,9 +202,9 @@ wavefields/{direction}/record_{r}_{step}.h5
 
 restart/{direction}/restart_{r}.h5
 ├── attrs: rank, source_direction, step, time_s, ngll
-├── displacement      : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
-├── velocity          : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
-├── acceleration      : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
+├── displacement      : float64[n_cell_local, NGLL, NGLL, NGLL, 3]
+├── velocity          : float64[n_cell_local, NGLL, NGLL, NGLL, 3]
+├── acceleration      : float64[n_cell_local, NGLL, NGLL, NGLL, 3]
 └── pml_memory_*      : float64[...]             # all C-PML state required for exact resume
 ```
 

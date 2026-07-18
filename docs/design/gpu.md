@@ -44,7 +44,7 @@ Backend-templated function with batched element interface:
 ```cpp
 template <typename Backend>
 void compute_element_residual(
-    int n_elem,            // <-- batched: process all elements in one call
+    int n_cell,            // <-- batched: process all elements in one call
     const double* dxi_dx, const double* jacobian,
     const double* lambda_, const double* mu_,
     const double* D, const double* weights, int NGLL,
@@ -57,7 +57,7 @@ extern template void compute_element_residual<BackendCUDA>(...);
 ```
 
 **Why batched?** GPU throughput requires launching all elements in one kernel
-call (grid.x = n_elem). Per-element dispatch would serialize kernel launches
+call (grid.x = n_cell). Per-element dispatch would serialize kernel launches
 and H2D/D2H transfers. The CPU backend loops internally — zero overhead
 from batching.
 
@@ -73,8 +73,8 @@ from batching.
 
 ```
 forward/share/src/
-├── element_cpu.cpp        — CPU specialization (loops over n_elem internally)
-├── element_cuda.cu        — CUDA kernel + specialization (grid.x = n_elem)
+├── element_cpu.cpp        — CPU specialization (loops over n_cell internally)
+├── element_cuda.cu        — CUDA kernel + specialization (grid.x = n_cell)
 ├── element_hip.hip.cpp    — deferred
 └── element_sycl.cpp       — deferred
 ```
@@ -104,7 +104,7 @@ compute_element_residual<gf::ActiveBackend>(
 ### Launch Configuration
 
 ```
-grid:   dim3(n_elem, 1, 1)          — one block per element
+grid:   dim3(n_cell, 1, 1)          — one block per cell
 block:  dim3(NGLL, NGLL, NGLL)      — one thread per GLL node (i,j,k)
 ```
 

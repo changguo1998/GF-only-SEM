@@ -220,7 +220,7 @@ Boundary detection is auto, by geometry. No GMSH physical groups needed. One fre
 
 ## Design Notes
 
-- **model.h5** gives postprocess vertex coordinates by `vertex_ids`. Converter writes `/topology/`; preprocess adds `/field/element/*` for forward checks.
+- **model.h5** gives postprocess vertex coordinates by `vertex_ids`. Converter writes `/topology/`; preprocess uses `/field/element/` as intermediate workspace, then writes final arrays to `/field/cell/` for forward solver.
 - **partition\_{r}.h5** serves forward: field data, PML damping, metadata, and per-rank `/recording/` map.
 - Postprocess does no element search or interpolation.
 

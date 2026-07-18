@@ -164,11 +164,11 @@ inline GllTemplate build_gll_template(int ngll) {
 }
 
 // Build cell arrays for VTK from GLL template.
-// Returns (cells_flat, cell_types, elem_map).
+// Returns (cells_flat, cell_types, cell_map).
 struct GllCells {
     std::vector<int32_t> cells;       // flattened CELLS array
     std::vector<int32_t> cell_types;  // per-cell VTK type
-    std::vector<int32_t> elem_map;    // parent element index for each GLL cell
+    std::vector<int32_t> cell_map;    // parent cell index for each GLL cell
 };
 
 inline GllCells build_gll_cells(const GllTemplate& tmpl, int64_t n_local, int ngll,
@@ -182,7 +182,7 @@ inline GllCells build_gll_cells(const GllTemplate& tmpl, int64_t n_local, int ng
     // Pre-allocate
     out.cells.reserve(n_edge * 3 + n_face * 5 + n_sub * 9);
     out.cell_types.reserve(n_edge + n_face + n_sub);
-    out.elem_map.reserve(n_edge + n_face + n_sub);
+    out.cell_map.reserve(n_edge + n_face + n_sub);
 
     for (int64_t li = 0; li < n_local; ++li) {
         int64_t base = n_mesh_vert + li * gll_per_cell;
@@ -192,21 +192,21 @@ inline GllCells build_gll_cells(const GllTemplate& tmpl, int64_t n_local, int ng
             out.cells.push_back((int32_t)(base + e.first));
             out.cells.push_back((int32_t)(base + e.second));
             out.cell_types.push_back(3);  // VTK_LINE
-            out.elem_map.push_back((int32_t)li);
+            out.cell_map.push_back((int32_t)li);
         }
         for (const auto& f : tmpl.face_quads) {
             out.cells.push_back(4);
             for (int i = 0; i < 4; ++i)
                 out.cells.push_back((int32_t)(base + f[i]));
             out.cell_types.push_back(9);  // VTK_QUAD
-            out.elem_map.push_back((int32_t)li);
+            out.cell_map.push_back((int32_t)li);
         }
         for (const auto& h : tmpl.sub_hexes) {
             out.cells.push_back(8);
             for (int i = 0; i < 8; ++i)
                 out.cells.push_back((int32_t)(base + h[i]));
             out.cell_types.push_back(12);  // VTK_HEXAHEDRON
-            out.elem_map.push_back((int32_t)li);
+            out.cell_map.push_back((int32_t)li);
         }
     }
     return out;

@@ -74,9 +74,9 @@ Latest-only restart file:
 
 ```
 restart/{direction}/restart_{r}.h5
-├── displacement                : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
-├── velocity                    : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
-├── acceleration                : float64[n_elem_local, NGLL, NGLL, NGLL, 3]
+├── displacement                : float64[n_cell_local, NGLL, NGLL, NGLL, 3]
+├── velocity                    : float64[n_cell_local, NGLL, NGLL, NGLL, 3]
+├── acceleration                : float64[n_cell_local, NGLL, NGLL, NGLL, 3]
 └── pml_memory_*                : float64[...]
 ```
 

@@ -78,7 +78,7 @@ def test_single_element_no_pml():
     result = build_recording_map(topo, domain, is_pml, record_depth_max_m=1.0)
     rec0 = result["per_rank_recording"][0]
     assert len(rec0["vertex_ids"]) == 8
-    assert rec0["save_element_mask"] == [True]
+    assert rec0["save_cell_mask"] == [True]
     assert result["record_depth_actual_m"] == approx(1.0)
 
 
@@ -135,17 +135,17 @@ def test_shallow_depth():
     assert result["record_depth_actual_m"] == approx(0.0)
 
 
-def test_save_element_mask_shape():
-    """save_element_mask has length = n_local_elem (1 for unit cube)."""
+def test_save_cell_mask_shape():
+    """save_cell_mask has length = n_local_cell (1 for unit cube)."""
     topo = _unit_cube_topology()
     domain = {"xmin": 0.0, "xmax": 1.0, "ymin": 0.0, "ymax": 1.0, "zmin": 0.0, "zmax": 1.0}
     is_pml = np.array([False], dtype=bool)
 
     result = build_recording_map(topo, domain, is_pml, record_depth_max_m=1.0)
     rec0 = result["per_rank_recording"][0]
-    assert len(rec0["save_element_mask"]) == 1  # 1 element
+    assert len(rec0["save_cell_mask"]) == 1  # 1 element
     # Save mask should be True since element has recorded vertices
-    assert rec0["save_element_mask"] == [True]
+    assert rec0["save_cell_mask"] == [True]
 
 
 def test_intermediate_depth_captures_surface():
