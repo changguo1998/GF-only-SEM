@@ -8,6 +8,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 
 #include "gf/types.hpp"
 
@@ -287,7 +288,7 @@ RankData read_partition(const std::string& path, int /*rank*/) {
         }
     }
 
-    // --- Read recording map ---
+    // --- Read recording map (GLL-node format) ---
     hid_t rec_grp = -1;
     H5E_BEGIN_TRY {
         rec_grp = H5Gopen2(fid, "/recording", H5P_DEFAULT);
@@ -296,11 +297,11 @@ RankData read_partition(const std::string& path, int /*rank*/) {
     if (rec_grp >= 0) {
         H5FileGuard rec_guard(rec_grp);
         data.recording.has_recording = true;
-        data.recording.vertex_ids = read_dataset_int64(fid, "/recording/vertex_ids");
-        data.recording.src_elem_local =
-            read_dataset_int32(fid, "/recording/source_element_local_index");
-        // Read corner index as int32
-        data.recording.src_corner = read_dataset_int32(fid, "/recording/source_corner_index");
+        data.recording.gll_node_ids = read_dataset_int64(fid, "/recording/gll_node_ids");
+        data.recording.gll_node_coords = read_dataset_double(fid, "/recording/gll_node_coords");
+        data.recording.rec_cell_local = read_dataset_int32(fid, "/recording/rec_cell_local");
+        data.recording.cell_gll_node_index =
+            read_dataset_int32(fid, "/recording/cell_gll_node_index");
     }
 
     return data;
@@ -330,6 +331,9 @@ RankData read_partition_all(const std::string& partition_dir) {
     RankData merged;
     int cumulative_elements = 0;
 
+    // Global GLL node ID -> merged index map (for cross-rank recording dedup)
+    std::unordered_map<int64_t, int32_t> global_node_id_to_index;
+
     for (int r = 0; r < n_partitions; ++r) {
         std::string path = partition_dir + "/partition_" + std::to_string(r) + ".h5";
         RankData part = read_partition(path, r);
@@ -354,6 +358,13 @@ RankData read_partition_all(const std::string& partition_dir) {
             merged.ghost_owners.clear();
             merged.local_cell2rank_node = std::move(global_ibool);
             cumulative_elements = merged.n_local_cell;
+            // Register rank-0 recording nodes in global map
+            if (merged.recording.has_recording) {
+                for (size_t i = 0; i < merged.recording.gll_node_ids.size(); ++i) {
+                    global_node_id_to_index[merged.recording.gll_node_ids[i]] =
+                        static_cast<int32_t>(i);
+                }
+            }
         } else {
             // Concatenate element-based arrays
             concat_vec(merged.local_cell_ids, part.local_cell_ids);
@@ -371,14 +382,36 @@ RankData read_partition_all(const std::string& partition_dir) {
             // Merge ibool using global node IDs (already unique across ranks)
             concat_vec(merged.local_cell2rank_node, part.local_cell2global_node);
 
-            // Merge recording: adjust src_elem_local by cumulative element count
+            // Merge recording: dedup GLL nodes, offset rec_cell_local, remap index
             if (part.recording.has_recording) {
                 merged.recording.has_recording = true;
-                concat_vec(merged.recording.vertex_ids, part.recording.vertex_ids);
-                for (int32_t local_idx : part.recording.src_elem_local) {
-                    merged.recording.src_elem_local.push_back(local_idx + cumulative_elements);
+                // Map this rank's local node index -> merged global node index
+                std::vector<int32_t> local_to_merged(part.recording.gll_node_ids.size());
+                for (size_t i = 0; i < part.recording.gll_node_ids.size(); ++i) {
+                    int64_t gid = part.recording.gll_node_ids[i];
+                    auto it = global_node_id_to_index.find(gid);
+                    if (it == global_node_id_to_index.end()) {
+                        int32_t merged_idx =
+                            static_cast<int32_t>(merged.recording.gll_node_ids.size());
+                        global_node_id_to_index[gid] = merged_idx;
+                        merged.recording.gll_node_ids.push_back(gid);
+                        for (int d = 0; d < 3; ++d) {
+                            merged.recording.gll_node_coords.push_back(
+                                part.recording.gll_node_coords[i * 3 + d]);
+                        }
+                        local_to_merged[i] = merged_idx;
+                    } else {
+                        local_to_merged[i] = it->second;
+                    }
                 }
-                concat_vec(merged.recording.src_corner, part.recording.src_corner);
+                // rec_cell_local: offset by cumulative element count
+                for (int32_t local_idx : part.recording.rec_cell_local) {
+                    merged.recording.rec_cell_local.push_back(local_idx + cumulative_elements);
+                }
+                // cell_gll_node_index: remap to merged indices
+                for (int32_t local_idx : part.recording.cell_gll_node_index) {
+                    merged.recording.cell_gll_node_index.push_back(local_to_merged[local_idx]);
+                }
             }
 
             cumulative_elements += part.n_local_cell;

@@ -354,44 +354,46 @@ def _write_partition_files(
                     recv_arr = np.asarray(dof_dict.get("recv_dof", []), dtype=np.int32)
                     _write_dataset(ng, "send_dof", send_arr, dtype="int32")
                     _write_dataset(ng, "recv_dof", recv_arr, dtype="int32")
-            # Write recording map if present
+            # Write recording map if present (GLL-node format)
             if recording_map is not None:
                 per_rank_rec = recording_map.get("per_rank_recording", {}).get(r)
-                if per_rank_rec is not None and len(per_rank_rec.get("vertex_ids", [])) > 0:
+                if per_rank_rec is not None and len(per_rank_rec.get("gll_node_ids", [])) > 0:
                     rec_grp = f.create_group("recording")
-                    rec_grp.attrs["basis"] = "mesh_vertices"
+                    rec_grp.attrs["basis"] = "gll"
                     rec_grp.attrs["record_depth_max_m"] = recording_map.get(
                         "record_depth_actual_m", 0.0
                     )
                     rec_grp.attrs["record_depth_actual_m"] = recording_map.get(
                         "record_depth_actual_m", 0.0
                     )
-
                     rec_grp.attrs["excludes_pml"] = True
+
                     _write_dataset(
                         rec_grp,
-                        "save_cell_mask",
-                        np.array(per_rank_rec["save_cell_mask"], dtype=bool),
-                        dtype="bool",
-                    )
-                    _write_dataset(
-                        rec_grp,
-                        "vertex_ids",
-                        np.array(per_rank_rec["vertex_ids"], dtype=np.int64),
+                        "gll_node_ids",
+                        np.array(per_rank_rec["gll_node_ids"], dtype=np.int64),
                         dtype="int64",
                     )
                     _write_dataset(
                         rec_grp,
-                        "source_element_local_index",
-                        np.array(per_rank_rec["source_element_local_index"], dtype=np.int32),
-                        dtype="int32",
+                        "gll_node_coords",
+                        np.array(per_rank_rec["gll_node_coords"], dtype=np.float64),
+                        dtype="float64",
                     )
                     _write_dataset(
                         rec_grp,
-                        "source_corner_index",
-                        np.array(per_rank_rec["source_corner_index"], dtype=np.int32),
+                        "rec_cell_local",
+                        np.array(per_rank_rec["rec_cell_local_index"], dtype=np.int32),
                         dtype="int32",
                     )
+                    cell_gll_node_index_flat = np.array(
+                        per_rank_rec["cell_gll_node_index"], dtype=np.int32
+                    ).flatten()
+                    _write_dataset(
+                        rec_grp, "cell_gll_node_index", cell_gll_node_index_flat, dtype="int32"
+                    )
+                    rec_grp.attrs["n_unique_gll"] = len(per_rank_rec["gll_node_ids"])
+                    rec_grp.attrs["n_rec_cell"] = len(per_rank_rec["rec_cell_local_index"])
 
 
 def _write_dataset(

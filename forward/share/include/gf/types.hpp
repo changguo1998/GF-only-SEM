@@ -63,12 +63,17 @@ struct RankData {
     std::vector<ExchangePattern> exchange_patterns;
 
     // Recording map (from /recording/ in partition file)
-    // Maps shallow mesh vertices to source element + corner for strain extraction
+    // Maps recording-region GLL nodes to cells for full-wavefield extraction.
+    // Strain is element-local (per-cell); displacement/velocity/acceleration
+    // are global DOF (deduplicated by gll_node_ids).
     struct RecordingMap {
-        bool has_recording = false;           // true if /recording/ group exists
-        std::vector<int64_t> vertex_ids;      // global mesh vertex IDs [n_vertices]
-        std::vector<int32_t> src_elem_local;  // local element index [n_vertices]
-        std::vector<int32_t> src_corner;      // corner index 0-7 [n_vertices]
+        bool has_recording = false;  // true if /recording/ group exists
+        // GLL node data (global, deduplicated across cells)
+        std::vector<int64_t> gll_node_ids;    // [n_unique_gll] global GLL node IDs
+        std::vector<double> gll_node_coords;  // [n_unique_gll * 3] physical coordinates
+        // Cell data (element-local strain extraction + GLL interpolation)
+        std::vector<int32_t> rec_cell_local;       // [n_rec_cell] local cell index
+        std::vector<int32_t> cell_gll_node_index;  // [n_rec_cell * n_node] index into gll_node_ids
     };
     RecordingMap recording;
 };
