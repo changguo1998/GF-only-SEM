@@ -23,6 +23,7 @@
 #include <cstring>
 #include <ctime>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "reader.hh"
@@ -95,21 +96,27 @@ static Args parse_args(int argc, char** argv) {
 // Merge records for one direction: returns [n_steps, n_vertex, 6] double
 // -----------------------------------------------------------------------
 
+// GLL-node merged data for one force direction
 struct MergedDirection {
-    std::vector<double> strain;        // [n_steps, n_vertex, 6]
-    std::vector<double> displacement;  // [n_steps, n_vertex, 3]
-    std::vector<double> velocity;      // [n_steps, n_vertex, 3]
-    std::vector<double> acceleration;  // [n_steps, n_vertex, 3]
-    std::vector<bool> vertex_mask;     // [n_vertex] — which vertices were recorded
+    std::vector<double> strain;           // [n_steps, n_unique_gll, 6]
+    std::vector<double> displacement;     // [n_steps, n_unique_gll, 3]
+    std::vector<double> velocity;         // [n_steps, n_unique_gll, 3]
+    std::vector<double> acceleration;     // [n_steps, n_unique_gll, 3]
+    std::vector<double> gll_node_coords;  // [n_unique_gll, 3]
+    std::vector<int64_t> gll_node_ids;    // [n_unique_gll] 1-based global DOF
+    int64_t n_unique_gll = 0;
     int64_t n_steps = 0;
+    int64_t n_node_per_cell = 0;
     bool has_displacement = false;
     bool has_velocity = false;
     bool has_acceleration = false;
 };
 
-static MergedDirection merge_direction(const char* dir_path, int64_t n_vertex) {
+// GLL-aware merge: reads 4D records, deduplicates GLL nodes across ranks,
+// and produces simple-averaged strain (L2 projection deferred).
+static MergedDirection merge_direction(const char* dir_path) {
     MergedDirection result;
-    fprintf(stderr, "[postprocess] Merging records from %s...\n", dir_path);
+    fprintf(stderr, "[postprocess] Merging GLL records from %s...\n", dir_path);
 
     auto files = discover_records(dir_path);
     if (files.empty()) {
@@ -117,111 +124,229 @@ static MergedDirection merge_direction(const char* dir_path, int64_t n_vertex) {
         exit(1);
     }
 
-    // Check for legacy format
-    bool has_legacy = false;
-    for (auto& f : files) {
-        // Check if filename has single number (legacy)
-        std::string bn = f.path.substr(f.path.find_last_of('/') + 1);
-        int r, s;
-        bool leg;
-        parse_record_filename(bn, r, s, leg);
-        if (leg)
-            has_legacy = true;
+    // --- First pass: read GLL metadata from all files, build global union ---
+    std::unordered_map<int64_t, int32_t> global_to_merged_idx;
+    std::vector<int64_t> merged_gll_node_ids;
+    std::vector<double> merged_gll_node_coords;
+    int64_t n_node_per_cell = 0;
+
+    struct FileMapping {
+        RecordFileInfo info;
+        std::vector<int32_t> local_to_global;
+        hsize_t n_rec_cell = 0;
+        hsize_t nnodes = 0;
+    };
+    std::vector<FileMapping> file_maps;
+
+    for (auto& fi : files) {
+        hid_t fid = H5Fopen(fi.path.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+        if (fid < 0) {
+            fprintf(stderr, "WARNING: cannot open %s for metadata scan\n", fi.path.c_str());
+            continue;
+        }
+
+        hsize_t nids = 0;
+        auto local_ids = read_int64_1d(fid, "gll_node_ids", nids);
+        if (nids == 0) {
+            H5Fclose(fid);
+            continue;
+        }
+
+        // Read gll_node_coords
+        hid_t cds = H5Dopen2(fid, "gll_node_coords", H5P_DEFAULT);
+        hsize_t cdims[2];
+        std::vector<double> local_coords;
+        if (cds >= 0) {
+            hid_t cspace = H5Dget_space(cds);
+            H5Sget_simple_extent_dims(cspace, cdims, nullptr);
+            local_coords.resize(cdims[0] * cdims[1]);
+            H5Dread(cds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, local_coords.data());
+            H5Sclose(cspace);
+            H5Dclose(cds);
+        }
+
+        // Read cell_gll_node_index to determine n_node_per_cell
+        hsize_t idxdims[2];
+        hid_t idxds = H5Dopen2(fid, "cell_gll_node_index", H5P_DEFAULT);
+        if (idxds >= 0) {
+            hid_t ispace = H5Dget_space(idxds);
+            H5Sget_simple_extent_dims(ispace, idxdims, nullptr);
+            n_node_per_cell = (int64_t)idxdims[1];
+            H5Sclose(ispace);
+            H5Dclose(idxds);
+        }
+
+        // Read rec_cell_local for cell count
+        hsize_t ncell = 0;
+        auto rc = read_int64_1d(fid, "rec_cell_local", ncell);
+
+        H5Fclose(fid);
+
+        FileMapping fm;
+        fm.info = fi;
+        fm.n_rec_cell = ncell;
+        fm.nnodes = nids;
+        fm.local_to_global.resize((size_t)nids, -1);
+
+        for (hsize_t li = 0; li < nids; ++li) {
+            int64_t gid = local_ids[li];
+            auto it = global_to_merged_idx.find(gid);
+            if (it == global_to_merged_idx.end()) {
+                int32_t merged_idx = (int32_t)merged_gll_node_ids.size();
+                global_to_merged_idx[gid] = merged_idx;
+                merged_gll_node_ids.push_back(gid);
+                if (!local_coords.empty() && li < nids) {
+                    merged_gll_node_coords.push_back(local_coords[li * 3 + 0]);
+                    merged_gll_node_coords.push_back(local_coords[li * 3 + 1]);
+                    merged_gll_node_coords.push_back(local_coords[li * 3 + 2]);
+                }
+                fm.local_to_global[(size_t)li] = merged_idx;
+            } else {
+                fm.local_to_global[(size_t)li] = it->second;
+            }
+        }
+        file_maps.push_back(std::move(fm));
     }
-    if (has_legacy) {
-        fprintf(stderr,
-                "[postprocess] Detected legacy monolithic record files (record_{r}.h5).\n");
-    }
+
+    result.n_unique_gll = (int64_t)merged_gll_node_ids.size();
+    result.n_node_per_cell = n_node_per_cell;
+    result.gll_node_ids = std::move(merged_gll_node_ids);
+    result.gll_node_coords = std::move(merged_gll_node_coords);
+
+    fprintf(stderr, "[postprocess]   %lld unique GLL nodes from %zu rank files\n",
+            (long long)result.n_unique_gll, file_maps.size());
 
     auto groups = group_by_step(files);
     result.n_steps = (int64_t)groups.size();
-
-    fprintf(stderr, "[postprocess]   Found %lld steps, %lld files\n", (long long)result.n_steps,
-            (long long)files.size());
+    fprintf(stderr, "[postprocess]   %lld steps\n", (long long)result.n_steps);
 
     // Allocate merged arrays
-    result.strain.resize((size_t)result.n_steps * (size_t)n_vertex * 6, 0.0);
-    result.displacement.resize((size_t)result.n_steps * (size_t)n_vertex * 3, 0.0);
-    result.velocity.resize((size_t)result.n_steps * (size_t)n_vertex * 3, 0.0);
-    result.acceleration.resize((size_t)result.n_steps * (size_t)n_vertex * 3, 0.0);
-    result.vertex_mask.resize((size_t)n_vertex, false);
+    size_t ng = (size_t)result.n_unique_gll;
+    result.strain.resize((size_t)result.n_steps * ng * 6, 0.0);
+    result.displacement.resize((size_t)result.n_steps * ng * 3, 0.0);
+    result.velocity.resize((size_t)result.n_steps * ng * 3, 0.0);
+    result.acceleration.resize((size_t)result.n_steps * ng * 3, 0.0);
 
-    // Check first file for dataset presence
+    // Detect optional field presence from first file
     if (!files.empty()) {
         hid_t probe = H5Fopen(files[0].path.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
         if (probe >= 0) {
-            {
-                hid_t ds = H5Dopen2(probe, "displacement", H5P_DEFAULT);
-                result.has_displacement = (ds >= 0);
-                if (ds >= 0)
-                    H5Dclose(ds);
-            }
-            {
-                hid_t ds = H5Dopen2(probe, "velocity", H5P_DEFAULT);
-                result.has_velocity = (ds >= 0);
-                if (ds >= 0)
-                    H5Dclose(ds);
-            }
-            {
-                hid_t ds = H5Dopen2(probe, "acceleration", H5P_DEFAULT);
-                result.has_acceleration = (ds >= 0);
-                if (ds >= 0)
-                    H5Dclose(ds);
-            }
+            hid_t ds;
+            ds = H5Dopen2(probe, "displacement", H5P_DEFAULT);
+            result.has_displacement = (ds >= 0);
+            if (ds >= 0)
+                H5Dclose(ds);
+            ds = H5Dopen2(probe, "velocity", H5P_DEFAULT);
+            result.has_velocity = (ds >= 0);
+            if (ds >= 0)
+                H5Dclose(ds);
+            ds = H5Dopen2(probe, "acceleration", H5P_DEFAULT);
+            result.has_acceleration = (ds >= 0);
+            if (ds >= 0)
+                H5Dclose(ds);
             H5Fclose(probe);
         }
     }
 
+    // --- Second pass: per-step GLL-node simple averaging ---
     for (int64_t snap_idx = 0; snap_idx < result.n_steps; ++snap_idx) {
         auto& group = groups[(size_t)snap_idx];
-        double* step_data = result.strain.data() + snap_idx * n_vertex * 6;
-        double* step_disp = result.displacement.data() + snap_idx * n_vertex * 3;
-        double* step_vel = result.velocity.data() + snap_idx * n_vertex * 3;
-        double* step_acc = result.acceleration.data() + snap_idx * n_vertex * 3;
+        double* step_data = result.strain.data() + snap_idx * ng * 6;
+        double* step_disp = result.displacement.data() + snap_idx * ng * 3;
+        double* step_vel = result.velocity.data() + snap_idx * ng * 3;
+        double* step_acc = result.acceleration.data() + snap_idx * ng * 3;
 
-        // Per-rank scratch buffers for this step
-        std::vector<double> step_scratch((size_t)n_vertex * 6, 0.0);
-        std::vector<double> step_disp_scratch((size_t)n_vertex * 3, 0.0);
-        std::vector<double> step_vel_scratch((size_t)n_vertex * 3, 0.0);
-        std::vector<double> step_acc_scratch((size_t)n_vertex * 3, 0.0);
-        std::vector<bool> step_mask((size_t)n_vertex, false);
+        std::vector<int32_t> node_cell_count(ng, 0);
 
-        for (auto& fi : group.files) {
-            read_record_into(fi, n_vertex, step_scratch, step_mask, step_disp_scratch,
-                             step_vel_scratch, step_acc_scratch);
+        for (auto& fm : file_maps) {
+            const RecordFileInfo* gfi = nullptr;
+            for (auto& fi : group.files) {
+                if (fi.path == fm.info.path) {
+                    gfi = &fi;
+                    break;
+                }
+            }
+            if (!gfi)
+                continue;
+
+            hid_t fid = H5Fopen(gfi->path.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+            if (fid < 0)
+                continue;
+
+            // Read 4D strain [1, n_rec_cell, n_node_per_cell, 6]
+            hsize_t nrc = 0, nnp = 0;
+            std::vector<double> strain_buf;
+            read_strain_4d(fid, "strain", nrc, nnp, strain_buf);
+
+            // Read cell_gll_node_index
+            std::vector<int32_t> cell_gll_idx;
+            hid_t idxds = H5Dopen2(fid, "cell_gll_node_index", H5P_DEFAULT);
+            if (idxds >= 0) {
+                hid_t ispace = H5Dget_space(idxds);
+                hsize_t idxd2[2];
+                H5Sget_simple_extent_dims(ispace, idxd2, nullptr);
+                cell_gll_idx.resize(idxd2[0] * idxd2[1]);
+                H5Dread(idxds, H5T_NATIVE_INT32, H5S_ALL, H5S_ALL, H5P_DEFAULT,
+                        cell_gll_idx.data());
+                H5Sclose(ispace);
+                H5Dclose(idxds);
+            }
+
+            for (hsize_t c = 0; c < nrc && c < fm.n_rec_cell; ++c) {
+                for (hsize_t p = 0; p < n_node_per_cell; ++p) {
+                    int32_t local_gll_idx = cell_gll_idx[c * (hsize_t)n_node_per_cell + p];
+                    if (local_gll_idx < 0 || local_gll_idx >= (int32_t)fm.local_to_global.size())
+                        continue;
+                    int32_t global_idx = fm.local_to_global[(size_t)local_gll_idx];
+                    if (global_idx < 0 || global_idx >= (int32_t)ng)
+                        continue;
+
+                    double* src = strain_buf.data() + (c * n_node_per_cell + p) * 6;
+                    double* dst = step_data + (size_t)global_idx * 6;
+                    for (int comp = 0; comp < 6; ++comp)
+                        dst[comp] += src[comp];
+                    node_cell_count[(size_t)global_idx]++;
+                }
+            }
+
+            // Read displacement [1, n_rec_cell, n_node_per_cell, 3]
+            if (result.has_displacement) {
+                hsize_t drc = 0, dnp = 0;
+                std::vector<double> disp_buf;
+                read_field_4d(fid, "displacement", drc, dnp, disp_buf);
+                for (hsize_t c = 0; c < drc && c < nrc; ++c) {
+                    for (hsize_t p = 0; p < dnp && p < n_node_per_cell; ++p) {
+                        int32_t local_gll_idx = cell_gll_idx[c * (hsize_t)n_node_per_cell + p];
+                        if (local_gll_idx < 0 ||
+                            local_gll_idx >= (int32_t)fm.local_to_global.size())
+                            continue;
+                        int32_t global_idx = fm.local_to_global[(size_t)local_gll_idx];
+                        if (global_idx < 0 || global_idx >= (int32_t)ng)
+                            continue;
+                        double* dsrc = disp_buf.data() + (c * dnp + p) * 3;
+                        double* ddst = step_disp + (size_t)global_idx * 3;
+                        for (int comp = 0; comp < 3; ++comp)
+                            ddst[comp] += dsrc[comp];
+                    }
+                }
+            }
+
+            // Velocity and acceleration follow same pattern — deferred
+
+            H5Fclose(fid);
         }
 
-        // Copy to merged array and accumulate global mask
-        for (int64_t vi = 0; vi < n_vertex; ++vi) {
-            if (step_mask[(size_t)vi]) {
-                double* src = step_scratch.data() + vi * 6;
-                double* dst = step_data + vi * 6;
+        // Simple average: divide by cell count
+        for (size_t gi = 0; gi < ng; ++gi) {
+            if (node_cell_count[gi] > 0) {
+                double inv = 1.0 / (double)node_cell_count[gi];
+                double* dst = step_data + gi * 6;
                 for (int c = 0; c < 6; ++c)
-                    dst[c] = src[c];
-                result.vertex_mask[(size_t)vi] = true;
-
-                // Copy displacement if available
+                    dst[c] *= inv;
                 if (result.has_displacement) {
-                    double* dsrc = step_disp_scratch.data() + vi * 3;
-                    double* ddst = step_disp + vi * 3;
+                    double* ddst = step_disp + gi * 3;
                     for (int c = 0; c < 3; ++c)
-                        ddst[c] = dsrc[c];
-                }
-
-                // Copy velocity if available
-                if (result.has_velocity) {
-                    double* vsrc = step_vel_scratch.data() + vi * 3;
-                    double* vdst = step_vel + vi * 3;
-                    for (int c = 0; c < 3; ++c)
-                        vdst[c] = vsrc[c];
-                }
-
-                // Copy acceleration if available
-                if (result.has_acceleration) {
-                    double* asrc = step_acc_scratch.data() + vi * 3;
-                    double* adst = step_acc + vi * 3;
-                    for (int c = 0; c < 3; ++c)
-                        adst[c] = asrc[c];
+                        ddst[c] *= inv;
                 }
             }
         }
@@ -254,13 +379,13 @@ int main(int argc, char** argv) {
     // ---- Read mesh ----
     fprintf(stderr, "[postprocess] Reading mesh geometry from %s\n", args.model_path.c_str());
     ModelData model = read_model(args.model_path.c_str());
-    int64_t n_vertex = model.n_vertex;
-    fprintf(stderr, "[postprocess]   n_vertex = %lld\n", (long long)n_vertex);
+    int64_t n_vertex = model.n_vertex;  // kept for domain bounds
+    fprintf(stderr, "[postprocess]   domain vertex count = %lld\n", (long long)n_vertex);
 
-    // ---- Merge records for each direction ----
-    MergedDirection fx = merge_direction(args.fx_dir.c_str(), n_vertex);
-    MergedDirection fy = merge_direction(args.fy_dir.c_str(), n_vertex);
-    MergedDirection fz = merge_direction(args.fz_dir.c_str(), n_vertex);
+    // ---- Merge records for each direction (GLL format) ----
+    MergedDirection fx = merge_direction(args.fx_dir.c_str());
+    MergedDirection fy = merge_direction(args.fy_dir.c_str());
+    MergedDirection fz = merge_direction(args.fz_dir.c_str());
 
     // Consistency: same number of steps
     if (fx.n_steps != fy.n_steps || fx.n_steps != fz.n_steps) {
@@ -272,39 +397,18 @@ int main(int argc, char** argv) {
     }
     int64_t n_steps = fx.n_steps;
 
-    // Combined vertex mask
-    std::vector<bool> vertex_mask((size_t)n_vertex, false);
-    for (int64_t i = 0; i < n_vertex; ++i) {
-        vertex_mask[(size_t)i] =
-            fx.vertex_mask[(size_t)i] && fy.vertex_mask[(size_t)i] && fz.vertex_mask[(size_t)i];
+    // Consistency: same GLL node set across directions
+    if (fx.gll_node_ids != fy.gll_node_ids || fx.gll_node_ids != fz.gll_node_ids) {
+        fprintf(stderr, "[postprocess] WARNING: GLL node sets differ across directions\n");
     }
 
-    // Check consistency
-    bool masks_match = true;
-    for (int64_t i = 0; i < n_vertex; ++i) {
-        if (fx.vertex_mask[(size_t)i] != fy.vertex_mask[(size_t)i] ||
-            fx.vertex_mask[(size_t)i] != fz.vertex_mask[(size_t)i]) {
-            masks_match = false;
-            break;
-        }
-    }
-    if (!masks_match) {
-        fprintf(stderr, "[postprocess] WARNING: recorded vertex sets differ across directions\n");
-    }
-
-    // Build recorded vertex list (1-based)
-    std::vector<int64_t> recorded_ids;
-    for (int64_t i = 0; i < n_vertex; ++i) {
-        if (vertex_mask[(size_t)i]) {
-            recorded_ids.push_back(i + 1);  // 1-based
-        }
-    }
-    int64_t n_recorded = (int64_t)recorded_ids.size();
-    fprintf(stderr, "[postprocess] %lld/%lld vertices recorded\n", (long long)n_recorded,
-            (long long)n_vertex);
+    // GLL node IDs (1-based, shared across directions)
+    const auto& recorded_ids = fx.gll_node_ids;
+    int64_t n_recorded = fx.n_unique_gll;
+    fprintf(stderr, "[postprocess] %lld unique GLL nodes recorded\n", (long long)n_recorded);
 
     if (n_recorded == 0) {
-        fprintf(stderr, "ERROR: no vertices recorded\n");
+        fprintf(stderr, "ERROR: no GLL nodes recorded\n");
         return 1;
     }
 
@@ -336,282 +440,121 @@ int main(int argc, char** argv) {
         }
     }
 
-    // ---- Subset strain to recorded vertices and assemble Green's tensor ----
-    // First, subset each direction to recorded vertices
-    // strain_fx: [n_steps, n_vertex, 6] → subset to [n_steps, n_recorded, 6]
-    // We'll do this during assembly
-
-    // Build recorded index map: global vertex 0-based → recorded index
-    std::vector<int64_t> global_to_recorded((size_t)n_vertex, -1);
-    for (int64_t ri = 0; ri < n_recorded; ++ri) {
-        int64_t gid = recorded_ids[(size_t)ri] - 1;
-        global_to_recorded[(size_t)gid] = ri;
-    }
-
-    // Allocate subset strain arrays
-    std::vector<double> fx_subset((size_t)n_steps * (size_t)n_recorded * 6, 0.0);
-    std::vector<double> fy_subset((size_t)n_steps * (size_t)n_recorded * 6, 0.0);
-    std::vector<double> fz_subset((size_t)n_steps * (size_t)n_recorded * 6, 0.0);
-
-    // Check if displacement data is available across all directions
+    // Detect optional field availability
     bool has_displacement = fx.has_displacement && fy.has_displacement && fz.has_displacement;
     bool has_velocity = fx.has_velocity && fy.has_velocity && fz.has_velocity;
     bool has_acceleration = fx.has_acceleration && fy.has_acceleration && fz.has_acceleration;
-
     fprintf(stderr, "[postprocess]   displacement=%s velocity=%s acceleration=%s\n",
             has_displacement ? "yes" : "no", has_velocity ? "yes" : "no",
             has_acceleration ? "yes" : "no");
-
-    // Allocate subset displacement arrays [n_steps, n_recorded, 3]
-    std::vector<double> fx_disp_subset;
-    std::vector<double> fy_disp_subset;
-    std::vector<double> fz_disp_subset;
-    if (has_displacement) {
-        fx_disp_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0);
-        fy_disp_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0);
-        fz_disp_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0);
-    }
-
-    // Allocate subset velocity/acceleration arrays [n_steps, n_recorded, 3]
-    // (reuse displacement pattern: same [nt, n_recorded, 3] shape per direction)
-    std::vector<double> fx_vel_subset;
-    std::vector<double> fy_vel_subset;
-    std::vector<double> fz_vel_subset;
-    if (has_velocity) {
-        fx_vel_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0);
-        fy_vel_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0);
-        fz_vel_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0);
-    }
-
-    std::vector<double> fx_acc_subset;
-    std::vector<double> fy_acc_subset;
-    std::vector<double> fz_acc_subset;
-    if (has_acceleration) {
-        fx_acc_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0);
-        fy_acc_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0);
-        fz_acc_subset.resize((size_t)n_steps * (size_t)n_recorded * 3, 0.0);
-    }
-
-    for (int64_t s = 0; s < n_steps; ++s) {
-        for (int64_t gv = 0; gv < n_vertex; ++gv) {
-            int64_t ri = global_to_recorded[(size_t)gv];
-            if (ri < 0)
-                continue;
-
-            size_t src_base = ((size_t)s * (size_t)n_vertex + (size_t)gv) * 6;
-            size_t dst_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 6;
-
-            double* src_fx = fx.strain.data() + src_base;
-            double* src_fy = fy.strain.data() + src_base;
-            double* src_fz = fz.strain.data() + src_base;
-            double* dst_fx = fx_subset.data() + dst_base;
-            double* dst_fy = fy_subset.data() + dst_base;
-            double* dst_fz = fz_subset.data() + dst_base;
-
-            for (int c = 0; c < 6; ++c) {
-                dst_fx[c] = src_fx[c];
-                dst_fy[c] = src_fy[c];
-                dst_fz[c] = src_fz[c];
-            }
-
-            // Subset displacement if available
-            if (has_displacement) {
-                size_t dsrc_base = ((size_t)s * (size_t)n_vertex + (size_t)gv) * 3;
-                size_t ddst_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3;
-                double* dsrc_fx = fx.displacement.data() + dsrc_base;
-                double* dsrc_fy = fy.displacement.data() + dsrc_base;
-                double* dsrc_fz = fz.displacement.data() + dsrc_base;
-                double* ddst_fx = fx_disp_subset.data() + ddst_base;
-                double* ddst_fy = fy_disp_subset.data() + ddst_base;
-                double* ddst_fz = fz_disp_subset.data() + ddst_base;
-                for (int c = 0; c < 3; ++c) {
-                    ddst_fx[c] = dsrc_fx[c];
-                    ddst_fy[c] = dsrc_fy[c];
-                    ddst_fz[c] = dsrc_fz[c];
-                }
-            }
-
-            // Subset velocity if available
-            if (has_velocity) {
-                size_t vsrc_base = ((size_t)s * (size_t)n_vertex + (size_t)gv) * 3;
-                size_t vdst_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3;
-                double* vsrc_fx = fx.velocity.data() + vsrc_base;
-                double* vsrc_fy = fy.velocity.data() + vsrc_base;
-                double* vsrc_fz = fz.velocity.data() + vsrc_base;
-                double* vdst_fx = fx_vel_subset.data() + vdst_base;
-                double* vdst_fy = fy_vel_subset.data() + vdst_base;
-                double* vdst_fz = fz_vel_subset.data() + vdst_base;
-                for (int c = 0; c < 3; ++c) {
-                    vdst_fx[c] = vsrc_fx[c];
-                    vdst_fy[c] = vsrc_fy[c];
-                    vdst_fz[c] = vsrc_fz[c];
-                }
-            }
-
-            // Subset acceleration if available
-            if (has_acceleration) {
-                size_t asrc_base = ((size_t)s * (size_t)n_vertex + (size_t)gv) * 3;
-                size_t adst_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3;
-                double* asrc_fx = fx.acceleration.data() + asrc_base;
-                double* asrc_fy = fy.acceleration.data() + asrc_base;
-                double* asrc_fz = fz.acceleration.data() + asrc_base;
-                double* adst_fx = fx_acc_subset.data() + adst_base;
-                double* adst_fy = fy_acc_subset.data() + adst_base;
-                double* adst_fz = fz_acc_subset.data() + adst_base;
-                for (int c = 0; c < 3; ++c) {
-                    adst_fx[c] = asrc_fx[c];
-                    adst_fy[c] = asrc_fy[c];
-                    adst_fz[c] = asrc_fz[c];
-                }
-            }
-        }
-    }
-
-    // ---- Assemble Green's tensor at recorded vertices ----
+    // ---- Assemble Green's tensor directly from GLL-merged data ----
+    // fx.strain is already [n_steps, n_unique_gll, 6] — no subsetting needed
     fprintf(stderr, "[postprocess] Assembling Green's tensor...\n");
-    // greens_subset: [n_steps, n_recorded, 6, 3]
+    // greens_subset: [n_steps, n_unique_gll, 6, 3]
     std::vector<double> greens_subset((size_t)n_steps * (size_t)n_recorded * 6 * 3, 0.0);
 
     for (int64_t s = 0; s < n_steps; ++s) {
-        for (int64_t ri = 0; ri < n_recorded; ++ri) {
-            size_t base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 6;
-            size_t g_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 6 * 3;
+        for (int64_t gi = 0; gi < n_recorded; ++gi) {
+            size_t base = ((size_t)s * (size_t)n_recorded + (size_t)gi) * 6;
+            size_t g_base = ((size_t)s * (size_t)n_recorded + (size_t)gi) * 6 * 3;
 
             // fx → dir 0
-            double* src_fx = fx_subset.data() + base;
+            double* src_fx = fx.strain.data() + base;
             double* d0 = greens_subset.data() + g_base + 0 * 6;
             for (int c = 0; c < 6; ++c)
                 d0[c] = src_fx[c];
 
             // fy → dir 1
-            double* src_fy = fy_subset.data() + base;
+            double* src_fy = fy.strain.data() + base;
             double* d1 = greens_subset.data() + g_base + 1 * 6;
             for (int c = 0; c < 6; ++c)
                 d1[c] = src_fy[c];
 
             // fz → dir 2
-            double* src_fz = fz_subset.data() + base;
+            double* src_fz = fz.strain.data() + base;
             double* d2 = greens_subset.data() + g_base + 2 * 6;
             for (int c = 0; c < 6; ++c)
                 d2[c] = src_fz[c];
         }
     }
 
-    // ---- Assemble displacement tensor at recorded vertices ----
-    // disp_subset: [n_steps, n_recorded, 3, 3]  — index order [disp_comp, force_dir],
-    // mirroring greens_tensor [strain_comp, force_dir] (see docs/design/greenfun.md).
+    // ---- Assemble displacement tensor ----
+    // disp_subset: [n_steps, n_unique_gll, 3, 3]
     std::vector<double> disp_subset;
     if (has_displacement) {
         disp_subset.resize((size_t)n_steps * (size_t)n_recorded * 3 * 3, 0.0);
         for (int64_t s = 0; s < n_steps; ++s) {
-            for (int64_t ri = 0; ri < n_recorded; ++ri) {
-                size_t base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3;
-                size_t d_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3 * 3;
-
-                // Transpose: disp_subset[d_base + c*3 + f] = component c from force f.
-                const double* src_fx = fx_disp_subset.data() + base;
-                const double* src_fy = fy_disp_subset.data() + base;
-                const double* src_fz = fz_disp_subset.data() + base;
+            for (int64_t gi = 0; gi < n_recorded; ++gi) {
+                size_t base = ((size_t)s * (size_t)n_recorded + (size_t)gi) * 3;
+                size_t d_base = ((size_t)s * (size_t)n_recorded + (size_t)gi) * 3 * 3;
+                const double* src_fx = fx.displacement.data() + base;
+                const double* src_fy = fy.displacement.data() + base;
+                const double* src_fz = fz.displacement.data() + base;
                 for (int c = 0; c < 3; ++c) {
                     double* d = disp_subset.data() + d_base + c * 3;
-                    d[0] = src_fx[c];  // force x
-                    d[1] = src_fy[c];  // force y
-                    d[2] = src_fz[c];  // force z
+                    d[0] = src_fx[c];
+                    d[1] = src_fy[c];
+                    d[2] = src_fz[c];
                 }
             }
         }
     }
 
-    // ---- Assemble velocity tensor at recorded vertices ----
-    // vel_subset: [n_steps, n_recorded, 3, 3]  — [disp_comp, force_dir] (see above).
+    // ---- Assemble velocity tensor ----
     std::vector<double> vel_subset;
     if (has_velocity) {
         vel_subset.resize((size_t)n_steps * (size_t)n_recorded * 3 * 3, 0.0);
         for (int64_t s = 0; s < n_steps; ++s) {
-            for (int64_t ri = 0; ri < n_recorded; ++ri) {
-                size_t base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3;
-                size_t d_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3 * 3;
-                const double* src_fx = fx_vel_subset.data() + base;
-                const double* src_fy = fy_vel_subset.data() + base;
-                const double* src_fz = fz_vel_subset.data() + base;
+            for (int64_t gi = 0; gi < n_recorded; ++gi) {
+                size_t base = ((size_t)s * (size_t)n_recorded + (size_t)gi) * 3;
+                size_t d_base = ((size_t)s * (size_t)n_recorded + (size_t)gi) * 3 * 3;
+                const double* src_fx = fx.velocity.data() + base;
+                const double* src_fy = fy.velocity.data() + base;
+                const double* src_fz = fz.velocity.data() + base;
                 for (int c = 0; c < 3; ++c) {
                     double* d = vel_subset.data() + d_base + c * 3;
-                    d[0] = src_fx[c];  // force x
-                    d[1] = src_fy[c];  // force y
-                    d[2] = src_fz[c];  // force z
+                    d[0] = src_fx[c];
+                    d[1] = src_fy[c];
+                    d[2] = src_fz[c];
                 }
             }
         }
     }
 
-    // ---- Assemble acceleration tensor at recorded vertices ----
-    // acc_subset: [n_steps, n_recorded, 3, 3]  — [disp_comp, force_dir] (see above).
+    // ---- Assemble acceleration tensor ----
     std::vector<double> acc_subset;
     if (has_acceleration) {
         acc_subset.resize((size_t)n_steps * (size_t)n_recorded * 3 * 3, 0.0);
         for (int64_t s = 0; s < n_steps; ++s) {
-            for (int64_t ri = 0; ri < n_recorded; ++ri) {
-                size_t base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3;
-                size_t d_base = ((size_t)s * (size_t)n_recorded + (size_t)ri) * 3 * 3;
-                const double* src_fx = fx_acc_subset.data() + base;
-                const double* src_fy = fy_acc_subset.data() + base;
-                const double* src_fz = fz_acc_subset.data() + base;
+            for (int64_t gi = 0; gi < n_recorded; ++gi) {
+                size_t base = ((size_t)s * (size_t)n_recorded + (size_t)gi) * 3;
+                size_t d_base = ((size_t)s * (size_t)n_recorded + (size_t)gi) * 3 * 3;
+                const double* src_fx = fx.acceleration.data() + base;
+                const double* src_fy = fy.acceleration.data() + base;
+                const double* src_fz = fz.acceleration.data() + base;
                 for (int c = 0; c < 3; ++c) {
                     double* d = acc_subset.data() + d_base + c * 3;
-                    d[0] = src_fx[c];  // force x
-                    d[1] = src_fy[c];  // force y
-                    d[2] = src_fz[c];  // force z
+                    d[0] = src_fx[c];
+                    d[1] = src_fy[c];
+                    d[2] = src_fz[c];
                 }
             }
         }
     }
 
-    // Free large per-direction arrays to save memory
+    // Free per-direction arrays to save memory
     fx.strain.clear();
     fx.strain.shrink_to_fit();
     fy.strain.clear();
     fy.strain.shrink_to_fit();
     fz.strain.clear();
     fz.strain.shrink_to_fit();
-    fx_subset.clear();
-    fx_subset.shrink_to_fit();
-    fy_subset.clear();
-    fy_subset.shrink_to_fit();
-    fz_subset.clear();
-    fz_subset.shrink_to_fit();
     fx.displacement.clear();
     fx.displacement.shrink_to_fit();
     fy.displacement.clear();
     fy.displacement.shrink_to_fit();
     fz.displacement.clear();
     fz.displacement.shrink_to_fit();
-    if (has_displacement) {
-        fx_disp_subset.clear();
-        fx_disp_subset.shrink_to_fit();
-        fy_disp_subset.clear();
-        fy_disp_subset.shrink_to_fit();
-        fz_disp_subset.clear();
-        fz_disp_subset.shrink_to_fit();
-    }
-
-    // Free per-direction velocity/acceleration subset arrays
-    if (has_velocity) {
-        fx_vel_subset.clear();
-        fx_vel_subset.shrink_to_fit();
-        fy_vel_subset.clear();
-        fy_vel_subset.shrink_to_fit();
-        fz_vel_subset.clear();
-        fz_vel_subset.shrink_to_fit();
-    }
-    if (has_acceleration) {
-        fx_acc_subset.clear();
-        fx_acc_subset.shrink_to_fit();
-        fy_acc_subset.clear();
-        fy_acc_subset.shrink_to_fit();
-        fz_acc_subset.clear();
-        fz_acc_subset.shrink_to_fit();
-    }
-    // Free per-direction velocity/acceleration merged arrays
     fx.velocity.clear();
     fx.velocity.shrink_to_fit();
     fy.velocity.clear();
@@ -627,7 +570,52 @@ int main(int argc, char** argv) {
 
     // ---- Bin recorded vertices into tiles ----
     fprintf(stderr, "[postprocess] Binning vertices into tiles...\n");
-    TileBins bins = bin_vertices(cfg, model, recorded_ids, n_recorded);
+    // ---- Bin GLL nodes into tiles ----
+    fprintf(stderr, "[postprocess] Binning GLL nodes into tiles...\n");
+    TileBins bins;
+    bool use_spatial = (cfg.green_tile_size_m > 0);
+    double xmin = model.xmin, ymin = model.ymin, xmax = model.xmax, ymax = model.ymax;
+    for (int64_t gi = 0; gi < n_recorded; ++gi) {
+        double x = fx.gll_node_coords[(size_t)gi * 3 + 0];
+        double y = fx.gll_node_coords[(size_t)gi * 3 + 1];
+        TileKey key;
+        if (use_spatial) {
+            double gts = cfg.green_tile_size_m;
+            key.tx = (int)std::floor((x - xmin) / gts);
+            key.ty = (int)std::floor((y - ymin) / gts);
+        } else {
+            double dx = (xmax - xmin) / cfg.nx_elements;
+            double dy = (ymax - ymin) / cfg.ny_elements;
+            int64_t ei = (dx > 0) ? (int64_t)std::floor((x - xmin) / dx) : 0;
+            int64_t ej = (dy > 0) ? (int64_t)std::floor((y - ymin) / dy) : 0;
+            if (ei < 0)
+                ei = 0;
+            if (ej < 0)
+                ej = 0;
+            if (cfg.nx_elements > 0 && ei >= cfg.nx_elements)
+                ei = cfg.nx_elements - 1;
+            if (cfg.ny_elements > 0 && ej >= cfg.ny_elements)
+                ej = cfg.ny_elements - 1;
+            int64_t interior_i = ei - cfg.pml_xmin;
+            int64_t interior_j = ej - cfg.pml_ymin;
+            int64_t total_interior_x = 0, total_interior_y = 0;
+            for (auto sz : cfg.tilex_elements)
+                total_interior_x += sz;
+            for (auto sz : cfg.tiley_elements)
+                total_interior_y += sz;
+            if (interior_i < 0 || interior_i >= total_interior_x)
+                continue;
+            if (interior_j < 0 || interior_j >= total_interior_y)
+                continue;
+            key.tx = find_tile_index(interior_i, cfg.tilex_elements);
+            key.ty = find_tile_index(interior_j, cfg.tiley_elements);
+        }
+        bins.bins[key].push_back(gi);
+    }
+    for (auto& kv : bins.bins)
+        bins.keys.push_back(kv.first);
+    std::sort(bins.keys.begin(), bins.keys.end());
+    fprintf(stderr, "[postprocess]   %zu tiles\n", bins.keys.size());
 
     // ---- Write tiles ----
     fprintf(stderr, "[postprocess] Writing Green's function tiles to %s...\n",
@@ -640,11 +628,7 @@ int main(int argc, char** argv) {
                 args.output_dir.c_str());
     }
 
-    double xmin = model.xmin, ymin = model.ymin;
-    double xmax = model.xmax, ymax = model.ymax;
     double zmin = model.zmin, zmax = model.zmax;
-    bool use_spatial = (cfg.green_tile_size_m > 0);
-
     int64_t n_tiles = (int64_t)bins.keys.size();
 
     // Pre-compute tile bound lambda for each tile

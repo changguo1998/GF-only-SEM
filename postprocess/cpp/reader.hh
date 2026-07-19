@@ -178,6 +178,50 @@ static void read_field_1xNx3(hid_t loc, const char* name, hsize_t& n_vertices,
     H5Sclose(space);
 }
 
+// ----- GLL 4D record format (post global-DOF repair) -----
+
+// Read a 4-D array [1, n_rec_cell, n_node_per_cell, ncomp] (strain snapshot)
+static void read_strain_4d(hid_t loc, const char* name, hsize_t& n_rec_cell,
+                           hsize_t& n_node_per_cell, std::vector<double>& buf) {
+    hid_t ds = H5Dopen2(loc, name, H5P_DEFAULT);
+    if (ds < 0) {
+        n_rec_cell = 0;
+        n_node_per_cell = 0;
+        return;
+    }
+    hid_t space = H5Dget_space(ds);
+    hsize_t dims[4];
+    H5Sget_simple_extent_dims(space, dims, nullptr);
+    n_rec_cell = dims[1];
+    n_node_per_cell = dims[2];
+    hsize_t total = dims[0] * dims[1] * dims[2] * dims[3];
+    buf.resize(total);
+    H5Dread(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, buf.data());
+    H5Dclose(ds);
+    H5Sclose(space);
+}
+
+// Read a 4-D array [1, n_rec_cell, n_node_per_cell, 3] (displacement)
+static void read_field_4d(hid_t loc, const char* name, hsize_t& n_rec_cell,
+                          hsize_t& n_node_per_cell, std::vector<double>& buf) {
+    hid_t ds = H5Dopen2(loc, name, H5P_DEFAULT);
+    if (ds < 0) {
+        n_rec_cell = 0;
+        n_node_per_cell = 0;
+        return;
+    }
+    hid_t space = H5Dget_space(ds);
+    hsize_t dims[4];
+    H5Sget_simple_extent_dims(space, dims, nullptr);
+    n_rec_cell = dims[1];
+    n_node_per_cell = dims[2];
+    hsize_t total = dims[0] * dims[1] * dims[2] * dims[3];
+    buf.resize(total);
+    H5Dread(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, buf.data());
+    H5Dclose(ds);
+    H5Sclose(space);
+}
+
 // -----------------------------------------------------------------------
 // ConfigReader
 // -----------------------------------------------------------------------
