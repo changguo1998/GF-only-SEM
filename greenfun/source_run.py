@@ -15,6 +15,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.spatial import KDTree
 
+from greenfun.gll_interpolator import EXACT_GLL_NODE_TOLERANCE_M, GLLInterpolator
 from greenfun.interpolator import EXACT_VERTEX_TOLERANCE_M, TrilinearInterpolator
 from greenfun.query import GreenQuery
 
@@ -56,7 +57,8 @@ class SourceRun:
         self.velocity_tensor: npt.NDArray[np.float32] | None = None
         self.acceleration_tensor: npt.NDArray[np.float32] | None = None
         self.n_tiles: int = 0
-        self._interpolator: TrilinearInterpolator | None = None
+        self._gll_mode: bool = False
+        self._interpolator: TrilinearInterpolator | GLLInterpolator | None = None
         self._kdtree: KDTree | None = None
 
     # ------------------------------------------------------------------
@@ -64,7 +66,7 @@ class SourceRun:
     # ------------------------------------------------------------------
 
     def load(self) -> None:
-        """Load all tiles: read vertex_coords, time axis, deduplicate by vertex_id.
+        """Load all tiles, detecting basis and reading accordingly.
 
         Raises
         ------
@@ -75,13 +77,29 @@ class SourceRun:
         if not tile_paths:
             raise FileNotFoundError(f"No tile_*.h5 files found in {self._dir_path}")
 
-        # Read time axis from the first tile.
+        # Read time axis + basis from the first tile.
         with h5py.File(tile_paths[0], "r") as h5:
             self.time = h5["/time/t"][:].astype(np.float64)
+            basis = h5.attrs.get("basis", "mesh_vertices")
 
         nt = len(self.time)
+        self._gll_mode = basis == "gll"
 
-        # Collect vertex data, deduplicating by vertex_id.
+        if self._gll_mode:
+            self._load_gll_tiles(tile_paths, nt)
+        else:
+            self._load_vertex_tiles(tile_paths, nt)
+
+        self.n_tiles = len(tile_paths)
+        self._kdtree = KDTree(self.vertex_coords)
+        self._loaded = True
+
+    # ------------------------------------------------------------------
+    # Internal tile loaders
+    # ------------------------------------------------------------------
+
+    def _load_vertex_tiles(self, tile_paths: list[Path], nt: int) -> None:
+        """Load vertex-based (corner) tiles with cross-tile deduplication."""
         all_vertex_ids: list[np.ndarray] = []
         all_vertex_coords: list[np.ndarray] = []
         all_greens: list[np.ndarray] = []
@@ -121,8 +139,6 @@ class SourceRun:
                     displacement = None
 
             # Deduplicate: keep vertices whose ID has not been seen before.
-            # Use a simple loop over the (typically small) vertex list;
-            # this avoids vectorised set-lookup overhead for correctness.
             keep_mask = np.array([int(vid) not in seen_ids for vid in vertex_ids], dtype=bool)
             kept_ids = vertex_ids[keep_mask]
             for vid in kept_ids:
@@ -141,7 +157,6 @@ class SourceRun:
             if acceleration is not None:
                 all_accelerations.append(acceleration[:, keep_mask, :, :])
 
-        # Concatenate into unified arrays.
         self.vertex_coords = np.concatenate(all_vertex_coords, axis=0).astype(np.float64)
         self.greens_tensor = np.concatenate(all_greens, axis=1).astype(np.float32)
 
@@ -160,10 +175,87 @@ class SourceRun:
         else:
             self.acceleration_tensor = None
 
-        self.n_tiles = len(tile_paths)
         self._interpolator = TrilinearInterpolator(self.vertex_coords)
-        self._kdtree = KDTree(self.vertex_coords)
-        self._loaded = True
+
+    def _load_gll_tiles(self, tile_paths: list[Path], nt: int) -> None:
+        """Load GLL-based tiles — no dedup (postprocess already does it).
+
+        GLL tiles already store unique nodes per tile and tiles are disjoint.
+        Simply concatenate across tiles.
+        """
+        all_node_ids: list[np.ndarray] = []
+        all_node_coords: list[np.ndarray] = []
+        all_cell_gll_index: list[np.ndarray] = []
+        all_greens: list[np.ndarray] = []
+        all_displacements: list[np.ndarray] = []
+        all_velocities: list[np.ndarray] = []
+        all_accelerations: list[np.ndarray] = []
+        has_displacement = False
+        has_velocity = False
+        has_acceleration = False
+
+        for tile_path in tile_paths:
+            with h5py.File(tile_path, "r") as h5:
+                node_ids = h5["/mesh/gll_node_ids"][:]
+                node_coords = h5["/mesh/gll_node_coords"][:]
+                cell_index = h5["/mesh/cell_gll_node_index"][:]
+                greens = h5["/field/greens_tensor"][:]
+
+                has_disp = "/field/displacement_tensor" in h5
+                if has_disp:
+                    displacement = h5["/field/displacement_tensor"][:]
+                    has_displacement = True
+                else:
+                    displacement = None
+
+                has_vel = "/field/velocity_tensor" in h5
+                if has_vel:
+                    velocity = h5["/field/velocity_tensor"][:]
+                    has_velocity = True
+                else:
+                    velocity = None
+
+                has_acc = "/field/acceleration_tensor" in h5
+                if has_acc:
+                    acceleration = h5["/field/acceleration_tensor"][:]
+                    has_acceleration = True
+                else:
+                    acceleration = None
+
+            all_node_ids.append(node_ids)
+            all_node_coords.append(node_coords)
+            all_cell_gll_index.append(cell_index)
+            all_greens.append(greens[:, :, :, :])
+            if displacement is not None:
+                all_displacements.append(displacement[:, :, :, :])
+            if velocity is not None:
+                all_velocities.append(velocity[:, :, :, :])
+            if acceleration is not None:
+                all_accelerations.append(acceleration[:, :, :, :])
+
+        self.vertex_coords = np.concatenate(all_node_coords, axis=0).astype(np.float64)
+        self.greens_tensor = np.concatenate(all_greens, axis=1).astype(np.float32)
+
+        if has_displacement and all_displacements:
+            self.displacement_tensor = np.concatenate(all_displacements, axis=1).astype(np.float32)
+        else:
+            self.displacement_tensor = None
+
+        if has_velocity and all_velocities:
+            self.velocity_tensor = np.concatenate(all_velocities, axis=1).astype(np.float32)
+        else:
+            self.velocity_tensor = None
+
+        if has_acceleration and all_accelerations:
+            self.acceleration_tensor = np.concatenate(all_accelerations, axis=1).astype(np.float32)
+        else:
+            self.acceleration_tensor = None
+
+        cell_gll_node_index = np.concatenate(all_cell_gll_index, axis=0)
+        self._interpolator = GLLInterpolator(
+            gll_node_coords=self.vertex_coords,
+            cell_gll_node_index=cell_gll_node_index,
+        )
 
     def query(self, source_xyz_m: npt.ArrayLike, quantity: str = "strain") -> GreenQuery:
         """Return interpolated Green's function at *source_xyz_m*.
