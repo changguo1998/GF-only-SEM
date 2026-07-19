@@ -103,6 +103,51 @@ static void write_field(hid_t file_id, const std::string& name, int ncomp, hsize
     H5Dclose(dset);
 }
 
+static void write_field_4d(hid_t file_id, const std::string& name, int ncomp, hsize_t n_rec_cell,
+                           int n_node, bool use_float32, const double* data) {
+    if (data == nullptr)
+        return;
+
+    constexpr int ndim = 4;
+    hsize_t dims[4] = {1, n_rec_cell, static_cast<hsize_t>(n_node), static_cast<hsize_t>(ncomp)};
+    hid_t space = H5Screate_simple(ndim, dims, nullptr);
+    if (space < 0)
+        throw std::runtime_error("H5Screate_simple failed for " + name);
+
+    hid_t plist = H5Pcreate(H5P_DATASET_CREATE);
+    hsize_t chunk_dims[4] = {1, n_rec_cell, static_cast<hsize_t>(n_node),
+                             static_cast<hsize_t>(ncomp)};
+    H5Pset_chunk(plist, ndim, chunk_dims);
+
+    CompressionConfig comp;
+    comp.method = CompressionMethod::None;
+    apply_compression(plist, comp);
+
+    hid_t write_type = select_precision_type(use_float32);
+
+    hid_t dset =
+        H5Dcreate2(file_id, name.c_str(), write_type, space, H5P_DEFAULT, plist, H5P_DEFAULT);
+    if (dset < 0) {
+        H5Pclose(plist);
+        H5Sclose(space);
+        throw std::runtime_error("H5Dcreate2 failed for " + name);
+    }
+    H5Pclose(plist);
+    H5Sclose(space);
+
+    hsize_t total = n_rec_cell * static_cast<hsize_t>(n_node) * static_cast<hsize_t>(ncomp);
+    if (use_float32) {
+        std::vector<float> fbuf(total);
+        for (hsize_t i = 0; i < total; ++i)
+            fbuf[i] = static_cast<float>(data[i]);
+        H5Dwrite(dset, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, fbuf.data());
+    } else {
+        H5Dwrite(dset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, data);
+    }
+
+    H5Dclose(dset);
+}
+
 }  // anonymous namespace
 
 RecordWriter::RecordWriter(const std::string& output_dir, const std::string& source_direction,
@@ -110,18 +155,21 @@ RecordWriter::RecordWriter(const std::string& output_dir, const std::string& sou
                            CompressionConfig /*compression*/, bool use_float32,
                            double record_depth_max_m, double record_depth_actual_m)
     : file_id_(-1),
+      n_rec_cell_(static_cast<hsize_t>(rec_map.rec_cell_local.size())),
+      n_node_(ngll * ngll * ngll),
       ngll_(ngll),
+      n_unique_gll_(static_cast<hsize_t>(rec_map.gll_node_ids.size())),
       use_float32_(use_float32),
       output_dir_(output_dir),
       source_direction_(source_direction),
       rank_(rank),
-      basis_("mesh_vertices"),
+      basis_("gll"),
       excludes_pml_(rec_map.has_recording),
       record_depth_max_m_(record_depth_max_m),
       record_depth_actual_m_(record_depth_actual_m),
-      vertex_ids_(rec_map.vertex_ids) {
-    n_vertices_ = static_cast<hsize_t>(rec_map.vertex_ids.size());
-}
+      gll_node_ids_(rec_map.gll_node_ids),
+      gll_node_coords_(rec_map.gll_node_coords),
+      cell_gll_node_index_(rec_map.cell_gll_node_index) {}
 
 RecordWriter::~RecordWriter() {
     try {
@@ -132,14 +180,12 @@ RecordWriter::~RecordWriter() {
 
 void RecordWriter::write_step(int step, const double* strain, const double* displacement,
                               const double* velocity, const double* acceleration) {
-    if (n_vertices_ == 0)
+    if (n_rec_cell_ == 0)
         return;
 
-    // Build directory path and create parent directories
     std::string dirpath = output_dir_ + "/" + source_direction_;
     std::filesystem::create_directories(dirpath);
 
-    // Build file path: {output_dir}/{source_direction}/record_{rank}_{step}.h5
     std::string filepath =
         dirpath + "/record_" + std::to_string(rank_) + "_" + std::to_string(step) + ".h5";
 
@@ -153,37 +199,53 @@ void RecordWriter::write_step(int step, const double* strain, const double* disp
     write_scalar_attr(file_id, "rank", H5T_NATIVE_INT, &rank_);
     write_scalar_attr(file_id, "ngll", H5T_NATIVE_INT, &ngll_);
     write_string_attr(file_id, "basis", basis_);
+    int n_rec_cell_int = static_cast<int>(n_rec_cell_);
+    int n_unique_gll_int = static_cast<int>(n_unique_gll_);
+    write_scalar_attr(file_id, "n_rec_cell", H5T_NATIVE_INT, &n_rec_cell_int);
+    write_scalar_attr(file_id, "n_unique_gll", H5T_NATIVE_INT, &n_unique_gll_int);
     hbool_t excludes_pml_flag = excludes_pml_ ? 1 : 0;
     write_scalar_attr(file_id, "excludes_pml", H5T_NATIVE_HBOOL, &excludes_pml_flag);
     write_scalar_attr(file_id, "record_depth_max_m", H5T_NATIVE_DOUBLE, &record_depth_max_m_);
     write_scalar_attr(file_id, "record_depth_actual_m", H5T_NATIVE_DOUBLE,
                       &record_depth_actual_m_);
 
-    // Write vertex_ids dataset
-    hsize_t elem_dims[1] = {n_vertices_};
-    hid_t elem_space = H5Screate_simple(1, elem_dims, nullptr);
-    if (elem_space < 0) {
-        H5Fclose(file_id);
-        throw std::runtime_error("H5Screate_simple failed for vertex_ids");
-    }
-    hid_t elem_dset = H5Dcreate2(file_id, "vertex_ids", H5T_NATIVE_INT64, elem_space, H5P_DEFAULT,
-                                 H5P_DEFAULT, H5P_DEFAULT);
-    if (elem_dset < 0) {
-        H5Sclose(elem_space);
-        H5Fclose(file_id);
-        throw std::runtime_error("H5Dcreate2 failed for vertex_ids");
-    }
-    if (n_vertices_ > 0) {
-        H5Dwrite(elem_dset, H5T_NATIVE_INT64, H5S_ALL, H5S_ALL, H5P_DEFAULT, vertex_ids_.data());
-    }
-    H5Dclose(elem_dset);
-    H5Sclose(elem_space);
+    // Write gll_node_ids [n_unique_gll] and gll_node_coords [n_unique_gll, 3]
+    if (n_unique_gll_ > 0) {
+        hsize_t id_dims[1] = {n_unique_gll_};
+        hid_t id_space = H5Screate_simple(1, id_dims, nullptr);
+        hid_t id_dset = H5Dcreate2(file_id, "gll_node_ids", H5T_NATIVE_INT64, id_space,
+                                   H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        H5Dwrite(id_dset, H5T_NATIVE_INT64, H5S_ALL, H5S_ALL, H5P_DEFAULT, gll_node_ids_.data());
+        H5Dclose(id_dset);
+        H5Sclose(id_space);
 
-    // Write field datasets (each 1-step, fixed-size)
-    write_field(file_id, "strain", 6, n_vertices_, use_float32_, strain);
-    write_field(file_id, "displacement", 3, n_vertices_, use_float32_, displacement);
-    write_field(file_id, "velocity", 3, n_vertices_, use_float32_, velocity);
-    write_field(file_id, "acceleration", 3, n_vertices_, use_float32_, acceleration);
+        hsize_t coord_dims[2] = {n_unique_gll_, 3};
+        hid_t coord_space = H5Screate_simple(2, coord_dims, nullptr);
+        hid_t coord_dset = H5Dcreate2(file_id, "gll_node_coords", H5T_NATIVE_DOUBLE, coord_space,
+                                      H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        H5Dwrite(coord_dset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT,
+                 gll_node_coords_.data());
+        H5Dclose(coord_dset);
+        H5Sclose(coord_space);
+    }
+
+    // Write cell_gll_node_index [n_rec_cell, n_node]
+    if (n_rec_cell_ > 0) {
+        hsize_t idx_dims[2] = {n_rec_cell_, static_cast<hsize_t>(n_node_)};
+        hid_t idx_space = H5Screate_simple(2, idx_dims, nullptr);
+        hid_t idx_dset = H5Dcreate2(file_id, "cell_gll_node_index", H5T_NATIVE_INT32, idx_space,
+                                    H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        H5Dwrite(idx_dset, H5T_NATIVE_INT32, H5S_ALL, H5S_ALL, H5P_DEFAULT,
+                 cell_gll_node_index_.data());
+        H5Dclose(idx_dset);
+        H5Sclose(idx_space);
+    }
+
+    // Write 4D field datasets [1, n_rec_cell, n_node, ncomp]
+    write_field_4d(file_id, "strain", 6, n_rec_cell_, n_node_, use_float32_, strain);
+    write_field_4d(file_id, "displacement", 3, n_rec_cell_, n_node_, use_float32_, displacement);
+    write_field_4d(file_id, "velocity", 3, n_rec_cell_, n_node_, use_float32_, velocity);
+    write_field_4d(file_id, "acceleration", 3, n_rec_cell_, n_node_, use_float32_, acceleration);
 
     H5Fclose(file_id);
 }

@@ -11,18 +11,20 @@
 
 namespace gf {
 
-/// Writes shallow mesh-vertex field records (strain + displacement/velocity/acceleration)
+/// Writes GLL-node field records (strain + displacement/velocity/acceleration)
 /// using the preprocess-built recording map.
 ///
 /// Each call to write_step creates a standalone file:
 ///   wavefields/{direction}/record_{rank}_{step}.h5
-///   /strain        [1, n_record_vertices, 6]  float32 or float64
-///   /displacement  [1, n_record_vertices, 3]
-///   /velocity      [1, n_record_vertices, 3]
-///   /acceleration  [1, n_record_vertices, 3]
-///   /vertex_ids [n_record_vertices] int64
-///   Attributes: rank, source_direction, basis="mesh_vertices",
-///               record_depth_max_m, record_depth_actual_m, excludes_pml
+///   /strain        [1, n_rec_cell, n_node, 6]  float32 or float64
+///   /displacement  [1, n_rec_cell, n_node, 3]
+///   /velocity      [1, n_rec_cell, n_node, 3]
+///   /acceleration  [1, n_rec_cell, n_node, 3]
+///   /gll_node_ids        [n_unique_gll] int64
+///   /gll_node_coords     [n_unique_gll, 3] float64
+///   /cell_gll_node_index [n_rec_cell, n_node] int32
+///   Attributes: rank, source_direction, basis="gll",
+///               record_depth_max_m, record_depth_actual_m, excludes_pml, ngll
 class RecordWriter {
 public:
     /// Store recording parameters (file is created per write_step call).
@@ -30,7 +32,7 @@ public:
     /// \param output_dir       Top-level output directory
     /// \param source_direction Force direction string ("x", "y", or "z")
     /// \param rank             MPI rank number
-    /// \param rec_map          Recording map with vertex_ids and source element info
+    /// \param rec_map          Recording map with GLL node IDs and cell indices
     /// \param ngll             Number of GLL points per axis (N+1)
     /// \param compression      Compression configuration (unused for per-step files)
     /// \param use_float32      If true, store fields as 32-bit float
@@ -42,22 +44,22 @@ public:
     ~RecordWriter();
 
     /// Write one snapshot to a standalone file: record_{rank}_{step}.h5.
-    /// Creates the file, writes vertex_ids + fields, then closes.
+    /// Creates the file, writes mesh metadata + fields, then closes.
     /// Pointers may be null to skip writing that field.
     ///
     /// \param step           Solver step number (used in filename)
-    /// \param strain         Strain array [n_record_vertices * 6], Voigt order (or null)
-    /// \param displacement   Displacement array [n_record_vertices * 3] (or null)
-    /// \param velocity       Velocity array [n_record_vertices * 3] (or null)
-    /// \param acceleration   Acceleration array [n_record_vertices * 3] (or null)
+    /// \param strain         Strain array [n_rec_cell * n_node * 6], Voigt order (or null)
+    /// \param displacement   Displacement array [n_rec_cell * n_node * 3] (or null)
+    /// \param velocity       Velocity array [n_rec_cell * n_node * 3] (or null)
+    /// \param acceleration   Acceleration array [n_rec_cell * n_node * 3] (or null)
     void write_step(int step, const double* strain, const double* displacement = nullptr,
                     const double* velocity = nullptr, const double* acceleration = nullptr);
 
     /// No-op (each write_step creates and closes its own file).
     void close() {}
 
-    /// Return number of recorded vertices.
-    int n_vertices() const { return static_cast<int>(n_vertices_); }
+    /// Return number of recording cells.
+    int n_rec_cell() const { return static_cast<int>(n_rec_cell_); }
 
     // Prevent copying
     RecordWriter(const RecordWriter&) = delete;
@@ -65,8 +67,10 @@ public:
 
 private:
     hid_t file_id_;
-    hsize_t n_vertices_;
+    hsize_t n_rec_cell_;
+    int n_node_;  // ngll^3
     int ngll_;
+    hsize_t n_unique_gll_;
     bool use_float32_;
     std::string output_dir_;
     std::string source_direction_;
@@ -75,7 +79,9 @@ private:
     bool excludes_pml_;
     double record_depth_max_m_;
     double record_depth_actual_m_;
-    std::vector<int64_t> vertex_ids_;
+    std::vector<int64_t> gll_node_ids_;
+    std::vector<double> gll_node_coords_;
+    std::vector<int32_t> cell_gll_node_index_;
 };
 
 }  // namespace gf
