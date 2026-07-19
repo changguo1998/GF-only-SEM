@@ -224,7 +224,7 @@ inline void write_tile(
     };
 
     write_str_attr("version", "1.0.0");
-    write_str_attr("basis", "mesh_vertices");
+    write_str_attr("basis", "gll");
     write_int_attr("tile_x_index", tile_x);
     write_int_attr("tile_y_index", tile_y);
     write_double_attr("x_min_m", x_min_m);
@@ -289,7 +289,7 @@ inline void write_tile(
     {
         hsize_t vdim = (hsize_t)n_local;
         hid_t space = H5Screate_simple(1, &vdim, nullptr);
-        hid_t ds = H5Dcreate2(mesh_gid, "vertex_ids", H5T_NATIVE_INT64, space, H5P_DEFAULT,
+        hid_t ds = H5Dcreate2(mesh_gid, "gll_node_ids", H5T_NATIVE_INT64, space, H5P_DEFAULT,
                               H5P_DEFAULT, H5P_DEFAULT);
         // Convert to int64 if needed
         std::vector<int64_t> ids(n_local);
@@ -303,7 +303,7 @@ inline void write_tile(
     if (!tile_vertex_coords.empty()) {
         hsize_t cdims[2] = {(hsize_t)n_local, 3};
         hid_t space = H5Screate_simple(2, cdims, nullptr);
-        hid_t ds = H5Dcreate2(mesh_gid, "vertex_coords", H5T_NATIVE_DOUBLE, space, H5P_DEFAULT,
+        hid_t ds = H5Dcreate2(mesh_gid, "gll_node_coords", H5T_NATIVE_DOUBLE, space, H5P_DEFAULT,
                               H5P_DEFAULT, H5P_DEFAULT);
         H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, tile_vertex_coords.data());
         H5Dclose(ds);
