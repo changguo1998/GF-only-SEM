@@ -1,7 +1,8 @@
-"""Recording map — builds shallow mesh-vertex recording map for forward solver.
+"""Recording map — builds GLL-node recording map for forward solver.
 
-Selects non-PML mesh vertices within record_depth_max_m so the forward solver
-writes strain only at shallow mesh corners, not full GLL volume.
+Selects all NGLL^3 GLL nodes per recording-region cell (within record_depth_max_m
+of free surface, excluding PML). Deduplicates shared GLL nodes across cells to
+produce a unique global node list for continuous-output tile storage.
 """
 
 from __future__ import annotations
@@ -11,19 +12,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from preprocess.gll_geometry import HEX_REF_CORNERS, _get_cell_vertex_ids
 from preprocess.topology_reader import TopologyData
-
-# The forward solver records displacement at element corner GLL nodes using a
-# 3-bit corner index: bit 0 -> i = NGLL-1, bit 1 -> j = NGLL-1, bit 2 -> k = NGLL-1
-# (see forward/share/src/solver.cpp RecordWriter usage). _get_cell_vertex_ids
-# returns vertices in GMSH hex order (HEX_REF_CORNERS), whose (xi, eta, zeta) signs
-# differ from the bit-flag order at positions 2<->3 and 6<->7. Convert the GMSH
-# positional index to the solver bit-flag corner so each recorded vertex maps to
-# the GLL corner node it actually coincides with.
-_GMSH_CORNER_TO_BITFLAG = [
-    int((c[0] > 0) | ((c[1] > 0) << 1) | ((c[2] > 0) << 2)) for c in HEX_REF_CORNERS
-]
 
 
 def build_recording_map(
@@ -31,16 +20,20 @@ def build_recording_map(
     domain_bounds: dict[str, float],
     is_pml: npt.NDArray[np.bool_ | np.int8],
     record_depth_max_m: float,
+    global_cell2global_node: npt.NDArray[np.int64 | np.int32],
+    gll_node_coords: npt.NDArray[np.float64],
     element_to_rank: npt.NDArray[np.int32] | None = None,
     per_rank: dict[int, dict] | None = None,
 ) -> dict[str, Any]:
-    """Build shallow mesh-vertex recording map.
+    """Build GLL-node recording map.
 
     Args:
-        topology: Mesh topology with cell→surface→edge→vertex relations.
+        topology: Mesh topology (used for n_cell count only).
         domain_bounds: Dict with xmin, xmax, ymin, ymax, zmin, zmax.
         is_pml: [n_cell] bool/int8 — True for PML cells.
-        record_depth_max_m: Requested recording depth from surface (z upward).
+        record_depth_max_m: Requested recording depth from surface (z downward).
+        global_cell2global_node: [n_cell, NGLL, NGLL, NGLL] global GLL node IDs.
+        gll_node_coords: [n_cell, NGLL, NGLL, NGLL, 3] physical coordinates.
         element_to_rank: [n_cell] rank assignment (from partition).
         per_rank: Per-rank data dict from partition().
 
@@ -48,57 +41,35 @@ def build_recording_map(
         Dict with:
             record_depth_actual_m: Snapped actual depth.
             per_rank_recording: dict[int, dict] — per-rank recording data:
-                save_cell_mask: list[bool] n_local_cell
-                vertex_ids: list[int] global vertex IDs
-                source_element_local_index: list[int]
-                source_corner_index: list[int]
+                rec_cell_global_ids: list[int] recording cell global IDs
+                rec_cell_local_index: list[int] local index within rank
+                cell_gll_node_ids: list[list[int]] per-cell NGLL^3 GLL node IDs
+                gll_node_ids: list[int] unique global GLL node IDs
+                gll_node_coords: list[list[float]] coordinates [n_unique, 3]
+                cell_gll_node_index: list[list[int]] index into gll_node_ids
     """
     zmin = domain_bounds["zmin"]
     zmax = domain_bounds["zmax"]
     target_z = zmin + record_depth_max_m  # z positive downward
 
-    # All elements with centroid z ≤ target_z (above or at depth limit)
-    # Get vertex coords for centroid computation
-    vertex_coords = topology.vertex_to_coord  # [n_vertex, 3]
-
-    # Build element → vertices lookup
-    cell_to_surface = topology.cell_to_surface  # [n_cell, 6]
-    surface_to_edge = topology.surface_to_edge  # [n_surface, 4]
-    edge_to_vertex = topology.edge_to_vertex  # [n_edge, 2]
-
     n_cell = topology.n_cell
+    ngll = global_cell2global_node.shape[1]  # NGLL = N+1
 
-    # Precompute element centroids
-    cell_centroids = np.zeros((n_cell, 3), dtype=np.float64)
+    # Precompute cell centroids and z-levels from GLL node coordinates
+    gll_coords_flat = gll_node_coords.reshape(n_cell, ngll * ngll * ngll, 3)
+    cell_centroids = gll_coords_flat.mean(axis=1)  # [n_cell, 3]
+
+    # Snap record_depth_actual_m to the nearest cell z-boundary
+    elem_face_z_levels: list[float] = []
     for cell in range(n_cell):
-        vertex_ids = _get_cell_vertex_ids(cell, cell_to_surface, surface_to_edge, edge_to_vertex)
-        centroid = vertex_coords[vertex_ids - 1].mean(axis=0)
-        cell_centroids[cell] = centroid
+        z_vals = gll_coords_flat[cell, :, 2]
+        z_min_cell = float(z_vals.min())
+        z_max_cell = float(z_vals.max())
+        if zmin <= z_min_cell <= zmax:
+            elem_face_z_levels.append(z_min_cell)
+        if zmin <= z_max_cell <= zmax:
+            elem_face_z_levels.append(z_max_cell)
 
-    # Snap record_depth_actual_m to the nearest element face boundary
-    # Find the first horizontal element face at or below target_z
-    # Horizontal faces have constant z (all 4 vertices at same z)
-    elem_face_z_levels = []
-    for cell in range(n_cell):
-        vertex_ids = _get_cell_vertex_ids(cell, cell_to_surface, surface_to_edge, edge_to_vertex)
-        z_vals = vertex_coords[(np.array(vertex_ids, dtype=np.int64) - 1), 2]
-        # Check each face (6 faces per hex)
-        # Faces 0-3 are lateral, face 4 = zmin, face 5 = zmax (GMSH convention)
-        for face_idx in range(6):
-            # Get vertices of this face
-            face_verts = _get_face_vertices(
-                cell, face_idx, cell_to_surface, surface_to_edge, edge_to_vertex
-            )
-            if len(face_verts) < 4:
-                continue
-            face_z = vertex_coords[face_verts, 2]
-            # Horizontal face: all z equal (within tol)
-            if np.max(face_z) - np.min(face_z) < 1e-12:
-                z_level = float(np.mean(face_z))
-                if zmin <= z_level <= zmax:
-                    elem_face_z_levels.append(z_level)
-
-    # Deduplicate and find actual depth
     unique_z = sorted(set(elem_face_z_levels))
     record_depth_actual_m = record_depth_max_m
     for z_level in unique_z:
@@ -106,54 +77,36 @@ def build_recording_map(
             record_depth_actual_m = z_level - zmin
             break
     else:
-        # If no face found, cap at zmax
         record_depth_actual_m = zmax - zmin
 
     actual_target_z = zmin + record_depth_actual_m
 
-    # Select non-PML elements fully above depth
-    selected_cells = set()
+    # Select non-PML cells within recording depth
+    selected_cells: set[int] = set()
     for cell in range(n_cell):
         if is_pml is not None and cell < len(is_pml) and is_pml[cell]:
             continue
-        # Element fully above depth if its centroid z is within depth
         if cell_centroids[cell, 2] <= actual_target_z + 1e-12:
             selected_cells.add(cell)
 
-    # Collect unique global vertex IDs attached to selected elements
-    selected_vertex_set: set[int] = set()
-    cell_vertex_map: dict[int, list[int]] = {}  # cell_idx → [8 vertex IDs]
-    for cell in sorted(selected_cells):
-        vertex_ids = _get_cell_vertex_ids(cell, cell_to_surface, surface_to_edge, edge_to_vertex)
-        cell_vertex_map[cell] = list(vertex_ids)
-        for global_vertex_id in vertex_ids:
-            selected_vertex_set.add(global_vertex_id)
-
-    # For each vertex, choose one owned source element and corner index
-    # If no partition info, assign arbitrarily
+    # Build per-rank recording maps
     if element_to_rank is None or per_rank is None:
-        # Single-rank fallback: assign element 0 as source for all
         per_rank_recording: dict[int, dict] = {
-            0: _build_rank_recording(0, list(range(n_cell)), selected_vertex_set, cell_vertex_map)
+            0: _build_rank_recording(
+                0,
+                list(range(n_cell)),
+                selected_cells,
+                global_cell2global_node,
+                gll_node_coords,
+                ngll,
+            )
         }
     else:
         per_rank_recording = {}
         for rank, rank_data in per_rank.items():
             local_ids = list(rank_data.get("local_cell_ids", []))
-            local_set = set(local_ids)
-            # Find which selected vertices belong to this rank
-            rank_vertex_set = set()
-            rank_cell_vertex_map: dict[int, list[int]] = {}
-            for cell in sorted(selected_cells):
-                if cell not in local_set:
-                    continue
-                vertex_ids = cell_vertex_map.get(cell, [])
-                rank_cell_vertex_map[cell] = vertex_ids
-                for global_vertex_id in vertex_ids:
-                    rank_vertex_set.add(global_vertex_id)
-
             per_rank_recording[rank] = _build_rank_recording(
-                rank, local_ids, rank_vertex_set, rank_cell_vertex_map
+                rank, local_ids, selected_cells, global_cell2global_node, gll_node_coords, ngll
             )
 
     return {
@@ -162,92 +115,56 @@ def build_recording_map(
     }
 
 
-def _get_face_vertices(
-    cell: int, face_idx: int, cell_to_surface, surface_to_edge, edge_to_vertex
-) -> list[int]:
-    """Get 0-based vertex array indices for a face of cell `cell`.
-
-    Returns 0-based indices into the vertex coordinate array (i.e. global
-    vertex ID minus 1), suitable for direct indexing of vertex_to_coord.
-    """
-    surf_id = abs(int(cell_to_surface[cell, face_idx])) - 1  # 0-based, handle signed
-    if surf_id < 0:
-        return []
-    edge_ids = surface_to_edge[surf_id]
-    verts: set[int] = set()
-    for signed_edge_id in edge_ids:
-        edge_index = abs(int(signed_edge_id)) - 1
-        if edge_index < 0:
-            continue
-        vertex_a, vertex_b = (
-            int(edge_to_vertex[edge_index, 0]) - 1,
-            int(edge_to_vertex[edge_index, 1]) - 1,
-        )
-        verts.add(vertex_a)
-        verts.add(vertex_b)
-    return sorted(verts)
-
-
 def _build_rank_recording(
     rank: int,
     local_cell_ids: list[int],
-    vertex_set: set[int],
-    cell_vertex_map: dict[int, list[int]],
+    recording_cell_set: set[int],
+    global_cell2global_node: npt.NDArray[np.int64 | np.int32],
+    gll_node_coords_all: npt.NDArray[np.float64],
+    ngll: int,
 ) -> dict[str, Any]:
-    """Build recording map for one rank.
+    """Build GLL-node recording map for one rank.
 
-    For each vertex, find a local element that contains it and assign
-    the corner index.
+    Selects all NGLL^3 GLL nodes per recording cell. Deduplicates shared nodes
+    across cells to produce a unique global node list.
     """
-    local_set = set(local_cell_ids)
-    # save_cell_mask: True for elements that contain at least one recorded vertex
-    save_cell_mask = [
-        any(
-            global_vertex_id in vertex_set for global_vertex_id in cell_vertex_map.get(elem_id, [])
-        )
-        for elem_id in local_cell_ids
-    ]
+    # Select recording cells that are local to this rank
+    rec_cell_local = [idx for idx, cid in enumerate(local_cell_ids) if cid in recording_cell_set]
+    rec_cell_global = [local_cell_ids[idx] for idx in rec_cell_local]
 
-    # Map vertex → (local_elem_idx, corner_idx)
-    vertex_source: dict[int, tuple[int, int]] = {}
+    # Collect GLL node IDs for each recording cell
+    cell_gll_node_ids: list[list[int]] = []
+    all_node_ids: set[int] = set()
+    for gcell in rec_cell_global:
+        nodes = global_cell2global_node[gcell].ravel().tolist()  # [n_node]
+        cell_gll_node_ids.append(nodes)
+        all_node_ids.update(nodes)
 
-    # Pre-build element → local_index mapping (O(n) instead of O(n²))
-    element_to_local_index: dict[int, int] = {
-        elem_id: idx for idx, elem_id in enumerate(local_cell_ids)
-    }
+    # Deduplicate: unique global GLL node IDs
+    gll_node_ids = sorted(all_node_ids)
+    node_id_to_index = {nid: idx for idx, nid in enumerate(gll_node_ids)}
 
-    # Build reverse: vertex → list of (local_elem_idx, corner_idx)
-    vert_to_elem: dict[int, list[tuple[int, int]]] = {}
-    for elem_idx, vertex_ids in cell_vertex_map.items():
-        if elem_idx not in local_set:
-            continue
-        local_idx = element_to_local_index[elem_idx]
-        for gmsh_pos, global_vertex_id in enumerate(vertex_ids):
-            corner_index = _GMSH_CORNER_TO_BITFLAG[gmsh_pos]
-            if global_vertex_id not in vertex_set:
-                continue
-            if global_vertex_id not in vert_to_elem:
-                vert_to_elem[global_vertex_id] = []
-            vert_to_elem[global_vertex_id].append((local_idx, corner_index))
+    # cell_gll_node_index: [n_rec_cell, n_node] -> index into gll_node_ids
+    cell_gll_node_index = [[node_id_to_index[n] for n in nodes] for nodes in cell_gll_node_ids]
 
-    for global_vertex_id in sorted(vertex_set):
-        sources = vert_to_elem.get(global_vertex_id, [])
-        if sources:
-            # Pick the first (lowest local cell index, lowest corner)
-            vertex_source[global_vertex_id] = min(
-                sources, key=lambda source_pair: (source_pair[0], source_pair[1])
-            )
-        else:
-            # Vertex not in any local element — skip
-            pass
-
-    vertex_ids = sorted(vertex_source.keys())
-    source_elem_local = [vertex_source[global_vertex_id][0] for global_vertex_id in vertex_ids]
-    source_corner = [vertex_source[global_vertex_id][1] for global_vertex_id in vertex_ids]
+    # gll_node_coords: [n_unique_gll, 3]
+    # Build global node ID -> coord map from first occurrence in any cell
+    node_coord_map: dict[int, list[float]] = {}
+    for ci, gcell in enumerate(rec_cell_global):
+        coords_cell = gll_node_coords_all[gcell]  # [ngll, ngll, ngll, 3]
+        for i in range(ngll):
+            for j in range(ngll):
+                for k in range(ngll):
+                    nid = cell_gll_node_ids[ci][i * ngll * ngll + j * ngll + k]
+                    if nid not in node_coord_map:
+                        node_coord_map[nid] = coords_cell[i, j, k].tolist()
+    gll_node_coords = [node_coord_map[nid] for nid in gll_node_ids]
 
     return {
-        "save_cell_mask": save_cell_mask,
-        "vertex_ids": vertex_ids,
-        "source_element_local_index": source_elem_local,
-        "source_corner_index": source_corner,
+        "rec_cell_global_ids": rec_cell_global,
+        "rec_cell_local_index": rec_cell_local,
+        "cell_gll_node_ids": cell_gll_node_ids,
+        "gll_node_ids": gll_node_ids,
+        "gll_node_coords": gll_node_coords,
+        "cell_gll_node_index": cell_gll_node_index,
     }

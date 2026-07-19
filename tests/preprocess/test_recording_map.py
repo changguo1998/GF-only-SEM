@@ -1,182 +1,177 @@
-"""Tests for the recording map builder."""
+"""Tests for GLL-node recording map generation."""
 
 import numpy as np
-import pytest
-from pytest import approx
-
 from preprocess.recording_map import build_recording_map
 from preprocess.topology_reader import TopologyData
 
 
-def _unit_cube_topology() -> TopologyData:
-    """Build a TopologyData for a single unit cube [0,1]^3.
+def test_build_recording_map_selects_gll_nodes():
+    """Recording map should select all NGLL^3 GLL nodes per recording cell."""
+    ngll = 2
+    n_cell = 2
 
-    Vertex positions:
-      v0=(0,0,0), v1=(1,0,0), v2=(1,1,0), v3=(0,1,0)
-      v4=(0,0,1), v5=(1,0,1), v6=(1,1,1), v7=(0,1,1)
-    """
-    v = np.array(
-        [
-            [0.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [1.0, 1.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-            [1.0, 0.0, 1.0],
-            [1.0, 1.0, 1.0],
-            [0.0, 1.0, 1.0],
-        ],
-        dtype=np.float64,
+    # global_cell2global_node: [n_cell, ngll, ngll, ngll]
+    # cell 0 has nodes 0-7, cell 1 has nodes 4-11 (4 shared on the interface)
+    global_cell2global_node = np.zeros((n_cell, ngll, ngll, ngll), dtype=np.int64)
+    global_cell2global_node[0] = np.arange(8).reshape(ngll, ngll, ngll)
+    global_cell2global_node[1] = np.arange(4, 12).reshape(ngll, ngll, ngll)
+
+    # coords: [n_cell, ngll, ngll, ngll, 3] — node positions in 3D
+    coords = np.zeros((n_cell, ngll, ngll, ngll, 3), dtype=np.float64)
+    for cell in range(n_cell):
+        for i in range(ngll):
+            for j in range(ngll):
+                for k in range(ngll):
+                    node = global_cell2global_node[cell, i, j, k]
+                    coords[cell, i, j, k] = [float(node % 4), float((node // 4) % 4), 0.0]
+
+    # Minimal topology: 2 cells
+    topology = TopologyData(
+        vertex_to_coord=np.zeros((12, 3), dtype=np.float64),
+        edge_to_vertex=np.array([[0, 1]], dtype=np.int64),
+        surface_to_edge=np.zeros((12, 4), dtype=np.int64),
+        cell_to_surface=np.zeros((2, 6), dtype=np.int64),
+        n_vertex=12,
+        n_edge=1,
+        n_surface=12,
+        n_cell=n_cell,
     )
-    e2v = np.array(
-        [
-            [1, 2],
-            [2, 3],
-            [4, 3],
-            [1, 4],
-            [5, 6],
-            [6, 7],
-            [8, 7],
-            [5, 8],
-            [1, 5],
-            [2, 6],
-            [4, 8],
-            [3, 7],
-        ],
-        dtype=np.int64,
+
+    # Both cells in recording region (depth = full domain, z=0)
+    is_pml = np.zeros(n_cell, dtype=np.int8)
+    domain_bounds = {
+        "zmin": 0.0,
+        "zmax": 100.0,
+        "xmin": 0.0,
+        "xmax": 200.0,
+        "ymin": 0.0,
+        "ymax": 100.0,
+    }
+
+    result = build_recording_map(
+        topology=topology,
+        domain_bounds=domain_bounds,
+        is_pml=is_pml,
+        record_depth_max_m=100.0,
+        global_cell2global_node=global_cell2global_node,
+        gll_node_coords=coords,
     )
-    s2e = np.array(
-        [
-            [1, 2, -3, -4],  # F0(-z)
-            [5, 6, -7, -8],  # F1(+z)
-            [1, 10, -5, -9],  # F2(-y)
-            [-3, 11, 7, -12],  # F3(+y)
-            [4, 11, -8, -9],  # F4(-x)
-            [2, 12, -6, -10],  # F5(+x)
-        ],
-        dtype=np.int64,
-    )
-    c2s = np.array([[1, 2, 3, 4, 5, 6]], dtype=np.int64)
-    return TopologyData(
-        n_vertex=8,
-        n_edge=12,
+
+    rec = result["per_rank_recording"][0]
+    # Both cells recorded
+    assert len(rec["rec_cell_global_ids"]) == 2
+    assert len(rec["rec_cell_local_index"]) == 2
+    # cell_gll_node_ids: [2, 8]
+    assert len(rec["cell_gll_node_ids"]) == 2
+    assert len(rec["cell_gll_node_ids"][0]) == 8
+    # Unique GLL nodes: 0-11 = 12 unique
+    assert len(rec["gll_node_ids"]) == 12
+    # cell_gll_node_index: [2, 8], values index into gll_node_ids
+    assert len(rec["cell_gll_node_index"]) == 2
+    for cell_index in range(2):
+        for node_index in range(8):
+            idx = rec["cell_gll_node_index"][cell_index][node_index]
+            assert 0 <= idx < 12
+            # Index maps to correct global node ID
+            expected_node = int(global_cell2global_node[cell_index].ravel()[node_index])
+            assert rec["gll_node_ids"][idx] == expected_node
+    # gll_node_coords: [12, 3]
+    assert len(rec["gll_node_coords"]) == 12
+    assert len(rec["gll_node_coords"][0]) == 3
+
+
+def test_single_cell_gll_nodes():
+    """Single cell with NGLL=3 should select 27 unique GLL nodes."""
+    ngll = 3
+    n_cell = 1
+    n_node = ngll**3  # 27
+
+    global_cell2global_node = np.arange(n_node, dtype=np.int64).reshape(n_cell, ngll, ngll, ngll)
+
+    coords = np.zeros((n_cell, ngll, ngll, ngll, 3), dtype=np.float64)
+    for cell in range(n_cell):
+        for i in range(ngll):
+            for j in range(ngll):
+                for k in range(ngll):
+                    node = global_cell2global_node[cell, i, j, k]
+                    coords[cell, i, j, k] = [
+                        float(node % ngll),
+                        float((node // ngll) % ngll),
+                        float(node // (ngll * ngll)),
+                    ]
+
+    topology = TopologyData(
+        vertex_to_coord=np.array([[float(i), 0.0, 0.0] for i in range(n_node)], dtype=np.float64),
+        edge_to_vertex=np.array([[0, 1]], dtype=np.int64),
+        surface_to_edge=np.zeros((6, 4), dtype=np.int64),
+        cell_to_surface=np.zeros((1, 6), dtype=np.int64),
+        n_vertex=n_node,
+        n_edge=1,
         n_surface=6,
-        n_cell=1,
-        vertex_to_coord=v,
-        cell_to_surface=c2s,
-        surface_to_edge=s2e,
-        edge_to_vertex=e2v,
+        n_cell=n_cell,
     )
 
+    is_pml = np.zeros(n_cell, dtype=np.int8)
+    domain_bounds = {
+        "zmin": 0.0,
+        "zmax": 10.0,
+        "xmin": 0.0,
+        "xmax": 10.0,
+        "ymin": 0.0,
+        "ymax": 10.0,
+    }
 
-def test_single_element_no_pml():
-    """Single element, no PML, full depth — all 8 vertices selected."""
-    topo = _unit_cube_topology()
-    domain = {"xmin": 0.0, "xmax": 1.0, "ymin": 0.0, "ymax": 1.0, "zmin": 0.0, "zmax": 1.0}
-    is_pml = np.array([False], dtype=bool)
+    result = build_recording_map(
+        topology=topology,
+        domain_bounds=domain_bounds,
+        is_pml=is_pml,
+        record_depth_max_m=10.0,
+        global_cell2global_node=global_cell2global_node,
+        gll_node_coords=coords,
+    )
 
-    result = build_recording_map(topo, domain, is_pml, record_depth_max_m=1.0)
-    rec0 = result["per_rank_recording"][0]
-    assert len(rec0["vertex_ids"]) == 8
-    assert rec0["save_cell_mask"] == [True]
-    assert result["record_depth_actual_m"] == approx(1.0)
+    rec = result["per_rank_recording"][0]
+    assert len(rec["rec_cell_global_ids"]) == 1
+    assert len(rec["gll_node_ids"]) == 27  # all unique
+    assert len(rec["cell_gll_node_index"]) == 1
+    assert len(rec["cell_gll_node_index"][0]) == 27
 
 
 def test_pml_exclusion():
-    """PML element excluded from recording."""
-    topo = _unit_cube_topology()
-    domain = {"xmin": 0.0, "xmax": 1.0, "ymin": 0.0, "ymax": 1.0, "zmin": 0.0, "zmax": 1.0}
-    is_pml = np.array([True], dtype=bool)  # element is PML
+    """PML cell excluded from recording."""
+    ngll = 2
+    n_cell = 1
 
-    result = build_recording_map(topo, domain, is_pml, record_depth_max_m=1.0)
-    rec0 = result["per_rank_recording"][0]
-    assert len(rec0["vertex_ids"]) == 0  # no vertices — PML excluded
+    global_cell2global_node = np.arange(8, dtype=np.int64).reshape(n_cell, ngll, ngll, ngll)
+    coords = np.zeros((n_cell, ngll, ngll, ngll, 3), dtype=np.float64)
+    for i in range(ngll):
+        for j in range(ngll):
+            for k in range(ngll):
+                coords[0, i, j, k] = [float(i), float(j), float(k)]
 
-
-def test_source_element_local_index_valid():
-    """Each vertex's source_element_local_index points to a valid element."""
-    topo = _unit_cube_topology()
-    domain = {"xmin": 0.0, "xmax": 1.0, "ymin": 0.0, "ymax": 1.0, "zmin": 0.0, "zmax": 1.0}
-    is_pml = np.array([False], dtype=bool)
-
-    result = build_recording_map(topo, domain, is_pml, record_depth_max_m=1.0)
-    rec0 = result["per_rank_recording"][0]
-    for idx in rec0["source_element_local_index"]:
-        assert 0 <= idx < 1  # only 1 element
-    for ci in rec0["source_corner_index"]:
-        assert 0 <= ci < 8
-
-
-def test_full_domain_depth():
-    """Depth exceeds domain — all 8 vertices selected."""
-    topo = _unit_cube_topology()
-    domain = {"xmin": 0.0, "xmax": 1.0, "ymin": 0.0, "ymax": 1.0, "zmin": 0.0, "zmax": 1.0}
-    is_pml = np.array([False], dtype=bool)
-
-    result = build_recording_map(topo, domain, is_pml, record_depth_max_m=100.0)
-    rec0 = result["per_rank_recording"][0]
-    assert len(rec0["vertex_ids"]) == 8
-    assert result["record_depth_actual_m"] == approx(1.0)
-
-
-def test_shallow_depth():
-    """Very shallow depth — only top-surface vertices (z=0 face) returned."""
-    topo = _unit_cube_topology()
-    domain = {"xmin": 0.0, "xmax": 1.0, "ymin": 0.0, "ymax": 1.0, "zmin": 0.0, "zmax": 1.0}
-    is_pml = np.array([False], dtype=bool)
-
-    # Depth 0 — only vertices on the free surface (z=0) should be included.
-    # Since the element centroid is at z=0.5, and target_z=0, no element centroid
-    # is at or above z=0.5... wait, target_z = zmin + 0 = 0. No elements have
-    # centroid ≤ 0 since centroid is at 0.5. So 0 vertices selected.
-    result = build_recording_map(topo, domain, is_pml, record_depth_max_m=0.0)
-    rec0 = result["per_rank_recording"][0]
-    assert len(rec0["vertex_ids"]) == 0
-    assert result["record_depth_actual_m"] == approx(0.0)
-
-
-def test_save_cell_mask_shape():
-    """save_cell_mask has length = n_local_cell (1 for unit cube)."""
-    topo = _unit_cube_topology()
-    domain = {"xmin": 0.0, "xmax": 1.0, "ymin": 0.0, "ymax": 1.0, "zmin": 0.0, "zmax": 1.0}
-    is_pml = np.array([False], dtype=bool)
-
-    result = build_recording_map(topo, domain, is_pml, record_depth_max_m=1.0)
-    rec0 = result["per_rank_recording"][0]
-    assert len(rec0["save_cell_mask"]) == 1  # 1 element
-    # Save mask should be True since element has recorded vertices
-    assert rec0["save_cell_mask"] == [True]
-
-
-def test_intermediate_depth_captures_surface():
-    """record_depth_max_m=0.5 captures 4 vertices on z=0 surface."""
-    from preprocess.recording_map import build_recording_map
-    from preprocess.topology_reader import TopologyData
-
-    topo = _unit_cube_topology()
-    domain = {"xmin": 0.0, "xmax": 1.0, "ymin": 0.0, "ymax": 1.0, "zmin": 0.0, "zmax": 1.0}
-    is_pml = np.array([False], dtype=bool)
-
-    result = build_recording_map(topo, domain, is_pml, record_depth_max_m=0.5)
-    rec0 = result["per_rank_recording"][0]
-    # Element centroid is at z=0.5, so centroid z ≤ 0.5 includes the element
-    # All 8 vertices are attached to this element
-    assert len(rec0["vertex_ids"]) >= 4  # at least surface vertices
-
-
-def test_no_pml_boolean_array():
-    """is_pml accepts both bool and int8 arrays."""
-    from preprocess.recording_map import build_recording_map
-    from preprocess.topology_reader import TopologyData
-
-    topo = _unit_cube_topology()
-    domain = {"xmin": 0.0, "xmax": 1.0, "ymin": 0.0, "ymax": 1.0, "zmin": 0.0, "zmax": 1.0}
-    is_pml_bool = np.array([False], dtype=bool)
-    is_pml_int = np.array([0], dtype=np.int8)
-
-    r_bool = build_recording_map(topo, domain, is_pml_bool, record_depth_max_m=1.0)
-    r_int = build_recording_map(topo, domain, is_pml_int, record_depth_max_m=1.0)
-    assert (
-        r_bool["per_rank_recording"][0]["vertex_ids"]
-        == r_int["per_rank_recording"][0]["vertex_ids"]
+    topology = TopologyData(
+        vertex_to_coord=np.zeros((8, 3), dtype=np.float64),
+        edge_to_vertex=np.array([[0, 1]], dtype=np.int64),
+        surface_to_edge=np.zeros((6, 4), dtype=np.int64),
+        cell_to_surface=np.zeros((1, 6), dtype=np.int64),
+        n_vertex=8,
+        n_edge=1,
+        n_surface=6,
+        n_cell=n_cell,
     )
+
+    domain_bounds = {"zmin": 0.0, "zmax": 1.0, "xmin": 0.0, "xmax": 1.0, "ymin": 0.0, "ymax": 1.0}
+    is_pml = np.array([True], dtype=bool)
+
+    result = build_recording_map(
+        topology=topology,
+        domain_bounds=domain_bounds,
+        is_pml=is_pml,
+        record_depth_max_m=1.0,
+        global_cell2global_node=global_cell2global_node,
+        gll_node_coords=coords,
+    )
+
+    rec = result["per_rank_recording"][0]
+    assert len(rec["rec_cell_global_ids"]) == 0
+    assert len(rec["gll_node_ids"]) == 0

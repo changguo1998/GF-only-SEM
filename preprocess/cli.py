@@ -503,11 +503,16 @@ def main() -> None:
         rd_max = float(config.record_depth_max_m)
         element_to_rank = partition_result.get("element_to_rank") if partition_result else None
         per_rank = partition_result.get("per_rank") if partition_result else None
+        global_cell2global_node = (
+            partition_result.get("global_cell2global_node") if partition_result else None
+        )
         rec_map = build_recording_map(
             topology,
             domain_bounds,
             is_pml,
             rd_max,
+            global_cell2global_node=global_cell2global_node,
+            gll_node_coords=coords,
             element_to_rank=element_to_rank,
             per_rank=per_rank,
         )
