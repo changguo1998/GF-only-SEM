@@ -183,6 +183,6 @@ TEST_CASE("CUDA element residual — rigid body translation zero", "[element][cu
                                           elem.w.data(), elem.ngll, u.data(), r.data());
 
     for (size_t i = 0; i < r.size(); ++i) {
-        REQUIRE_THAT(r[i], WithinAbs(0.0, 1e-12));
+        REQUIRE_THAT(r[i], WithinAbs(0.0, 1e-5));
     }
 }

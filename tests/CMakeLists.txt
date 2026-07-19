@@ -61,18 +61,16 @@ if(MPI_FOUND)
                                        "${CMAKE_CURRENT_BINARY_DIR}")
 
     # Record test cases (registered manually to depend on fixture)
-    add_test(NAME "RecordWriter creates file and writes strain"
-             COMMAND test_record "RecordWriter creates file and writes strain")
+    add_test(NAME "RecordWriter creates file and writes GLL strain"
+             COMMAND test_record "RecordWriter creates file and writes GLL strain")
     set_tests_properties(
-        "RecordWriter creates file and writes strain"
+        "RecordWriter creates file and writes GLL strain"
         PROPERTIES FIXTURES_REQUIRED "record_test" WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
-    add_test(NAME "RecordWriter with float32 compression"
-             COMMAND test_record "RecordWriter with float32 compression")
+    add_test(NAME "RecordWriter with float32" COMMAND test_record "RecordWriter with float32")
     set_tests_properties(
-        "RecordWriter with float32 compression"
-        PROPERTIES FIXTURES_REQUIRED "record_test" WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
-
+        "RecordWriter with float32" PROPERTIES FIXTURES_REQUIRED "record_test" WORKING_DIRECTORY
+                                               "${CMAKE_CURRENT_BINARY_DIR}")
     # Assembly tests
     add_gf_test(test_assembly test_assembly.cpp)
 
@@ -132,10 +130,11 @@ endif()
 # Compress module tests (always available, no MPI needed)
 # ---------------------------------------------------------------
 add_executable(test_compress test_compress.cpp)
-target_link_libraries(test_compress PRIVATE gf_compress Catch2::Catch2WithMain)
+target_include_directories(test_compress PRIVATE ${CMAKE_SOURCE_DIR}/compress/include
+                                                 ${HDF5_INCLUDE_DIRS})
+target_link_libraries(test_compress PRIVATE Catch2::Catch2WithMain ${HDF5_C_LIBRARIES})
 target_compile_features(test_compress PRIVATE cxx_std_17)
 catch_discover_tests(test_compress)
-
 # ---------------------------------------------------------------
 # Postprocess tile schema tests (no MPI, needs HDF5)
 # ---------------------------------------------------------------

@@ -467,6 +467,9 @@ RankData read_partition_range(const std::string& partition_dir, int effective_ra
     RankData merged;
     int cumulative_elements = 0;
 
+    // Global GLL node ID -> merged index map (for cross-partition recording dedup)
+    std::unordered_map<int64_t, int32_t> global_node_id_to_index;
+
     for (int i = 0; i < count; ++i) {
         int part_rank = start + i;
         std::string path = partition_dir + "/partition_" + std::to_string(part_rank) + ".h5";
@@ -484,6 +487,13 @@ RankData read_partition_range(const std::string& partition_dir, int effective_ra
             merged.ghost_cell_ids.clear();
             merged.ghost_owners.clear();
             cumulative_elements = merged.n_local_cell;
+            // Register first partition's recording nodes in global map
+            if (merged.recording.has_recording) {
+                for (size_t i = 0; i < merged.recording.gll_node_ids.size(); ++i) {
+                    global_node_id_to_index[merged.recording.gll_node_ids[i]] =
+                        static_cast<int32_t>(i);
+                }
+            }
         } else {
             concat_vec(merged.local_cell_ids, part.local_cell_ids);
             concat_vec(merged.coords, part.coords);
@@ -499,11 +509,30 @@ RankData read_partition_range(const std::string& partition_dir, int effective_ra
 
             if (part.recording.has_recording) {
                 merged.recording.has_recording = true;
-                concat_vec(merged.recording.vertex_ids, part.recording.vertex_ids);
-                for (int32_t local_idx : part.recording.src_elem_local) {
-                    merged.recording.src_elem_local.push_back(local_idx + cumulative_elements);
+                std::vector<int32_t> local_to_merged(part.recording.gll_node_ids.size());
+                for (size_t i = 0; i < part.recording.gll_node_ids.size(); ++i) {
+                    int64_t gid = part.recording.gll_node_ids[i];
+                    auto it = global_node_id_to_index.find(gid);
+                    if (it == global_node_id_to_index.end()) {
+                        int32_t merged_idx =
+                            static_cast<int32_t>(merged.recording.gll_node_ids.size());
+                        global_node_id_to_index[gid] = merged_idx;
+                        merged.recording.gll_node_ids.push_back(gid);
+                        for (int d = 0; d < 3; ++d) {
+                            merged.recording.gll_node_coords.push_back(
+                                part.recording.gll_node_coords[i * 3 + d]);
+                        }
+                        local_to_merged[i] = merged_idx;
+                    } else {
+                        local_to_merged[i] = it->second;
+                    }
                 }
-                concat_vec(merged.recording.src_corner, part.recording.src_corner);
+                for (int32_t local_idx : part.recording.rec_cell_local) {
+                    merged.recording.rec_cell_local.push_back(local_idx + cumulative_elements);
+                }
+                for (int32_t local_idx : part.recording.cell_gll_node_index) {
+                    merged.recording.cell_gll_node_index.push_back(local_to_merged[local_idx]);
+                }
             }
 
             cumulative_elements += part.n_local_cell;

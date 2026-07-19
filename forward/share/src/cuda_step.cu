@@ -168,67 +168,6 @@ __global__ void newmark_correct_rank_kernel(double* d_disp, double* d_vel, doubl
 // =======================================================================
 // Strain computation kernels
 // =======================================================================
-
-/// Element-local strain (used with both element-local and global-gathered displacement).
-/// d_disp is the element-local displacement array (gathered if needed beforehand).
-__global__ void recorded_strain_kernel(const double* d_disp, const double* d_dxi_dx,
-                                       const double* d_D, int ngll, const int* d_rec_elem,
-                                       const int* d_rec_corner, double* d_strain, int n_vertices,
-                                       int n_node) {
-    int v = blockDim.x * blockIdx.x + threadIdx.x;
-    if (v >= n_vertices)
-        return;
-
-    int elem = d_rec_elem[v];
-    int corner = d_rec_corner[v];
-    int corner_i = (corner & 1) ? (ngll - 1) : 0;
-    int corner_j = (corner & 2) ? (ngll - 1) : 0;
-    int corner_k = (corner & 4) ? (ngll - 1) : 0;
-
-    int corner_node = node_idx(corner_i, corner_j, corner_k, ngll);
-    const double* dd = &d_dxi_dx[(elem * n_node + corner_node) * 9];
-    const double* disp_ptr = &d_disp[(elem * n_node + corner_node) * 3];
-
-    // Reference gradient
-    double dudxi[3] = {0.0, 0.0, 0.0};
-    double dudeta[3] = {0.0, 0.0, 0.0};
-    double dudzeta[3] = {0.0, 0.0, 0.0};
-
-    for (int s = 0; s < ngll; ++s) {
-        double Di_s = d_D[corner_i * ngll + s];
-        double Dj_s = d_D[corner_j * ngll + s];
-        double Dk_s = d_D[corner_k * ngll + s];
-
-        int n_sjk = node_idx(s, corner_j, corner_k, ngll);
-        int n_isk = node_idx(corner_i, s, corner_k, ngll);
-        int n_ijs = node_idx(corner_i, corner_j, s, ngll);
-
-        for (int d = 0; d < 3; ++d) {
-            dudxi[d] += Di_s * disp_ptr[3 * n_sjk + d];
-            dudeta[d] += Dj_s * disp_ptr[3 * n_isk + d];
-            dudzeta[d] += Dk_s * disp_ptr[3 * n_ijs + d];
-        }
-    }
-
-    // Physical gradient
-    double du_dx[3][3];
-    for (int comp = 0; comp < 3; ++comp) {
-        du_dx[comp][0] = dudxi[comp] * dd[0] + dudeta[comp] * dd[1] + dudzeta[comp] * dd[2];
-        du_dx[comp][1] = dudxi[comp] * dd[3] + dudeta[comp] * dd[4] + dudzeta[comp] * dd[5];
-        du_dx[comp][2] = dudxi[comp] * dd[6] + dudeta[comp] * dd[7] + dudzeta[comp] * dd[8];
-    }
-
-    // Symmetric strain (Voigt order)
-    double* out = &d_strain[v * 6];
-    out[0] = du_dx[0][0];                        // eps_xx
-    out[1] = du_dx[1][1];                        // eps_yy
-    out[2] = du_dx[2][2];                        // eps_zz
-    out[3] = 0.5 * (du_dx[0][1] + du_dx[1][0]);  // eps_xy
-    out[4] = 0.5 * (du_dx[0][2] + du_dx[2][0]);  // eps_xz
-    out[5] = 0.5 * (du_dx[1][2] + du_dx[2][1]);  // eps_yz
-}
-
-// =======================================================================
 // Host-callable wrappers
 // =======================================================================
 
@@ -316,43 +255,6 @@ void cuda_newmark_correct(CudaDeviceState& state, double dt, double beta, double
     }
     GF_CUDA_CHECK(cudaGetLastError());
     GF_CUDA_CHECK(cudaDeviceSynchronize());
-}
-
-void cuda_compute_strain(CudaDeviceState& state, const double* h_D, int ngll,
-                         const std::vector<double>& /*dxi_dx*/) {
-    if (state.n_vertices == 0)
-        return;
-    int block = 256;
-    int grid = (state.n_vertices + block - 1) / block;
-    // Upload D matrix to device (cached across calls)
-    static double* d_D_cache = nullptr;
-    static int d_D_size = 0;
-    int D_bytes = ngll * ngll * sizeof(double);
-    if (d_D_cache == nullptr || d_D_size < D_bytes) {
-        if (d_D_cache)
-            cudaFree(d_D_cache);
-        GF_CUDA_CHECK(cudaMalloc(&d_D_cache, D_bytes));
-        d_D_size = D_bytes;
-    }
-    GF_CUDA_CHECK(cudaMemcpy(d_D_cache, h_D, D_bytes, cudaMemcpyHostToDevice));
-
-    // When using global DOF, displacement has been gathered into local_cell_displacement
-    // before calling this function (done in solver.cpp).
-    // The strain kernel always reads from the element-local displacement array.
-    double* d_strain_disp =
-        state.use_global_dof ? state.d_local_cell_displacement : state.d_displacement;
-
-    recorded_strain_kernel<<<grid, block>>>(d_strain_disp, state.d_dxi_dx, d_D_cache, ngll,
-                                            state.d_rec_src_elem, state.d_rec_corner,
-                                            state.d_strain_buffer, state.n_vertices, state.n_node);
-    GF_CUDA_CHECK(cudaGetLastError());
-}
-
-void cuda_copy_strain_to_host(CudaDeviceState& state, double* h_strain) {
-    if (state.n_vertices == 0)
-        return;
-    GF_CUDA_CHECK(cudaMemcpy(h_strain, state.d_strain_buffer,
-                             state.n_vertices * 6 * sizeof(double), cudaMemcpyDeviceToHost));
 }
 
 void cuda_copy_state_to_host(const CudaDeviceState& state, std::vector<double>& h_displacement,
@@ -453,15 +355,14 @@ CudaDeviceState cuda_allocate_state(
     const std::vector<double>& pml_damping, const std::vector<double>& dxi_dx,
     const std::vector<double>& jacobian, const std::vector<double>& lambda_,
     const std::vector<double>& mu_, const double* h_D, const double* h_weights,
-    const ConfigData& cfg, const RankData::RecordingMap& rec_map, int n_local_cell_dof,
-    const std::vector<int32_t>& local_cell2rank_node, int n_rank_node,
-    const std::vector<double>& rank_node_mass, const std::vector<double>& rank_node_damping) {
+    const ConfigData& cfg, int n_local_cell_dof, const std::vector<int32_t>& local_cell2rank_node,
+    int n_rank_node, const std::vector<double>& rank_node_mass,
+    const std::vector<double>& rank_node_damping) {
     CudaDeviceState state;
     state.n_dof = n_local_cell_dof;
     state.n_local_cell_dof = n_local_cell_dof;
     state.n_total_nodes = n_local_cell * ngll * ngll * ngll;
     state.n_node = ngll * ngll * ngll;
-    state.n_vertices = static_cast<int>(rec_map.vertex_ids.size());
     state.n_src_cell = cfg.n_src_cell;
     state.n_local_cell = n_local_cell;
 
@@ -484,8 +385,6 @@ CudaDeviceState cuda_allocate_state(
     int D_bytes = ngll * ngll * sizeof(double);
     alloc_d(state.d_D, D_bytes);
     alloc_d(state.d_weights, ngll * sizeof(double));
-    alloc_d(state.d_rec_src_elem, state.n_vertices * sizeof(int));
-    alloc_d(state.d_rec_corner, state.n_vertices * sizeof(int));
     alloc_d(state.d_src_elem_offsets, state.n_src_cell * sizeof(int));
 
     upload(state.d_mass, mass.data(), state.n_total_nodes * sizeof(double));
@@ -496,12 +395,6 @@ CudaDeviceState cuda_allocate_state(
     upload(state.d_mu_, mu_.data(), state.n_total_nodes * sizeof(double));
     upload(state.d_D, h_D, D_bytes);
     upload(state.d_weights, h_weights, ngll * sizeof(double));
-
-    if (state.n_vertices > 0) {
-        upload(state.d_rec_src_elem, rec_map.src_elem_local.data(),
-               state.n_vertices * sizeof(int32_t));
-        upload(state.d_rec_corner, rec_map.src_corner.data(), state.n_vertices * sizeof(int32_t));
-    }
 
     GF_CUDA_CHECK(cudaMemset(state.d_src_elem_offsets, 0, state.n_src_cell * sizeof(int)));
 
@@ -555,9 +448,6 @@ CudaDeviceState cuda_allocate_state(
             cudaMemset(state.d_displacement_tilde, 0, n_local_cell_dof * sizeof(double)));
     }
 
-    // Strain buffer
-    alloc_d(state.d_strain_buffer, state.n_vertices * 6 * sizeof(double));
-
     state.allocated = true;
     return state;
 }
@@ -577,10 +467,7 @@ void cuda_free_state(CudaDeviceState& state) {
     f(state.d_jacobian);
     f(state.d_lambda_);
     f(state.d_mu_);
-    f(state.d_D);
     f(state.d_weights);
-    f(state.d_rec_src_elem);
-    f(state.d_rec_corner);
     f(state.d_src_elem_offsets);
     // Element-local state
     f(state.d_displacement);
@@ -599,7 +486,6 @@ void cuda_free_state(CudaDeviceState& state) {
     f(state.d_local_cell2rank_node);
     f(state.d_local_cell_displacement);
     f(state.d_local_cell_residual);
-    f(state.d_strain_buffer);
     state.allocated = false;
 }
 

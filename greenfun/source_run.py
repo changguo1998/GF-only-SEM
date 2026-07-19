@@ -253,8 +253,7 @@ class SourceRun:
 
         cell_gll_node_index = np.concatenate(all_cell_gll_index, axis=0)
         self._interpolator = GLLInterpolator(
-            gll_node_coords=self.vertex_coords,
-            cell_gll_node_index=cell_gll_node_index,
+            gll_node_coords=self.vertex_coords, cell_gll_node_index=cell_gll_node_index
         )
 
     def query(self, source_xyz_m: npt.ArrayLike, quantity: str = "strain") -> GreenQuery:

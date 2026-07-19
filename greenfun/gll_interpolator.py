@@ -22,9 +22,7 @@ EXACT_GLL_NODE_TOLERANCE_M = 1e-6
 # 1D GLL points for N=4 (5 nodes) on the reference interval [-1, 1].
 # Roots of (1 - xi^2) * P'_N(xi) = 0 where P_N is the Legendre polynomial.
 _NGLL = 5
-_GLL_XI_1D = np.array(
-    [-1.0, -np.sqrt(3.0 / 7.0), 0.0, np.sqrt(3.0 / 7.0), 1.0], dtype=np.float64
-)
+_GLL_XI_1D = np.array([-1.0, -np.sqrt(3.0 / 7.0), 0.0, np.sqrt(3.0 / 7.0), 1.0], dtype=np.float64)
 
 # Indices of the 8 corner nodes within a cell's 125-node flat array
 # (layout: i*NGLL*NGLL + j*NGLL + k, x-major, y-middle, z-minor).
@@ -60,10 +58,7 @@ class GLLInterpolator:
     """
 
     def __init__(
-        self,
-        gll_node_coords: np.ndarray,
-        cell_gll_node_index: np.ndarray,
-        ngll: int = 5,
+        self, gll_node_coords: np.ndarray, cell_gll_node_index: np.ndarray, ngll: int = 5
     ) -> None:
         if ngll != 5:
             raise NotImplementedError("Only ngll=5 (N=4) is currently supported")
@@ -176,9 +171,15 @@ class GLLInterpolator:
         for ci in candidate_indices:
             ci = int(ci)
             if (
-                self._cell_x_min[ci] - EXACT_GLL_NODE_TOLERANCE_M <= px <= self._cell_x_max[ci] + EXACT_GLL_NODE_TOLERANCE_M
-                and self._cell_y_min[ci] - EXACT_GLL_NODE_TOLERANCE_M <= py <= self._cell_y_max[ci] + EXACT_GLL_NODE_TOLERANCE_M
-                and self._cell_z_min[ci] - EXACT_GLL_NODE_TOLERANCE_M <= pz <= self._cell_z_max[ci] + EXACT_GLL_NODE_TOLERANCE_M
+                self._cell_x_min[ci] - EXACT_GLL_NODE_TOLERANCE_M
+                <= px
+                <= self._cell_x_max[ci] + EXACT_GLL_NODE_TOLERANCE_M
+                and self._cell_y_min[ci] - EXACT_GLL_NODE_TOLERANCE_M
+                <= py
+                <= self._cell_y_max[ci] + EXACT_GLL_NODE_TOLERANCE_M
+                and self._cell_z_min[ci] - EXACT_GLL_NODE_TOLERANCE_M
+                <= pz
+                <= self._cell_z_max[ci] + EXACT_GLL_NODE_TOLERANCE_M
             ):
                 cell_idx = ci
                 break
@@ -209,7 +210,7 @@ class GLLInterpolator:
         # ------------------------------------------------------------------
         # 4. Evaluate 1D GLL Lagrange polynomials at (xi, eta, zeta).
         # ------------------------------------------------------------------
-        ell_xi = self._lagrange_basis(xi)    # [ngll]
+        ell_xi = self._lagrange_basis(xi)  # [ngll]
         ell_eta = self._lagrange_basis(eta)  # [ngll]
         ell_zeta = self._lagrange_basis(zeta)  # [ngll]
 

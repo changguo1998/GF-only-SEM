@@ -264,11 +264,10 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
 #ifdef GF_WITH_CUDA
         // === Allocate GPU state (single-GPU native path) ===
         {
-            gpu_state = cuda_allocate_state(n_local_cell, ngll, part.mass, part.pml_damping,
-                                            part.dxi_dx, part.jacobian, part.lambda_, part.mu_,
-                                            D_mat.data(), gll_wts.data(), cfg, part.recording,
-                                            n_local_cell_dof, part.local_cell2rank_node,
-                                            part.n_rank_node, rank_node_mass, rank_node_damping);
+            gpu_state = cuda_allocate_state(
+                n_local_cell, ngll, part.mass, part.pml_damping, part.dxi_dx, part.jacobian,
+                part.lambda_, part.mu_, D_mat.data(), gll_wts.data(), cfg, n_local_cell_dof,
+                part.local_cell2rank_node, part.n_rank_node, rank_node_mass, rank_node_damping);
             // Copy source element offsets to device
             std::vector<int> src_offsets(cfg.n_src_cell, -1);
             for (int si = 0; si < cfg.n_src_cell; ++si) {
@@ -278,6 +277,63 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                                      cfg.n_src_cell * sizeof(int), cudaMemcpyHostToDevice));
         }
 #endif
+
+        // Shared helper: compute full-volume strain (all nodes, all cells)
+        // Used by both GPU and CPU snapshot paths.
+        auto compute_full_strain = [&](const double* strain_disp) -> std::vector<double> {
+            std::vector<double> full_strain(static_cast<size_t>(n_local_cell) * n_node * 6, 0.0);
+            for (int elem = 0; elem < n_local_cell; ++elem) {
+                for (int i = 0; i < ngll; ++i) {
+                    for (int j = 0; j < ngll; ++j) {
+                        for (int k = 0; k < ngll; ++k) {
+                            const int node_idx = (i * ngll + j) * ngll + k;
+                            const double* dxi_dx_ptr =
+                                &part.dxi_dx[static_cast<size_t>(elem) * n_node * 9 +
+                                             node_idx * 9];
+                            const double* disp_ptr =
+                                &strain_disp[static_cast<size_t>(elem) * n_node * 3 +
+                                             node_idx * 3];
+                            double dudxi[3] = {0.0, 0.0, 0.0};
+                            double dudeta[3] = {0.0, 0.0, 0.0};
+                            double dudzeta[3] = {0.0, 0.0, 0.0};
+                            for (int s = 0; s < ngll; ++s) {
+                                double Di_s = D_mat[i * ngll + s];
+                                double Dj_s = D_mat[j * ngll + s];
+                                double Dk_s = D_mat[k * ngll + s];
+                                int node_sjk = (s * ngll + j) * ngll + k;
+                                int node_isk = (i * ngll + s) * ngll + k;
+                                int node_ijs = (i * ngll + j) * ngll + s;
+                                for (int d = 0; d < 3; ++d) {
+                                    dudxi[d] += Di_s * disp_ptr[3 * node_sjk + d];
+                                    dudeta[d] += Dj_s * disp_ptr[3 * node_isk + d];
+                                    dudzeta[d] += Dk_s * disp_ptr[3 * node_ijs + d];
+                                }
+                            }
+                            double du_dx[3][3];
+                            for (int component = 0; component < 3; ++component) {
+                                du_dx[component][0] = dudxi[component] * dxi_dx_ptr[0] +
+                                                      dudeta[component] * dxi_dx_ptr[1] +
+                                                      dudzeta[component] * dxi_dx_ptr[2];
+                                du_dx[component][1] = dudxi[component] * dxi_dx_ptr[3] +
+                                                      dudeta[component] * dxi_dx_ptr[4] +
+                                                      dudzeta[component] * dxi_dx_ptr[5];
+                                du_dx[component][2] = dudxi[component] * dxi_dx_ptr[6] +
+                                                      dudeta[component] * dxi_dx_ptr[7] +
+                                                      dudzeta[component] * dxi_dx_ptr[8];
+                            }
+                            int strain_offset = elem * n_node * 6 + node_idx * 6;
+                            full_strain[strain_offset + 0] = du_dx[0][0];
+                            full_strain[strain_offset + 1] = du_dx[1][1];
+                            full_strain[strain_offset + 2] = du_dx[2][2];
+                            full_strain[strain_offset + 3] = 0.5 * (du_dx[0][1] + du_dx[1][0]);
+                            full_strain[strain_offset + 4] = 0.5 * (du_dx[0][2] + du_dx[2][0]);
+                            full_strain[strain_offset + 5] = 0.5 * (du_dx[1][2] + du_dx[2][1]);
+                        }
+                    }
+                }
+            }
+            return full_strain;
+        };
 
         // === Newmark parameters ===
         double beta = 0.0;  // explicit central difference
@@ -406,34 +462,35 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                     part.recording.has_recording && !part.recording.gll_node_ids.empty();
 
                 if (has_recording) {
-                    // For global DOF: gather displacement to element-local for strain
+                    // Copy state to host for strain computation
+                    cuda_copy_state_to_host(gpu_state, displacement, velocity, acceleration);
+
+                    // For global DOF: gather displacement into element-local for strain
                     if (gpu_state.use_global_dof) {
-                        cuda_gather_from_rank(gpu_state);
+                        gather_from_rank(displacement, part.local_cell2rank_node, n_local_cell,
+                                         n_node, local_cell_displacement);
                     }
+                    const double* strain_disp = gpu_state.use_global_dof
+                                                    ? local_cell_displacement.data()
+                                                    : displacement.data();
+
+                    // Compute full-volume strain on host
+                    auto full_strain = compute_full_strain(strain_disp);
+
                     size_t n_rec_cell = part.recording.rec_cell_local.size();
-                    int n_node = ngll * ngll * ngll;  // 125
                     rec_strain.resize(n_rec_cell * n_node * 6, 0.0);
                     rec_displacement.resize(n_rec_cell * n_node * 3, 0.0);
                     rec_velocity.resize(n_rec_cell * n_node * 3, 0.0);
                     rec_acceleration.resize(n_rec_cell * n_node * 3, 0.0);
 
-                    // Compute full-volume strain, then extract recording-cell subset
-                    cuda_compute_strain(gpu_state, D_mat.data(), ngll, part.dxi_dx);
-                    std::vector<double> full_strain(static_cast<size_t>(n_local_cell) * n_node * 6,
-                                                    0.0);
-                    cuda_copy_strain_to_host(gpu_state, full_strain.data());
-                    cuda_copy_state_to_host(gpu_state, displacement, velocity, acceleration);
-
                     for (size_t ci = 0; ci < n_rec_cell; ++ci) {
                         int elem = part.recording.rec_cell_local[ci];
                         for (int n = 0; n < n_node; ++n) {
-                            // strain: element-local, direct copy
                             for (int c = 0; c < 6; ++c) {
                                 rec_strain[(ci * n_node + n) * 6 + c] =
                                     full_strain[static_cast<size_t>(elem) * n_node * 6 + n * 6 +
                                                 c];
                             }
-                            // displacement/velocity/acceleration: global DOF
                             int node_id =
                                 part.local_cell2rank_node[static_cast<size_t>(elem) * n_node + n];
                             for (int d = 0; d < 3; ++d) {
@@ -559,66 +616,6 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 bool recording_mode = cfg.record_depth_max_m > 0.0;
                 bool has_recording =
                     part.recording.has_recording && !part.recording.gll_node_ids.empty();
-
-                // Helper: compute full-volume strain [n_local_cell * n_node * 6]
-                auto compute_full_strain = [&](const double* strain_disp) -> std::vector<double> {
-                    std::vector<double> full_strain(static_cast<size_t>(n_local_cell) * n_node * 6,
-                                                    0.0);
-                    for (int elem = 0; elem < n_local_cell; ++elem) {
-                        for (int i = 0; i < ngll; ++i) {
-                            for (int j = 0; j < ngll; ++j) {
-                                for (int k = 0; k < ngll; ++k) {
-                                    const int node_idx = (i * ngll + j) * ngll + k;
-                                    const double* dxi_dx_ptr =
-                                        &part.dxi_dx[static_cast<size_t>(elem) * n_node * 9 +
-                                                     node_idx * 9];
-                                    const double* disp_ptr =
-                                        &strain_disp[static_cast<size_t>(elem) * n_node * 3 +
-                                                     node_idx * 3];
-                                    double dudxi[3] = {0.0, 0.0, 0.0};
-                                    double dudeta[3] = {0.0, 0.0, 0.0};
-                                    double dudzeta[3] = {0.0, 0.0, 0.0};
-                                    for (int s = 0; s < ngll; ++s) {
-                                        double Di_s = D_mat[i * ngll + s];
-                                        double Dj_s = D_mat[j * ngll + s];
-                                        double Dk_s = D_mat[k * ngll + s];
-                                        int node_sjk = (s * ngll + j) * ngll + k;
-                                        int node_isk = (i * ngll + s) * ngll + k;
-                                        int node_ijs = (i * ngll + j) * ngll + s;
-                                        for (int d = 0; d < 3; ++d) {
-                                            dudxi[d] += Di_s * disp_ptr[3 * node_sjk + d];
-                                            dudeta[d] += Dj_s * disp_ptr[3 * node_isk + d];
-                                            dudzeta[d] += Dk_s * disp_ptr[3 * node_ijs + d];
-                                        }
-                                    }
-                                    double du_dx[3][3];
-                                    for (int component = 0; component < 3; ++component) {
-                                        du_dx[component][0] = dudxi[component] * dxi_dx_ptr[0] +
-                                                              dudeta[component] * dxi_dx_ptr[1] +
-                                                              dudzeta[component] * dxi_dx_ptr[2];
-                                        du_dx[component][1] = dudxi[component] * dxi_dx_ptr[3] +
-                                                              dudeta[component] * dxi_dx_ptr[4] +
-                                                              dudzeta[component] * dxi_dx_ptr[5];
-                                        du_dx[component][2] = dudxi[component] * dxi_dx_ptr[6] +
-                                                              dudeta[component] * dxi_dx_ptr[7] +
-                                                              dudzeta[component] * dxi_dx_ptr[8];
-                                    }
-                                    int strain_offset = elem * n_node * 6 + node_idx * 6;
-                                    full_strain[strain_offset + 0] = du_dx[0][0];
-                                    full_strain[strain_offset + 1] = du_dx[1][1];
-                                    full_strain[strain_offset + 2] = du_dx[2][2];
-                                    full_strain[strain_offset + 3] =
-                                        0.5 * (du_dx[0][1] + du_dx[1][0]);
-                                    full_strain[strain_offset + 4] =
-                                        0.5 * (du_dx[0][2] + du_dx[2][0]);
-                                    full_strain[strain_offset + 5] =
-                                        0.5 * (du_dx[1][2] + du_dx[2][1]);
-                                }
-                            }
-                        }
-                    }
-                    return full_strain;
-                };
 
                 if (has_recording) {
                     // For global DOF: gather displacement into element-local for strain
