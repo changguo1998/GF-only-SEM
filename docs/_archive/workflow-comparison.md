@@ -2,6 +2,16 @@
 
 > Generated: 2026-07-11
 >
+> **⚠ HISTORICAL DOCUMENT (2026-07-11).** This comparison reflects
+> gf-calculation **before** the global GLL node numbering repair
+> (2026-07-17, `cff2cd1`) and the Green tensor convention fix
+> (2026-07-19). All "Critical Issues" in §11 were subsequently resolved.
+> The gf-calculation columns below ("element-local", "duplicated",
+> "not implemented") are **outdated** - the solver now uses global DOF
+> numbering (`global_cell2global_node` in `partition.py`). The body is
+> preserved as a historical record; see [`docs/deferred.md`](deferred.md) §6
+> for the corrected analysis and current status.
+>
 > Compares key design decisions and implementation details of the current
 > gf-calculation forward solver against the SPECFEM3D Cartesian reference
 > implementation (`external_reference_codes/specfem3d/`).
@@ -85,7 +95,7 @@ ______________________________________________________________________
 | **Acceleration update** | Set during force computation (`accel = 0` before, then accumulated into) | Set in corrector: `a_new = residual / mass` | In SPECFEM, `accel` is the output of `M⁻¹(-K·u + f)`. In gf, residual = `-K·u + f` and correction divides by mass. Same result |
 | **Key files** | `specfem3D/update_displacement_scheme.f90`, `specfem3D/iterate_time.F90` | `forward/share/src/newmark.cpp`, `forward/share/src/cuda_step.cu`, `forward/share/src/solver.cpp` | — |
 
-### SPECFEM time step (elastic, CPU):
+### SPECFEM time step (elastic, CPU)
 
 ```
 update_displ_Newmark():
@@ -102,7 +112,7 @@ update_veloc_elastic():
   veloc += 0.5*dt * accel                    ! corrector (completes velocity)
 ```
 
-### gf-calculation time step (CPU):
+### gf-calculation time step (CPU)
 
 ```
 newmark_predict:
@@ -229,14 +239,17 @@ ______________________________________________________________________
 
 ## 11. Summary
 
-### Critical Issues (Blocking Correct Results)
+### Critical Issues (All RESOLVED 2026-07-17 – 2026-07-19)
 
-| # | Issue | Category | Root Cause | Impact |
-|---|-------|----------|------------|--------|
-| 1 | **No global DOF numbering** | Preprocessing | `get_global` / `ibool` equivalent not implemented. All nodes are element-local duplicates | Without unique node IDs, CG-SEM assembly is impossible |
-| 2 | **No within-rank CG assembly** | Solver | `assemble_residual()` does trivial copy, not accumulation. No summation at shared nodes | Elements on the same rank are de-coupled; waves cannot propagate |
-| 3 | **Exchange patterns empty** | Preprocessing/Solver | `partition.py` skips `r1 == r2` (correct for cross-rank only), but also `exchange` group is missing from partition files | MPI `exchange_halo` is a no-op even in multi-rank runs |
-| 4 | **CUDA path has no assembly at all** | Solver | CUDA path uses `cuda_newmark_correct` directly on element-local arrays, no exchange, no within-rank sum | All elements isolated; wave trapped in source elements |
+> All four blocking issues below have been fixed. See [`docs/deferred.md`](deferred.md) §6
+> for the corrected analysis. The table is preserved as a historical record.
+
+| # | Issue | Status | Fix |
+|---|-------|--------|-----|
+| 1 | **No global DOF numbering** | ✅ RESOLVED | `global_cell2global_node` in `partition.py` (`cff2cd1`, 2026-07-17) |
+| 2 | **No within-rank CG assembly** | ✅ RESOLVED | Global DOF assembly in `assembly.cpp` - shared nodes accumulate correctly |
+| 3 | **Exchange patterns empty** | ✅ RESOLVED | Cross-rank exchange patterns in `partition.py` + `exchange.cpp`; verified 16 ranks |
+| 4 | **CUDA path has no assembly** | ✅ RESOLVED | CUDA global-DOF path in `cuda_step.cu`; single-GPU matches CPU 16-rank exactly |
 
 ### Non-Critical Differences
 
@@ -248,10 +261,13 @@ ______________________________________________________________________
 | 4 | Element-local strain kernel vs inline strain in force computation | Same physics, different code organization |
 | 5 | Inner/outer element phases missing | Performance, not correctness |
 
-### Recommended Fix Order
+### Recommended Fix Order (All COMPLETED 2026-07-17 – 2026-07-19)
 
-1. **Implement global DOF numbering in preprocessor** — equivalent to SPECFEM's `get_global` + `ibool`. Assign a unique global ID to each physical GLL node.
-1. **Rewrite residual assembly** — accumulate element contributions at shared global nodes (both within-rank and cross-rank).
-1. **Generate exchange patterns for all shared interfaces** — both within-rank (for future use) and cross-rank.
-1. **Update solver** — use global indexing for state vectors (`displacement`, `velocity`, `acceleration`, `residual`) sized by `nglob` instead of `n_elem * n_node`.
-1. **Adapt CUDA path** — match the new global indexing scheme.
+> All steps below were completed. Preserved as a historical record of the
+> remediation plan. See [`docs/deferred.md`](deferred.md) §6.
+
+1. ~~**Implement global DOF numbering**~~ ✅ Done (`cff2cd1`)
+1. ~~**Rewrite residual assembly**~~ ✅ Done (global assembly via `local_cell2rank_node`)
+1. ~~**Generate exchange patterns**~~ ✅ Done (cross-rank halo exchange)
+1. ~~**Update solver**~~ ✅ Done (global state vectors sized by `n_rank_node`)
+1. ~~**Adapt CUDA path**~~ ✅ Done (CUDA global-DOF path, matches CPU)

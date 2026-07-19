@@ -82,45 +82,16 @@ ______________________________________________________________________
 
 ## 6. SEM Amplitude & Radiation Pattern Discrepancy
 
-**Status: RESOLVED.** The P-SV coupling "bias" (~0.5–2×) documented here
-was misdiagnosed as Cartesian mesh anisotropy. Investigation on 2026-07-19
-found it was a **Green tensor index convention mismatch** (transpose bug)
-in the postprocess. After the fix, all 9 Green tensor components match the
-Lamb analytic reference within 0.94–1.03× at raw vertices.
+**Status: RESOLVED.** Two issues were found and fixed:
 
-### Two separate issues, both now fixed
+- **E-W wavefield asymmetry (1.77×)**: CG-SEM element-interface assembly bug.
+  Fixed by global GLL node numbering (`cff2cd1`, 2026-07-17).
+- **P-SV coupling "bias" (0.5–2×)**: misdiagnosed as Cartesian mesh anisotropy;
+  actual cause was a Green tensor index convention mismatch (transpose bug) in
+  the postprocess. Fixed 2026-07-19 (`postprocess/cpp/main.cpp`).
 
-**Issue A — East-West wavefield asymmetry (1.77×):**
-Four surface vertices at identical distance R=481 m from a centered source
-showed 1.77× E/W asymmetry. This was NOT mesh anisotropy — it was a
-CG-SEM element-interface assembly bug. **Fixed by the global GLL node
-numbering repair** (`cff2cd1`, 2026-07-17): cross-element stiffness
-coupling was broken, producing directional wave propagation errors.
-After the fix, E/W ratio = 1.00 for all components.
-
-**Issue B — P-SV coupling component "bias" (0.51× / 1.84×):**
-The off-diagonal z-coupling components (F_z→u_x, F_x→u_z) appeared
-biased because the postprocess assembled `displacement_tensor` as
-`[force_dir, disp_comp]` while the documented convention (and
-`greens_tensor`, and the analytic reference, and `compare.py`) is
-`[disp_comp, force_dir]`. `compare.py` compared a transposed SEM tensor
-to the analytic reference, so the non-symmetric z-coupling components
-swapped. **Fixed 2026-07-19** (`postprocess/cpp/main.cpp`): displacement,
-velocity, and acceleration assembly transposed to `[disp, force]`, now
-mirroring `greens_tensor [strain, force]`.
-
-### Verified after both fixes (raw vertex, no interpolation)
-
-Source (5278, 5278, 278) → vertex (5556, 5556, 0), R=482 m:
-
-| Component | SEM/Lamb |
-|-----------|----------|
-| u_x(F_x), u_y(F_y), u_z(F_z) (diagonals) | 1.02–1.03 ✓ |
-| u_x(F_y), u_y(F_x) (in-plane off-diag) | 0.94 ✓ |
-| u_x(F_z), u_y(F_z) (horizontal←vertical) | 1.00 ✓ |
-| u_z(F_x), u_z(F_y) (vertical←horizontal) | 0.95 ✓ |
-
-rel_l2 (full waveform, raw vertex) = 0.21. All peak components within 6%.
+After both fixes, all 9 Green tensor components match the Lamb analytic
+reference within 0.94–1.03× at raw vertices (rel_l2 ≈ 0.21).
 
 ### Remaining: trilinear interpolation degradation
 
@@ -133,16 +104,6 @@ and ~0.88 (layer). **Mitigation:** query at recorded vertices (no
 interpolation) for accurate comparison, or implement GLL-basis
 interpolation. This is a query-accuracy limitation, not a solver bug.
 
-### Resolved (historical)
-
-1. **PyFK force unit** (`8e4cd8e`): `FORCE_AMPLITUDE` 1.0→1e5 (dyne→Newton).
-1. **Shared-edge source inflation** (`e1ac709`): source at 4-element
-   shared edge caused ~3× diagonal inflation. Moved source to element
-   interior (center) → diagonal 1.01–1.03×.
-1. **Convolution truncation** (`49d3455`): `mode='same'`→`mode='full'`.
-1. **E-W asymmetry** (`cff2cd1`): global node numbering fixed interface coupling.
-1. **Green tensor convention** (2026-07-19): postprocess transpose to `[disp, force]`.
-
 ### Verified correct (solver physics)
 
 1. GLL Lagrange weights normalized to sum=1 across shared elements ✓
@@ -152,13 +113,6 @@ interpolation. This is a query-accuracy limitation, not a solver bug.
 1. Element residual: isotropic elastic stress correct ✓
 1. E-W axisymmetry: centered source gives identical E/W displacement ✓
 
-### GPU Newmark corrector: hardcoded β=0 — FIXED
-
-**Fixed in `a54e320`:** The GPU `cuda_newmark_correct` and its kernels now accept
-`beta` as a parameter and use the correct formula `dt² * ((0.5-β)*a_old + β*a_new)`
-instead of hardcoding `0.5*dt²*a_old`. The solver.cpp GPU paths pass `beta`.
-Backward-compatible: with β=0 both formulas are identical.
-
 ## Summary
 
 | Item | Module | Priority | Effort |
@@ -167,4 +121,4 @@ Backward-compatible: with β=0 both formulas are identical.
 | Compress integration | forward/ | Low | Tiny |
 | Compression benchmark | compress | Low | Small |
 | HIP/SYCL backends | forward/elastic/ | Low | Medium |
-| Cartesian mesh anisotropy | forward + preprocess | Medium | Medium |
+| ~~Cartesian mesh anisotropy~~ | forward + preprocess | - | RESOLVED (misdiagnosis, see §6 above) |
