@@ -231,6 +231,13 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             }
         }
 
+        // === Initialize C-PML memory state ===
+        if (part.has_cpml) {
+            cpml_initialize(part, n_node);
+            logger.debug("  C-PML initialized: " + std::to_string(part.n_local_cell) +
+                         " elements, memory vars allocated");
+        }
+
         // === Initialize record writer ===
         bool use_float32 = (cfg.snapshot_precision == "float32");
         RecordWriter record(output_dir, direction, rank, part.recording, ngll, use_float32,
@@ -531,6 +538,14 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 // 3. Gather predicted displacement → element-local for kernel
                 gather_from_rank(displacement_tilde, part.local_cell2rank_node, n_local_cell,
                                  n_node, local_cell_displacement);
+                gather_from_rank(displacement_tilde, part.local_cell2rank_node, n_local_cell,
+                                 n_node, local_cell_displacement);
+
+                // 3a. C-PML: Update PML displacement fields (before kernel)
+                if (part.has_cpml) {
+                    cpml_update_displ_fields(part, displacement, velocity, acceleration, solver_dt,
+                                             n_node);
+                }
 
                 // 3. Zero element-local residual, compute element kernel
                 std::fill(local_cell_residual.begin(), local_cell_residual.end(), 0.0);
@@ -539,14 +554,22 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                     part.mu_.data(), D_mat.data(), gll_wts.data(), ngll,
                     local_cell_displacement.data(), local_cell_residual.data());
 
-                // 4. PML damping on global velocity (direct — no gather/scatter)
-                for (int node_id = 0; node_id < part.n_rank_node; ++node_id) {
-                    double d = rank_node_damping[node_id];
-                    if (d > 0.0) {
-                        int base = node_id * 3;
-                        velocity[base + 0] -= d * velocity[base + 0];
-                        velocity[base + 1] -= d * velocity[base + 1];
-                        velocity[base + 2] -= d * velocity[base + 2];
+                // 4. PML damping / C-PML accel contribution
+                if (part.has_cpml) {
+                    // C-PML: Add acceleration correction to element-local residual
+                    cpml_accel_contribution(part, displacement, velocity,
+                                            part.local_cell2rank_node, gll_wts,
+                                            local_cell_residual, n_local_cell, n_node);
+                } else {
+                    // Legacy: linear-ramp velocity damping (backward compat)
+                    for (int node_id = 0; node_id < part.n_rank_node; ++node_id) {
+                        double d = rank_node_damping[node_id];
+                        if (d > 0.0) {
+                            int base = node_id * 3;
+                            velocity[base + 0] -= d * velocity[base + 0];
+                            velocity[base + 1] -= d * velocity[base + 1];
+                            velocity[base + 2] -= d * velocity[base + 2];
+                        }
                     }
                 }
 
@@ -591,6 +614,11 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 // 7. Newmark corrector (global arrays, global mass)
                 newmark_correct(solver_dt, beta, gamma, rank_node_mass, displacement, velocity,
                                 acceleration, residual);
+
+                // 8. C-PML: Update displacement memory variables (after corrector)
+                if (part.has_cpml) {
+                    cpml_update_displ_memory(part, n_node);
+                }
             }
 
             // --- Write restart (every restart_stride solver steps) ---

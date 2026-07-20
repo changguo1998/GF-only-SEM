@@ -43,18 +43,58 @@ written uncompressed. If compression is needed in the future, re-implement from
 
 ______________________________________________________________________
 
-## 3. Full C-PML Implementation
+## 3. Full C-PML Implementation (Strain Correction)
 
-**Status:** Deferred. Current solver uses simple linear-ramp damping.
+**Status:** PARTIALLY IMPLEMENTED. Displacement-based C-PML (acceleration
+correction, 3 memory variables/node) is implemented in the preprocessor and
+forward solver. The remaining strain-based correction (A₆…A₂₃ coefficients,
+18+ memory variables/node, element kernel modification) is deferred.
+
+### Implemented (displacement-based C-PML)
+
+- [`docs/design/cpml.md`](design/cpml.md): Full design document.
+- `preprocess/pml_cpml.py`: C-PML profile computation (K, d, α per direction)
+  and convolution coefficients (α/β 9 each, Ā₁…Ā₅, A₆…A₂₃).
+- `forward/`: C-PML data structures in `types.hpp`, I/O in `io.cpp`,
+  memory variable update + accel contribution in `pml.hpp/cpp`.
+- `solver.cpp`: Old `v -= d·v` replaced with C-PML accel correction.
+- Backward compatible: falls back to old damping when C-PML data absent.
+
+### Remaining (strain-based correction)
+
+- Element kernel modification (PML stress via A₆…A₂₃ convolution):
+  `element_cpu.cpp`, `element_cuda.cu`.
+- CUDA C-PML memory variable update.
+- Restart I/O for C-PML memory state.
+- Absorption quality validation (compare with old linear ramp).
+
+### Preprocess
 
 Needed:
 
-- Full recursive-convolution C-PML (Wang et al. 2006, θ=1/8) with 39 memory variables per GLL node.
-- d/K/α damping profiles per direction.
-- Second-order convolution coefficients.
-- Memory arrays for convolution state.
+- C-PML precompute already implemented in `preprocess/pml_cpml.py`.
 
-Current implementation: simple linear-ramp `v ← v - d(node)·v`. Precomputed `damping` profile read from `partition_{r}.h5`.
+### Forward
+
+Current: displacement-based C-PML (3 memory vars/node, accel correction).
+Needed: strain-based C-PML (18+ memory vars/node, stress modification).
+
+```
+d_axis = -(NPOWER + 1) * vp * ln(R_coef) / (2 * pml_width) * dist^(1.2 * NPOWER)
+K_axis = K_MIN + (K_MAX - 1) * dist
+α_axis = α_MAX * (1 - dist)
+
+# Convolution coefficients (second-order, Xie et al. 2014)
+coef0 = exp(-b*dt)
+coef1 = (1 - exp(-b*dt/2)) / b
+coef2 = coef1 * exp(-b*dt/2)
+
+# Accel-update coefficients (l_parameter_computation)
+Ā₁..Ā₅ from K, d, α, CPML_region
+
+# Strain-update coefficients (lijk_parameter_computation)
+A₆..A₂₃ from K, d, α, CPML_region
+```
 
 ______________________________________________________________________
 
@@ -114,6 +154,7 @@ interpolation. This is a query-accuracy limitation, not a solver bug.
 | Item | Module | Priority | Effort |
 |------|--------|----------|--------|
 | SLS attenuation | preprocess + forward/viscoelastic | High | Large |
+C-PML (strain correction) | forward + preprocess | Medium | Large (displacement-based done) |
 | Compress module | - | - | Placeholder (removed, see §2 above) |
 | HIP/SYCL backends | forward/elastic/ | Low | Medium |
 | ~~Cartesian mesh anisotropy~~ | forward + preprocess | - | RESOLVED (misdiagnosis, see §6 above) |

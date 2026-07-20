@@ -4,3 +4,4 @@
 *.npz
 *.csv
 __pycache__/
+*.png

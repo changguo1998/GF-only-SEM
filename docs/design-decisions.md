@@ -282,7 +282,7 @@ Each tile stores recorded vertices in its x/y bounds for all saved depths. Green
 - **Mesh output**: Preprocess adds GLL geometry and `is_pml` to `model.h5`. Rank-local data and `/recording/` go to `partition_{r}.h5`.
 - **STF precompute**: Preprocess samples `stf_func(t_s)` at `solver_dt` and writes an array. Forward does no STF eval.
 - **Mass computation**: After material interpolation (ρ needed for lumped mass).
-  - **CPML precompute**: Tag PML elements and write linear-ramp damping profile to `/field/cell/damping`. Full C-PML (d/K/α per direction, convolution coefficients) is deferred.
+  - **CPML precompute**: Tag PML elements and write C-PML profiles (K/d/α per direction) and convolution coefficients (α/β 9 each, Ā₁…Ā₅, A₆…A₂₃). Displacement-based correction (Ā₁…Ā₅) implemented; strain-based correction (A₆…A₂₃) deferred.
 - **Partitioning**: METIS k-way partition + GLL node global numbering (ibool equivalent) + precomputed exchange patterns. Each rank gets its own partition\_{r}.h5 with local subset.
 - **ibool (local_cell2rank_node)**: Per-rank unique GLL node numbering computed via coordinate sorting (matching SPECFEM3D's `get_global.f90`). Written as flat `int64[n_local * NGLL^3]` to `/field/cell/local_cell2rank_node`. Backward-compatible: absent → element-local DOF. Per-rank `n_rank_node` written as attribute.
 - **Exchange pattern conversion**: Send/recv DOF indices use global per-rank DOF numbers (`iglob * 3 + dir`) instead of element-local (`elem * n_node * 3 + dir`).
@@ -301,7 +301,7 @@ Each tile stores recorded vertices in its x/y bounds for all saved depths. Green
 - **Precomputed data**: All mesh-dependent quantities read from partition\_{r}.h5 — no init phase.
 - **Material**: Read at GLL nodes from partition\_{r}.h5 — no runtime interpolation.
 - **Source injection**: Precomputed Lagrange weights and element list from config.h5 — forward solver distributes STF amplitude to GLL nodes via stored weights. No runtime Newton iteration.
-- **PML damping**: Simple linear-ramp damping applied to velocity: v ← v − d(node)·v. Precomputed damping profile read from partition. Full recursive-convolution C-PML (Wang et al. 2006, 39 memory variables) is deferred.
+- **PML damping**: Displacement-based C-PML (Wang et al. 2006, Xie et al. 2014) with accel correction (Ā₁…Ā₅) and 3 memory variables per GLL node. Replaces old `v -= d·v`. Strain-based correction (A₆…A₂₃, 18+ memory vars) deferred. See [`docs/design/cpml.md`](design/cpml.md).
 - **No runtime PML build**: Damping profile precomputed by preprocessor, read from partition at startup.
 - **Shared nodes**: Within-rank sums via `scatter_to_rank` (atomic add on GPU). Cross-rank sums via precomputed MPI exchange patterns (global DOF indices `iglob * 3 + dir`). Mass at shared nodes is exchanged so `a = (r_local + r_neighbor) / (m_local + m_neighbor)`. Predicted displacement (`u_tilde`) is exchanged + averaged before element kernel to keep state consistent across ranks.
 - **Runtime loop (global DOF)**: Newmark predict → u_tilde sync (exchange + average at shared nodes via MPI) → gather → element residual → PML damping → source injection → scatter → MPI exchange → Newmark correct (using mass-exchanged mass) → strain recording.

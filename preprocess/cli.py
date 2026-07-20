@@ -456,6 +456,32 @@ def main() -> None:
     nsteps = lame["nsteps"]
     cfl_dt = lame["cfl_dt"]
 
+    # ── Step 5b: C-PML parameters ──
+    f0_for_pml = getattr(config, "f0_for_pml_hz", 2.0)
+    pml_thickness_cfg = getattr(config, "pml_thickness", {}) or {}
+    nx_el = int(getattr(config, "nx_elements", 1))
+    ny_el = int(getattr(config, "ny_elements", 1))
+    nz_el = n_cell // (nx_el * ny_el) if nx_el * ny_el > 0 else 1
+    dx_el = (domain_bounds["xmax"] - domain_bounds["xmin"]) / max(nx_el, 1)
+    dy_el = (domain_bounds["ymax"] - domain_bounds["ymin"]) / max(ny_el, 1)
+    dz_el = (domain_bounds["zmax"] - domain_bounds["zmin"]) / max(nz_el, 1)
+    pml_widths = {
+        "xmin": pml_thickness_cfg.get("xmin", 0) * dx_el,
+        "xmax": pml_thickness_cfg.get("xmax", 0) * dx_el,
+        "ymin": pml_thickness_cfg.get("ymin", 0) * dy_el,
+        "ymax": pml_thickness_cfg.get("ymax", 0) * dy_el,
+        "zmin": pml_thickness_cfg.get("zmin", 0) * dz_el,
+        "zmax": pml_thickness_cfg.get("zmax", 0) * dz_el,
+    }
+    logger.info(f"Computing C-PML parameters (f0={f0_for_pml} Hz, dt={solver_dt:.4e} s)...")
+    from preprocess.pml_cpml import compute_cpml_parameters
+
+    cpml_params = compute_cpml_parameters(
+        coords, is_pml, domain_bounds, pml_widths, vp, f0_for_pml, solver_dt
+    )
+    n_pml = int(is_pml.sum())
+    logger.info(f"  PML elements: {n_pml}, regions: {np.unique(cpml_params['pml_region'])}")
+
     # ── Step 6: Source location ──
     source_z = getattr(config, "source_z_m", None)
     if source_z is None:
@@ -535,6 +561,7 @@ def main() -> None:
         "is_pml": is_pml,
         "damping": damping,
     }
+    fields.update(cpml_params)
     tile_config = {
         "nx_elements": int(config.nx_elements),
         "ny_elements": int(config.ny_elements),

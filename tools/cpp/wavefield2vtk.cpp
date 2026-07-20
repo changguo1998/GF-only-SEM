@@ -122,6 +122,174 @@ static double* read_all_snapshots(hid_t dset, int64_t nlv, int n_snapshots) {
     return buf;
 }
 
+// ---------------------------------------------------------------------------
+// GLL-format record file support
+// ---------------------------------------------------------------------------
+
+/// Read node IDs from a record file (gll_node_ids or legacy vertex_ids).
+static std::vector<int64_t> read_node_ids(hid_t fid) {
+    if (dataset_exists(fid, "gll_node_ids")) {
+        return read_int64_1d(fid, "gll_node_ids");
+    }
+    return read_int64_1d(fid, "vertex_ids");
+}
+
+/// Read GLL node coordinates from a record file (if available).
+/// Returns flattened [n_pts * 3] array.
+static std::vector<double> read_node_coords(hid_t fid) {
+    if (dataset_exists(fid, "gll_node_coords")) {
+        std::vector<hsize_t> shape;
+        auto flat = read_float64_nd(fid, "gll_node_coords", shape);
+        return flat;  // already flattened by read_float64_nd
+    }
+    return {};
+}
+
+/// Check if record file uses GLL format (4D strain [snap, n_cell, n_node, 6]).
+static bool is_gll_format(hid_t fid) {
+    if (!dataset_exists(fid, "strain"))
+        return false;
+    hid_t dset = H5Dopen2(fid, "strain", H5P_DEFAULT);
+    hid_t fspace = H5Dget_space(dset);
+    int ndims = H5Sget_simple_extent_ndims(fspace);
+    H5Sclose(fspace);
+    H5Dclose(dset);
+    return ndims == 4;
+}
+
+/// Read int32 dataset as flattened 1D vector (handles any dimensionality).
+static std::vector<int32_t> read_int32_flat(hid_t fid, const std::string& name) {
+    hid_t dset = H5Dopen2(fid, name.c_str(), H5P_DEFAULT);
+    if (dset < 0)
+        throw std::runtime_error("Cannot open: " + name);
+    hid_t fspace = H5Dget_space(dset);
+    int ndims = H5Sget_simple_extent_ndims(fspace);
+    std::vector<hsize_t> dims(ndims);
+    H5Sget_simple_extent_dims(fspace, dims.data(), nullptr);
+    int64_t total = 1;
+    for (int i = 0; i < ndims; ++i)
+        total *= (int64_t)dims[i];
+    std::vector<int32_t> data(total);
+    H5Dread(dset, H5T_NATIVE_INT32, H5S_ALL, H5S_ALL, H5P_DEFAULT, data.data());
+    H5Sclose(fspace);
+    H5Dclose(dset);
+    return data;
+}
+
+/// Read one snapshot of strain from GLL-format record file.
+/// Returns per-GLL-node averaged strain [n_gll_nodes * 6].
+static std::vector<double> read_step_strain_gll(const std::string& rpath, int64_t n_gll_nodes) {
+    hid_t fid = H5Fopen(rpath.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+    if (fid < 0)
+        throw std::runtime_error("Cannot open: " + rpath);
+
+    // Read cell_gll_node_index [n_cell, n_node]
+    auto cgll = read_int32_flat(fid, "cell_gll_node_index");
+    int64_t n_cell_node = (int64_t)cgll.size();
+    int n_node_per_cell = 125;  // NGLL^3 = 5^3
+    int64_t n_cell = n_cell_node / n_node_per_cell;
+
+    // Read strain [1, n_cell, n_node, 6]
+    hid_t dset = H5Dopen2(fid, "strain", H5P_DEFAULT);
+    hid_t fspace = H5Dget_space(dset);
+    hsize_t dims[4];
+    H5Sget_simple_extent_dims(fspace, dims, nullptr);
+    int64_t total_val = (int64_t)dims[1] * dims[2] * dims[3];
+    std::vector<double> raw(total_val);
+    H5Dread(dset, H5T_NATIVE_DOUBLE, H5S_ALL, fspace, H5P_DEFAULT, raw.data());
+    H5Sclose(fspace);
+    H5Dclose(dset);
+    H5Fclose(fid);
+
+    // Average per GLL node
+    std::vector<double> node_strain(n_gll_nodes * 6, 0.0);
+    std::vector<int> count(n_gll_nodes, 0);
+
+    for (int64_t c = 0; c < n_cell; ++c) {
+        for (int nn = 0; nn < n_node_per_cell; ++nn) {
+            int32_t gll_idx = cgll[c * n_node_per_cell + nn];
+            if (gll_idx < 0 || gll_idx >= n_gll_nodes)
+                continue;
+            int64_t raw_off = (c * n_node_per_cell + nn) * 6;
+            for (int vi = 0; vi < 6; ++vi) {
+                double val = raw[raw_off + vi];
+                if (std::isfinite(val)) {
+                    node_strain[gll_idx * 6 + vi] += val;
+                    if (vi == 0)
+                        count[gll_idx]++;
+                }
+            }
+        }
+    }
+
+    for (int64_t i = 0; i < n_gll_nodes; ++i) {
+        if (count[i] > 0) {
+            double inv = 1.0 / count[i];
+            for (int vi = 0; vi < 6; ++vi)
+                node_strain[i * 6 + vi] *= inv;
+        }
+    }
+
+    return node_strain;
+}
+
+/// Read all snapshots from GLL-format record file.
+/// Returns heap array [n_snapshots * n_gll_nodes * 6].
+static double* read_all_snapshots_gll(hid_t fid, int64_t n_gll_nodes, int n_snapshots) {
+    // Read cell_gll_node_index
+    auto cgll = read_int32_flat(fid, "cell_gll_node_index");
+    int n_node_per_cell = 125;
+    int64_t n_cell = (int64_t)cgll.size() / n_node_per_cell;
+
+    // Read full strain [n_snapshots, n_cell, n_node, 6]
+    hid_t dset = H5Dopen2(fid, "strain", H5P_DEFAULT);
+    hid_t fspace = H5Dget_space(dset);
+    hsize_t dims[4];
+    H5Sget_simple_extent_dims(fspace, dims, nullptr);
+    int64_t total = (int64_t)dims[0] * dims[1] * dims[2] * dims[3];
+    std::vector<double> raw(total);
+    H5Dread(dset, H5T_NATIVE_DOUBLE, H5S_ALL, fspace, H5P_DEFAULT, raw.data());
+    H5Sclose(fspace);
+    H5Dclose(dset);
+
+    double* buf = new double[n_snapshots * n_gll_nodes * 6];
+    std::fill(buf, buf + n_snapshots * n_gll_nodes * 6, 0.0);
+    std::vector<int> count(n_gll_nodes, 0);
+
+    // Process each snapshot
+    for (int s = 0; s < n_snapshots; ++s) {
+        std::fill(count.begin(), count.end(), 0);
+        double* snap_buf = buf + s * n_gll_nodes * 6;
+
+        for (int64_t c = 0; c < n_cell; ++c) {
+            for (int nn = 0; nn < n_node_per_cell; ++nn) {
+                int32_t gll_idx = cgll[c * n_node_per_cell + nn];
+                if (gll_idx < 0 || gll_idx >= n_gll_nodes)
+                    continue;
+                int64_t raw_off = ((int64_t)s * n_cell + c) * n_node_per_cell * 6 + nn * 6;
+                for (int vi = 0; vi < 6; ++vi) {
+                    double val = raw[raw_off + vi];
+                    if (std::isfinite(val)) {
+                        snap_buf[gll_idx * 6 + vi] += val;
+                        if (vi == 0)
+                            count[gll_idx]++;
+                    }
+                }
+            }
+        }
+
+        for (int64_t i = 0; i < n_gll_nodes; ++i) {
+            if (count[i] > 0) {
+                double inv = 1.0 / count[i];
+                for (int vi = 0; vi < 6; ++vi)
+                    snap_buf[i * 6 + vi] *= inv;
+            }
+        }
+    }
+
+    return buf;
+}
+
 /// Process a single snapshot: read data, accumulate, average, write VTK.
 static void process_snapshot(
     int snap_idx, int step_num, const std::vector<std::vector<RecordFile>>& record_paths,
@@ -158,7 +326,14 @@ static void process_snapshot(
                 sbuf = batch_data[di][ri] + snap_idx * nlv * 6;
             } else {
                 std::string rpath = record_paths[di][ri].path;
-                local_buf = read_step_strain(rpath, nlv);
+                hid_t check_fid = H5Fopen(rpath.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+                bool gll_fmt = is_gll_format(check_fid);
+                H5Fclose(check_fid);
+                if (gll_fmt) {
+                    local_buf = read_step_strain_gll(rpath, nlv);
+                } else {
+                    local_buf = read_step_strain(rpath, nlv);
+                }
                 sbuf = local_buf.data();
             }
 
@@ -413,12 +588,12 @@ int main(int argc, char** argv) {
     std::vector<std::vector<int64_t>> vertex_id_list(n_ranks);
     for (int ri = 0; ri < n_ranks; ++ri) {
         H5File f(record_paths[0][ri].path);
-        vertex_id_list[ri] = read_int64_1d(f.id(), "vertex_ids");
+        vertex_id_list[ri] = read_node_ids(f.id());
     }
     for (int di = 1; di < 3; ++di) {
         for (int ri = 0; ri < n_ranks; ++ri) {
             H5File f(record_paths[di][ri].path);
-            auto vids = read_int64_1d(f.id(), "vertex_ids");
+            auto vids = read_node_ids(f.id());
             if (vids != vertex_id_list[ri]) {
                 std::cerr << "Error: vertex ID mismatch in " << record_paths[di][ri].path << "\n";
                 return 1;
@@ -426,12 +601,35 @@ int main(int argc, char** argv) {
         }
     }
 
-    // ── Pre-compute vertex coords as float32 ────────────────────
-    std::vector<float> vtx_coords_f32(n_vert * 3);
-    for (int64_t i = 0; i < n_vert; ++i) {
-        vtx_coords_f32[i * 3 + 0] = (float)vertex_to_coord[i][0];
-        vtx_coords_f32[i * 3 + 1] = (float)vertex_to_coord[i][1];
-        vtx_coords_f32[i * 3 + 2] = (float)vertex_to_coord[i][2];
+    // ── Pre-compute point coords as float32 ─────────────────────
+    // For GLL-format records, use gll_node_coords from record files.
+    // For legacy records, use vertex_to_coord from model.h5.
+    bool use_gll_coords = false;
+    std::vector<float> vtx_coords_f32;
+    {
+        H5File f0(record_paths[0][0].path);
+        auto gll_coords = read_node_coords(f0.id());
+        if (!gll_coords.empty()) {
+            use_gll_coords = true;
+            int64_t n_pts = (int64_t)gll_coords.size() / 3;
+            vtx_coords_f32.resize(n_pts * 3);
+            for (int64_t i = 0; i < n_pts; ++i) {
+                vtx_coords_f32[i * 3 + 0] = (float)gll_coords[i * 3 + 0];
+                vtx_coords_f32[i * 3 + 1] = (float)gll_coords[i * 3 + 1];
+                vtx_coords_f32[i * 3 + 2] = (float)gll_coords[i * 3 + 2];
+            }
+            n_vert = n_pts;  // override n_vert with GLL node count
+            if (verbose)
+                std::cout << "  Using GLL node coords: " << n_pts << " points\n";
+        }
+    }
+    if (!use_gll_coords) {
+        vtx_coords_f32.resize(n_vert * 3);
+        for (int64_t i = 0; i < n_vert; ++i) {
+            vtx_coords_f32[i * 3 + 0] = (float)vertex_to_coord[i][0];
+            vtx_coords_f32[i * 3 + 1] = (float)vertex_to_coord[i][1];
+            vtx_coords_f32[i * 3 + 2] = (float)vertex_to_coord[i][2];
+        }
     }
 
     // Strain field names
@@ -464,10 +662,15 @@ int main(int argc, char** argv) {
                     continue;
                 std::string rpath = record_paths[di][ri].path;
                 hid_t fid = H5Fopen(rpath.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
-                hid_t dset = H5Dopen2(fid, "strain", H5P_DEFAULT);
-                batch_data[di][ri] = read_all_snapshots(dset, nlv, n_snapshots);
-                H5Dclose(dset);
-                H5Fclose(fid);
+                if (is_gll_format(fid)) {
+                    batch_data[di][ri] = read_all_snapshots_gll(fid, nlv, n_snapshots);
+                    H5Fclose(fid);
+                } else {
+                    hid_t dset = H5Dopen2(fid, "strain", H5P_DEFAULT);
+                    batch_data[di][ri] = read_all_snapshots(dset, nlv, n_snapshots);
+                    H5Dclose(dset);
+                    H5Fclose(fid);
+                }
             }
         }
     }

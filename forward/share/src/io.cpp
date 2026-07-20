@@ -228,6 +228,14 @@ RankData read_partition(const std::string& path, int /*rank*/) {
     data.mu_ = try_read_dataset<double>(fid, "/field/cell/mu");
     data.pml_damping = try_read_dataset<double>(fid, "/field/cell/damping");
 
+    // --- Read C-PML data (optional, falls back to legacy damping if absent) ---
+    data.pml_region = try_read_dataset<int32_t>(fid, "/field/cell/pml_region");
+    data.pml_coef_alpha = try_read_dataset<double>(fid, "/field/cell/pml_coef_alpha");
+    data.pml_coef_beta = try_read_dataset<double>(fid, "/field/cell/pml_coef_beta");
+    data.pml_coef_abar = try_read_dataset<double>(fid, "/field/cell/pml_coef_abar");
+    data.pml_coef_strain = try_read_dataset<double>(fid, "/field/cell/pml_coef_strain");
+    data.has_cpml = !data.pml_coef_abar.empty();
+
     // --- Read local_cell2rank_node and n_rank_node (CG-SEM rank-level node mapping) ---
     data.local_cell2rank_node = try_read_dataset<int32_t>(fid, "/field/cell/local_cell2rank_node");
     data.local_cell2global_node =
@@ -379,6 +387,12 @@ RankData read_partition_all(const std::string& partition_dir) {
             concat_vec(merged.lambda_, part.lambda_);
             concat_vec(merged.mu_, part.mu_);
             concat_vec(merged.pml_damping, part.pml_damping);
+            concat_vec(merged.pml_region, part.pml_region);
+            concat_vec(merged.pml_coef_alpha, part.pml_coef_alpha);
+            concat_vec(merged.pml_coef_beta, part.pml_coef_beta);
+            concat_vec(merged.pml_coef_abar, part.pml_coef_abar);
+            concat_vec(merged.pml_coef_strain, part.pml_coef_strain);
+            merged.has_cpml = merged.has_cpml || part.has_cpml;
 
             // Merge ibool using global node IDs (already unique across ranks)
             concat_vec(merged.local_cell2rank_node, part.local_cell2global_node);
@@ -509,6 +523,12 @@ RankData read_partition_range(const std::string& partition_dir, int effective_ra
             concat_vec(merged.lambda_, part.lambda_);
             concat_vec(merged.mu_, part.mu_);
             concat_vec(merged.pml_damping, part.pml_damping);
+            concat_vec(merged.pml_region, part.pml_region);
+            concat_vec(merged.pml_coef_alpha, part.pml_coef_alpha);
+            concat_vec(merged.pml_coef_beta, part.pml_coef_beta);
+            concat_vec(merged.pml_coef_abar, part.pml_coef_abar);
+            concat_vec(merged.pml_coef_strain, part.pml_coef_strain);
+            merged.has_cpml = merged.has_cpml || part.has_cpml;
 
             if (part.recording.has_recording) {
                 merged.recording.has_recording = true;

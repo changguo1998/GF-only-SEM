@@ -39,7 +39,22 @@ struct RankData {
     std::vector<double> mass;             // lumped mass diagonal per GLL node
     std::vector<double> vp, vs, density;  // material at GLL nodes
     std::vector<double> lambda_, mu_;     // precomputed elastic coefficients at GLL nodes
-    std::vector<double> pml_damping;      // PML damping, 0=interior
+    std::vector<double> pml_damping;      // PML damping, 0=interior (legacy linear-ramp)
+
+    // C-PML data (recursive convolution PML, Wang et al. 2006)
+    // Per-element region code: 0=interior, 1-7=PML region (see cpml.md §2.2)
+    std::vector<int32_t> pml_region;  // [n_local_cell]
+    // Precomputed convolution coefficients (flattened: [n_local_cell * n_node * N])
+    std::vector<double> pml_coef_alpha;   // [n_local_cell * n_node * 9]  α conv coefs
+    std::vector<double> pml_coef_beta;    // [n_local_cell * n_node * 9]  β conv coefs
+    std::vector<double> pml_coef_abar;    // [n_local_cell * n_node * 5]  Ā₁…Ā₅
+    std::vector<double> pml_coef_strain;  // [n_local_cell * n_node * 18] A₆…A₂₃
+    // Runtime memory state (allocated at startup, saved/restored in restart)
+    std::vector<double> pml_displ_old;   // [n_local_cell * n_node * 3]  prev step
+    std::vector<double> pml_displ_new;   // [n_local_cell * n_node * 3]  curr step
+    std::vector<double> rmemory_displ;   // [n_local_cell * n_node * 9]  3comp×3dir
+    std::vector<double> rmemory_strain;  // [n_local_cell * n_node * 27] 9grad×3dir
+    bool has_cpml = false;               // true if C-PML data loaded
 
     // Rank-level node numbering (CG-SEM assembly)
     std::vector<int32_t> local_cell2rank_node;    // [n_local_cell * n_node] — compact rank-level

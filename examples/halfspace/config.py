@@ -84,6 +84,10 @@ source_z_m = 278.0  # buried at 278 m depth (element center)
 # reducing truncation error in float32 snapshot storage.
 source_force_amplitude_n = 1.0e20
 
+# Dominant source frequency for C-PML damping profile computation (Hz).
+# Should match the Ricker peak frequency in stf_func.
+f0_for_pml_hz = 2.0
+
 
 # ── Source time function (callable) ───
 def stf_func(t_s):

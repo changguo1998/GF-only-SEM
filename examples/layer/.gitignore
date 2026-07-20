@@ -4,4 +4,4 @@
 *.npz
 *.csv
 .pyfk-venv/
-__pycache__/
+__pycache__/*.png

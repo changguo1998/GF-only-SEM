@@ -196,6 +196,23 @@ def _extend_model_h5(
         is_pml = fields.get("is_pml", np.array([], dtype=np.bool_))
         _write_dataset(felem, "is_pml", is_pml.astype(np.int8), dtype="int8")
 
+        # Write C-PML per-GLL-node fields and region codes
+        for key in (
+            "pml_K",
+            "pml_d",
+            "pml_alpha",
+            "pml_coef_alpha",
+            "pml_coef_beta",
+            "pml_coef_abar",
+            "pml_coef_strain",
+        ):
+            arr = fields.get(key)
+            if arr is not None:
+                _write_dataset(felem, key, arr, dtype="float64")
+        pml_region = fields.get("pml_region")
+        if pml_region is not None:
+            _write_dataset(felem, "pml_region", pml_region, dtype="int32")
+
         # Write tile_index to model.h5 if tile config is available
         if tile_config is not None:
             n_cell = int(f["topology"].attrs["n_cell"])
@@ -256,6 +273,17 @@ def _write_partition_files(
         "damping",
     ]
 
+    # C-PML per-GLL-node fields (shape [n_cell, NGLL^3, N])
+    cpml_field_keys = [
+        "pml_K",
+        "pml_d",
+        "pml_alpha",
+        "pml_coef_alpha",
+        "pml_coef_beta",
+        "pml_coef_abar",
+        "pml_coef_strain",
+    ]
+
     # Precompute global tile_index if tile config provided
     global_tile_index = None
     if tile_config is not None:
@@ -293,6 +321,22 @@ def _write_partition_files(
                     continue
                 local_data = arr[local_zero] if n_local_cell > 0 else np.array([], dtype=arr.dtype)
                 _write_dataset(felem_grp, key, local_data, compression=True)
+
+            # Write C-PML per-GLL-node fields
+            for key in cpml_field_keys:
+                arr = fields.get(key)
+                if arr is None:
+                    continue
+                local_data = arr[local_zero] if n_local_cell > 0 else np.array([], dtype=arr.dtype)
+                _write_dataset(felem_grp, key, local_data, compression=True)
+
+            # Write PML region codes (per-element int32)
+            pml_region = fields.get("pml_region")
+            if pml_region is not None:
+                local_region = (
+                    pml_region[local_zero] if n_local_cell > 0 else np.array([], dtype=np.int32)
+                )
+                _write_dataset(felem_grp, "pml_region", local_region, dtype="int32")
 
             # Write tile_index to partition file
             if global_tile_index is not None:
