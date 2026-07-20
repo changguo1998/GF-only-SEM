@@ -302,6 +302,7 @@ RankData read_partition(const std::string& path, int /*rank*/) {
         data.recording.rec_cell_local = read_dataset_int32(fid, "/recording/rec_cell_local");
         data.recording.cell_gll_node_index =
             read_dataset_int32(fid, "/recording/cell_gll_node_index");
+        data.recording.rec_cell_global = read_dataset_int64(fid, "/recording/rec_cell_global_ids");
     }
 
     return data;
@@ -405,6 +406,8 @@ RankData read_partition_all(const std::string& partition_dir) {
                     }
                 }
                 // rec_cell_local: offset by cumulative element count
+                // rec_cell_global: direct concatenation (already global cell indices)
+                concat_vec(merged.recording.rec_cell_global, part.recording.rec_cell_global);
                 for (int32_t local_idx : part.recording.rec_cell_local) {
                     merged.recording.rec_cell_local.push_back(local_idx + cumulative_elements);
                 }
@@ -530,6 +533,8 @@ RankData read_partition_range(const std::string& partition_dir, int effective_ra
                 for (int32_t local_idx : part.recording.rec_cell_local) {
                     merged.recording.rec_cell_local.push_back(local_idx + cumulative_elements);
                 }
+                // rec_cell_global: direct concatenation (already global cell indices)
+                concat_vec(merged.recording.rec_cell_global, part.recording.rec_cell_global);
                 for (int32_t local_idx : part.recording.cell_gll_node_index) {
                     merged.recording.cell_gll_node_index.push_back(local_to_merged[local_idx]);
                 }

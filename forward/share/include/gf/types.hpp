@@ -74,6 +74,7 @@ struct RankData {
         // Cell data (element-local strain extraction + GLL interpolation)
         std::vector<int32_t> rec_cell_local;       // [n_rec_cell] local cell index
         std::vector<int32_t> cell_gll_node_index;  // [n_rec_cell * n_node] index into gll_node_ids
+        std::vector<int64_t> rec_cell_global;      // [n_rec_cell] global cell index in model.h5
     };
     RecordingMap recording;
 };

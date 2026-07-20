@@ -78,6 +78,7 @@ private:
     std::vector<int64_t> gll_node_ids_;
     std::vector<double> gll_node_coords_;
     std::vector<int32_t> cell_gll_node_index_;
+    std::vector<int64_t> recording_cell_model_index_;  // [n_rec_cell] global cell index
 };
 
 }  // namespace gf

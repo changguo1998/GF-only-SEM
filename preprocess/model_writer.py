@@ -386,6 +386,12 @@ def _write_partition_files(
                         np.array(per_rank_rec["rec_cell_local_index"], dtype=np.int32),
                         dtype="int32",
                     )
+                    _write_dataset(
+                        rec_grp,
+                        "rec_cell_global_ids",
+                        np.array(per_rank_rec["rec_cell_global_ids"], dtype=np.int64),
+                        dtype="int64",
+                    )
                     cell_gll_node_index_flat = np.array(
                         per_rank_rec["cell_gll_node_index"], dtype=np.int32
                     ).flatten()

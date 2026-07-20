@@ -162,7 +162,8 @@ RecordWriter::RecordWriter(const std::string& output_dir, const std::string& sou
       record_depth_actual_m_(record_depth_actual_m),
       gll_node_ids_(rec_map.gll_node_ids),
       gll_node_coords_(rec_map.gll_node_coords),
-      cell_gll_node_index_(rec_map.cell_gll_node_index) {}
+      cell_gll_node_index_(rec_map.cell_gll_node_index),
+      recording_cell_model_index_(rec_map.rec_cell_global) {}
 
 RecordWriter::~RecordWriter() {
     try {
@@ -232,6 +233,18 @@ void RecordWriter::write_step(int step, const double* strain, const double* disp
                  cell_gll_node_index_.data());
         H5Dclose(idx_dset);
         H5Sclose(idx_space);
+    }
+
+    // Write recording_cell_model_index [n_rec_cell] (global cell index for mass lookup)
+    if (!recording_cell_model_index_.empty()) {
+        hsize_t rcm_dims[1] = {n_rec_cell_};
+        hid_t rcm_space = H5Screate_simple(1, rcm_dims, nullptr);
+        hid_t rcm_dset = H5Dcreate2(file_id, "recording_cell_model_index", H5T_NATIVE_INT64,
+                                    rcm_space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        H5Dwrite(rcm_dset, H5T_NATIVE_INT64, H5S_ALL, H5S_ALL, H5P_DEFAULT,
+                 recording_cell_model_index_.data());
+        H5Dclose(rcm_dset);
+        H5Sclose(rcm_space);
     }
 
     // Write 4D field datasets [1, n_rec_cell, n_node, ncomp]
