@@ -753,7 +753,7 @@ int main(int argc, char** argv) {
     // for file creation — serialize writes)
     for (int64_t ti = 0; ti < n_tiles; ++ti) {
         const TileKey& key = bins.keys[(size_t)ti];
-        const auto& vert_indices = bins.bins.at(key);
+        // vert_indices removed: cell-based tiling uses cell_indices below
         const auto& cell_indices = cell_bins.at(key);
         // Build tile-local GLL node set from cells
         std::unordered_map<int64_t, int64_t> gll_to_tile_local;
