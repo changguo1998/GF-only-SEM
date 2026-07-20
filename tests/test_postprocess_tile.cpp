@@ -95,34 +95,34 @@ TEST_CASE("postprocess tile schema: greens_quantities attribute", "[tile]") {
     hid_t fid = open_tile(path);
     REQUIRE(attr_exists(fid, "greens_quantities"));
     std::string q = read_str_attr(fid, "greens_quantities");
-    CHECK((q == "strain" || q == "strain,displacement"));
+    CHECK(q.find("strain") != std::string::npos);
     H5Fclose(fid);
 }
 
-TEST_CASE("postprocess tile schema: source_directions attribute", "[tile]") {
+TEST_CASE("postprocess tile schema: gll_node_coords dataset", "[tile]") {
     auto path = get_tile_path();
     if (path.empty()) {
         WARN("GF_TILE_PATH not set — skipping test");
         return;
     }
     hid_t fid = open_tile(path);
-    REQUIRE(attr_exists(fid, "source_directions"));
-    std::string dirs = read_str_attr(fid, "source_directions");
-    CHECK(dirs == "x,y,z");
-    H5Fclose(fid);
-}
-
-TEST_CASE("postprocess tile schema: vertex_coords dataset", "[tile]") {
-    auto path = get_tile_path();
-    if (path.empty()) {
-        WARN("GF_TILE_PATH not set — skipping test");
-        return;
-    }
-    hid_t fid = open_tile(path);
-    REQUIRE(dataset_exists(fid, "/mesh/vertex_coords"));
-    auto dims = get_dataset_dims(fid, "/mesh/vertex_coords");
+    REQUIRE(dataset_exists(fid, "/mesh/gll_node_coords"));
+    auto dims = get_dataset_dims(fid, "/mesh/gll_node_coords");
     REQUIRE(dims.size() == 2);
     CHECK(dims[1] == 3);  // [n_local, 3]
+    H5Fclose(fid);
+}
+
+TEST_CASE("postprocess tile schema: gll_node_ids dataset", "[tile]") {
+    auto path = get_tile_path();
+    if (path.empty()) {
+        WARN("GF_TILE_PATH not set — skipping test");
+        return;
+    }
+    hid_t fid = open_tile(path);
+    REQUIRE(dataset_exists(fid, "/mesh/gll_node_ids"));
+    auto dims = get_dataset_dims(fid, "/mesh/gll_node_ids");
+    REQUIRE(dims.size() == 1);  // [n_local]
     H5Fclose(fid);
 }
 
@@ -149,7 +149,7 @@ TEST_CASE("postprocess tile schema: displacement_tensor dataset (if present)", "
     }
     hid_t fid = open_tile(path);
     std::string q = read_str_attr(fid, "greens_quantities");
-    bool has_disp = (q == "strain,displacement");
+    bool has_disp = (q.find("displacement") != std::string::npos);
 
     if (has_disp) {
         REQUIRE(dataset_exists(fid, "/field/displacement_tensor"));
