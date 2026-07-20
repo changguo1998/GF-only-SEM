@@ -6,7 +6,6 @@
 #include <string>
 #include <vector>
 
-#include "gf/CompressionFilter.h"
 #include "gf/types.hpp"
 
 namespace gf {
@@ -34,13 +33,10 @@ public:
     /// \param rank             MPI rank number
     /// \param rec_map          Recording map with GLL node IDs and cell indices
     /// \param ngll             Number of GLL points per axis (N+1)
-    /// \param compression      Compression configuration (unused for per-step files)
     /// \param use_float32      If true, store fields as 32-bit float
     RecordWriter(const std::string& output_dir, const std::string& source_direction, int rank,
-                 const RankData::RecordingMap& rec_map, int ngll, CompressionConfig compression,
-                 bool use_float32 = false, double record_depth_max_m = 0.0,
-                 double record_depth_actual_m = 0.0);
-
+                 const RankData::RecordingMap& rec_map, int ngll, bool use_float32 = false,
+                 double record_depth_max_m = 0.0, double record_depth_actual_m = 0.0);
     ~RecordWriter();
 
     /// Write one snapshot to a standalone file: record_{rank}_{step}.h5.

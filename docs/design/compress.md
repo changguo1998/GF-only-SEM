@@ -1,5 +1,10 @@
 # Compression Module — Technical Design
 
+> **NOTE (2026-07-19):** This module has been **removed** from the codebase. It is
+> kept as a historical design reference only. Record files are currently written
+> uncompressed. See [`../deferred.md`](../deferred.md) §2. If compression is
+> needed in the future, re-implement from this design.
+
 > Parent: [../design-decisions.md](../design-decisions.md)
 
 ## Goal

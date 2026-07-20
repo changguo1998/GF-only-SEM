@@ -1,4 +1,4 @@
-# tests/CMakeLists.txt — Catch2 tests for forward solver + compress module
+# tests/CMakeLists.txt - Catch2 tests for forward solver
 
 if(POLICY CMP0110)
     cmake_policy(SET CMP0110 NEW)
@@ -16,10 +16,8 @@ if(MPI_FOUND)
     # Build helper — creates test executable with proper includes/link
     function(add_gf_test_build name source)
         add_executable(${name} ${source})
-        target_include_directories(
-            ${name}
-            PRIVATE ${CMAKE_SOURCE_DIR}/forward/share/include ${CMAKE_SOURCE_DIR}/compress/include
-                    ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
+        target_include_directories(${name} PRIVATE ${CMAKE_SOURCE_DIR}/forward/share/include
+                                                   ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
         target_link_libraries(${name} PRIVATE libgf Catch2::Catch2WithMain MPI::MPI_CXX
                                               Eigen3::Eigen ${HDF5_C_LIBRARIES})
         target_compile_features(${name} PRIVATE cxx_std_17)
@@ -127,14 +125,6 @@ if(TARGET libgf_cuda_nompi)
 endif()
 
 # ---------------------------------------------------------------
-# Compress module tests (always available, no MPI needed)
-# ---------------------------------------------------------------
-add_executable(test_compress test_compress.cpp)
-target_include_directories(test_compress PRIVATE ${CMAKE_SOURCE_DIR}/compress/include
-                                                 ${HDF5_INCLUDE_DIRS})
-target_link_libraries(test_compress PRIVATE Catch2::Catch2WithMain ${HDF5_C_LIBRARIES})
-target_compile_features(test_compress PRIVATE cxx_std_17)
-catch_discover_tests(test_compress)
 # ---------------------------------------------------------------
 # Postprocess tile schema tests (no MPI, needs HDF5)
 # ---------------------------------------------------------------

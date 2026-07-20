@@ -7,7 +7,6 @@
 #include <string>
 #include <vector>
 
-#include "gf/CompressionFilter.h"
 #include "gf/record.hpp"
 
 using namespace gf;
@@ -18,9 +17,6 @@ TEST_CASE("RecordWriter creates file and writes GLL strain", "[record]") {
     int n_node_per_cell = ngll * ngll * ngll;  // 8
     int n_rec_cell = 2;
     int n_unique_gll = n_rec_cell * n_node_per_cell;  // 16 (no shared nodes)
-
-    CompressionConfig comp;
-    comp.method = CompressionMethod::None;
 
     // GLL-node recording map
     std::vector<int64_t> gll_node_ids(n_unique_gll);
@@ -40,7 +36,7 @@ TEST_CASE("RecordWriter creates file and writes GLL strain", "[record]") {
     rec_map.rec_cell_local = rec_cell_local;
     rec_map.cell_gll_node_index = cell_gll_node_index;
 
-    RecordWriter writer("./wavefields", "x", 0, rec_map, ngll, comp, false);
+    RecordWriter writer("./wavefields", "x", 0, rec_map, ngll, false);
 
     // Write a few steps of strain data [n_rec_cell * n_node * 6]
     int strain_size = n_rec_cell * n_node_per_cell * 6;
@@ -87,9 +83,6 @@ TEST_CASE("RecordWriter with float32", "[record]") {
     int n_rec_cell = 1;
     int n_unique_gll = n_rec_cell * n_node_per_cell;
 
-    CompressionConfig comp;
-    comp.method = CompressionMethod::None;
-
     std::vector<int64_t> gll_node_ids(n_unique_gll);
     for (int i = 0; i < n_unique_gll; ++i)
         gll_node_ids[i] = i + 10;
@@ -106,7 +99,7 @@ TEST_CASE("RecordWriter with float32", "[record]") {
     rec_map.rec_cell_local = rec_cell_local;
     rec_map.cell_gll_node_index = cell_gll_node_index;
 
-    RecordWriter writer("./wavefields", "y", 1, rec_map, ngll, comp, true);
+    RecordWriter writer("./wavefields", "y", 1, rec_map, ngll, true);
 
     int strain_size = n_rec_cell * n_node_per_cell * 6;
     std::vector<double> strain(strain_size, 1e-6);

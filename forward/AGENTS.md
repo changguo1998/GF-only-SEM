@@ -196,7 +196,7 @@ dependencies are not found are silently skipped.
 
 ## Tests
 
-Catch2 tests cover GLL, element (CPU + CUDA), assembly, Newmark, PML, source, exchange, IO, record, compress, integration.
+Catch2 tests cover GLL, element (CPU + CUDA), assembly, Newmark, PML, source, exchange, IO, record, integration.
 
 ## Design Docs
 

@@ -34,16 +34,12 @@ Needed:
 
 ______________________________________________________________________
 
-## 2. Compress Module Integration
+## 2. Compress Module (Placeholder)
 
-**Status:** Not integrated. The `gf_compress` header-only library is not linked in `forward/share/CMakeLists.txt`.
-
-- **Design:** [`design/compress.md`](design/compress.md)
-
-Needed:
-
-- Add `target_link_libraries(libgf PRIVATE gf_compress)`.
-- Keep direct includes such as `#include "gf/CompressionFilter.h"`.
+**Status:** Placeholder - not in current scope. The `compress/` module (header-only
+HDF5 compression/chunking/precision utilities) has been removed. Record files are
+written uncompressed. If compression is needed in the future, re-implement from
+[`design/compress.md`](design/compress.md) (kept as historical design reference).
 
 ______________________________________________________________________
 
@@ -118,7 +114,6 @@ interpolation. This is a query-accuracy limitation, not a solver bug.
 | Item | Module | Priority | Effort |
 |------|--------|----------|--------|
 | SLS attenuation | preprocess + forward/viscoelastic | High | Large |
-| Compress integration | forward/ | Low | Tiny |
-| Compression benchmark | compress | Low | Small |
+| Compress module | - | - | Placeholder (removed, see §2 above) |
 | HIP/SYCL backends | forward/elastic/ | Low | Medium |
 | ~~Cartesian mesh anisotropy~~ | forward + preprocess | - | RESOLVED (misdiagnosis, see §6 above) |

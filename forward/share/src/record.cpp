@@ -9,13 +9,14 @@
 #include <stdexcept>
 #include <vector>
 
-#include "gf/ChunkingStrategy.h"
-#include "gf/CompressionFilter.h"
-#include "gf/PrecisionPolicy.h"
-
 namespace gf {
 
 namespace {
+
+/// Select HDF5 native type based on precision flag.
+inline hid_t select_precision_type(bool use_float32) noexcept {
+    return use_float32 ? H5T_NATIVE_FLOAT : H5T_NATIVE_DOUBLE;
+}
 
 void write_scalar_attr(hid_t loc_id, const std::string& name, hid_t type_id, const void* value) {
     hid_t attr_space = H5Screate(H5S_SCALAR);
@@ -74,10 +75,6 @@ static void write_field(hid_t file_id, const std::string& name, int ncomp, hsize
     hsize_t chunk_dims[3] = {1, n_vertices, static_cast<hsize_t>(ncomp)};
     H5Pset_chunk(plist, ndim, chunk_dims);
 
-    CompressionConfig comp;
-    comp.method = CompressionMethod::None;
-    apply_compression(plist, comp);
-
     hid_t write_type = select_precision_type(use_float32);
 
     hid_t dset =
@@ -119,10 +116,6 @@ static void write_field_4d(hid_t file_id, const std::string& name, int ncomp, hs
                              static_cast<hsize_t>(ncomp)};
     H5Pset_chunk(plist, ndim, chunk_dims);
 
-    CompressionConfig comp;
-    comp.method = CompressionMethod::None;
-    apply_compression(plist, comp);
-
     hid_t write_type = select_precision_type(use_float32);
 
     hid_t dset =
@@ -152,8 +145,8 @@ static void write_field_4d(hid_t file_id, const std::string& name, int ncomp, hs
 
 RecordWriter::RecordWriter(const std::string& output_dir, const std::string& source_direction,
                            int rank, const RankData::RecordingMap& rec_map, int ngll,
-                           CompressionConfig /*compression*/, bool use_float32,
-                           double record_depth_max_m, double record_depth_actual_m)
+                           bool use_float32, double record_depth_max_m,
+                           double record_depth_actual_m)
     : file_id_(-1),
       n_rec_cell_(static_cast<hsize_t>(rec_map.rec_cell_local.size())),
       n_node_(ngll * ngll * ngll),

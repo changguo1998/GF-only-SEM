@@ -17,9 +17,8 @@ set(SHARED_SRCS
 
 add_library(libgf_shared STATIC ${SHARED_SRCS})
 
-target_include_directories(
-    libgf_shared PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
-                        ${CMAKE_CURRENT_SOURCE_DIR}/../../compress/include ${HDF5_INCLUDE_DIRS})
+target_include_directories(libgf_shared PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
+                                               ${HDF5_INCLUDE_DIRS})
 
 # Eigen3 include: compute from Eigen3_DIR since EIGEN3_INCLUDE_DIR may not be set by
 # Eigen3Config.cmake in all environments.

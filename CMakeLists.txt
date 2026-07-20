@@ -61,8 +61,7 @@ add_subdirectory(tests)
 add_custom_target(
     test_all
     COMMAND ctest --output-on-failure -V
-    DEPENDS test_compress
-            test_gll
+    DEPENDS test_gll
             test_element
             test_newmark
             test_pml

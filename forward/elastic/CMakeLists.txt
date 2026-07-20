@@ -14,8 +14,7 @@ set(ELASTIC_CUDA_SRCS src/element_cuda.cu)
 # -----------------------------------------------------------------------
 # Include directories for this subdirectory
 # -----------------------------------------------------------------------
-set(ELASTIC_INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/../share/include
-                     ${CMAKE_CURRENT_SOURCE_DIR}/../../compress/include ${HDF5_INCLUDE_DIRS})
+set(ELASTIC_INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/../share/include ${HDF5_INCLUDE_DIRS})
 
 # Eigen3 include: compute from Eigen3_DIR
 get_filename_component(_eigen_prefix "${Eigen3_DIR}/../../.." ABSOLUTE)
