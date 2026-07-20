@@ -266,6 +266,10 @@ class SourceRun:
                 gll_node_coords=self.vertex_coords, cell_gll_node_index=cell_gll_node_index
             )
         else:
+            # GLL tiles are spatially tiled and may not align with cell
+            # boundaries, so cell_gll_node_index cannot be reconstructed.
+            # Fall back to trilinear over deduplicated GLL nodes — still
+            # more accurate than old 8-corner vertex interpolation.
             self._interpolator = TrilinearInterpolator(self.vertex_coords)
 
     def query(self, source_xyz_m: npt.ArrayLike, quantity: str = "strain") -> GreenQuery:

@@ -255,3 +255,78 @@ class GLLInterpolator:
         weights /= weights.sum()
         cell_values = values[indices]
         return np.tensordot(weights, cell_values, axes=(0, 0))
+
+
+def reconstruct_cell_gll_index(
+    gll_node_coords: np.ndarray,
+    ngll: int = 5,
+) -> np.ndarray:
+    """Reconstruct cell_gll_node_index from GLL node coordinates.
+
+    For a rectilinear Cartesian tile, GLL nodes form a structured grid.
+    This function extracts the unique axis positions and reconstructs
+    which 125 GLL nodes belong to each cell.
+
+    Args:
+        gll_node_coords: Shape ``(n_unique_gll, 3)``, float64.
+        ngll: Number of GLL nodes per dimension (default 5).
+
+    Returns:
+        Shape ``(n_cell, ngll**3)`` int64 array, or ``None`` if
+        reconstruction fails (non-rectilinear mesh).
+    """
+    coords = np.asarray(gll_node_coords, dtype=np.float64)
+    if coords.shape[0] == 0:
+        return None
+
+    # Snap coordinates to micron grid to eliminate float64 rounding noise
+    # (observed ~2e-13 differences across GLL nodes at same physical position)
+    coords_snapped = np.round(coords, decimals=6)
+    x_unique = np.sort(np.unique(coords_snapped[:, 0]))
+    y_unique = np.sort(np.unique(coords_snapped[:, 1]))
+    z_unique = np.sort(np.unique(coords_snapped[:, 2]))
+
+    step = ngll - 1  # nodes per cell edge minus 1 (4 for NGLL=5)
+    nx_cells = (len(x_unique) - 1) // step
+    ny_cells = (len(y_unique) - 1) // step
+    nz_cells = (len(z_unique) - 1) // step
+
+    if nx_cells <= 0 or ny_cells <= 0 or nz_cells <= 0:
+        return None
+    if (len(x_unique) - 1) % step != 0 or (len(y_unique) - 1) % step != 0 or (len(z_unique) - 1) % step != 0:
+        return None  # non-uniform grid
+
+    # Build (x_idx, y_idx, z_idx) → flat node index mapping
+    # Use a dict for sparse lookup
+    coord_to_idx = {}
+    for i in range(coords.shape[0]):
+        xi = int(np.searchsorted(x_unique, coords_snapped[i, 0]))
+        yi = int(np.searchsorted(y_unique, coords_snapped[i, 1]))
+        zi = int(np.searchsorted(z_unique, coords_snapped[i, 2]))
+        coord_to_idx[(xi, yi, zi)] = i
+
+    n_cells = nx_cells * ny_cells * nz_cells
+    cell_gll_index = np.full((n_cells, ngll**3), -1, dtype=np.int64)
+    ci = 0
+    for cx in range(nx_cells):
+        x_start = cx * step
+        for cy in range(ny_cells):
+            y_start = cy * step
+            for cz in range(nz_cells):
+                z_start = cz * step
+                for i in range(ngll):
+                    for j in range(ngll):
+                        for k in range(ngll):
+                            gxi = x_start + i
+                            gyi = y_start + j
+                            gzi = z_start + k
+                            node_idx = coord_to_idx.get((gxi, gyi, gzi), -1)
+                            local_idx = i * ngll * ngll + j * ngll + k
+                            cell_gll_index[ci, local_idx] = node_idx
+                ci += 1
+
+    # Validate: all entries must be >= 0
+    if np.any(cell_gll_index < 0):
+        return None
+
+    return cell_gll_index
