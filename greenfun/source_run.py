@@ -80,7 +80,8 @@ class SourceRun:
         # Read time axis + basis from the first tile.
         with h5py.File(tile_paths[0], "r") as h5:
             self.time = h5["/time/t"][:].astype(np.float64)
-            basis = h5.attrs.get("basis", "mesh_vertices")
+            basis_raw = h5.attrs.get("basis", "mesh_vertices")
+            basis = basis_raw.decode() if isinstance(basis_raw, bytes) else str(basis_raw)
 
         nt = len(self.time)
         self._gll_mode = basis == "gll"
@@ -181,7 +182,9 @@ class SourceRun:
         """Load GLL-based tiles — no dedup (postprocess already does it).
 
         GLL tiles already store unique nodes per tile and tiles are disjoint.
-        Simply concatenate across tiles.
+        Simply concatenate across tiles. If cell_gll_node_index is present,
+        use GLLInterpolator (spectral accuracy); otherwise fall back to
+        TrilinearInterpolator over the deduplicated GLL node set.
         """
         all_node_ids: list[np.ndarray] = []
         all_node_coords: list[np.ndarray] = []
@@ -193,12 +196,17 @@ class SourceRun:
         has_displacement = False
         has_velocity = False
         has_acceleration = False
+        has_cell_index = True
 
         for tile_path in tile_paths:
             with h5py.File(tile_path, "r") as h5:
                 node_ids = h5["/mesh/gll_node_ids"][:]
                 node_coords = h5["/mesh/gll_node_coords"][:]
-                cell_index = h5["/mesh/cell_gll_node_index"][:]
+                if has_cell_index and "/mesh/cell_gll_node_index" in h5:
+                    cell_index = h5["/mesh/cell_gll_node_index"][:]
+                else:
+                    has_cell_index = False
+                    cell_index = np.array([], dtype=np.int64)
                 greens = h5["/field/greens_tensor"][:]
 
                 has_disp = "/field/displacement_tensor" in h5
@@ -224,7 +232,8 @@ class SourceRun:
 
             all_node_ids.append(node_ids)
             all_node_coords.append(node_coords)
-            all_cell_gll_index.append(cell_index)
+            if has_cell_index:
+                all_cell_gll_index.append(cell_index)
             all_greens.append(greens[:, :, :, :])
             if displacement is not None:
                 all_displacements.append(displacement[:, :, :, :])
@@ -251,10 +260,13 @@ class SourceRun:
         else:
             self.acceleration_tensor = None
 
-        cell_gll_node_index = np.concatenate(all_cell_gll_index, axis=0)
-        self._interpolator = GLLInterpolator(
-            gll_node_coords=self.vertex_coords, cell_gll_node_index=cell_gll_node_index
-        )
+        if has_cell_index and all_cell_gll_index:
+            cell_gll_node_index = np.concatenate(all_cell_gll_index, axis=0)
+            self._interpolator = GLLInterpolator(
+                gll_node_coords=self.vertex_coords, cell_gll_node_index=cell_gll_node_index
+            )
+        else:
+            self._interpolator = TrilinearInterpolator(self.vertex_coords)
 
     def query(self, source_xyz_m: npt.ArrayLike, quantity: str = "strain") -> GreenQuery:
         """Return interpolated Green's function at *source_xyz_m*.
