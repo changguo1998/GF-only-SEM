@@ -198,12 +198,16 @@ class SourceRun:
         has_acceleration = False
         has_cell_index = True
 
+        node_offset = 0  # cumulative node count for cell_gll_node_index offset
+
         for tile_path in tile_paths:
             with h5py.File(tile_path, "r") as h5:
                 node_ids = h5["/mesh/gll_node_ids"][:]
                 node_coords = h5["/mesh/gll_node_coords"][:]
                 if has_cell_index and "/mesh/cell_gll_node_index" in h5:
                     cell_index = h5["/mesh/cell_gll_node_index"][:]
+                    # Offset tile-local indices by cumulative node count
+                    cell_index = cell_index.astype(np.int64) + node_offset
                 else:
                     has_cell_index = False
                     cell_index = np.array([], dtype=np.int64)
@@ -234,6 +238,7 @@ class SourceRun:
             all_node_coords.append(node_coords)
             if has_cell_index:
                 all_cell_gll_index.append(cell_index)
+            node_offset += len(node_ids)  # accumulate for next tile's offset
             all_greens.append(greens[:, :, :, :])
             if displacement is not None:
                 all_displacements.append(displacement[:, :, :, :])

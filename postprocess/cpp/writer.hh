@@ -111,10 +111,12 @@ inline void write_tile(
     double solver_dt_s,
     const std::vector<double>& tile_greens,  // [nt, n_local, 6, 3]
     const double source_xyz_m[3],
-    const std::vector<double>& tile_vertex_coords,  // [n_local, 3]
-    const double* displacement_tensor,              // nullptr = strain-only
-    const double* velocity_tensor = nullptr,        // [nt, n_local, 3, 3]
-    const double* acceleration_tensor = nullptr,    // [nt, n_local, 3, 3]
+    const std::vector<double>& tile_vertex_coords,    // [n_local, 3]
+    const std::vector<int32_t>& cell_gll_node_index,  // [n_rec_cell, n_node] tile-local
+    int n_node,                                       // nodes per cell (125 for NGLL=5)
+    const double* displacement_tensor,                // nullptr = strain-only
+    const double* velocity_tensor = nullptr,          // [nt, n_local, 3, 3]
+    const double* acceleration_tensor = nullptr,      // [nt, n_local, 3, 3]
     const std::vector<double>& stf_t = {},  // [nt] STF time [s], downsampled to output_dt_s
     const std::vector<double>& stf_values =
         {},  // [nt] STF amplitude [N], downsampled to output_dt_s
@@ -241,6 +243,20 @@ inline void write_tile(
         H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, tile_vertex_coords.data());
         H5Dclose(ds);
         H5Sclose(space);
+    }
+    // cell_gll_node_index: [n_rec_cell, n_node] tile-local indices (for GLL interpolation)
+    if (!cell_gll_node_index.empty() && n_node > 0) {
+        int64_t n_cell = (int64_t)cell_gll_node_index.size() / (int64_t)n_node;
+        if (n_cell > 0) {
+            hsize_t cgi_dims[2] = {(hsize_t)n_cell, (hsize_t)n_node};
+            hid_t cgi_space = H5Screate_simple(2, cgi_dims, nullptr);
+            hid_t cgi_ds = H5Dcreate2(mesh_gid, "cell_gll_node_index", H5T_NATIVE_INT32, cgi_space,
+                                      H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+            H5Dwrite(cgi_ds, H5T_NATIVE_INT32, H5S_ALL, H5S_ALL, H5P_DEFAULT,
+                     cell_gll_node_index.data());
+            H5Dclose(cgi_ds);
+            H5Sclose(cgi_space);
+        }
     }
     H5Gclose(mesh_gid);
 
