@@ -257,10 +257,7 @@ class GLLInterpolator:
         return np.tensordot(weights, cell_values, axes=(0, 0))
 
 
-def reconstruct_cell_gll_index(
-    gll_node_coords: np.ndarray,
-    ngll: int = 5,
-) -> np.ndarray:
+def reconstruct_cell_gll_index(gll_node_coords: np.ndarray, ngll: int = 5) -> np.ndarray:
     """Reconstruct cell_gll_node_index from GLL node coordinates.
 
     For a rectilinear Cartesian tile, GLL nodes form a structured grid.
@@ -293,7 +290,11 @@ def reconstruct_cell_gll_index(
 
     if nx_cells <= 0 or ny_cells <= 0 or nz_cells <= 0:
         return None
-    if (len(x_unique) - 1) % step != 0 or (len(y_unique) - 1) % step != 0 or (len(z_unique) - 1) % step != 0:
+    if (
+        (len(x_unique) - 1) % step != 0
+        or (len(y_unique) - 1) % step != 0
+        or (len(z_unique) - 1) % step != 0
+    ):
         return None  # non-uniform grid
 
     # Build (x_idx, y_idx, z_idx) → flat node index mapping

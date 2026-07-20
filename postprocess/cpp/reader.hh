@@ -234,7 +234,6 @@ struct ConfigParams {
     int64_t nsteps = 0;
     double record_depth_max_m = 0.0;
     double record_depth_actual_m = 0.0;
-    double green_tile_size_m = -1.0;             // negative = not set
     std::string snapshot_precision = "float64";  // "float32" or "float64"
     // Source position
     double source_x_m = 0.0;
@@ -278,11 +277,6 @@ inline ConfigParams read_config(const char* config_path) {
     read_attr_int64(sim_gid, "pml_ymax", cfg.pml_ymax);
     read_attr_int64(sim_gid, "pml_zmin", cfg.pml_zmin);
     read_attr_int64(sim_gid, "pml_zmax", cfg.pml_zmax);
-
-    // Optional green_tile_size_m
-    double gts = -1.0;
-    read_attr_double(sim_gid, "green_tile_size_m", gts);
-    cfg.green_tile_size_m = gts;
 
     // Tile arrays (datasets)
     hsize_t n;

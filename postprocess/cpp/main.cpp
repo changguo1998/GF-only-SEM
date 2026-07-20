@@ -570,55 +570,46 @@ int main(int argc, char** argv) {
     fz.acceleration.clear();
     fz.acceleration.shrink_to_fit();
 
-    // ---- Bin recorded vertices into tiles ----
-    fprintf(stderr, "[postprocess] Binning vertices into tiles...\n");
-    // ---- Bin GLL nodes into tiles ----
+    // ---- Bin GLL nodes into tiles (element-count tiling) ----
     fprintf(stderr, "[postprocess] Binning GLL nodes into tiles...\n");
     TileBins bins;
-    bool use_spatial = (cfg.green_tile_size_m > 0);
     double xmin = model.xmin, ymin = model.ymin, xmax = model.xmax, ymax = model.ymax;
+    double dx = (xmax - xmin) / cfg.nx_elements;
+    double dy = (ymax - ymin) / cfg.ny_elements;
+    int64_t total_interior_x = 0, total_interior_y = 0;
+    for (auto sz : cfg.tilex_elements)
+        total_interior_x += sz;
+    for (auto sz : cfg.tiley_elements)
+        total_interior_y += sz;
+
     for (int64_t gi = 0; gi < n_recorded; ++gi) {
         double x = fx.gll_node_coords[(size_t)gi * 3 + 0];
         double y = fx.gll_node_coords[(size_t)gi * 3 + 1];
+        int64_t ei = (dx > 0) ? (int64_t)std::floor((x - xmin) / dx) : 0;
+        int64_t ej = (dy > 0) ? (int64_t)std::floor((y - ymin) / dy) : 0;
+        if (ei < 0)
+            ei = 0;
+        if (ej < 0)
+            ej = 0;
+        if (cfg.nx_elements > 0 && ei >= cfg.nx_elements)
+            ei = cfg.nx_elements - 1;
+        if (cfg.ny_elements > 0 && ej >= cfg.ny_elements)
+            ej = cfg.ny_elements - 1;
+        int64_t interior_i = ei - cfg.pml_xmin;
+        int64_t interior_j = ej - cfg.pml_ymin;
+        if (interior_i < 0 || interior_i >= total_interior_x)
+            continue;
+        if (interior_j < 0 || interior_j >= total_interior_y)
+            continue;
         TileKey key;
-        if (use_spatial) {
-            double gts = cfg.green_tile_size_m;
-            key.tx = (int)std::floor((x - xmin) / gts);
-            key.ty = (int)std::floor((y - ymin) / gts);
-        } else {
-            double dx = (xmax - xmin) / cfg.nx_elements;
-            double dy = (ymax - ymin) / cfg.ny_elements;
-            int64_t ei = (dx > 0) ? (int64_t)std::floor((x - xmin) / dx) : 0;
-            int64_t ej = (dy > 0) ? (int64_t)std::floor((y - ymin) / dy) : 0;
-            if (ei < 0)
-                ei = 0;
-            if (ej < 0)
-                ej = 0;
-            if (cfg.nx_elements > 0 && ei >= cfg.nx_elements)
-                ei = cfg.nx_elements - 1;
-            if (cfg.ny_elements > 0 && ej >= cfg.ny_elements)
-                ej = cfg.ny_elements - 1;
-            int64_t interior_i = ei - cfg.pml_xmin;
-            int64_t interior_j = ej - cfg.pml_ymin;
-            int64_t total_interior_x = 0, total_interior_y = 0;
-            for (auto sz : cfg.tilex_elements)
-                total_interior_x += sz;
-            for (auto sz : cfg.tiley_elements)
-                total_interior_y += sz;
-            if (interior_i < 0 || interior_i >= total_interior_x)
-                continue;
-            if (interior_j < 0 || interior_j >= total_interior_y)
-                continue;
-            key.tx = find_tile_index(interior_i, cfg.tilex_elements);
-            key.ty = find_tile_index(interior_j, cfg.tiley_elements);
-        }
+        key.tx = find_tile_index(interior_i, cfg.tilex_elements);
+        key.ty = find_tile_index(interior_j, cfg.tiley_elements);
         bins.bins[key].push_back(gi);
     }
     for (auto& kv : bins.bins)
         bins.keys.push_back(kv.first);
     std::sort(bins.keys.begin(), bins.keys.end());
     fprintf(stderr, "[postprocess]   %zu tiles\n", bins.keys.size());
-
     // ---- Write tiles ----
     fprintf(stderr, "[postprocess] Writing Green's function tiles to %s...\n",
             args.output_dir.c_str());
@@ -633,37 +624,23 @@ int main(int argc, char** argv) {
     double zmin = model.zmin, zmax = model.zmax;
     int64_t n_tiles = (int64_t)bins.keys.size();
 
-    // Pre-compute tile bound lambda for each tile
     auto compute_tile_bounds = [&](const TileKey& key, double& tx_min, double& tx_max,
                                    double& ty_min, double& ty_max) {
-        if (use_spatial) {
-            double gts = cfg.green_tile_size_m;
-            tx_min = xmin + key.tx * gts;
-            tx_max = xmin + (key.tx + 1) * gts;
-            ty_min = ymin + key.ty * gts;
-            ty_max = ymin + (key.ty + 1) * gts;
-        } else {
-            // Element-count tiling
-            int64_t tile_x_cum = 0;
-            int64_t tile_y_cum = 0;
-            for (int t = 0; t < key.tx; ++t)
-                tile_x_cum += cfg.tilex_elements[(size_t)t];
-            for (int t = 0; t < key.ty; ++t)
-                tile_y_cum += cfg.tiley_elements[(size_t)t];
-
-            double dx = (xmax - xmin) / cfg.nx_elements;
-            double dy = (ymax - ymin) / cfg.ny_elements;
-
-            int64_t i_start = cfg.pml_xmin + tile_x_cum;
-            int64_t i_end = cfg.pml_xmin + tile_x_cum + cfg.tilex_elements[(size_t)key.tx];
-            int64_t j_start = cfg.pml_ymin + tile_y_cum;
-            int64_t j_end = cfg.pml_ymin + tile_y_cum + cfg.tiley_elements[(size_t)key.ty];
-
-            tx_min = xmin + i_start * dx;
-            tx_max = xmin + i_end * dx;
-            ty_min = ymin + j_start * dy;
-            ty_max = ymin + j_end * dy;
-        }
+        double dx = (xmax - xmin) / cfg.nx_elements;
+        double dy = (ymax - ymin) / cfg.ny_elements;
+        int64_t tile_x_cum = 0, tile_y_cum = 0;
+        for (int t = 0; t < key.tx; ++t)
+            tile_x_cum += cfg.tilex_elements[(size_t)t];
+        for (int t = 0; t < key.ty; ++t)
+            tile_y_cum += cfg.tiley_elements[(size_t)t];
+        int64_t i_start = cfg.pml_xmin + tile_x_cum;
+        int64_t i_end = cfg.pml_xmin + tile_x_cum + cfg.tilex_elements[(size_t)key.tx];
+        int64_t j_start = cfg.pml_ymin + tile_y_cum;
+        int64_t j_end = cfg.pml_ymin + tile_y_cum + cfg.tiley_elements[(size_t)key.ty];
+        tx_min = xmin + i_start * dx;
+        tx_max = xmin + i_end * dx;
+        ty_min = ymin + j_start * dy;
+        ty_max = ymin + j_end * dy;
     };
 
     // Write tiles (could be OpenMP parallel, but HDF5 C library is not thread-safe

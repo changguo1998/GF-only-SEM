@@ -10,13 +10,12 @@
 
 #include <hdf5.h>
 
-#include <algorithm>
-#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "reader.hh"  // for ConfigParams, ModelData
@@ -59,72 +58,6 @@ struct TileBins {
     // Sorted tile keys
     std::vector<TileKey> keys;
 };
-
-inline TileBins bin_vertices(
-    const ConfigParams& cfg, const ModelData& model,
-    const std::vector<int64_t>& recorded_vertex_ids,  // 1-based, subset of all vertices
-    int64_t n_recorded) {
-    TileBins result;
-    bool use_spatial = (cfg.green_tile_size_m > 0);
-
-    double xmin = model.xmin, ymin = model.ymin;
-    double xmax = model.xmax, ymax = model.ymax;
-
-    for (int64_t vi = 0; vi < n_recorded; ++vi) {
-        int64_t gid = recorded_vertex_ids[vi] - 1;  // 0-based
-        double x = model.vertex_coords[gid * 3 + 0];
-        double y = model.vertex_coords[gid * 3 + 1];
-
-        TileKey key;
-        if (use_spatial) {
-            double gts = cfg.green_tile_size_m;
-            key.tx = (int)std::floor((x - xmin) / gts);
-            key.ty = (int)std::floor((y - ymin) / gts);
-        } else {
-            double dx = (xmax - xmin) / cfg.nx_elements;
-            double dy = (ymax - ymin) / cfg.ny_elements;
-            int64_t ei = (dx > 0) ? (int64_t)std::floor((x - xmin) / dx) : 0;
-            int64_t ej = (dy > 0) ? (int64_t)std::floor((y - ymin) / dy) : 0;
-            if (ei < 0)
-                ei = 0;
-            if (ej < 0)
-                ej = 0;
-            if (cfg.nx_elements > 0 && ei >= cfg.nx_elements)
-                ei = cfg.nx_elements - 1;
-            if (cfg.ny_elements > 0 && ej >= cfg.ny_elements)
-                ej = cfg.ny_elements - 1;
-
-            int64_t interior_i = ei - cfg.pml_xmin;
-            int64_t interior_j = ej - cfg.pml_ymin;
-
-            // Compute total interior elements from tile arrays
-            int64_t total_interior_x = 0;
-            for (auto sz : cfg.tilex_elements)
-                total_interior_x += sz;
-            int64_t total_interior_y = 0;
-            for (auto sz : cfg.tiley_elements)
-                total_interior_y += sz;
-
-            if (interior_i < 0 || interior_i >= total_interior_x)
-                continue;
-            if (interior_j < 0 || interior_j >= total_interior_y)
-                continue;
-
-            key.tx = find_tile_index(interior_i, cfg.tilex_elements);
-            key.ty = find_tile_index(interior_j, cfg.tiley_elements);
-        }
-
-        result.bins[key].push_back(vi);
-    }
-
-    // Sort keys
-    for (auto& kv : result.bins) {
-        result.keys.push_back(kv.first);
-    }
-    std::sort(result.keys.begin(), result.keys.end());
-
-    return result;
-}
 
 // Forward declarations for attr helpers (defined after write_tile)
 inline void write_double_attr_into(hid_t loc, const char* name, double val);

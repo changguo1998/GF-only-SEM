@@ -89,10 +89,6 @@ def _write_simulation(
     grp.attrs["log_stride"] = int(getattr(config_module, "log_stride", 1))
     grp.attrs["restart_dt_s"] = float(getattr(config_module, "restart_dt_s", 0.0))
 
-    # Spatial tile size (optional, overrides element-count tiling)
-    green_tile_size = getattr(config_module, "green_tile_size_m", None)
-    if green_tile_size is not None:
-        grp.attrs["green_tile_size_m"] = float(green_tile_size)
     # Tile sizes (element counts)
     tilex = getattr(config_module, "tilex_elements", [])
     tiley = getattr(config_module, "tiley_elements", [])
