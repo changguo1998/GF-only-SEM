@@ -480,14 +480,6 @@ int main(int argc, char** argv) {
         }
     }
     // Debug: check merged strain
-    {
-        double max_strain = 0.0;
-        for (size_t i = 0; i < greens_subset.size(); ++i)
-            if (std::abs(greens_subset[i]) > max_strain)
-                max_strain = std::abs(greens_subset[i]);
-        fprintf(stderr, "[postprocess]   DEBUG max|strain| = %.6e\\n", max_strain);
-    }
-
     // ---- Assemble displacement tensor ----
     // disp_subset: [n_steps, n_unique_gll, 3, 3]
     std::vector<double> disp_subset;
