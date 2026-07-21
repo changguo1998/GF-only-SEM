@@ -116,7 +116,12 @@ void compute_element_residual<BackendCUDA>(int n_elem, const double* dxi_dx,
                                            double* r,
                                            const int32_t* /*pml_region*/,
                                            const double* /*pml_coef_strain*/,
-                                           const double* /*rmemory_strain*/) {
+                                           const double* /*rmemory_strain*/,
+                                           double* /*rmemory_sls*/,
+                                           double* /*sigma_old*/,
+                                           const double* /*sls_coef_a*/,
+                                           const double* /*sls_coef_b*/,
+                                           bool /*has_attenuation*/) {
 #ifdef GF_WITH_CUDA
     const int n_node = NGLL * NGLL * NGLL;
 

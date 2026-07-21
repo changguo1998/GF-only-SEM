@@ -11,29 +11,13 @@ namespace gf {
 // -----------------------------------------------------------------------
 // compute_element_residual — backend-dispatched kernel
 //
-// Compute the internal force (stiffness residual) for a batch of elements:
-//   r += K_e * u   for e = 0..n_elem-1
-//
-// Matrix-free: no global stiffness matrix. For each GLL quadrature node (i,j,k):
-//   1. Compute displacement gradient ∂u_l/∂x_m via chain rule with precomputed dξ/dx
-//   2. Form symmetric strain ε_lm = ½(∂u_l/∂x_m + ∂u_m/∂x_l)
-//   3. Compute stress σ_lm = λ·δ_lm·ε_kk + 2μ·ε_lm (isotropic)
-//   4. Accumulate f = ∇N · σ · detJ · w_i · w_j · w_k
+// Compute the internal force (stiffness residual) for a batch of elements.
+// Matrix-free: no global stiffness matrix.
 //
 // All arrays are element-major contiguous (n_elem blocks of NGLL^3 nodes).
 //
-// @tparam Backend  Tag type selecting the device backend.
-// @param[in]  n_elem      Number of elements in this batch
-// @param[in]  dxi_dx      [n_elem * NGLL^3 * 9]  d(xi_i)/dx_j per GLL node
-// @param[in]  jacobian    [n_elem * NGLL^3]       det(J) per GLL node
-// @param[in]  lambda_     [n_elem * NGLL^3]       Lamé parameter λ per GLL node (precomputed)
-// @param[in]  mu_         [n_elem * NGLL^3]       Shear modulus μ per GLL node (precomputed)
-// @param[in]  D           [NGLL * NGLL]            1D GLL derivative matrix (row-major)
-// @param[in]  weights     [NGLL]                   1D GLL quadrature weights
-// @param[in]  NGLL        N+1 (number of GLL points per axis)
-// @param[in]  u           [n_elem * NGLL^3 * 3]   displacement (x/y/z interleaved)
-// @param[out] r           [n_elem * NGLL^3 * 3]   residual (internal force, accumulated)
-//
+// C-PML and SLS attenuation parameters have nullptr defaults — callers
+// that don't need them can omit the extra arguments entirely.
 // -----------------------------------------------------------------------
 
 template <typename Backend>
@@ -42,7 +26,12 @@ void compute_element_residual(int n_elem, const double* dxi_dx, const double* ja
                               const double* weights, int NGLL, const double* u, double* r,
                               const int32_t* pml_region = nullptr,
                               const double* pml_coef_strain = nullptr,
-                              const double* rmemory_strain = nullptr);
+                              const double* rmemory_strain = nullptr,
+                              double* rmemory_sls = nullptr,
+                              double* sigma_old = nullptr,
+                              const double* sls_coef_a = nullptr,
+                              const double* sls_coef_b = nullptr,
+                              bool has_attenuation = false);
 
 // --- Explicit instantiation declarations ---
 // Guarded: specialization source files define GF_ELEMENT_{CPU,CUDA}_SOURCE
@@ -53,7 +42,8 @@ void compute_element_residual(int n_elem, const double* dxi_dx, const double* ja
 extern template void compute_element_residual<BackendCPU>(
     int, const double*, const double*, const double*, const double*,
     const double*, const double*, int, const double*, double*,
-    const int32_t*, const double*, const double*);
+    const int32_t*, const double*, const double*,
+    double*, double*, const double*, const double*, bool);
 #endif
 
 #ifdef GF_WITH_CUDA
@@ -61,7 +51,8 @@ extern template void compute_element_residual<BackendCPU>(
 extern template void compute_element_residual<BackendCUDA>(
     int, const double*, const double*, const double*, const double*,
     const double*, const double*, int, const double*, double*,
-    const int32_t*, const double*, const double*);
+    const int32_t*, const double*, const double*,
+    double*, double*, const double*, const double*, bool);
 #endif
 #endif
 

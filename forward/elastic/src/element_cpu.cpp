@@ -24,7 +24,12 @@ void compute_element_residual<BackendCPU>(int n_elem, const double* dxi_dx, cons
                                           const double* u, double* r,
                                           const int32_t* pml_region,
                                           const double* pml_coef_strain,
-                                          const double* rmemory_strain) {
+                                          const double* rmemory_strain,
+                                          double* /*rmemory_sls*/,
+                                          double* /*sigma_old*/,
+                                          const double* /*sls_coef_a*/,
+                                          const double* /*sls_coef_b*/,
+                                          bool /*has_attenuation*/) {
     const int n_node = NGLL * NGLL * NGLL;
 
     for (int elem = 0; elem < n_elem; ++elem) {
