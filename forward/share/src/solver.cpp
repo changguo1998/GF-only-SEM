@@ -552,7 +552,10 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 compute_element_residual<gf::ActiveBackend>(
                     n_local_cell, part.dxi_dx.data(), part.jacobian.data(), part.lambda_.data(),
                     part.mu_.data(), D_mat.data(), gll_wts.data(), ngll,
-                    local_cell_displacement.data(), local_cell_residual.data());
+                    local_cell_displacement.data(), local_cell_residual.data(),
+                    part.pml_region.empty()      ? nullptr : part.pml_region.data(),
+                    part.pml_coef_strain.empty() ? nullptr : part.pml_coef_strain.data(),
+                    part.rmemory_strain.empty()  ? nullptr : part.rmemory_strain.data());
 
                 // 4. PML damping / C-PML accel contribution
                 if (part.has_cpml) {
@@ -618,6 +621,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 // 8. C-PML: Update displacement memory variables (after corrector)
                 if (part.has_cpml) {
                     cpml_update_displ_memory(part, n_node);
+                    cpml_update_strain_memory(part, D_mat.data(), gll_wts.data(), ngll);
                 }
             }
 
