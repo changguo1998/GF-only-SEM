@@ -31,6 +31,7 @@
 #include "gf/record.hpp"
 #include "gf/restart.hpp"
 #include "gf/types.hpp"
+#include "gf/attenuation.hpp"
 
 namespace gf {
 
@@ -236,6 +237,25 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             cpml_initialize(part, n_node);
             logger.debug("  C-PML initialized: " + std::to_string(part.n_local_cell) +
                          " elements, memory vars allocated");
+        }
+
+        // === Initialize SLS attenuation memory state ===
+        if (part.has_attenuation) {
+            int n_total_nodes = n_local_cell * n_node;
+            part.rmemory_sls.resize(n_total_nodes * SLS::MEMORY_PER_NODE, 0.0);
+            part.sigma_old.resize(n_total_nodes * SLS::VOIGT_COMPONENTS, 0.0);
+
+            // Precompute SLS coefficients from tau arrays
+            part.sls_coef_a.resize(n_total_nodes * SLS::N_SLS);
+            part.sls_coef_b.resize(n_total_nodes * SLS::N_SLS);
+            SLS::precompute_sls_coefficients(
+                part.tau_sigma.data(), part.tau_epsilon.data(),
+                n_total_nodes, cfg.solver_dt,
+                part.sls_coef_a.data(), part.sls_coef_b.data());
+
+            logger.debug("  SLS attenuation initialized: " +
+                         std::to_string(n_total_nodes) +
+                         " nodes, n_sls=" + std::to_string(SLS::N_SLS));
         }
 
         // === Initialize record writer ===
@@ -555,7 +575,12 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                     local_cell_displacement.data(), local_cell_residual.data(),
                     part.pml_region.empty()      ? nullptr : part.pml_region.data(),
                     part.pml_coef_strain.empty() ? nullptr : part.pml_coef_strain.data(),
-                    part.rmemory_strain.empty()  ? nullptr : part.rmemory_strain.data());
+                    part.rmemory_strain.empty()  ? nullptr : part.rmemory_strain.data(),
+                    part.has_attenuation ? part.rmemory_sls.data() : nullptr,
+                    part.has_attenuation ? part.sigma_old.data() : nullptr,
+                    part.has_attenuation ? part.sls_coef_a.data() : nullptr,
+                    part.has_attenuation ? part.sls_coef_b.data() : nullptr,
+                    part.has_attenuation);
 
                 // 4. PML damping / C-PML accel contribution
                 if (part.has_cpml) {

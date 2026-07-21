@@ -42,7 +42,12 @@ __global__ void element_residual_kernel(const double* __restrict__ dxi_dx,
                                         const double* __restrict__ u, double* r,
                                         const int32_t* __restrict__ pml_region,
                                         const double* __restrict__ pml_coef_strain,
-                                        const double* __restrict__ rmemory_strain) {
+                                        const double* __restrict__ rmemory_strain,
+                                        double* __restrict__ rmemory_sls,
+                                        double* __restrict__ sigma_old,
+                                        const double* __restrict__ sls_coef_a,
+                                        const double* __restrict__ sls_coef_b,
+                                        bool has_attenuation) {
     int e = blockIdx.x;
     int i = threadIdx.x;
     int j = threadIdx.y;
@@ -80,6 +85,8 @@ __global__ void element_residual_kernel(const double* __restrict__ dxi_dx,
     // --- [4] Strain tensor ---
     double eps[3][3];
     compute_strain_tensor(du_dx, eps);
+    (void)rmemory_sls; (void)sigma_old;
+    (void)sls_coef_a; (void)sls_coef_b; (void)has_attenuation;
 
     // ============================================================
     // ===  Elastic isotropic stress                            ===
@@ -148,7 +155,8 @@ void compute_element_residual<BackendCUDA>(int n_elem, const double* dxi_dx,
                                              g_cuda_buffers.d_lambda, g_cuda_buffers.d_mu,
                                              g_cuda_buffers.d_D, g_cuda_buffers.d_weights, NGLL,
                                              g_cuda_buffers.d_u, g_cuda_buffers.d_r,
-                                             nullptr, nullptr, nullptr);
+                                             nullptr, nullptr, nullptr,
+                                             nullptr, nullptr, nullptr, nullptr, false);
 
     // --- Check for launch errors ---
     GF_CUDA_CHECK(cudaGetLastError());
@@ -191,7 +199,8 @@ void cuda_launch_element_residual(const CudaDeviceState& state, int ngll, int n_
                                              state.d_mu_, state.d_D, state.d_weights, ngll,
                                              d_input, d_output,
                                              state.d_pml_region, state.d_pml_coef_strain,
-                                             state.d_rmemory_strain);
+                                             state.d_rmemory_strain,
+                                             nullptr, nullptr, nullptr, nullptr, false);
     GF_CUDA_CHECK(cudaGetLastError());
     GF_CUDA_CHECK(cudaDeviceSynchronize());
 }
