@@ -1,6 +1,9 @@
 # forward/CMakeLists.txt — top-level for the forward solver module
 cmake_minimum_required(VERSION 3.18)
-project(gf_forward LANGUAGES CXX)
+project(gf_forward LANGUAGES CXX C)
+if(CMAKE_CUDA_COMPILER OR DEFINED ENV{CUDACXX})
+    enable_language(CUDA)
+endif()
 
 # -----------------------------------------------------------------------
 # Dependencies (propagated to subdirectories)
@@ -16,6 +19,8 @@ endif()
 
 find_package(Eigen3 REQUIRED)
 find_package(HDF5 REQUIRED COMPONENTS C)
+# CUDA: optional, for GPU-accelerated solvers
+find_package(CUDAToolkit)
 
 # -----------------------------------------------------------------------
 # Subdirectories

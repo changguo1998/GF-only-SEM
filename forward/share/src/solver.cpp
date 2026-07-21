@@ -448,7 +448,6 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 cuda_copy_state_to_host(gpu_state, displacement, velocity, acceleration);
                 restart_writer.write(step, step * solver_dt, displacement, velocity, acceleration,
                                      part.pml_damping, &part);
-                                     part.pml_damping);
             }
 
             // --- Write snapshot (every snapshot_stride solver steps) ---

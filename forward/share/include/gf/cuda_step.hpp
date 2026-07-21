@@ -25,9 +25,23 @@ struct CudaDeviceState {
     double* d_jacobian = nullptr;       // [n_total_nodes]
     double* d_lambda_ = nullptr;        // [n_total_nodes] λ at GLL nodes
     double* d_mu_ = nullptr;            // [n_total_nodes] μ at GLL nodes
+    double* d_density = nullptr;         // [n_total_nodes] density at GLL nodes
     double* d_D = nullptr;              // [ngll * ngll] derivative matrix
     double* d_weights = nullptr;        // [ngll] quadrature weights
     int* d_src_elem_offsets = nullptr;  // [n_src_cell] local element index for source elems
+
+    // --- C-PML device buffers (persistent, allocated when has_cpml) ---
+    int32_t* d_pml_region = nullptr;          // [n_local_cell]
+    double* d_pml_coef_alpha = nullptr;       // [n_total_nodes * 9]
+    double* d_pml_coef_beta = nullptr;        // [n_total_nodes * 9]
+    double* d_pml_coef_abar = nullptr;        // [n_total_nodes * 5]
+    double* d_pml_coef_strain = nullptr;      // [n_total_nodes * 18]
+    double* d_pml_displ_old = nullptr;        // [n_total_nodes * 3]
+    double* d_pml_displ_new = nullptr;        // [n_total_nodes * 3]
+    double* d_rmemory_displ = nullptr;        // [n_total_nodes * 9]
+    double* d_rmemory_strain = nullptr;       // [n_total_nodes * 27]
+    int n_pml_nodes_used = 0;                 // number of actual C-PML GLL nodes
+    bool has_cpml = false;
 
     // --- Global DOF arrays (CG-SEM assembly) ---
     double* d_rank_node_mass = nullptr;     // [n_rank_node] — per-node mass
@@ -93,6 +107,17 @@ void cuda_zero_residual(CudaDeviceState& state);
 /// PML damping: d_velocity[i] -= d_pml[node] * d_velocity[i]
 void cuda_pml_damping(CudaDeviceState& state);
 
+/// C-PML: update PML displacement fields on device.
+void cuda_cpml_update_displ_fields(CudaDeviceState& state, double solver_dt, int n_node);
+
+/// C-PML: update displacement memory variables on device.
+void cuda_cpml_update_displ_memory(CudaDeviceState& state, int n_node);
+
+void cuda_cpml_update_strain_memory(CudaDeviceState& state, int ngll, int n_node);
+
+/// C-PML: add acceleration correction to element-local residual on device.
+void cuda_cpml_accel_contribution(CudaDeviceState& state, int ngll, int n_node);
+
 /// Source injection: add STF * weights to residual at source element nodes.
 void cuda_source_injection(CudaDeviceState& state, int direction, double stf_val,
                            const double* h_src_weights, int n_src_cell);
@@ -107,6 +132,11 @@ void cuda_copy_state_to_host(const CudaDeviceState& state, std::vector<double>& 
 /// Launch element residual kernel using pre-existing device pointers (GPU-native mode).
 void cuda_launch_element_residual(const CudaDeviceState& state, int ngll, int n_elem);
 
+/// Upload C-PML data from RankData to device. Must be called after cuda_allocate_state.
+void cuda_upload_cpml_data(CudaDeviceState& state, const struct RankData& part, int n_node);
+
+/// Free C-PML device buffers.
+void cuda_free_cpml_data(CudaDeviceState& state);
 /// CG-SEM global scatter: local_cell_residual → rank_node_residual (with atomicAdd).
 void cuda_scatter_to_rank(CudaDeviceState& state);
 

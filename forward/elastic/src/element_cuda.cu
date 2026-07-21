@@ -15,8 +15,10 @@
 #include "gf/cuda_device_manager.hpp"
 #include "gf/cuda_step.hpp"
 #include "gf/element.hpp"
+#include "gf/pml.hpp"
 
 namespace gf {
+using namespace CpmlStrain;
 
 // -----------------------------------------------------------------------
 // Device helpers (used only inside kernel)
@@ -47,7 +49,10 @@ __global__ void element_residual_kernel(const double* __restrict__ dxi_dx,
                                         const double* __restrict__ mu_,
                                         const double* __restrict__ D,
                                         const double* __restrict__ weights, int NGLL,
-                                        const double* __restrict__ u, double* r) {
+                                        const double* __restrict__ u, double* r,
+                                        const int32_t* __restrict__ pml_region,
+                                        const double* __restrict__ pml_coef_strain,
+                                        const double* __restrict__ rmemory_strain) {
     // Element index from block
     int e = blockIdx.x;
 
@@ -101,6 +106,124 @@ __global__ void element_residual_kernel(const double* __restrict__ dxi_dx,
         du_dx[comp][0] = dudxi[comp] * dd[0] + dudeta[comp] * dd[1] + dudzeta[comp] * dd[2];
         du_dx[comp][1] = dudxi[comp] * dd[3] + dudeta[comp] * dd[4] + dudzeta[comp] * dd[5];
         du_dx[comp][2] = dudxi[comp] * dd[6] + dudeta[comp] * dd[7] + dudzeta[comp] * dd[8];
+    }
+
+    // --- C-PML strain correction (modifies physical gradients) ---
+    if (pml_region && pml_region[e] != 0) {
+        StrainCoefficients coef = load_strain_coefficients(
+            pml_coef_strain, elem_offset + n);
+
+        // Off-diagonal: duy/dx — corrected by grad_wrt_x (lijk z,y,x)
+        {
+            constexpr int comp = DUY;
+            double grad = du_dx[comp][DX];
+            size_t m_base = strain_memory_offset(elem_offset + n,
+                gradient_of(comp, DX), 0);
+            double mem_z = rmemory_strain[m_base + CONV_Z];
+            double mem_y = rmemory_strain[m_base + CONV_Y];
+            double mem_x = rmemory_strain[m_base + CONV_X];
+            du_dx[comp][DX] = coef.grad_wrt_x.gradient_prefactor * grad
+                + coef.grad_wrt_x.memory_coef_conv_dir0 * mem_z
+                + coef.grad_wrt_x.memory_coef_conv_dir1 * mem_y
+                + coef.grad_wrt_x.memory_coef_conv_dir2 * mem_x;
+        }
+        // Off-diagonal: duz/dx — corrected by grad_wrt_x (lijk z,y,x)
+        {
+            constexpr int comp = DUZ;
+            double grad = du_dx[comp][DX];
+            size_t m_base = strain_memory_offset(elem_offset + n,
+                gradient_of(comp, DX), 0);
+            double mem_z = rmemory_strain[m_base + CONV_Z];
+            double mem_y = rmemory_strain[m_base + CONV_Y];
+            double mem_x = rmemory_strain[m_base + CONV_X];
+            du_dx[comp][DX] = coef.grad_wrt_x.gradient_prefactor * grad
+                + coef.grad_wrt_x.memory_coef_conv_dir0 * mem_z
+                + coef.grad_wrt_x.memory_coef_conv_dir1 * mem_y
+                + coef.grad_wrt_x.memory_coef_conv_dir2 * mem_x;
+        }
+
+        // Off-diagonal: dux/dy — corrected by grad_wrt_y (lijk x,z,y)
+        {
+            constexpr int comp = DUX;
+            double grad = du_dx[comp][DY];
+            size_t m_base = strain_memory_offset(elem_offset + n,
+                gradient_of(comp, DY), 0);
+            double mem_x = rmemory_strain[m_base + CONV_X];
+            double mem_z = rmemory_strain[m_base + CONV_Z];
+            double mem_y = rmemory_strain[m_base + CONV_Y];
+            du_dx[comp][DY] = coef.grad_wrt_y.gradient_prefactor * grad
+                + coef.grad_wrt_y.memory_coef_conv_dir0 * mem_x
+                + coef.grad_wrt_y.memory_coef_conv_dir1 * mem_z
+                + coef.grad_wrt_y.memory_coef_conv_dir2 * mem_y;
+        }
+        // Off-diagonal: duz/dy — corrected by grad_wrt_y (lijk x,z,y)
+        {
+            constexpr int comp = DUZ;
+            double grad = du_dx[comp][DY];
+            size_t m_base = strain_memory_offset(elem_offset + n,
+                gradient_of(comp, DY), 0);
+            double mem_x = rmemory_strain[m_base + CONV_X];
+            double mem_z = rmemory_strain[m_base + CONV_Z];
+            double mem_y = rmemory_strain[m_base + CONV_Y];
+            du_dx[comp][DY] = coef.grad_wrt_y.gradient_prefactor * grad
+                + coef.grad_wrt_y.memory_coef_conv_dir0 * mem_x
+                + coef.grad_wrt_y.memory_coef_conv_dir1 * mem_z
+                + coef.grad_wrt_y.memory_coef_conv_dir2 * mem_y;
+        }
+
+        // Off-diagonal: dux/dz — corrected by grad_wrt_z (lijk x,y,z)
+        {
+            constexpr int comp = DUX;
+            double grad = du_dx[comp][DZ];
+            size_t m_base = strain_memory_offset(elem_offset + n,
+                gradient_of(comp, DZ), 0);
+            double mem_x = rmemory_strain[m_base + CONV_X];
+            double mem_y = rmemory_strain[m_base + CONV_Y];
+            double mem_z = rmemory_strain[m_base + CONV_Z];
+            du_dx[comp][DZ] = coef.grad_wrt_z.gradient_prefactor * grad
+                + coef.grad_wrt_z.memory_coef_conv_dir0 * mem_x
+                + coef.grad_wrt_z.memory_coef_conv_dir1 * mem_y
+                + coef.grad_wrt_z.memory_coef_conv_dir2 * mem_z;
+        }
+        // Off-diagonal: duy/dz — corrected by grad_wrt_z (lijk x,y,z)
+        {
+            constexpr int comp = DUY;
+            double grad = du_dx[comp][DZ];
+            size_t m_base = strain_memory_offset(elem_offset + n,
+                gradient_of(comp, DZ), 0);
+            double mem_x = rmemory_strain[m_base + CONV_X];
+            double mem_y = rmemory_strain[m_base + CONV_Y];
+            double mem_z = rmemory_strain[m_base + CONV_Z];
+            du_dx[comp][DZ] = coef.grad_wrt_z.gradient_prefactor * grad
+                + coef.grad_wrt_z.memory_coef_conv_dir0 * mem_x
+                + coef.grad_wrt_z.memory_coef_conv_dir1 * mem_y
+                + coef.grad_wrt_z.memory_coef_conv_dir2 * mem_z;
+        }
+
+        // Diagonal: dux/dx — corrected by dux_dx (lx)
+        {
+            double grad = du_dx[DUX][DX];
+            size_t m_off = strain_memory_offset(elem_offset + n, DUX_DX, CONV_X);
+            double mem_x = rmemory_strain[m_off];
+            du_dx[DUX][DX] = coef.dux_dx.gradient_prefactor * grad
+                + coef.dux_dx.memory_coef_local_dir * mem_x;
+        }
+        // Diagonal: duy/dy — corrected by duy_dy (ly)
+        {
+            double grad = du_dx[DUY][DY];
+            size_t m_off = strain_memory_offset(elem_offset + n, DUY_DY, CONV_Y);
+            double mem_y = rmemory_strain[m_off];
+            du_dx[DUY][DY] = coef.duy_dy.gradient_prefactor * grad
+                + coef.duy_dy.memory_coef_local_dir * mem_y;
+        }
+        // Diagonal: duz/dz — corrected by duz_dz (lz)
+        {
+            double grad = du_dx[DUZ][DZ];
+            size_t m_off = strain_memory_offset(elem_offset + n, DUZ_DZ, CONV_Z);
+            double mem_z = rmemory_strain[m_off];
+            du_dx[DUZ][DZ] = coef.duz_dz.gradient_prefactor * grad
+                + coef.duz_dz.memory_coef_local_dir * mem_z;
+        }
     }
 
     // --- Symmetric strain tensor ---
@@ -197,7 +320,10 @@ void compute_element_residual<BackendCUDA>(int n_elem, const double* dxi_dx,
                                            const double* jacobian, const double* lambda_,
                                            const double* mu_, const double* D,
                                            const double* weights, int NGLL, const double* u,
-                                           double* r) {
+                                           double* r,
+                                           const int32_t* /*pml_region*/,
+                                           const double* /*pml_coef_strain*/,
+                                           const double* /*rmemory_strain*/) {
 #ifdef GF_WITH_CUDA
     const int n_node = NGLL * NGLL * NGLL;
 
@@ -223,7 +349,8 @@ void compute_element_residual<BackendCUDA>(int n_elem, const double* dxi_dx,
     element_residual_kernel<<<grid, block>>>(g_cuda_buffers.d_dxi_dx, g_cuda_buffers.d_jacobian,
                                              g_cuda_buffers.d_lambda, g_cuda_buffers.d_mu,
                                              g_cuda_buffers.d_D, g_cuda_buffers.d_weights, NGLL,
-                                             g_cuda_buffers.d_u, g_cuda_buffers.d_r);
+                                             g_cuda_buffers.d_u, g_cuda_buffers.d_r,
+                                             nullptr, nullptr, nullptr);
 
     // --- Check for launch errors ---
     GF_CUDA_CHECK(cudaGetLastError());
@@ -265,7 +392,9 @@ void cuda_launch_element_residual(const CudaDeviceState& state, int ngll, int n_
     GF_CUDA_CHECK(cudaMemset(d_output, 0, n_elem * n_node * 3 * sizeof(double)));
     element_residual_kernel<<<grid, block>>>(state.d_dxi_dx, state.d_jacobian, state.d_lambda_,
                                              state.d_mu_, state.d_D, state.d_weights, ngll,
-                                             d_input, d_output);
+                                             d_input, d_output,
+                                             state.d_pml_region, state.d_pml_coef_strain,
+                                             state.d_rmemory_strain);
     GF_CUDA_CHECK(cudaGetLastError());
     GF_CUDA_CHECK(cudaDeviceSynchronize());
 }

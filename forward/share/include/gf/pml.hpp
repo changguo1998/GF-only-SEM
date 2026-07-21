@@ -3,6 +3,13 @@
 #include <cstddef>
 #include <vector>
 
+// CUDA host+device portability macro
+#ifdef __CUDACC__
+#define GF_HOST_DEVICE __host__ __device__
+#else
+#define GF_HOST_DEVICE
+#endif
+
 #include "gf/types.hpp"
 
 // ============================================================================
@@ -87,13 +94,13 @@ namespace CpmlStrain {
     enum ConvDir : int { CONV_X = 0, CONV_Y = 1, CONV_Z = 2 };
 
     // --- Helpers ---
-    constexpr int gradient_of(int comp, int dir) { return comp * NUM_DERIVATIVE_DIRS + dir; }
+    constexpr GF_HOST_DEVICE int gradient_of(int comp, int dir) { return comp * NUM_DERIVATIVE_DIRS + dir; }
 
-    inline size_t strain_memory_offset(size_t node, int gradient, int conv_dir) {
+    inline GF_HOST_DEVICE size_t strain_memory_offset(size_t node, int gradient, int conv_dir) {
         return node * MEMORY_PER_NODE + gradient * MEMORY_PER_GRADIENT + conv_dir;
     }
 
-    inline StrainCoefficients load_strain_coefficients(const double* flat, size_t node) {
+    inline GF_HOST_DEVICE StrainCoefficients load_strain_coefficients(const double* flat, size_t node) {
         const double* base = flat + node * COEFS_PER_NODE;
         StrainCoefficients c;
         c.grad_wrt_x = {base[OFFSET_GRAD_WRT_X + 0], base[OFFSET_GRAD_WRT_X + 1],
