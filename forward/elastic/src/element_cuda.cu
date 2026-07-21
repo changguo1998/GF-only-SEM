@@ -1,10 +1,10 @@
 /**
  * @file element_cuda.cu
- * @brief CUDA specialization of compute_element_residual<BackendCUDA>.
+ * @brief CUDA specialization of compute_element_residual<BackendCUDA> — elastic.
  *
  * Batched kernel: grid.x = n_elem (one block per element), one thread per
- * GLL node (i,j,k). Each thread computes the quadrature-point contribution
- * and scatters to element residual with atomicAdd.
+ * GLL node (i,j,k).  Calls the five shared geometry/mechanics helpers from
+ * kernel_helpers.cuh and inserts elastic isotropic stress.
  */
 
 #define GF_ELEMENT_CUDA_SOURCE
@@ -15,13 +15,13 @@
 #include "gf/cuda_device_manager.hpp"
 #include "gf/cuda_step.hpp"
 #include "gf/element.hpp"
+#include "gf/kernel_helpers.cuh"
 #include "gf/pml.hpp"
 
 namespace gf {
-using namespace CpmlStrain;
 
 // -----------------------------------------------------------------------
-// Device helpers (used only inside kernel)
+// Device helpers
 // -----------------------------------------------------------------------
 
 /// 1D flat index from (i, j, k) within an element.
@@ -33,16 +33,6 @@ __device__ static inline int idx(int i, int j, int k, int NGLL) {
 // Element residual kernel (batched over all local elements)
 // -----------------------------------------------------------------------
 
-/**
- * CUDA global kernel: compute element residual for all local elements.
- *
- * Grid:    dim3 grid(n_elem, 1, 1)
- * Block:   dim3 block(NGLL, NGLL, NGLL)
- *
- * Each thread (i,j,k) within block e accumulates contributions from
- * quadrature node (i,j,k) to all 3*NGLL^3 DOFs of element e via
- * atomicAdd on the residual.
- */
 __global__ void element_residual_kernel(const double* __restrict__ dxi_dx,
                                         const double* __restrict__ jacobian,
                                         const double* __restrict__ lambda_,
@@ -53,191 +43,47 @@ __global__ void element_residual_kernel(const double* __restrict__ dxi_dx,
                                         const int32_t* __restrict__ pml_region,
                                         const double* __restrict__ pml_coef_strain,
                                         const double* __restrict__ rmemory_strain) {
-    // Element index from block
     int e = blockIdx.x;
-
-    // GLL node (i, j, k) from thread
     int i = threadIdx.x;
     int j = threadIdx.y;
     int k = threadIdx.z;
-    if (i >= NGLL || j >= NGLL || k >= NGLL)
-        return;
+    if (i >= NGLL || j >= NGLL || k >= NGLL) return;
 
     int n_node = NGLL * NGLL * NGLL;
     int elem_offset = e * n_node;
-    int n = idx(i, j, k, NGLL);  // local node index within element
+    int n = idx(i, j, k, NGLL);
+    int global_node = elem_offset + n;
 
-    // --- Precomputed elastic coefficients at this GLL node ---
-    double lambda = lambda_[elem_offset + n];
-    double mu = mu_[elem_offset + n];
-    if (mu <= 0.0)
-        return;
+    // --- Material coefficients ---
+    double lambda = lambda_[global_node];
+    double mu = mu_[global_node];
+    if (mu <= 0.0) return;
 
-    // --- Inverse Jacobian at this node ---
-    const double* dd = &dxi_dx[9 * (elem_offset + n)];
-    // dd[0]=dξ/dx, dd[1]=dη/dx, dd[2]=dζ/dx
-    // dd[3]=dξ/dy, dd[4]=dη/dy, dd[5]=dζ/dy
-    // dd[6]=dξ/dz, dd[7]=dη/dz, dd[8]=dζ/dz
+    const double* dd = &dxi_dx[9 * global_node];
 
-    // --- Displacement gradient in reference space ---
-    double dudxi[3] = {0.0, 0.0, 0.0};
-    double dudeta[3] = {0.0, 0.0, 0.0};
-    double dudzeta[3] = {0.0, 0.0, 0.0};
+    // Point into this element's displacement sub-array
+    const double* elem_u = u + 3 * elem_offset;
 
-    for (int s = 0; s < NGLL; ++s) {
-        double Di_s = D[i * NGLL + s];
-        double Dj_s = D[j * NGLL + s];
-        double Dk_s = D[k * NGLL + s];
+    // --- [1] Reference-space gradient ---
+    double dudxi[3], dudeta[3], dudzeta[3];
+    compute_reference_gradient(i, j, k, NGLL, D, elem_u,
+                               dudxi, dudeta, dudzeta);
 
-        int n_sjk = idx(s, j, k, NGLL);
-        int n_isk = idx(i, s, k, NGLL);
-        int n_ijs = idx(i, j, s, NGLL);
-
-        for (int dir = 0; dir < 3; ++dir) {
-            dudxi[dir] += Di_s * u[3 * (elem_offset + n_sjk) + dir];
-            dudeta[dir] += Dj_s * u[3 * (elem_offset + n_isk) + dir];
-            dudzeta[dir] += Dk_s * u[3 * (elem_offset + n_ijs) + dir];
-        }
-    }
-
-    // --- Transform to physical gradient ---
+    // --- [2] Physical gradient ---
     double du_dx[3][3];
-    for (int comp = 0; comp < 3; ++comp) {
-        du_dx[comp][0] = dudxi[comp] * dd[0] + dudeta[comp] * dd[1] + dudzeta[comp] * dd[2];
-        du_dx[comp][1] = dudxi[comp] * dd[3] + dudeta[comp] * dd[4] + dudzeta[comp] * dd[5];
-        du_dx[comp][2] = dudxi[comp] * dd[6] + dudeta[comp] * dd[7] + dudzeta[comp] * dd[8];
-    }
+    transform_to_physical(dudxi, dudeta, dudzeta, dd, du_dx);
 
-    // --- C-PML strain correction (modifies physical gradients) ---
-    if (pml_region && pml_region[e] != 0) {
-        StrainCoefficients coef = load_strain_coefficients(
-            pml_coef_strain, elem_offset + n);
+    // --- [3] C-PML strain correction ---
+    apply_cpml_strain_correction(global_node, pml_region, e,
+                                  pml_coef_strain, rmemory_strain, du_dx);
 
-        // Off-diagonal: duy/dx — corrected by grad_wrt_x (lijk z,y,x)
-        {
-            constexpr int comp = DUY;
-            double grad = du_dx[comp][DX];
-            size_t m_base = strain_memory_offset(elem_offset + n,
-                gradient_of(comp, DX), 0);
-            double mem_z = rmemory_strain[m_base + CONV_Z];
-            double mem_y = rmemory_strain[m_base + CONV_Y];
-            double mem_x = rmemory_strain[m_base + CONV_X];
-            du_dx[comp][DX] = coef.grad_wrt_x.gradient_prefactor * grad
-                + coef.grad_wrt_x.memory_coef_conv_dir0 * mem_z
-                + coef.grad_wrt_x.memory_coef_conv_dir1 * mem_y
-                + coef.grad_wrt_x.memory_coef_conv_dir2 * mem_x;
-        }
-        // Off-diagonal: duz/dx — corrected by grad_wrt_x (lijk z,y,x)
-        {
-            constexpr int comp = DUZ;
-            double grad = du_dx[comp][DX];
-            size_t m_base = strain_memory_offset(elem_offset + n,
-                gradient_of(comp, DX), 0);
-            double mem_z = rmemory_strain[m_base + CONV_Z];
-            double mem_y = rmemory_strain[m_base + CONV_Y];
-            double mem_x = rmemory_strain[m_base + CONV_X];
-            du_dx[comp][DX] = coef.grad_wrt_x.gradient_prefactor * grad
-                + coef.grad_wrt_x.memory_coef_conv_dir0 * mem_z
-                + coef.grad_wrt_x.memory_coef_conv_dir1 * mem_y
-                + coef.grad_wrt_x.memory_coef_conv_dir2 * mem_x;
-        }
-
-        // Off-diagonal: dux/dy — corrected by grad_wrt_y (lijk x,z,y)
-        {
-            constexpr int comp = DUX;
-            double grad = du_dx[comp][DY];
-            size_t m_base = strain_memory_offset(elem_offset + n,
-                gradient_of(comp, DY), 0);
-            double mem_x = rmemory_strain[m_base + CONV_X];
-            double mem_z = rmemory_strain[m_base + CONV_Z];
-            double mem_y = rmemory_strain[m_base + CONV_Y];
-            du_dx[comp][DY] = coef.grad_wrt_y.gradient_prefactor * grad
-                + coef.grad_wrt_y.memory_coef_conv_dir0 * mem_x
-                + coef.grad_wrt_y.memory_coef_conv_dir1 * mem_z
-                + coef.grad_wrt_y.memory_coef_conv_dir2 * mem_y;
-        }
-        // Off-diagonal: duz/dy — corrected by grad_wrt_y (lijk x,z,y)
-        {
-            constexpr int comp = DUZ;
-            double grad = du_dx[comp][DY];
-            size_t m_base = strain_memory_offset(elem_offset + n,
-                gradient_of(comp, DY), 0);
-            double mem_x = rmemory_strain[m_base + CONV_X];
-            double mem_z = rmemory_strain[m_base + CONV_Z];
-            double mem_y = rmemory_strain[m_base + CONV_Y];
-            du_dx[comp][DY] = coef.grad_wrt_y.gradient_prefactor * grad
-                + coef.grad_wrt_y.memory_coef_conv_dir0 * mem_x
-                + coef.grad_wrt_y.memory_coef_conv_dir1 * mem_z
-                + coef.grad_wrt_y.memory_coef_conv_dir2 * mem_y;
-        }
-
-        // Off-diagonal: dux/dz — corrected by grad_wrt_z (lijk x,y,z)
-        {
-            constexpr int comp = DUX;
-            double grad = du_dx[comp][DZ];
-            size_t m_base = strain_memory_offset(elem_offset + n,
-                gradient_of(comp, DZ), 0);
-            double mem_x = rmemory_strain[m_base + CONV_X];
-            double mem_y = rmemory_strain[m_base + CONV_Y];
-            double mem_z = rmemory_strain[m_base + CONV_Z];
-            du_dx[comp][DZ] = coef.grad_wrt_z.gradient_prefactor * grad
-                + coef.grad_wrt_z.memory_coef_conv_dir0 * mem_x
-                + coef.grad_wrt_z.memory_coef_conv_dir1 * mem_y
-                + coef.grad_wrt_z.memory_coef_conv_dir2 * mem_z;
-        }
-        // Off-diagonal: duy/dz — corrected by grad_wrt_z (lijk x,y,z)
-        {
-            constexpr int comp = DUY;
-            double grad = du_dx[comp][DZ];
-            size_t m_base = strain_memory_offset(elem_offset + n,
-                gradient_of(comp, DZ), 0);
-            double mem_x = rmemory_strain[m_base + CONV_X];
-            double mem_y = rmemory_strain[m_base + CONV_Y];
-            double mem_z = rmemory_strain[m_base + CONV_Z];
-            du_dx[comp][DZ] = coef.grad_wrt_z.gradient_prefactor * grad
-                + coef.grad_wrt_z.memory_coef_conv_dir0 * mem_x
-                + coef.grad_wrt_z.memory_coef_conv_dir1 * mem_y
-                + coef.grad_wrt_z.memory_coef_conv_dir2 * mem_z;
-        }
-
-        // Diagonal: dux/dx — corrected by dux_dx (lx)
-        {
-            double grad = du_dx[DUX][DX];
-            size_t m_off = strain_memory_offset(elem_offset + n, DUX_DX, CONV_X);
-            double mem_x = rmemory_strain[m_off];
-            du_dx[DUX][DX] = coef.dux_dx.gradient_prefactor * grad
-                + coef.dux_dx.memory_coef_local_dir * mem_x;
-        }
-        // Diagonal: duy/dy — corrected by duy_dy (ly)
-        {
-            double grad = du_dx[DUY][DY];
-            size_t m_off = strain_memory_offset(elem_offset + n, DUY_DY, CONV_Y);
-            double mem_y = rmemory_strain[m_off];
-            du_dx[DUY][DY] = coef.duy_dy.gradient_prefactor * grad
-                + coef.duy_dy.memory_coef_local_dir * mem_y;
-        }
-        // Diagonal: duz/dz — corrected by duz_dz (lz)
-        {
-            double grad = du_dx[DUZ][DZ];
-            size_t m_off = strain_memory_offset(elem_offset + n, DUZ_DZ, CONV_Z);
-            double mem_z = rmemory_strain[m_off];
-            du_dx[DUZ][DZ] = coef.duz_dz.gradient_prefactor * grad
-                + coef.duz_dz.memory_coef_local_dir * mem_z;
-        }
-    }
-
-    // --- Symmetric strain tensor ---
+    // --- [4] Strain tensor ---
     double eps[3][3];
-    for (int l = 0; l < 3; ++l) {
-        for (int m = 0; m < 3; ++m) {
-            eps[l][m] = 0.5 * (du_dx[l][m] + du_dx[m][l]);
-            // NOTE: strain truncation threshold removed — see element_cpu.cpp for
-            // rationale (nonlinear K injects energy under central-difference
-            // integration, causing secular instability).
-        }
-    }
+    compute_strain_tensor(du_dx, eps);
 
-    // --- Isotropic stress ---
+    // ============================================================
+    // ===  Elastic isotropic stress                            ===
+    // ============================================================
     double eps_kk = eps[0][0] + eps[1][1] + eps[2][2];
     double sigma[3][3];
     for (int l = 0; l < 3; ++l) {
@@ -247,63 +93,10 @@ __global__ void element_residual_kernel(const double* __restrict__ dxi_dx,
         sigma[l][l] += lambda * eps_kk;
     }
 
-    // --- Quadrature weight factor ---
-    double factor = jacobian[elem_offset + n] * weights[i] * weights[j] * weights[k];
-
-    // --- Scatter residual contributions with atomicAdd ---
-    // ξ-direction contributions to nodes (s, j, k)
-    for (int s = 0; s < NGLL; ++s) {
-        double Dis = D[i * NGLL + s];
-        double gradN[3] = {Dis * dd[0], Dis * dd[3], Dis * dd[6]};
-        int base = 3 * (elem_offset + idx(s, j, k, NGLL));
-
-        double r0 =
-            -(sigma[0][0] * gradN[0] + sigma[0][1] * gradN[1] + sigma[0][2] * gradN[2]) * factor;
-        double r1 =
-            -(sigma[1][0] * gradN[0] + sigma[1][1] * gradN[1] + sigma[1][2] * gradN[2]) * factor;
-        double r2 =
-            -(sigma[2][0] * gradN[0] + sigma[2][1] * gradN[1] + sigma[2][2] * gradN[2]) * factor;
-
-        atomicAdd(&r[base + 0], r0);
-        atomicAdd(&r[base + 1], r1);
-        atomicAdd(&r[base + 2], r2);
-    }
-
-    // η-direction contributions to nodes (i, s, k)
-    for (int s = 0; s < NGLL; ++s) {
-        double Djs = D[j * NGLL + s];
-        double gradN[3] = {Djs * dd[1], Djs * dd[4], Djs * dd[7]};
-        int base = 3 * (elem_offset + idx(i, s, k, NGLL));
-
-        double r0 =
-            -(sigma[0][0] * gradN[0] + sigma[0][1] * gradN[1] + sigma[0][2] * gradN[2]) * factor;
-        double r1 =
-            -(sigma[1][0] * gradN[0] + sigma[1][1] * gradN[1] + sigma[1][2] * gradN[2]) * factor;
-        double r2 =
-            -(sigma[2][0] * gradN[0] + sigma[2][1] * gradN[1] + sigma[2][2] * gradN[2]) * factor;
-
-        atomicAdd(&r[base + 0], r0);
-        atomicAdd(&r[base + 1], r1);
-        atomicAdd(&r[base + 2], r2);
-    }
-
-    // ζ-direction contributions to nodes (i, j, s)
-    for (int s = 0; s < NGLL; ++s) {
-        double Dks = D[k * NGLL + s];
-        double gradN[3] = {Dks * dd[2], Dks * dd[5], Dks * dd[8]};
-        int base = 3 * (elem_offset + idx(i, j, s, NGLL));
-
-        double r0 =
-            -(sigma[0][0] * gradN[0] + sigma[0][1] * gradN[1] + sigma[0][2] * gradN[2]) * factor;
-        double r1 =
-            -(sigma[1][0] * gradN[0] + sigma[1][1] * gradN[1] + sigma[1][2] * gradN[2]) * factor;
-        double r2 =
-            -(sigma[2][0] * gradN[0] + sigma[2][1] * gradN[1] + sigma[2][2] * gradN[2]) * factor;
-
-        atomicAdd(&r[base + 0], r0);
-        atomicAdd(&r[base + 1], r1);
-        atomicAdd(&r[base + 2], r2);
-    }
+    // --- [5] Residual scatter (atomicAdd) ---
+    scatter_residual(i, j, k, NGLL, sigma, dd,
+                     D, weights, jacobian[global_node],
+                     elem_offset, r);
 }
 
 // -----------------------------------------------------------------------
@@ -379,7 +172,6 @@ void compute_element_residual<BackendCUDA>(int n_elem, const double* dxi_dx,
 }
 
 // Element residual kernel launch using pre-existing device pointers (GPU-native mode).
-// Skips H2D/D2H copies — uses geometry buffers already resident on device.
 void cuda_launch_element_residual(const CudaDeviceState& state, int ngll, int n_elem) {
     const int n_node = ngll * ngll * ngll;
     dim3 block(ngll, ngll, ngll);
