@@ -13,7 +13,8 @@ set(SHARED_SRCS
     src/source.cpp
     src/io.cpp
     src/record.cpp
-    src/restart.cpp)
+    src/restart.cpp
+    src/attenuation.cpp)
 
 add_library(libgf_shared STATIC ${SHARED_SRCS})
 
