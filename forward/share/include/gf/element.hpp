@@ -39,7 +39,10 @@ namespace gf {
 template <typename Backend>
 void compute_element_residual(int n_elem, const double* dxi_dx, const double* jacobian,
                               const double* lambda_, const double* mu_, const double* D,
-                              const double* weights, int NGLL, const double* u, double* r);
+                              const double* weights, int NGLL, const double* u, double* r,
+                              const int32_t* pml_region = nullptr,
+                              const double* pml_coef_strain = nullptr,
+                              const double* rmemory_strain = nullptr);
 
 // --- Explicit instantiation declarations ---
 // Guarded: specialization source files define GF_ELEMENT_{CPU,CUDA}_SOURCE
@@ -47,18 +50,18 @@ void compute_element_residual(int n_elem, const double* dxi_dx, const double* ja
 // "specialization after instantiation" errors.
 
 #ifndef GF_ELEMENT_CPU_SOURCE
-extern template void compute_element_residual<BackendCPU>(int, const double*, const double*,
-                                                          const double*, const double*,
-                                                          const double*, const double*, int,
-                                                          const double*, double*);
+extern template void compute_element_residual<BackendCPU>(
+    int, const double*, const double*, const double*, const double*,
+    const double*, const double*, int, const double*, double*,
+    const int32_t*, const double*, const double*);
 #endif
 
 #ifdef GF_WITH_CUDA
 #ifndef GF_ELEMENT_CUDA_SOURCE
-extern template void compute_element_residual<BackendCUDA>(int, const double*, const double*,
-                                                           const double*, const double*,
-                                                           const double*, const double*, int,
-                                                           const double*, double*);
+extern template void compute_element_residual<BackendCUDA>(
+    int, const double*, const double*, const double*, const double*,
+    const double*, const double*, int, const double*, double*,
+    const int32_t*, const double*, const double*);
 #endif
 #endif
 

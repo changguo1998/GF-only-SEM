@@ -3,8 +3,10 @@
 
 #include "gf/element.hpp"
 #include "gf/gll.hpp"
+#include "gf/pml.hpp"
 
 namespace gf {
+using namespace CpmlStrain;
 
 // Inline helper: 1D flat index from (i, j, k) in element
 static inline int idx(int i, int j, int k, int NGLL) {
@@ -20,7 +22,10 @@ template <>
 void compute_element_residual<BackendCPU>(int n_elem, const double* dxi_dx, const double* jacobian,
                                           const double* lambda_, const double* mu_,
                                           const double* D, const double* weights, int NGLL,
-                                          const double* u, double* r) {
+                                          const double* u, double* r,
+                                          const int32_t* pml_region,
+                                          const double* pml_coef_strain,
+                                          const double* rmemory_strain) {
     const int n_node = NGLL * NGLL * NGLL;
 
     for (int elem = 0; elem < n_elem; ++elem) {
@@ -78,6 +83,79 @@ void compute_element_residual<BackendCPU>(int n_elem, const double* dxi_dx, cons
                             dudxi[comp] * dd[3] + dudeta[comp] * dd[4] + dudzeta[comp] * dd[5];
                         du_dx[comp][2] =
                             dudxi[comp] * dd[6] + dudeta[comp] * dd[7] + dudzeta[comp] * dd[8];
+                    }
+
+                    // --- C-PML strain correction (modifies physical gradients) ---
+                    if (pml_region && pml_region[elem] != 0) {
+                        StrainCoefficients coef = load_strain_coefficients(
+                            pml_coef_strain, elem * n_node + n);
+
+                        // Off-diagonal: duy/dx and duz/dx — corrected by grad_wrt_x (lijk z,y,x)
+                        for (int comp : {DUY, DUZ}) {
+                            double grad = du_dx[comp][DX];
+                            size_t m_base = strain_memory_offset(elem * n_node + n,
+                                gradient_of(comp, DX), 0);
+                            double mem_z = rmemory_strain[m_base + CONV_Z];
+                            double mem_y = rmemory_strain[m_base + CONV_Y];
+                            double mem_x = rmemory_strain[m_base + CONV_X];
+                            du_dx[comp][DX] = coef.grad_wrt_x.gradient_prefactor * grad
+                                + coef.grad_wrt_x.memory_coef_conv_dir0 * mem_z
+                                + coef.grad_wrt_x.memory_coef_conv_dir1 * mem_y
+                                + coef.grad_wrt_x.memory_coef_conv_dir2 * mem_x;
+                        }
+
+                        // Off-diagonal: dux/dy and duz/dy — corrected by grad_wrt_y (lijk x,z,y)
+                        for (int comp : {DUX, DUZ}) {
+                            double grad = du_dx[comp][DY];
+                            size_t m_base = strain_memory_offset(elem * n_node + n,
+                                gradient_of(comp, DY), 0);
+                            double mem_x = rmemory_strain[m_base + CONV_X];
+                            double mem_z = rmemory_strain[m_base + CONV_Z];
+                            double mem_y = rmemory_strain[m_base + CONV_Y];
+                            du_dx[comp][DY] = coef.grad_wrt_y.gradient_prefactor * grad
+                                + coef.grad_wrt_y.memory_coef_conv_dir0 * mem_x
+                                + coef.grad_wrt_y.memory_coef_conv_dir1 * mem_z
+                                + coef.grad_wrt_y.memory_coef_conv_dir2 * mem_y;
+                        }
+
+                        // Off-diagonal: dux/dz and duy/dz — corrected by grad_wrt_z (lijk x,y,z)
+                        for (int comp : {DUX, DUY}) {
+                            double grad = du_dx[comp][DZ];
+                            size_t m_base = strain_memory_offset(elem * n_node + n,
+                                gradient_of(comp, DZ), 0);
+                            double mem_x = rmemory_strain[m_base + CONV_X];
+                            double mem_y = rmemory_strain[m_base + CONV_Y];
+                            double mem_z = rmemory_strain[m_base + CONV_Z];
+                            du_dx[comp][DZ] = coef.grad_wrt_z.gradient_prefactor * grad
+                                + coef.grad_wrt_z.memory_coef_conv_dir0 * mem_x
+                                + coef.grad_wrt_z.memory_coef_conv_dir1 * mem_y
+                                + coef.grad_wrt_z.memory_coef_conv_dir2 * mem_z;
+                        }
+
+                        // Diagonal: dux/dx — corrected by dux_dx (lx)
+                        {
+                            double grad = du_dx[DUX][DX];
+                            size_t m_off = strain_memory_offset(elem * n_node + n, DUX_DX, CONV_X);
+                            double mem_x = rmemory_strain[m_off];
+                            du_dx[DUX][DX] = coef.dux_dx.gradient_prefactor * grad
+                                + coef.dux_dx.memory_coef_local_dir * mem_x;
+                        }
+                        // Diagonal: duy/dy — corrected by duy_dy (ly)
+                        {
+                            double grad = du_dx[DUY][DY];
+                            size_t m_off = strain_memory_offset(elem * n_node + n, DUY_DY, CONV_Y);
+                            double mem_y = rmemory_strain[m_off];
+                            du_dx[DUY][DY] = coef.duy_dy.gradient_prefactor * grad
+                                + coef.duy_dy.memory_coef_local_dir * mem_y;
+                        }
+                        // Diagonal: duz/dz — corrected by duz_dz (lz)
+                        {
+                            double grad = du_dx[DUZ][DZ];
+                            size_t m_off = strain_memory_offset(elem * n_node + n, DUZ_DZ, CONV_Z);
+                            double mem_z = rmemory_strain[m_off];
+                            du_dx[DUZ][DZ] = coef.duz_dz.gradient_prefactor * grad
+                                + coef.duz_dz.memory_coef_local_dir * mem_z;
+                        }
                     }
 
                     // --- Symmetric strain tensor ---
