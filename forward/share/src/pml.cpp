@@ -215,4 +215,96 @@ void cpml_accel_contribution(const RankData& part, const std::vector<double>& di
     }
 }
 
+void cpml_update_strain_memory(RankData& part, const double* D, const double* /*weights*/,
+                               int NGLL) {
+    if (!part.has_cpml) return;
+
+    const int n_local_cell = part.n_local_cell;
+    const int n_node = NGLL * NGLL * NGLL;
+
+    for (int e = 0; e < n_local_cell; ++e) {
+        int region = (e < static_cast<int>(part.pml_region.size()))
+                         ? part.pml_region[e]
+                         : 0;
+        if (region == 0) continue;
+
+        const int elem_off = e * n_node;
+
+        for (int n = 0; n < n_node; ++n) {
+            const int i = n / (NGLL * NGLL);
+            const int j = (n / NGLL) % NGLL;
+            const int k = n % NGLL;
+
+            // --- 1. Compute reference-space gradients of PML displ fields ---
+            double new_dudxi[3] = {0, 0, 0};
+            double new_dudeta[3] = {0, 0, 0};
+            double new_dudzeta[3] = {0, 0, 0};
+            double old_dudxi[3] = {0, 0, 0};
+            double old_dudeta[3] = {0, 0, 0};
+            double old_dudzeta[3] = {0, 0, 0};
+
+            for (int s = 0; s < NGLL; ++s) {
+                const double Di_s = D[i * NGLL + s];
+                const double Dj_s = D[j * NGLL + s];
+                const double Dk_s = D[k * NGLL + s];
+
+                const int n_sjk = (s * NGLL + j) * NGLL + k;
+                const int n_isk = (i * NGLL + s) * NGLL + k;
+                const int n_ijs = (i * NGLL + j) * NGLL + s;
+
+                const int new_sjk = (elem_off + n_sjk) * 3;
+                const int new_isk = (elem_off + n_isk) * 3;
+                const int new_ijs = (elem_off + n_ijs) * 3;
+                const int old_sjk = (elem_off + n_sjk) * 3;
+                const int old_isk = (elem_off + n_isk) * 3;
+                const int old_ijs = (elem_off + n_ijs) * 3;
+
+                for (int dir = 0; dir < 3; ++dir) {
+                    new_dudxi[dir] += Di_s * part.pml_displ_new[new_sjk + dir];
+                    new_dudeta[dir] += Dj_s * part.pml_displ_new[new_isk + dir];
+                    new_dudzeta[dir] += Dk_s * part.pml_displ_new[new_ijs + dir];
+                    old_dudxi[dir] += Di_s * part.pml_displ_old[old_sjk + dir];
+                    old_dudeta[dir] += Dj_s * part.pml_displ_old[old_isk + dir];
+                    old_dudzeta[dir] += Dk_s * part.pml_displ_old[old_ijs + dir];
+                }
+            }
+
+            // --- 2. Transform to physical gradients ---
+            const double* dd = &part.dxi_dx[(elem_off + n) * 9];
+
+            double new_phys_grad[9];
+            double old_phys_grad[9];
+            for (int comp = 0; comp < 3; ++comp) {
+                new_phys_grad[comp * 3 + 0] =
+                    new_dudxi[comp] * dd[0] + new_dudeta[comp] * dd[1] + new_dudzeta[comp] * dd[2];
+                new_phys_grad[comp * 3 + 1] =
+                    new_dudxi[comp] * dd[3] + new_dudeta[comp] * dd[4] + new_dudzeta[comp] * dd[5];
+                new_phys_grad[comp * 3 + 2] =
+                    new_dudxi[comp] * dd[6] + new_dudeta[comp] * dd[7] + new_dudzeta[comp] * dd[8];
+                old_phys_grad[comp * 3 + 0] =
+                    old_dudxi[comp] * dd[0] + old_dudeta[comp] * dd[1] + old_dudzeta[comp] * dd[2];
+                old_phys_grad[comp * 3 + 1] =
+                    old_dudxi[comp] * dd[3] + old_dudeta[comp] * dd[4] + old_dudzeta[comp] * dd[5];
+                old_phys_grad[comp * 3 + 2] =
+                    old_dudxi[comp] * dd[6] + old_dudeta[comp] * dd[7] + old_dudzeta[comp] * dd[8];
+            }
+
+            // --- 3. Update strain memory with β convolution ---
+            using namespace CpmlStrain;
+            for (int grad = 0; grad < NUM_GRADIENT_COMPS; ++grad) {
+                double new_grad = new_phys_grad[grad];
+                double old_grad = old_phys_grad[grad];
+                for (int conv_dir = 0; conv_dir < NUM_CONV_DIRECTIONS; ++conv_dir) {
+                    size_t mem_off = strain_memory_offset(elem_off + n, grad, conv_dir);
+                    int beta_off =
+                        (elem_off + n) * BETA_COEFS_PER_NODE + conv_dir * BETA_COEFS_PER_DIR;
+                    part.rmemory_strain[mem_off] =
+                        part.pml_coef_beta[beta_off + BETA_COEF0] * part.rmemory_strain[mem_off] +
+                        part.pml_coef_beta[beta_off + BETA_COEF1] * new_grad +
+                        part.pml_coef_beta[beta_off + BETA_COEF2] * old_grad;
+                }
+            }
+        }
+    }
+}
 }  // namespace gf
