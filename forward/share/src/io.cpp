@@ -236,6 +236,11 @@ RankData read_partition(const std::string& path, int /*rank*/) {
     data.pml_coef_strain = try_read_dataset<double>(fid, "/field/cell/pml_coef_strain");
     data.has_cpml = !data.pml_coef_abar.empty();
 
+    // --- Read SLS attenuation data (optional) ---
+    data.tau_sigma = try_read_dataset<double>(fid, "/field/cell/tau_sigma");
+    data.tau_epsilon = try_read_dataset<double>(fid, "/field/cell/tau_epsilon");
+    data.has_attenuation = !data.tau_sigma.empty();
+
     // --- Read local_cell2rank_node and n_rank_node (CG-SEM rank-level node mapping) ---
     data.local_cell2rank_node = try_read_dataset<int32_t>(fid, "/field/cell/local_cell2rank_node");
     data.local_cell2global_node =
@@ -393,6 +398,9 @@ RankData read_partition_all(const std::string& partition_dir) {
             concat_vec(merged.pml_coef_abar, part.pml_coef_abar);
             concat_vec(merged.pml_coef_strain, part.pml_coef_strain);
             merged.has_cpml = merged.has_cpml || part.has_cpml;
+            concat_vec(merged.tau_sigma, part.tau_sigma);
+            concat_vec(merged.tau_epsilon, part.tau_epsilon);
+            merged.has_attenuation = merged.has_attenuation || part.has_attenuation;
 
             // Merge ibool using global node IDs (already unique across ranks)
             concat_vec(merged.local_cell2rank_node, part.local_cell2global_node);
@@ -529,6 +537,9 @@ RankData read_partition_range(const std::string& partition_dir, int effective_ra
             concat_vec(merged.pml_coef_abar, part.pml_coef_abar);
             concat_vec(merged.pml_coef_strain, part.pml_coef_strain);
             merged.has_cpml = merged.has_cpml || part.has_cpml;
+            concat_vec(merged.tau_sigma, part.tau_sigma);
+            concat_vec(merged.tau_epsilon, part.tau_epsilon);
+            merged.has_attenuation = merged.has_attenuation || part.has_attenuation;
 
             if (part.recording.has_recording) {
                 merged.recording.has_recording = true;

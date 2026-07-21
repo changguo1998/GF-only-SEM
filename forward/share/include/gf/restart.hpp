@@ -21,6 +21,11 @@ struct RestartState {
     std::vector<double> pml_damping;
     bool use_global_dof = false;  // if true, arrays are n_rank_node-sized
     int n_rank_node = 0;
+
+    // SLS attenuation memory (only populated when file contains SLS datasets)
+    std::vector<double> rmemory_sls;
+    std::vector<double> sigma_old;
+    bool has_attenuation = false;
 };
 
 /// Writes full-volume restart state (latest-only overwrite).
