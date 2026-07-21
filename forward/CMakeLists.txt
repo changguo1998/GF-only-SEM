@@ -27,4 +27,4 @@ find_package(CUDAToolkit)
 # -----------------------------------------------------------------------
 add_subdirectory(share)
 add_subdirectory(elastic)
-# add_subdirectory(viscoelastic)   # uncomment when viscoelastic solver is implemented
+add_subdirectory(viscoelastic)
