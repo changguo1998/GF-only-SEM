@@ -99,3 +99,221 @@ TEST_CASE("Damping is per-node, not per-DOF", "[pml]") {
         REQUIRE_THAT(v[i], WithinAbs(1.0, 1e-15));
     }
 }
+
+// ============================================================================
+// C-PML strain correction tests (CpmlStrain namespace + cpml_update_strain_memory)
+// ============================================================================
+
+#include "gf/types.hpp"
+
+using namespace CpmlStrain;
+
+TEST_CASE("CpmlStrain constants are dimension-consistent", "[pml][cpml]") {
+    // All counts derive from NDIM = 3
+    REQUIRE(NUM_DISPLACEMENT_COMPS == 3);
+    REQUIRE(NUM_DERIVATIVE_DIRS == 3);
+    REQUIRE(NUM_CONV_DIRECTIONS == 3);
+    REQUIRE(NUM_GRADIENT_COMPS == 9);
+    REQUIRE(NUM_OFF_DIAG_GROUPS == 3);
+    REQUIRE(NUM_DIAG_GROUPS == 3);
+
+    // Coefficient strides
+    REQUIRE(LINGK_COEFS_PER_GROUP == 4);  // 1 prefactor + 3 memory dirs
+    REQUIRE(DIAG_COEFS_PER_GROUP == 2);   // 1 prefactor + 1 memory dir
+    REQUIRE(COEFS_PER_NODE == 3 * 4 + 3 * 2);  // 12 + 6 = 18
+
+    // Memory strides
+    REQUIRE(MEMORY_PER_GRADIENT == 3);
+    REQUIRE(MEMORY_PER_NODE == 9 * 3);  // 27
+
+    // β coefficient strides
+    REQUIRE(BETA_COEFS_PER_DIR == 3);
+    REQUIRE(BETA_COEFS_PER_NODE == 9);
+    REQUIRE(BETA_COEF0 == 0);
+    REQUIRE(BETA_COEF1 == 1);
+    REQUIRE(BETA_COEF2 == 2);
+
+    // Offsets are strictly increasing
+    REQUIRE(OFFSET_GRAD_WRT_X == 0);
+    REQUIRE(OFFSET_GRAD_WRT_Y == 4);
+    REQUIRE(OFFSET_GRAD_WRT_Z == 8);
+    REQUIRE(OFFSET_DUX_DX == 12);
+    REQUIRE(OFFSET_DUY_DY == 14);
+    REQUIRE(OFFSET_DUZ_DZ == 16);
+
+    // Enum values
+    REQUIRE(static_cast<int>(DUX_DX) == 0);
+    REQUIRE(static_cast<int>(DUZ_DZ) == 8);
+    REQUIRE(static_cast<int>(DUX) == 0);
+    REQUIRE(static_cast<int>(DUZ) == 2);
+    REQUIRE(static_cast<int>(DX) == 0);
+    REQUIRE(static_cast<int>(DZ) == 2);
+}
+
+TEST_CASE("gradient_of maps component+dir to correct gradient index", "[pml][cpml]") {
+    // gradient_of(component, direction) = component * 3 + direction
+    REQUIRE(gradient_of(DUX, DX) == DUX_DX);   // 0*3+0 = 0
+    REQUIRE(gradient_of(DUX, DY) == DUX_DY);   // 0*3+1 = 1
+    REQUIRE(gradient_of(DUX, DZ) == DUX_DZ);   // 0*3+2 = 2
+    REQUIRE(gradient_of(DUY, DX) == DUY_DX);   // 1*3+0 = 3
+    REQUIRE(gradient_of(DUY, DY) == DUY_DY);   // 1*3+1 = 4
+    REQUIRE(gradient_of(DUY, DZ) == DUY_DZ);   // 1*3+2 = 5
+    REQUIRE(gradient_of(DUZ, DX) == DUZ_DX);   // 2*3+0 = 6
+    REQUIRE(gradient_of(DUZ, DY) == DUZ_DY);   // 2*3+1 = 7
+    REQUIRE(gradient_of(DUZ, DZ) == DUZ_DZ);   // 2*3+2 = 8
+}
+
+TEST_CASE("strain_memory_offset produces unique offset per node", "[pml][cpml]") {
+    // Base: node * MEMORY_PER_NODE + gradient * MEMORY_PER_GRADIENT + conv_dir
+    size_t offset_0_0_0 = strain_memory_offset(0, DUX_DX, CONV_X);
+    REQUIRE(offset_0_0_0 == 0);
+
+    size_t offset_0_0_1 = strain_memory_offset(0, DUX_DX, CONV_Y);
+    REQUIRE(offset_0_0_1 == 1);
+
+    size_t offset_0_1_0 = strain_memory_offset(0, DUX_DY, CONV_X);
+    REQUIRE(offset_0_1_0 == 3);  // grad 1 * 3 = 3
+
+    size_t offset_0_8_2 = strain_memory_offset(0, DUZ_DZ, CONV_Z);
+    REQUIRE(offset_0_8_2 == 8 * 3 + 2);  // 24 + 2 = 26
+
+    // Next node starts at 27
+    size_t offset_1_0_0 = strain_memory_offset(1, DUX_DX, CONV_X);
+    REQUIRE(offset_1_0_0 == 27);
+}
+
+TEST_CASE("load_strain_coefficients loads all 6 correction groups", "[pml][cpml]") {
+    std::vector<double> flat(COEFS_PER_NODE);
+    flat[OFFSET_GRAD_WRT_X + 0] = 1.1;  // prefactor
+    flat[OFFSET_GRAD_WRT_X + 1] = 1.2;  // mem dir0
+    flat[OFFSET_GRAD_WRT_X + 2] = 1.3;  // mem dir1
+    flat[OFFSET_GRAD_WRT_X + 3] = 1.4;  // mem dir2
+
+    flat[OFFSET_DUX_DX + 0] = 4.1;  // prefactor
+    flat[OFFSET_DUX_DX + 1] = 4.2;  // mem local dir
+
+    flat[OFFSET_DUZ_DZ + 0] = 6.1;
+    flat[OFFSET_DUZ_DZ + 1] = 6.2;
+
+    StrainCoefficients c = load_strain_coefficients(flat.data(), 0);
+
+    REQUIRE(c.grad_wrt_x.gradient_prefactor == 1.1);
+    REQUIRE(c.grad_wrt_x.memory_coef_conv_dir0 == 1.2);
+    REQUIRE(c.grad_wrt_x.memory_coef_conv_dir1 == 1.3);
+    REQUIRE(c.grad_wrt_x.memory_coef_conv_dir2 == 1.4);
+
+    REQUIRE(c.dux_dx.gradient_prefactor == 4.1);
+    REQUIRE(c.dux_dx.memory_coef_local_dir == 4.2);
+
+    REQUIRE(c.duz_dz.gradient_prefactor == 6.1);
+    REQUIRE(c.duz_dz.memory_coef_local_dir == 6.2);
+}
+
+TEST_CASE("cpml_update_strain_memory updates PML element memory", "[pml][cpml]") {
+    RankData part;
+    int ngll = 2;
+    int n_node = ngll * ngll * ngll;  // 8
+    part.n_local_cell = 1;
+    part.ngll = ngll;
+    part.has_cpml = true;
+
+    part.pml_region = {1};  // PML element
+
+    // Allocate β coefficients: 9 per node, set to produce non-zero update
+    // β0=0.5, β1=0.3, β2=0.2 for each direction
+    part.pml_coef_beta.assign(n_node * 9, 0.0);
+    for (int n = 0; n < n_node; ++n) {
+        for (int d = 0; d < 3; ++d) {
+            part.pml_coef_beta[n * 9 + d * 3 + 0] = 0.5;
+            part.pml_coef_beta[n * 9 + d * 3 + 1] = 0.3;
+            part.pml_coef_beta[n * 9 + d * 3 + 2] = 0.2;
+        }
+    }
+
+    // Identity Jacobian (physical gradient = reference gradient)
+    part.dxi_dx.assign(n_node * 9, 0.0);
+    for (int n = 0; n < n_node; ++n) {
+        part.dxi_dx[n * 9 + 0] = 1.0;
+        part.dxi_dx[n * 9 + 4] = 1.0;
+        part.dxi_dx[n * 9 + 8] = 1.0;
+    }
+
+    // Non-zero PML displacement fields
+    part.pml_displ_old.assign(n_node * 3, 0.1);
+    part.pml_displ_new.assign(n_node * 3, 0.2);
+    part.rmemory_strain.assign(n_node * 27, 0.0);
+
+    // Simple non-zero GLL derivative matrix for NGLL=2
+    // D = [[0.5, 0.5], [0.5, 0.5]] — constant derivative approximation
+    std::vector<double> D(ngll * ngll, 0.5);
+    std::vector<double> weights(ngll, 1.0);
+
+    cpml_update_strain_memory(part, D.data(), weights.data(), ngll);
+
+    // Verify: strain memory is no longer all zero
+    bool has_nonzero = false;
+    for (double v : part.rmemory_strain) {
+        if (std::abs(v) > 1e-15) {
+            has_nonzero = true;
+            break;
+        }
+    }
+    REQUIRE(has_nonzero);
+}
+
+TEST_CASE("cpml_update_strain_memory skips interior elements", "[pml][cpml]") {
+    RankData part;
+    int ngll = 2;
+    int n_node = ngll * ngll * ngll;
+    part.n_local_cell = 1;
+    part.ngll = ngll;
+    part.has_cpml = true;
+
+    part.pml_region = {0};  // interior — NOT PML
+
+    part.pml_coef_beta.assign(n_node * 9, 0.5);
+    part.dxi_dx.assign(n_node * 9, 0.0);
+    for (int n = 0; n < n_node; ++n) {
+        part.dxi_dx[n * 9 + 0] = 1.0;
+        part.dxi_dx[n * 9 + 4] = 1.0;
+        part.dxi_dx[n * 9 + 8] = 1.0;
+    }
+    part.pml_displ_old.assign(n_node * 3, 0.1);
+    part.pml_displ_new.assign(n_node * 3, 0.2);
+    part.rmemory_strain.assign(n_node * 27, 0.0);
+
+    std::vector<double> D(ngll * ngll, 0.5);
+    std::vector<double> weights(ngll, 1.0);
+
+    cpml_update_strain_memory(part, D.data(), weights.data(), ngll);
+
+    // Interior element: strain memory should remain zero
+    for (double v : part.rmemory_strain) {
+        REQUIRE(std::abs(v) < 1e-15);
+    }
+}
+
+TEST_CASE("cpml_update_strain_memory no-op when has_cpml is false", "[pml][cpml]") {
+    RankData part;
+    int ngll = 2;
+    int n_node = ngll * ngll * ngll;
+    part.n_local_cell = 1;
+    part.ngll = ngll;
+    part.has_cpml = false;  // C-PML not enabled
+
+    part.pml_region = {1};
+    part.pml_coef_beta.assign(n_node * 9, 0.5);
+    part.pml_displ_old.assign(n_node * 3, 0.1);
+    part.pml_displ_new.assign(n_node * 3, 0.2);
+    part.rmemory_strain.assign(n_node * 27, 0.0);
+
+    std::vector<double> D(ngll * ngll, 0.5);
+    std::vector<double> weights(ngll, 1.0);
+
+    cpml_update_strain_memory(part, D.data(), weights.data(), ngll);
+
+    // Memory untouched
+    for (double v : part.rmemory_strain) {
+        REQUIRE(std::abs(v) < 1e-15);
+    }
+}
