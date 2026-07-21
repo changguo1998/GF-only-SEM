@@ -1,5 +1,6 @@
 // forward/share/src/restart.cpp
 #include "gf/restart.hpp"
+#include "gf/types.hpp"
 
 #include <hdf5.h>
 #include <sys/stat.h>
@@ -120,7 +121,8 @@ RestartWriter::~RestartWriter() {
 void RestartWriter::write(int step, double time_s, const std::vector<double>& displacement,
                           const std::vector<double>& velocity,
                           const std::vector<double>& acceleration,
-                          const std::vector<double>& pml_damping) {
+                          const std::vector<double>& pml_damping,
+                          const RankData* cpml_part) {
     if (file_id_ < 0) {
         throw std::runtime_error("RestartWriter: file not open");
     }
@@ -148,6 +150,19 @@ void RestartWriter::write(int step, double time_s, const std::vector<double>& di
         write_dset(file_id_, "velocity", velocity, 5, dims4_3);
         write_dset(file_id_, "acceleration", acceleration, 5, dims4_3);
         write_dset(file_id_, "pml_damping", pml_damping, 4, dims4);
+    }
+
+    // --- C-PML runtime state (only when present) ---
+    if (cpml_part && cpml_part->has_cpml) {
+        hsize_t n_total_pml = cpml_part->pml_displ_old.size();
+        hsize_t dims_disp[1] = {n_total_pml};
+        hsize_t dims_dmem[1] = {cpml_part->rmemory_displ.size()};
+        hsize_t dims_smem[1] = {cpml_part->rmemory_strain.size()};
+
+        write_dset(file_id_, "pml_displ_old", cpml_part->pml_displ_old, 1, dims_disp);
+        write_dset(file_id_, "pml_displ_new", cpml_part->pml_displ_new, 1, dims_disp);
+        write_dset(file_id_, "rmemory_displ", cpml_part->rmemory_displ, 1, dims_dmem);
+        write_dset(file_id_, "rmemory_strain", cpml_part->rmemory_strain, 1, dims_smem);
     }
 }
 

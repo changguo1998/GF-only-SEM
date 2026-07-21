@@ -447,6 +447,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             if (do_restart && step > 0 && step % restart_stride == 0) {
                 cuda_copy_state_to_host(gpu_state, displacement, velocity, acceleration);
                 restart_writer.write(step, step * solver_dt, displacement, velocity, acceleration,
+                                     part.pml_damping, &part);
                                      part.pml_damping);
             }
 
@@ -628,7 +629,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             // --- Write restart (every restart_stride solver steps) ---
             if (do_restart && step > 0 && step % restart_stride == 0) {
                 restart_writer.write(step, step * solver_dt, displacement, velocity, acceleration,
-                                     part.pml_damping);
+                                     part.pml_damping, &part);
             }
 
             // --- Write snapshot (every snapshot_stride solver steps) ---

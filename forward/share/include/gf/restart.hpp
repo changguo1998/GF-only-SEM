@@ -8,6 +8,9 @@
 
 namespace gf {
 
+// Forward declaration (full definition in gf/types.hpp)
+struct RankData;
+
 /// RestartState: full volume state read back from a restart file.
 struct RestartState {
     int step = 0;
@@ -61,7 +64,8 @@ public:
     /// \param pml_damping  PML damping field
     void write(int step, double time_s, const std::vector<double>& displacement,
                const std::vector<double>& velocity, const std::vector<double>& acceleration,
-               const std::vector<double>& pml_damping);
+               const std::vector<double>& pml_damping,
+               const struct RankData* cpml_part = nullptr);
 
     /// Finalize and close the HDF5 file.
     void close();
