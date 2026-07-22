@@ -776,10 +776,50 @@ void cuda_free_cpml_data(CudaDeviceState& state) {
     state.n_pml_nodes_used = 0;
 }
 
+// ---------------------------------------------------------------------------
+// SLS attenuation — device upload / free
+// ---------------------------------------------------------------------------
+
+void cuda_upload_sls_data(CudaDeviceState& state, const RankData& part, int n_node) {
+    if (!part.has_attenuation || !state.allocated) return;
+
+    auto upload = [](auto*& d_ptr, const auto& host_vec, size_t elem_size) {
+        if (!host_vec.empty()) {
+            size_t bytes = host_vec.size() * elem_size;
+            GF_CUDA_CHECK(cudaMalloc(&d_ptr, bytes));
+            GF_CUDA_CHECK(cudaMemcpy(d_ptr, host_vec.data(), bytes,
+                                     cudaMemcpyHostToDevice));
+        }
+    };
+
+    upload(state.d_rmemory_sls, part.rmemory_sls, sizeof(double));
+    upload(state.d_sigma_old, part.sigma_old, sizeof(double));
+    upload(state.d_sls_coef_a, part.sls_coef_a, sizeof(double));
+    upload(state.d_sls_coef_b, part.sls_coef_b, sizeof(double));
+
+    state.has_attenuation = true;
+}
+
+void cuda_free_sls_data(CudaDeviceState& state) {
+    if (!state.has_attenuation) return;
+    auto f = [](auto*& ptr) {
+        if (ptr) {
+            cudaFree(ptr);
+            ptr = nullptr;
+        }
+    };
+    f(state.d_rmemory_sls);
+    f(state.d_sigma_old);
+    f(state.d_sls_coef_a);
+    f(state.d_sls_coef_b);
+    state.has_attenuation = false;
+}
+
 void cuda_free_state(CudaDeviceState& state) {
     if (!state.allocated)
         return;
     cuda_free_cpml_data(state);
+    cuda_free_sls_data(state);
     auto f = [](auto*& ptr) {
         if (ptr) {
             cudaFree(ptr);

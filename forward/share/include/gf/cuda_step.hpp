@@ -43,6 +43,13 @@ struct CudaDeviceState {
     int n_pml_nodes_used = 0;                 // number of actual C-PML GLL nodes
     bool has_cpml = false;
 
+    // --- SLS attenuation device buffers (persistent, allocated when has_attenuation) ---
+    double* d_rmemory_sls = nullptr;   // [n_total_nodes * MEMORY_PER_NODE]  R_l Voigt
+    double* d_sigma_old = nullptr;     // [n_total_nodes * VOIGT_COMPONENTS]  prev stress
+    double* d_sls_coef_a = nullptr;    // [n_total_nodes * N_SLS]  a_l = exp(-dt/tau_s)
+    double* d_sls_coef_b = nullptr;    // [n_total_nodes * N_SLS]  b_l
+    bool has_attenuation = false;
+
     // --- Global DOF arrays (CG-SEM assembly) ---
     double* d_rank_node_mass = nullptr;     // [n_rank_node] — per-node mass
     double* d_rank_node_damping = nullptr;  // [n_rank_node] — per-node damping
@@ -138,6 +145,12 @@ void cuda_upload_cpml_data(CudaDeviceState& state, const struct RankData& part, 
 /// Free C-PML device buffers.
 void cuda_free_cpml_data(CudaDeviceState& state);
 /// CG-SEM global scatter: local_cell_residual → rank_node_residual (with atomicAdd).
+
+/// Upload SLS attenuation data from RankData to device.
+void cuda_upload_sls_data(CudaDeviceState& state, const struct RankData& part, int n_node);
+/// Free SLS device buffers.
+void cuda_free_sls_data(CudaDeviceState& state);
+
 void cuda_scatter_to_rank(CudaDeviceState& state);
 
 /// CG-SEM global gather: global_displacement → local_cell_displacement.
