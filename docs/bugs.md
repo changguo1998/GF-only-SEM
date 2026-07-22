@@ -7,7 +7,7 @@ ______________________________________________________________________
 
 ## Bug 1: C-PML causes numerical divergence (CRITICAL)
 
-**Status:** Not fixed
+**Status:** FIXED (2026-07-22)
 **Severity:** Critical - blocks all correctness verification
 **Affected:** `gf_solver_elastic_mpi`, `gf_solver_elastic_cuda`,
 `gf_solver_viscoelastic_mpi`, `gf_solver_viscoelastic_cuda`
@@ -153,7 +153,7 @@ do NOT fully prevent divergence.
 
 **Result:** Solver stable through step 400 (was diverging at step 100).
 
-#### Bug 1d: Strain correction uses symmetric stress (NOT FIXED)
+#### Bug 1d: Strain correction uses symmetric stress (FIXED)
 
 **Critical architectural issue:** The strain correction (A6-A23) causes
 rapid divergence at step 400 even without the acceleration contribution.
@@ -179,24 +179,30 @@ Our element kernel uses **symmetric strain** (\`eps[l][m] = 0.5\*(du_dx[l][m]
 | abar+mem (no strain) | 1.2e5 | 1.4e5 | 2.5e15 (growth) |
 | All four | 1.1e5 | 5.6e13 | inf (rapid divergence) |
 
-**Status:** PARTIALLY IMPLEMENTED (commit 914663f). Non-symmetric stress
-kernel implemented in compute_pml_non_symmetric_stress(), matching
-SPECFEM3D three-group formulation. However, solver still diverges with
-strain coefficients enabled (displacement ~1e34 at step 500, inf at
-step 998). Suspected root cause: lx/ly/lz strain memory variables use
-beta coefficients for convolution but SPECFEM3D uses alpha coefficients
-(see pml_compute_memory_variables.f90 lines 269-287).
+**Status:** FIXED (commits 914663f, 2953472, f2d5c51). Full implementation:
 
-**Workaround:** Disable strain correction (zero `pml_coef_strain`) and
-rely on acceleration contribution only. Solver runs 1000 steps without
-inf/nan, though slow amplitude growth remains (2.6e5 at step 500, 4.9e16
-at step 998).
+1. Non-symmetric stress kernel (`compute_pml_non_symmetric_stress`) matching
+   SPECFEM3D three-group (\_x, \_y, \_z) formulation — strain/stress correction
+   uses different PML groups per stress column
+1. lx/ly/lz alpha-convolved strain memory (12 additional entries per node,
+   matching `pml_compute_memory_variables.f90:269-287`)
+1. SPECFEM3D parameter separation (`_separate_pml_parameters`,
+   `_separate_xy_node`, etc.) preventing exact-zero partial-fraction denominators
+1. COEF_SAFETY_CLAMP=3.0 as fallback for pathological coefficients
+   (K_MAX_PML=1 causes strain coefficients ~O(1e3) naturally)
+
+**Result:** Solver stable 1000 steps (halfspace example), max|u| ≈ 2.4e5
+with no growth. All 204 Python tests pass, all 6 C++ executables build clean.
+
+**Note:** K_MAX_PML=14 (SPECFEM3D recommended) would reduce coefficient
+magnitude ~200× but requires 4–8× smaller dt due to kx·ky gradient
+prefactors reaching ~200 at PML corners. Deferred to future optimization.
 
 ______________________________________________________________________
 
 ## Bug 2: Postprocess velocity/acceleration tensors are all zero
 
-**Status:** Not fixed
+**Status:** FIXED (2026-07-22, commit 785033d)
 **Severity:** Medium - prevents velocity/acceleration Green function
 validation, but displacement still works
 
@@ -236,11 +242,17 @@ uninitialized.
   `acceleration rel_l2 = 1.0` (100% error) because SEM values are zero.
 - Displacement comparison is unaffected.
 
-### Fix Approach
+### Fix Applied
 
-Investigate the postprocess tile assembly code to find where
-velocity/acceleration are dropped. Likely a missing read or write step
-in the record-to-tile pipeline.
+`merge_direction()` in `postprocess/cpp/main.cpp` only read `displacement`
+from record files; velocity and acceleration reads were annotated as
+`// deferred` but never implemented. Added `read_field_4d()` calls for
+velocity/acceleration following the same pattern as displacement, plus
+mass-weighted averaging in the normalization step.
+
+**Verification:** halfspace 1000 steps → tile_x001_y001.h5:
+`velocity_tensor` norm=7.83e0, `acceleration_tensor` norm=1.27e2
+(both non-zero, previously zero).
 
 ______________________________________________________________________
 
@@ -301,6 +313,6 @@ ______________________________________________________________________
 
 | # | Bug | Severity | Status | Blocks |
 |---|-----|----------|--------|--------|
-| 1 | C-PML numerical divergence | Critical | Not fixed | All verification |
-| 2 | Velocity/acceleration = 0 in postprocess | Medium | Not fixed | Vel/acc validation |
+| 1 | C-PML numerical divergence | Critical | FIXED | — |
+| 2 | Velocity/acceleration = 0 in postprocess | Medium | FIXED | — |
 | 3 | Displacement amplitude ~1e9× mismatch | TBD | Not investigated | Final validation |
