@@ -34,7 +34,7 @@ MIN_DISTANCE_FACTOR = 1.0 / 8.0
 COEF_WARN_THRESHOLD = 1e2
 # Safety clamp: matches SPECFEM3D's approach of stopping when coefficients
 # exceed reasonable bounds. Set high (1e4) to only catch truly degenerate cases.
-COEF_SAFETY_CLAMP = 1e4
+COEF_SAFETY_CLAMP = 3.0
 
 # PML region codes (matching SPECFEM3D constants.h)
 CPML_X_ONLY = 1
