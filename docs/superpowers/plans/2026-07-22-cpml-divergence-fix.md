@@ -2,8 +2,12 @@
 
 > **Bug:** [`docs/bugs.md`](../../bugs.md) §1
 > **Created:** 2026-07-22
-> **Goal:** Eliminate the C-PML coefficient explosion that causes the solver
-> to diverge at step ~100, restoring stable wave propagation.
+> **Updated:** 2026-07-22 (status update after deeper investigation)
+> **Goal:** Eliminate C-PML divergence causing inf/nan at step ~100.
+>
+> **Status:** Partially fixed. Three C++ bugs found and fixed (commit `7dd0598`);
+> one deep architectural issue remains (Bug 1d, strain correction).
+> See [`docs/bugs.md`](../../bugs.md) for full diagnostics.
 
 ______________________________________________________________________
 
@@ -235,12 +239,53 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
-## 6. Out of Scope
+## 7. Actual Progress (2026-07-22)
 
-- Bug 2 (velocity/acceleration = 0 in postprocess) - separate fix
-- Issue 3 (displacement amplitude mismatch) - investigate after Bug 1
-  and Bug 2 are fixed
-- C-PML absorption quality validation (plane wave reflection test) -
-  future work after stability is restored
-- CUDA-specific C-PML kernel changes - not needed, coefficients are
-  precomputed in Python
+### Completed
+
+**C++ Solver Bugs (commits `b9f3c74`, `7dd0598`):**
+
+- [x] **Sign error:** `residual += PML` → `residual -= PML` (root cause)
+- [x] **PML displ field ordering:** Split into `cpml_save_displ_old` (before predictor) and `cpml_save_displ_new` (after predictor, using `displacement_tilde` + predicted velocity)
+- [x] **Memory variable timing:** Moved before element kernel (step 3b)
+- [x] **Accel contribution uses predicted fields:** Uses `displacement_tilde` and `v + dt/2*a`
+
+**Python Preprocessor Mitigations (`b9f3c74`):**
+
+- [x] Task 1: Alpha spacing enforcement
+- [x] Task 2: `dist` clipping to `1 - DIST_EPSILON`
+- [x] Task 3: Coefficient range validation + warning
+
+### Not Done
+
+- [ ] Task 4: Unit tests for degenerate alpha cases
+- [ ] Task 5: Integration test (blocked by Bug 1d)
+
+### New Discoveries (beyond original scope)
+
+#### Bug 1a (FIXED): Accel scale factor uses 1/ρ instead of ρ
+
+`pml.cpp:188` and `cuda_step.cu:552` used `scale = w * (1/ρ) * J`.
+SPECFEM3D uses `scale = w * ρ * J`. Fixed in both CPU and CUDA.
+
+#### Bug 1c (FIXED): Sign, ordering, timing errors
+
+Three root-cause C++ bugs caused energy injection instead of absorption.
+See commit `7dd0598` for details.
+
+#### Bug 1d (NOT FIXED): Strain correction uses symmetric stress
+
+**Critical architectural issue** — SPECFEM3D uses non-symmetric stress
+with three correction groups. Our kernel uses symmetric strain, mixing
+different PML corrections. Isolation tests show strain correction alone
+causes rapid divergence at step 400.
+
+**Resolution:** Requires separate PML element kernel with non-symmetric
+stress. Major architectural change — deferred.
+
+### Next Steps
+
+1. Defer Bug 1d (strain correction) — major architectural change
+1. Run with `pml_coef_strain` zeroed for stability
+1. Proceed to Lamb verification with C-PML (accel contrib only)
+1. Fix Bug 2 (postprocess velocity/acceleration = 0)

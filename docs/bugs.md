@@ -143,11 +143,11 @@ do NOT fully prevent divergence.
    so PML must also be subtracted. The positive sign created a positive
    feedback loop (velocity -> positive accel -> larger velocity).
 
-2. **PML displacement field ordering (FIXED):** `cpml_save_displ_new` used
+1. **PML displacement field ordering (FIXED):** `cpml_save_displ_new` used
    OLD displacement instead of PREDICTED displacement (`displacement_tilde`).
    SPECFEM3D computes `PML_displ_new` AFTER the Newmark predictor.
 
-3. **Memory variable update timing (FIXED):** `rmemory_displ` and
+1. **Memory variable update timing (FIXED):** `rmemory_displ` and
    `rmemory_strain` were updated AFTER the corrector, but used BEFORE
    (stale). Moved to before the element kernel.
 
@@ -159,14 +159,15 @@ do NOT fully prevent divergence.
 rapid divergence at step 400 even without the acceleration contribution.
 
 SPECFEM3D uses **non-symmetric stress** in PML elements with THREE
-separate correction groups (_x,_y, _z), each applying different PML
+separate correction groups (\_x,\_y, \_z), each applying different PML
 corrections to all 9 gradient components. The stress is non-symmetric:
 `sigma_yx != sigma_xy`.
 
-Our element kernel uses **symmetric strain** (`eps[l][m] = 0.5*(du_dx[l][m]
-- du_dx[m][l])`), which mixes different PML corrections. This is
-fundamentally wrong for PML elements and causes exponential divergence
-when the source wave enters the PML.
+Our element kernel uses **symmetric strain** (\`eps[l][m] = 0.5\*(du_dx[l][m]
+
+- du_dx[m][l])\`), which mixes different PML corrections. This is
+  fundamentally wrong for PML elements and causes exponential divergence
+  when the source wave enters the PML.
 
 **Isolation test results:**
 
