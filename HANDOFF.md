@@ -95,7 +95,7 @@ u_rankA ≠ u_rankB (共享节点)
 
 | 文件 | 用途 |
 |------|------|
-| `docs/superpowers/plans/2026-07-12-cg-sem-assembly-fix.md` | 修复方案（82/82 完成） |
+|| `docs/_archive/plans/2026-07-12-cg-sem-assembly-fix.md` | 修复方案（82/82 完成） |
 | `docs/design/algorithm-verification.md` | 与 SPECFEM3D 算法一致性检查 |
 | `docs/design-decisions.md` | 架构设计决策 |
 | `docs/design/naming-convention.md` | X2Y 命名约定 |
@@ -109,7 +109,7 @@ u_rankA ≠ u_rankB (共享节点)
 | `forward/share/src/element_cuda.cu` | CUDA 元素核 |
 | `tests/test_assembly.cpp` | scatter/gather 单元测试 |
 || `tests/preprocess/test_source_locator.py` | 源定位单元测试（表面 + 埋藏模式） |
-|| `docs/superpowers/plans/2026-07-14-buried-source.md` | 埋藏源实现方案（已完成） |
+||| `docs/_archive/plans/2026-07-14-buried-source.md` | 埋藏源实现方案（已完成） |
 || `tests/preprocess/test_partition.py` | ibool 单元测试 |
 
 ## 环境

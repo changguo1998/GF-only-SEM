@@ -35,8 +35,8 @@ ______________________________________________________________________
 - `gf_solver_viscoelastic_cuda` (CUDA, no MPI)
 - `gf_solver_viscoelastic_mpi_cuda` (CUDA + MPI)
 
-**Spec:** [`docs/superpowers/specs/2026-07-21-sls-viscoelastic-design.md`](../superpowers/specs/2026-07-21-sls-viscoelastic-design.md)
-**Plan:** [`docs/superpowers/plans/2026-07-21-sls-viscoelastic.md`](../superpowers/plans/2026-07-21-sls-viscoelastic.md)
+**Spec:** [`docs/_archive/specs/2026-07-21-sls-viscoelastic-design.md`](../_archive/specs/2026-07-21-sls-viscoelastic-design.md)
+**Plan:** [`docs/_archive/plans/2026-07-21-sls-viscoelastic.md`](../_archive/plans/2026-07-21-sls-viscoelastic.md)
 
 ______________________________________________________________________
 
@@ -53,7 +53,7 @@ ______________________________________________________________________
 
 **Status: COMPLETE.** Displacement-based C-PML (acceleration correction, 3 memory
 variables/node) and strain-based correction (A₆…A₂₃, 18 memory variables/node)
-are both implemented.  Key commits:
+are both implemented. Key commits:
 
 - `18b89ca`: CUDA C-PML strain correction (element kernel + runtime)
 - `71aac4a`: C-PML strain correction unit tests (7 new, 1443 assertions)
@@ -74,7 +74,7 @@ are both implemented.  Key commits:
 ### Remaining: absorption quality validation
 
 Comparing strain-based C-PML absorption with the old linear-ramp damping is
-pending.  The solver runs and passes the existing validation, but a dedicated
+pending. The solver runs and passes the existing validation, but a dedicated
 absorption quality benchmark has not yet been written.
 
 ## 4. Compression Benchmark Tool

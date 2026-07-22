@@ -19,7 +19,7 @@ independently testable.
 - Backward compatible: `nullptr` defaults on new kernel params — old code skips PML branch
 - CPU first, then CUDA — validate on CPU before GPU port
 - All 221 existing tests must continue to pass after each task
-- Full project spec: [`docs/superpowers/specs/2026-07-21-cpml-strain-correction-design.md`](../../superpowers/specs/2026-07-21-cpml-strain-correction-design.md)
+- Full project spec: [`docs/_archive/specs/2026-07-21-cpml-strain-correction-design.md`](../specs/2026-07-21-cpml-strain-correction-design.md)
 - Parent design: [`docs/design/cpml.md`](../../design/cpml.md)
 
 ______________________________________________________________________
@@ -45,7 +45,7 @@ Add after the existing `#include` block, before the function declarations:
 // ============================================================================
 // C-PML Strain Correction — named constants, structs, and enums
 // All dimension-dependent values derived from NDIM = 3.
-// See docs/superpowers/specs/2026-07-21-cpml-strain-correction-design.md §2.
+// See docs/_archive/specs/2026-07-21-cpml-strain-correction-design.md §2.
 // ============================================================================
 namespace CpmlStrain {
 

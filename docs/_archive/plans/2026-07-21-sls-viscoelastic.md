@@ -14,7 +14,7 @@
 - CPU first, then CUDA — validate physics on CPU before GPU port
 - All 197 existing tests must continue to pass after each task
 - `has_attenuation` flag gates all SLS code paths; elastic path unchanged
-- Full project spec: [`docs/superpowers/specs/2026-07-21-sls-viscoelastic-design.md`](../../superpowers/specs/2026-07-21-sls-viscoelastic-design.md)
+- Full project spec: [`docs/_archive/specs/2026-07-21-sls-viscoelastic-design.md`](../specs/2026-07-21-sls-viscoelastic-design.md)
 
 ______________________________________________________________________
 
@@ -46,7 +46,7 @@ ______________________________________________________________________
 // ---------------------------------------------------------------------------
 // SLS (Standard Linear Solid) Viscoelastic Attenuation
 // ---------------------------------------------------------------------------
-// Spec: docs/superpowers/specs/2026-07-21-sls-viscoelastic-design.md §4
+// Spec: docs/_archive/specs/2026-07-21-sls-viscoelastic-design.md §4
 
 namespace SLS {
 

@@ -15,7 +15,7 @@
 // ============================================================================
 // C-PML Strain Correction — named constants, structs, and enums
 // All dimension-dependent values derived from NDIM = 3.
-// See docs/superpowers/specs/2026-07-21-cpml-strain-correction-design.md §2.
+// See docs/_archive/specs/2026-07-21-cpml-strain-correction-design.md §2.
 // ============================================================================
 namespace CpmlStrain {
 

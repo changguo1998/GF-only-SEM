@@ -2,7 +2,7 @@
  * @file attenuation.hpp
  * @brief SLS (Standard Linear Solid) viscoelastic attenuation constants and helpers.
  *
- * Spec: docs/superpowers/specs/2026-07-21-sls-viscoelastic-design.md §4
+ * Spec: docs/_archive/specs/2026-07-21-sls-viscoelastic-design.md §4
  */
 
 #ifndef GF_ATTENUATION_HPP_

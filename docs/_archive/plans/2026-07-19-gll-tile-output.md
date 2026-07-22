@@ -4,7 +4,7 @@
 
 **Goal:** Replace 8-corner vertex recording with full 125-node GLL recording, make strain continuous via postprocess L2 projection, and add spectral-accuracy GLL Lagrange interpolation to the greenfun library.
 
-**Architecture:** Solver core unchanged. Changes confined to: (1) preprocess recording map selects GLL nodes, (2) solver extracts 125 nodes per recording cell, (3) record files store 4D `[n_rec_cell, 125, ncomp]`, (4) postprocess L2-projects strain to continuous global nodes + deduplicates displacement, (5) greenfun gains GLLInterpolator. Strain L2 projection uses mass weight from `model.h5 /field/cell/mass` (already computed). See [`docs/superpowers/specs/2026-07-19-gll-tile-design.md`](../specs/2026-07-19-gll-tile-design.md) for full design.
+**Architecture:** Solver core unchanged. Changes confined to: (1) preprocess recording map selects GLL nodes, (2) solver extracts 125 nodes per recording cell, (3) record files store 4D `[n_rec_cell, 125, ncomp]`, (4) postprocess L2-projects strain to continuous global nodes + deduplicates displacement, (5) greenfun gains GLLInterpolator. Strain L2 projection uses mass weight from `model.h5 /field/cell/mass` (already computed). See [`docs/_archive/specs/2026-07-19-gll-tile-design.md`](../specs/2026-07-19-gll-tile-design.md) for full design.
 
 **Tech Stack:** C++17 (forward + postprocess), Python (preprocess + greenfun), HDF5, Catch2 (C++ tests), pytest (Python tests)
 

@@ -482,6 +482,6 @@ ______________________________________________________________________
 
 Plan rewritten for parallel execution and saved to:
 
-`docs/superpowers/plans/2026-07-10-greenfun-reader.md`
+`docs/_archive/plans/2026-07-10-greenfun-reader.md`
 
 Recommended execution mode after approval: subagent-driven development with isolated worktrees, one agent per Wave 1 domain.

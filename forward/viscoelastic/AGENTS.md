@@ -67,8 +67,8 @@ cmake --build build
 
 ## Related Documents
 
-- Design spec: `docs/superpowers/specs/2026-07-21-sls-viscoelastic-design.md`
-- Implementation plan: `docs/superpowers/plans/2026-07-21-sls-viscoelastic.md`
+- Design spec: `docs/_archive/specs/2026-07-21-sls-viscoelastic-design.md`
+- Implementation plan: `docs/_archive/plans/2026-07-21-sls-viscoelastic.md`
 - SLS preprocessor: `preprocess/attenuation.py`
 - SLS namespace + helpers: `forward/share/include/gf/attenuation.hpp`
 - Shared kernel helpers: `forward/share/include/gf/kernel_helpers.hpp`/.cuh
