@@ -179,13 +179,18 @@ Our element kernel uses **symmetric strain** (\`eps[l][m] = 0.5\*(du_dx[l][m]
 | abar+mem (no strain) | 1.2e5 | 1.4e5 | 2.5e15 (growth) |
 | All four | 1.1e5 | 5.6e13 | inf (rapid divergence) |
 
-**Status:** NOT FIXED. Requires a separate PML element kernel with
-non-symmetric stress computation, matching SPECFEM3D's three-group
-approach. This is a significant architectural change.
+**Status:** PARTIALLY IMPLEMENTED (commit 914663f). Non-symmetric stress
+kernel implemented in compute_pml_non_symmetric_stress(), matching
+SPECFEM3D three-group formulation. However, solver still diverges with
+strain coefficients enabled (displacement ~1e34 at step 500, inf at
+step 998). Suspected root cause: lx/ly/lz strain memory variables use
+beta coefficients for convolution but SPECFEM3D uses alpha coefficients
+(see pml_compute_memory_variables.f90 lines 269-287).
 
 **Workaround:** Disable strain correction (zero `pml_coef_strain`) and
-rely on acceleration contribution only. PML absorption will be imperfect
-but solver will be stable for longer runs.
+rely on acceleration contribution only. Solver runs 1000 steps without
+inf/nan, though slow amplitude growth remains (2.6e5 at step 500, 4.9e16
+at step 998).
 
 ______________________________________________________________________
 
