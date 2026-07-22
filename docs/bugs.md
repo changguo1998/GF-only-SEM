@@ -101,6 +101,61 @@ Disabling C-PML (zeroing `pml_coef_abar`, `pml_coef_strain`,
 legacy `damping`) eliminates the divergence: solver runs stably for 1000
 steps with no inf/nan.
 
+### Additional Bugs Found During Fix Attempt (2026-07-22)
+
+During the fix attempt, three additional issues were discovered:
+
+#### Bug 1a: Accel scale factor uses 1/ρ instead of ρ
+
+**File:** `forward/share/src/pml.cpp:188` (CPU) and `cuda_step.cu:552` (CUDA)
+
+The C-PML acceleration contribution uses `scale = w * (1/ρ) * J`, but
+SPECFEM3D uses `scale = w * ρ * J` (see
+`pml_compute_accel_contribution.f90:122`). Since the residual is later
+divided by mass (∝ ρ *w* J), the net acceleration is:
+
+- Our code: `(w * (1/ρ) * J * PML_term) / (ρ * w * J) = PML_term / ρ²`
+- SPECFEM3D: `(w * ρ * J * PML_term) / (ρ * w * J) = PML_term`
+
+Our code amplifies the PML term by 1/ρ² ≈ 1/7.3e6, causing massive
+over-correction. **Status: FIXED** (changed to `ρ` in both CPU and CUDA).
+
+#### Bug 1b: Coefficient magnitude explosion (partial-fraction ill-conditioning)
+
+Even with the ρ fix, the C-PML coefficients themselves are too large.
+The partial-fraction formulas produce coefficients of order d³/Δα² where
+d is the damping profile (up to ~52) and Δα is the alpha difference
+(~0.3 for interior, ~0 for boundary). At boundary nodes, coefficients
+reach 1e6-1e9.
+
+**Mitigation applied:** dist clipping (`DIST_EPSILON=1e-3`), alpha spacing
+enforcement (`ALPHA_MIN_SPACING=1e-3`), and coefficient clamping
+(`COEF_CLAMP_THRESHOLD`). These reduce coefficients from 1e9 to 1e3 but
+do NOT fully prevent divergence.
+
+#### Bug 1c: C-PML fundamentally unstable even with small coefficients
+
+**Critical finding:** Even with all C-PML coefficients clamped to ±1,
+the solver still diverges at step ~300. Only when ALL coefficients are
+exactly zero is the solver stable. This indicates a structural bug in
+the C-PML time integration, not just coefficient magnitude.
+
+**Suspected causes:**
+
+1. **PML displacement field uses old displacement:** `cpml_update_displ_fields()`
+   uses `displacement` (pre-predictor) instead of `displacement_tilde`
+   (post-predictor). SPECFEM3D uses the post-predictor displacement.
+1. **Memory variable feedback loop:** The recursive convolution may have
+   a sign or ordering error that causes energy injection rather than
+   absorption.
+1. **Strain memory gradient computation:** The strain memory update in
+   `cpml_update_strain_memory()` computes gradients of PML displacement
+   fields, which may not be correctly synchronized with the element
+   kernel.
+
+**Status:** NOT FIXED. Requires deeper investigation of the C-PML
+time integration scheme against SPECFEM3D.
+
 **Fix plan:** See
 [`docs/superpowers/plans/2026-07-22-cpml-divergence-fix.md`](superpowers/plans/2026-07-22-cpml-divergence-fix.md)
 

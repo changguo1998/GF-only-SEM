@@ -32,109 +32,105 @@ ______________________________________________________________________
 
 ## 2. Fix Strategy
 
-Two-pronged approach:
+Three-pronged approach. The core insight is that the partial-fraction
+formulas are mathematically correct only when direction alphas are
+distinct; when they coincide (repeated roots), individual terms diverge
+even though their sum converges. Rather than deriving limit forms for
+every degenerate case (complex, error-prone), we ensure alphas are never
+degenerate via small perturbations.
 
-### Fix A: Degenerate-alpha guard (primary fix)
+### Fix A: Alpha spacing enforcement (primary fix)
 
-When direction alphas are equal or near-equal (within `MIN_DISTANCE`),
-use the **limit form** of the partial-fraction decomposition (collapsed
-formula for repeated roots) instead of clamping the denominator.
+After computing alpha profiles, enforce a minimum spacing between
+direction alphas at each GLL node. When two direction alphas are closer
+than `ALPHA_MIN_SPACING`, perturb them apart by a tiny amount.
 
-**Mathematical basis:** When α_x -> α_y, the three-term partial fraction
+**Why this works:** The C-PML coefficients depend continuously on alpha.
+A perturbation of order 1e-4 in alpha produces a negligible change in
+the physical absorption (alpha controls the frequency shift, and 1e-4
+\<< the alpha_max values of ~5-7). But it prevents the partial-fraction
+denominators from collapsing to the clamp threshold, keeping coefficients
+bounded.
 
-```
-f(s) / [(s+α_x)(s+α_y)(s+α_z)]  →  f(s) / [(s+α_x)²(s+α_z)]
-```
-
-collapses to a two-term form with a repeated root. The coefficient of
-the repeated root is the derivative w.r.t. that root, not a ratio.
-
-**Implementation:** Replace the `np.where` clamp with explicit branching:
+**Implementation** (in `compute_pml_profiles()`, after alpha computation):
 
 ```python
-if abs(ax - ay) < MIN_DISTANCE:
-    # Collapsed limit: alpha_x == alpha_y
-    # Use the 2-direction (XY collapsed) formula
-    ...
-elif abs(ax - az) < MIN_DISTANCE:
-    # Collapsed limit: alpha_x == alpha_z
-    ...
-elif abs(ay - az) < MIN_DISTANCE:
-    # Collapsed limit: alpha_y == alpha_z
-    ...
-else:
-    # Full 3-direction formula (original)
-    ...
+# For each PML node, ensure direction alphas are spaced apart
+for axis_pair in [(0,1), (0,2), (1,2)]:
+    a, b = axis_pair
+    diff = alpha_store[..., a] - alpha_store[..., b]
+    too_close = np.abs(diff) < ALPHA_MIN_SPACING
+    # Perturb: push b away from a by ALPHA_MIN_SPACING
+    sign = np.sign(diff + ALPHA_MIN_SPACING)  # default + if diff==0
+    alpha_store[..., b] = np.where(
+        too_close,
+        alpha_store[..., a] + sign * ALPHA_MIN_SPACING,
+        alpha_store[..., b]
+    )
 ```
 
-For the fully degenerate case (all three alphas equal, e.g. at the outer
-boundary where dist=1 and all alphas=0), collapse to the single-direction
-formula.
+**Constants:** `ALPHA_MIN_SPACING = 1e-3` (10x larger than MIN_DISTANCE
+= 1e-6, so the np.where clamp in_l_parameter never triggers).
 
-### Fix B: Alpha-shift at boundary (safety net)
+### Fix B: dist clipping at boundary (safety net)
 
 Ensure alpha is never exactly zero at the outer boundary by clipping
-`dist` to `[0, 1 - epsilon]` (e.g. `epsilon = 1e-3`), so
-`alpha = alpha_max * (1 - dist) >= alpha_max * epsilon > 0`.
+`dist` to `[0, 1 - DIST_EPSILON]`, so
+`alpha = alpha_max * (1 - dist) >= alpha_max * DIST_EPSILON > 0`.
 
 This prevents the all-zero-alpha case at boundary GLL nodes, which is
-the most common trigger for the degeneracy.
+the most common trigger for the degeneracy (e.g. node 62 in the
+diagnostics: alpha = [0, 0, 1.15]).
 
 **Side effect:** The outermost PML nodes will have slightly non-zero
 alpha (less absorption shift), but this is a negligible physical change
 that does not affect absorption quality.
 
+### Fix C: Coefficient range validation (regression guard)
+
+After computing coefficients, warn if any exceeds a sanity threshold
+(e.g. 1e4). This catches future regressions where the alpha spacing or
+dist clip might not be sufficient.
+
 ______________________________________________________________________
 
 ## 3. Implementation Tasks
 
-### Task 1: Add degenerate-alpha limit forms to `_l_parameter()`
+### Task 1: Add alpha-spacing enforcement to `compute_pml_profiles()`
 
-**File:** `preprocess/pml_cpml.py`, function `_l_parameter()`
+**File:** `preprocess/pml_cpml.py`, function `compute_pml_profiles()`
 
-For each multi-direction region (CPML_XYZ, CPML_XY_ONLY, CPML_XZ_ONLY,
-CPML_YZ_ONLY), replace the `np.where`-clamped division with explicit
-limit-form branches:
+After computing `alpha_store`, add a post-processing step that enforces
+minimum spacing between direction alphas at each GLL node. This is the
+**primary fix** - it prevents the partial-fraction denominators from
+collapsing.
 
-- **CPML_XYZ** (3 directions):
+**Implementation:**
 
-  - If all three alphas distinct: original A3/A4/A5 formula
-  - If α_x ≈ α_y: collapsed 2-direction formula (treat XY as one
-    direction, Z as the other)
-  - If α_x ≈ α_z: collapsed (XZ as one, Y as the other)
-  - If α_y ≈ α_z: collapsed (YZ as one, X as the other)
-  - If all three ≈ equal: single-direction formula
-
-- **CPML_XY_ONLY** (2 directions):
-
-  - If α_x ≈ α_y: single-direction formula with α = α_x, d = d_x + d_y
-  - Else: original A3/A4 formula
-
-- Same pattern for CPML_XZ_ONLY, CPML_YZ_ONLY.
-
-**Reference:** The collapsed formulas are derived by taking the limit
-of the partial fraction as two roots merge. For the 2-direction case
-(α_x -> α_y), A3 + A4 collapses to:
-
-```
-A_collapsed = A0 * α_x² * (β_x - α_x) * d/dα_x[(β_x-α_x)(β_y-α_x)] / 1
+```python
+# Enforce minimum alpha spacing between directions (Fix A)
+for a, b in [(0, 1), (0, 2), (1, 2)]:
+    diff = alpha_store[..., a] - alpha_store[..., b]
+    too_close = np.abs(diff) < ALPHA_MIN_SPACING
+    sign = np.where(diff >= 0, 1.0, -1.0)
+    alpha_store[..., b] = np.where(
+        too_close,
+        alpha_store[..., a] + sign * ALPHA_MIN_SPACING,
+        alpha_store[..., b]
+    )
 ```
 
-(derivative of the numerator w.r.t. the repeated root, per standard
-partial-fraction theory for repeated roots).
+**Constants:** Add `ALPHA_MIN_SPACING = 1e-3` to module constants. This
+is 1000x larger than `MIN_DISTANCE = 1e-6`, so the `np.where` clamp in
+`_l_parameter()` / `_lijk_parameter()` never triggers.
 
-**Verification:** Unit test - compute coefficients with α_x = α_y and
-check that the result is finite and O(1) magnitude, not 1e6+.
+**Why not modify `_l_parameter()` / `_lijk_parameter()`:** Those
+functions receive alpha as input. If the input alphas are already
+well-spaced (ensured by this task), their existing `np.where` clamp
+never activates and the formulas work correctly. No changes needed to
+the coefficient functions.
 
-### Task 2: Add degenerate-alpha guard to `_lijk_parameter()`
-
-**File:** `preprocess/pml_cpml.py`, function `_lijk_parameter()`
-
-Same limit-form branching as Task 1, but for the strain-update
-coefficients (A₆-A₁₇). The `_lijk_parameter` function has the same
-partial-fraction structure with direction permutations.
-
-### Task 3: Clip dist to avoid alpha=0 at boundary
+### Task 2: Clip dist to avoid alpha=0 at boundary
 
 **File:** `preprocess/pml_cpml.py`, function `compute_pml_profiles()`
 
@@ -153,9 +149,9 @@ dist = np.clip(dist, 0.0, 1.0 - DIST_EPSILON)  # DIST_EPSILON = 1e-3
 This ensures `alpha = alpha_max * (1 - dist) >= alpha_max * 1e-3 > 0`
 at the outer boundary, preventing the all-zero-alpha degeneracy.
 
-**Constant:** Add `DIST_EPSILON = 1e-3` to the module constants.
+**Constant:** Add `DIST_EPSILON = 1e-3` to module constants.
 
-### Task 4: Add coefficient-range validation
+### Task 4: Unit tests for degenerate alpha cases
 
 **File:** `preprocess/pml_cpml.py`, function
 `compute_abar_coefficients()` and `compute_strain_coefficients()`
@@ -191,7 +187,7 @@ Test cases:
 1. **Coefficient range:** verify no coefficient exceeds 1e4 for
    realistic halfspace parameters.
 
-### Task 6: Integration test - halfspace solver stability
+### Task 5: Integration test - halfspace solver stability
 
 **File:** `examples/halfspace/run.sh` (verification, not permanent test)
 
@@ -217,12 +213,11 @@ ______________________________________________________________________
 
 ## 4. Verification Checklist
 
-- [ ] Task 1: `_l_parameter()` limit forms implemented
-- [ ] Task 2: `_lijk_parameter()` limit forms implemented
-- [ ] Task 3: `dist` clipping to `1 - DIST_EPSILON`
-- [ ] Task 4: Coefficient range validation + warning
-- [ ] Task 5: Unit tests pass (degenerate alpha cases)
-- [ ] Task 6: Halfspace solver runs 1000 steps without inf/nan
+- [ ] Task 1: Alpha-spacing enforcement in `compute_pml_profiles()`
+- [ ] Task 2: `dist` clipping to `1 - DIST_EPSILON`
+- [ ] Task 3: Coefficient range validation + warning
+- [ ] Task 4: Unit tests pass (degenerate alpha cases)
+- [ ] Task 5: Halfspace solver runs 1000 steps without inf/nan
 - [ ] Coefficient max in partition files < 1e3 (was 1e6-1e9)
 - [ ] All 204 existing tests still pass
 - [ ] `bash format.sh` clean
@@ -233,7 +228,7 @@ ______________________________________________________________________
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| Limit-form formulas incorrect | Medium | High (wrong PML absorption) | Unit test against known values; compare with non-degenerate case in the limit |
+| Alpha perturbation changes absorption | Low | Low (perturbation ~1e-3 \<< alpha_max ~5-7) | Verify absorption quality unchanged; coefficient range check |
 | dist clipping changes absorption | Low | Low (epsilon=1e-3 negligible) | Verify absorption quality unchanged |
 | Existing tests break | Low | Low | Run all 204 tests after each task |
 | CUDA backend needs same fix | N/A | N/A | Fix is in preprocessor (Python), CUDA reads precomputed coefficients - no CUDA change needed |

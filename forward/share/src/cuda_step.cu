@@ -546,11 +546,11 @@ __global__ void cpml_accel_kernel(double* d_residual, const double* d_rank_node_
     double A4 = d_pml_coef_abar[node_coef_off + 3];
     double A5 = d_pml_coef_abar[node_coef_off + 4];
 
-    // Scale factor: w * (1/ρ) * J
+    // Scale factor: w * ρ * J (matches SPECFEM3D pml_compute_accel_contribution)
     double rho = d_density[elem_off + n];
     double jac = d_jacobian[elem_off + n];
-    double rho_inv = (rho > 0.0) ? 1.0 / rho : 0.0;
-    double scale = wgll * rho_inv * jac;
+    double rho_val = (rho > 0.0) ? rho : 0.0;
+    double scale = wgll * rho_val * jac;
 
     int node_mem_off = (elem_off + n) * 9;
     int elem_resid_off = idx * 3;

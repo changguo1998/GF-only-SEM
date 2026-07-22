@@ -10,6 +10,8 @@ See: docs/design/cpml.md for the full mathematical formulation.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import numpy.typing as npt
 
@@ -22,7 +24,13 @@ K_MIN_PML = 1.0
 K_MAX_PML = 1.0
 NPOWER = 2
 R_COEF = 1e-5  # Target reflection coefficient
-MIN_DISTANCE = 1e-6  # Singularity avoidance threshold
+MIN_DISTANCE = 1e-6  # Singularity avoidance threshold (partial-fraction denominators)
+DIST_EPSILON = 1e-3  # Clip dist to [0, 1-DIST_EPSILON] to avoid alpha=0 at boundary
+ALPHA_MIN_SPACING = (
+    1e-3  # Minimum spacing between direction alphas (prevents partial-fraction explosion)
+)
+COEF_WARN_THRESHOLD = 1e4  # Warn if any C-PML coefficient exceeds this magnitude
+COEF_CLAMP_THRESHOLD = 1e3  # Clamp coefficients to [-COEF_CLAMP_THRESHOLD, +COEF_CLAMP_THRESHOLD] for numerical stability
 
 # PML region codes (matching SPECFEM3D constants.h)
 CPML_X_ONLY = 1
@@ -32,6 +40,14 @@ CPML_XY_ONLY = 4
 CPML_XZ_ONLY = 5
 CPML_YZ_ONLY = 6
 CPML_XYZ = 7
+
+
+def _get_region(pml_regions: npt.NDArray[np.int32], e: int | np.integer) -> int:
+    """Safely get PML region code for element e, defaulting to 0 (interior)."""
+    try:
+        return int(pml_regions[e])
+    except (IndexError, ValueError):
+        return 0
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +128,7 @@ def compute_pml_profiles(
 
     pml_cells = np.where(is_pml)[0]
     for e in pml_cells:
-        region = int(pml_regions[e].item()) if e < len(pml_regions) else 0
+        region = _get_region(pml_regions, e)
         coords_flat = gll_coords[e].reshape(-1, 3)  # [n_node, 3]
         vp_flat = vp[e].reshape(-1)  # [n_node]
 
@@ -128,7 +144,7 @@ def compute_pml_profiles(
             # dist = |coord - boundary| / width  ∈ [0, 1]
             coord_axis = coords_flat[:, axis]
             dist = np.abs(coord_axis - boundary_val) / width
-            dist = np.clip(dist, 0.0, 1.0)
+            dist = np.clip(dist, 0.0, 1.0 - DIST_EPSILON)  # clip to avoid alpha=0 at boundary
 
             K_val = K_MIN_PML + (K_MAX_PML - 1.0) * dist
             d_val = pml_damping_profile(dist, vp_flat, width)
@@ -143,6 +159,21 @@ def compute_pml_profiles(
             K_store[e, :, axis] = K_val
             d_store[e, :, axis] = d_val
             alpha_store[e, :, axis] = alpha_val
+
+    # --- Enforce minimum alpha spacing between directions (Fix A) ---
+    # When two direction alphas coincide (e.g. at edges/corners where dist_x ==
+    # dist_y), the partial-fraction denominators in _l_parameter() / _lijk_parameter()
+    # collapse to the MIN_DISTANCE clamp, producing coefficients of order 1e6-1e9.
+    # Perturbing alphas apart by ALPHA_MIN_SPACING keeps denominators bounded.
+    # Only apply to PML cells (non-PML cells have all-zero alphas by design).
+    pml_mask = is_pml.reshape(-1, 1)  # [n_cell, 1] - broadcast with [n_cell, n_node]
+    for a, b in [(0, 1), (0, 2), (1, 2)]:
+        diff = alpha_store[..., a] - alpha_store[..., b]  # [n_cell, n_node]
+        too_close = (np.abs(diff) < ALPHA_MIN_SPACING) & pml_mask
+        sign = np.where(diff >= 0, 1.0, -1.0)
+        alpha_store[..., b] = np.where(
+            too_close, alpha_store[..., a] + sign * ALPHA_MIN_SPACING, alpha_store[..., b]
+        )
 
     return K_store, d_store, alpha_store
 
@@ -373,7 +404,7 @@ def compute_abar_coefficients(
     beta = alpha_store + d_store / np.maximum(K_store, 1.0)  # [n_cell, n_node, 3]
 
     for e in range(n_cell):
-        region = int(pml_regions[e].item()) if e < len(pml_regions) else 0
+        region = _get_region(pml_regions, e)
         if region == 0:
             continue
 
@@ -388,6 +419,23 @@ def compute_abar_coefficients(
         coef_abar[e, :, 2] = A3
         coef_abar[e, :, 3] = A4
         coef_abar[e, :, 4] = A5
+
+    # Clamp coefficients for numerical stability. Large coefficients arise at
+    # boundary nodes where d >> alpha (partial-fraction ill-conditioning).
+    # Clamping sacrifices PML absorption at these extreme-boundary nodes but
+    # prevents solver divergence. Interior PML nodes are unaffected.
+    np.clip(coef_abar, -COEF_CLAMP_THRESHOLD, COEF_CLAMP_THRESHOLD, out=coef_abar)
+
+    try:
+        max_abar = float(np.max(np.abs(coef_abar)))
+        if max_abar > COEF_WARN_THRESHOLD:
+            warnings.warn(
+                f"C-PML abar coefficient max={max_abar:.2e} exceeds {COEF_WARN_THRESHOLD:.0e}, "
+                "possible degenerate-alpha issue",
+                stacklevel=2,
+            )
+    except ValueError:
+        pass  # empty array
 
     return coef_abar
 
@@ -550,7 +598,7 @@ def compute_strain_coefficients(
     coef_strain = np.zeros((n_cell, n_node, 18), dtype=np.float64)
 
     for e in range(n_cell):
-        region = int(pml_regions[e].item()) if e < len(pml_regions) else 0
+        region = _get_region(pml_regions, e)
         if region == 0:
             continue
 
@@ -593,6 +641,20 @@ def compute_strain_coefficients(
         A22, A23 = _lz_parameter(region, kz, dz, az)
         coef_strain[e, :, 16] = A22
         coef_strain[e, :, 17] = A23
+
+    # Clamp coefficients for numerical stability (see compute_abar_coefficients)
+    np.clip(coef_strain, -COEF_CLAMP_THRESHOLD, COEF_CLAMP_THRESHOLD, out=coef_strain)
+
+    try:
+        max_strain = float(np.max(np.abs(coef_strain)))
+        if max_strain > COEF_WARN_THRESHOLD:
+            warnings.warn(
+                f"C-PML strain coefficient max={max_strain:.2e} exceeds {COEF_WARN_THRESHOLD:.0e}, "
+                "possible degenerate-alpha issue",
+                stacklevel=2,
+            )
+    except ValueError:
+        pass  # empty array
 
     return coef_strain
 

@@ -185,7 +185,10 @@ void cpml_accel_contribution(const RankData& part, const std::vector<double>& di
             int mat_off = elem_off + n;
             double rho = part.density[mat_off];
             double jac = part.jacobian[mat_off];
-            double rho_inv = (rho > 0.0) ? 1.0 / rho : 0.0;
+            // Scale factor: w * ρ * J (matches SPECFEM3D pml_compute_accel_contribution)
+            // The residual is later divided by mass (∝ ρ * w * J), so the net
+            // acceleration contribution is just the PML term itself.
+            double rho_val = (rho > 0.0) ? rho : 0.0;
 
             // Coefficients Ā₁…Ā₅
             double A1 = part.pml_coef_abar[node_coef_off + 0];
@@ -194,8 +197,8 @@ void cpml_accel_contribution(const RankData& part, const std::vector<double>& di
             double A4 = part.pml_coef_abar[node_coef_off + 3];
             double A5 = part.pml_coef_abar[node_coef_off + 4];
 
-            // Scale factor: w * (1/ρ) * J
-            double scale = wgll * rho_inv * jac;
+            // Scale factor: w * ρ * J
+            double scale = wgll * rho_val * jac;
 
             for (int comp = 0; comp < 3; ++comp) {
                 double u_val = displacement[rank_dof + comp];
