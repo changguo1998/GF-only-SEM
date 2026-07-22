@@ -44,6 +44,9 @@ if(MPI_FOUND)
     # Source injection tests
     add_gf_test(test_source test_source.cpp)
 
+    # SLS attenuation tests
+    add_gf_test(test_sls test_sls.cpp)
+
     # I/O round-trip tests (HDF5)
     add_gf_test(test_io test_io.cpp)
 
