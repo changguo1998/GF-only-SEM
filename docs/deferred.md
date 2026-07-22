@@ -6,31 +6,37 @@ ______________________________________________________________________
 
 ## 1. SLS Viscoelastic Attenuation
 
-**Status:** Deferred. Current `forward/` solver is elastic-only.
-A `forward/viscoelastic/` skeleton exists for future SLS implementation.
+**Status: COMPLETE.** Implemented via 7 commits (Jul 2026):
 
-SLS spans preprocess and forward.
+- `c90268e`: SLS namespace, constants, `precompute_sls_coefficients()`, RankData fields
+- `7ec4d18`: Preprocess τ computation (`preprocess/attenuation.py`), I/O + restart
+- `a265668`: Viscoelastic solver skeleton (`forward/viscoelastic/`)
+- `a8b083a`: CPU viscoelastic element kernel with SLS memory update
+- `b0749ac`: Shared solver SLS integration + viscoelastic runner
+- `f493e5e`: CUDA viscoelastic element kernel + SLS runtime
+- `590d774`: Unit tests (Python + C++), 204 tests pass
 
-### Preprocess
+**Architecture:**
 
-Needed:
+- Independent solver binary `gf_solver_viscoelastic_mpi` reuses `libgf_shared`
+  and the 5 shared `kernel_helpers`; only the stress computation differs
+- SLS memory update inline in element kernel (R = a·R + b·Δσ)
+- Space-varying Q per GLL node, n_sls = 3 (compile-time)
+- `has_attenuation` flag gates all SLS code paths
 
-- Compute per-GLL-node τ_σ_l and τ_ε_l from q_kappa, q_mu, f_min, f_max, and n_sls.
+**Preprocess:** `preprocess/attenuation.py`
 
-- Write HDF5 datasets:
+- `compute_tau_from_q()`: τ-method with log-spaced τ_σ, least-squares fit for τ_ε
+- `write_attenuation_to_model()`: writes tau_sigma/tau_epsilon to model.h5
 
-  ```
-  /field/cell/tau_sigma[n_cell, NGLL, NGLL, NGLL, n_sls]
-  /field/cell/tau_epsilon[n_cell, NGLL, NGLL, NGLL, n_sls]
-  ```
+**Forward solver executables:**
 
-### Forward
+- `gf_solver_viscoelastic_mpi` (CPU + MPI) — verified: 16 ranks, 1000 steps
+- `gf_solver_viscoelastic_cuda` (CUDA, no MPI)
+- `gf_solver_viscoelastic_mpi_cuda` (CUDA + MPI)
 
-Needed:
-
-- SLS memory arrays per element: [n_cell, NGLL³, n_sls].
-- Stress update using precomputed τ_σ and τ_ε.
-- Add viscoelastic stress to residual.
+**Spec:** [`docs/superpowers/specs/2026-07-21-sls-viscoelastic-design.md`](../superpowers/specs/2026-07-21-sls-viscoelastic-design.md)
+**Plan:** [`docs/superpowers/plans/2026-07-21-sls-viscoelastic.md`](../superpowers/plans/2026-07-21-sls-viscoelastic.md)
 
 ______________________________________________________________________
 
@@ -153,7 +159,7 @@ interpolation. This is a query-accuracy limitation, not a solver bug.
 
 | Item | Module | Priority | Effort |
 |------|--------|----------|--------|
-| SLS attenuation | preprocess + forward/viscoelastic | High | Large |
+|| ~~SLS attenuation~~ | preprocess + forward/viscoelastic | High | Large | **IMPLEMENTED** |
 C-PML (strain correction) | forward + preprocess | Medium | Large (displacement-based done) |
 | Compress module | - | - | Placeholder (removed, see §2 above) |
 | HIP/SYCL backends | forward/elastic/ | Low | Medium |

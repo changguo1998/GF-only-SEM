@@ -15,6 +15,10 @@ preprocess/cpp/gf_preprocess_cpp_debug
 *_nothread
 bin/
 
+# Simulation output (reproducible from preprocess + solver)
+wavefields/
+restart/
+
 # Rebuildable greenfun cache
 _greenfun_index.h5
 

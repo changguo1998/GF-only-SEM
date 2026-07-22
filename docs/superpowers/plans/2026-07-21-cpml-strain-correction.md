@@ -22,7 +22,7 @@ independently testable.
 - Full project spec: [`docs/superpowers/specs/2026-07-21-cpml-strain-correction-design.md`](../../superpowers/specs/2026-07-21-cpml-strain-correction-design.md)
 - Parent design: [`docs/design/cpml.md`](../../design/cpml.md)
 
----
+______________________________________________________________________
 
 ### Task 1: CpmlStrain Namespace + Strain Memory Update
 
@@ -34,6 +34,7 @@ independently testable.
 **Interfaces:**
 
 - Consumes: `RankData` (from `types.hpp`), GLL derivative matrix D (passed as param)
+
 - Produces: `namespace CpmlStrain` (constants, structs, enums), `cpml_update_strain_memory()`
 
 - [ ] **Step 1: Add `CpmlStrain` namespace to `pml.hpp`**
@@ -288,7 +289,7 @@ git add forward/share/include/gf/pml.hpp forward/share/src/pml.cpp
 git commit -m "feat: add CpmlStrain namespace and cpml_update_strain_memory"
 ```
 
----
+______________________________________________________________________
 
 ### Task 2: Element Kernel Signature + CPU C-PML Branch
 
@@ -300,6 +301,7 @@ git commit -m "feat: add CpmlStrain namespace and cpml_update_strain_memory"
 **Interfaces:**
 
 - Consumes: `CpmlStrain::StrainCoefficients`, `load_strain_coefficients`, `strain_memory_offset`, enums
+
 - Produces: Updated `compute_element_residual` signature with C-PML params
 
 - [ ] **Step 1: Update template declaration in `element.hpp`**
@@ -450,7 +452,7 @@ git add forward/share/include/gf/element.hpp forward/elastic/src/element_cpu.cpp
 git commit -m "feat: add C-PML strain correction branch to CPU element kernel"
 ```
 
----
+______________________________________________________________________
 
 ### Task 3: Solver Integration
 
@@ -461,6 +463,7 @@ git commit -m "feat: add C-PML strain correction branch to CPU element kernel"
 **Interfaces:**
 
 - Consumes: `cpml_update_strain_memory`, updated `compute_element_residual` signature
+
 - Produces: Integrated C-PML strain correction in solver timestep
 
 - [ ] **Step 1: Add `#include "gf/pml.hpp"` if not already present**
@@ -534,7 +537,7 @@ git add forward/share/src/solver.cpp
 git commit -m "feat: integrate C-PML strain memory update and kernel params into solver"
 ```
 
----
+______________________________________________________________________
 
 ### Task 4: Restart I/O for C-PML Memory State
 
@@ -546,6 +549,7 @@ git commit -m "feat: integrate C-PML strain memory update and kernel params into
 **Interfaces:**
 
 - Consumes: `RankData::has_cpml`, `pml_displ_old/new`, `rmemory_displ`, `rmemory_strain`
+
 - Produces: Extended `RestartWriter::write` and `RestartReader` with C-PML datasets
 
 - [ ] **Step 1: Find RestartWriter::write implementation**
@@ -630,7 +634,7 @@ git add forward/share/include/gf/restart.hpp forward/share/src/restart.cpp forwa
 git commit -m "feat: add C-PML memory state to restart I/O"
 ```
 
----
+______________________________________________________________________
 
 ### Task 5: CUDA Element Kernel C-PML Branch
 
@@ -641,6 +645,7 @@ git commit -m "feat: add C-PML memory state to restart I/O"
 **Interfaces:**
 
 - Consumes: `CpmlStrain` namespace (from `pml.hpp`), updated kernel signature
+
 - Produces: CUDA kernel with C-PML strain correction
 
 - [ ] **Step 1: Add `#include "gf/pml.hpp"` to `element_cuda.cu`**
@@ -740,7 +745,7 @@ git add forward/elastic/src/element_cuda.cu
 git commit -m "feat: add C-PML strain correction branch to CUDA element kernel"
 ```
 
----
+______________________________________________________________________
 
 ### Task 6: CUDA C-PML Runtime
 
@@ -752,6 +757,7 @@ git commit -m "feat: add C-PML strain correction branch to CUDA element kernel"
 **Interfaces:**
 
 - Consumes: `CpmlStrain` constants, C-PML data arrays in `RankData`
+
 - Produces: GPU C-PML functions + updated `CudaDeviceState`
 
 - [ ] **Step 1: Add C-PML fields to `CudaDeviceState` in `cuda_step.hpp`**
@@ -823,7 +829,7 @@ git add forward/share/include/gf/cuda_step.hpp forward/share/src/cuda_step.cu
 git commit -m "feat: add CUDA C-PML runtime (displ fields, memory, accel, strain)"
 ```
 
----
+______________________________________________________________________
 
 ### Task 7: Unit Tests + Validation
 
@@ -948,7 +954,7 @@ git add tests/test_pml.cpp
 git commit -m "test: add C-PML strain memory update unit tests"
 ```
 
----
+______________________________________________________________________
 
 ### Task 8: End-to-End Validation
 

@@ -19,7 +19,7 @@ from typing import Optional, Tuple
 
 
 def compute_tau_from_q(
-    q_mu: np.ndarray,   # [n_cell, NGLL, NGLL, NGLL]
+    q_mu: np.ndarray,  # [n_cell, NGLL, NGLL, NGLL]
     ngll: int,
     n_sls: int = 3,
     f0: float = 2.0,
@@ -114,9 +114,7 @@ def compute_tau_from_q(
 
                     # τ_ε^l = τ_σ^l * (1 + w_l)
                     # Guard: w_l must be >= 0 (τ_ε ≥ τ_σ for stability)
-                    tau_epsilon[cell, i, j, k, :] = tau_sigma_l * (
-                        1.0 + np.maximum(w, 0.0)
-                    )
+                    tau_epsilon[cell, i, j, k, :] = tau_sigma_l * (1.0 + np.maximum(w, 0.0))
 
     return tau_sigma, tau_epsilon
 
@@ -162,18 +160,14 @@ def write_attenuation_to_model(
         ]:
             if name in field_cell:
                 del field_cell[name]
-            field_cell.create_dataset(
-                name, data=data, dtype="float64", compression="gzip"
-            )
+            field_cell.create_dataset(name, data=data, dtype="float64", compression="gzip")
 
         # Store metadata as attributes
         field_cell["tau_sigma"].attrs["n_sls"] = n_sls
         field_cell["tau_sigma"].attrs["f0_Hz"] = f0
         field_cell["tau_sigma"].attrs["description"] = (
-            "Stress relaxation times τ_σ^l per GLL node, "
-            "shape [n_cell, NGLL, NGLL, NGLL, n_sls]"
+            "Stress relaxation times τ_σ^l per GLL node, shape [n_cell, NGLL, NGLL, NGLL, n_sls]"
         )
         field_cell["tau_epsilon"].attrs["description"] = (
-            "Strain relaxation times τ_ε^l per GLL node, "
-            "shape [n_cell, NGLL, NGLL, NGLL, n_sls]"
+            "Strain relaxation times τ_ε^l per GLL node, shape [n_cell, NGLL, NGLL, NGLL, n_sls]"
         )

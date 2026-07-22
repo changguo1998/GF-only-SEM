@@ -251,9 +251,9 @@ For each PML element and GLL node:
 
 1. Compute the 9 reference-space gradients of `pml_displ_new` and `pml_displ_old`
    using the GLL derivative matrix D (same pattern as the element kernel).
-2. Transform reference-space gradients to physical gradients using inverse
+1. Transform reference-space gradients to physical gradients using inverse
    Jacobian `dxi_dx`.
-3. Update 27 strain memory variables using β convolution coefficients:
+1. Update 27 strain memory variables using β convolution coefficients:
 
 ```cpp
 // For each of the 9 gradient components...
@@ -399,10 +399,10 @@ Save/restore 4 C-PML memory arrays:
 
 | Dataset | Shape | Constant | Description |
 |---------|-------|----------|-------------|
-| `/restart/pml_displ_old` | [n_pml_node × `DISPL_FIELD_PER_NODE`] | = 3 | Previous step displacement field (ux, uy, uz) |
-| `/restart/pml_displ_new` | [n_pml_node × `DISPL_FIELD_PER_NODE`] | = 3 | Current step displacement field (ux, uy, uz) |
-| `/restart/rmemory_displ` | [n_pml_node × `DISPL_MEM_PER_NODE`] | = 9 | Displacement memory (3 comps × 3 conv dirs) |
-| `/restart/rmemory_strain` | [n_pml_node × `MEMORY_PER_NODE`] | = 27 | Strain memory (9 grads × 3 conv dirs) |
+| `/restart/pml_displ_old` | \[n_pml_node × `DISPL_FIELD_PER_NODE`\] | = 3 | Previous step displacement field (ux, uy, uz) |
+| `/restart/pml_displ_new` | \[n_pml_node × `DISPL_FIELD_PER_NODE`\] | = 3 | Current step displacement field (ux, uy, uz) |
+| `/restart/rmemory_displ` | \[n_pml_node × `DISPL_MEM_PER_NODE`\] | = 9 | Displacement memory (3 comps × 3 conv dirs) |
+| `/restart/rmemory_strain` | \[n_pml_node × `MEMORY_PER_NODE`\] | = 27 | Strain memory (9 grads × 3 conv dirs) |
 
 Only written/read when `part.has_cpml` is true. Reader checks dataset
 existence for backward compatibility with pre-C-PML restart files.
@@ -461,6 +461,6 @@ timestep. Allocate and manage C-PML GPU buffers in `CudaDeviceState`.
 
 1. **Backward compatible:** `nullptr` defaults on new kernel params → old code
    skips PML branch
-2. **Incremental testing:** Each step testable independently
-3. **CPU first, then CUDA:** Validate on CPU before GPU port
-4. **Existing tests must not break:** Full test suite after every step
+1. **Incremental testing:** Each step testable independently
+1. **CPU first, then CUDA:** Validate on CPU before GPU port
+1. **Existing tests must not break:** Full test suite after every step

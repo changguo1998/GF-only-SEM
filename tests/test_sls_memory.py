@@ -26,8 +26,7 @@ def coef_offset(node, mechanism):
     return node * N_SLS + mechanism
 
 
-def update_sls_memory_numpy(rmemory_sls, sigma_old, sigma_current,
-                            sls_coef_a, sls_coef_b, n_node):
+def update_sls_memory_numpy(rmemory_sls, sigma_old, sigma_current, sls_coef_a, sls_coef_b, n_node):
     """Reference implementation matching the C++ element kernel SLS block."""
     vmap = [(0, 0), (1, 1), (2, 2), (0, 1), (0, 2), (1, 2)]
     for node in range(n_node):
@@ -41,8 +40,7 @@ def update_sls_memory_numpy(rmemory_sls, sigma_old, sigma_current,
                 delta = sigma_curr - sigma_prev
                 rmemory_sls[off] = a * rmemory_sls[off] + b * delta
         for v, (l, m) in enumerate(vmap):
-            sigma_old[sigma_old_offset(node, v)] = \
-                sigma_current[sigma_old_offset(node, v)]
+            sigma_old[sigma_old_offset(node, v)] = sigma_current[sigma_old_offset(node, v)]
 
 
 class TestSLSZeroInit:
@@ -56,8 +54,9 @@ class TestSLSZeroInit:
         sls_coef_a = np.full(n_node * N_SLS, 0.9)
         sls_coef_b = np.full(n_node * N_SLS, 0.05)
 
-        update_sls_memory_numpy(rmemory_sls, sigma_old, sigma_current,
-                                sls_coef_a, sls_coef_b, n_node)
+        update_sls_memory_numpy(
+            rmemory_sls, sigma_old, sigma_current, sls_coef_a, sls_coef_b, n_node
+        )
 
         np.testing.assert_array_equal(rmemory_sls, 0.0)
         np.testing.assert_array_equal(sigma_old, 0.0)
@@ -77,8 +76,9 @@ class TestSLSSingleStep:
         sls_coef_a = np.full(n_node * N_SLS, a)
         sls_coef_b = np.full(n_node * N_SLS, b)
 
-        update_sls_memory_numpy(rmemory_sls, sigma_old, sigma_current,
-                                sls_coef_a, sls_coef_b, n_node)
+        update_sls_memory_numpy(
+            rmemory_sls, sigma_old, sigma_current, sls_coef_a, sls_coef_b, n_node
+        )
 
         # R = a * 0 + b * (1 - 0) = b
         for sls in range(N_SLS):
@@ -106,20 +106,23 @@ class TestSLSDecay:
         sls_coef_b = np.full(n_node * N_SLS, b)
 
         # Step 1: sigma goes 0→1
-        update_sls_memory_numpy(rmemory_sls, sigma_old, sigma_current,
-                                sls_coef_a, sls_coef_b, n_node)
+        update_sls_memory_numpy(
+            rmemory_sls, sigma_old, sigma_current, sls_coef_a, sls_coef_b, n_node
+        )
         r1 = rmemory_sls[sls_memory_offset(0, 0, 0)]
         assert r1 == pytest.approx(b, abs=1e-12)
 
         # Step 2: sigma stays 1→1, delta=0, R = a*R
-        update_sls_memory_numpy(rmemory_sls, sigma_old, sigma_current,
-                                sls_coef_a, sls_coef_b, n_node)
+        update_sls_memory_numpy(
+            rmemory_sls, sigma_old, sigma_current, sls_coef_a, sls_coef_b, n_node
+        )
         r2 = rmemory_sls[sls_memory_offset(0, 0, 0)]
         assert r2 == pytest.approx(a * b, abs=1e-12)
 
         # Step 3
-        update_sls_memory_numpy(rmemory_sls, sigma_old, sigma_current,
-                                sls_coef_a, sls_coef_b, n_node)
+        update_sls_memory_numpy(
+            rmemory_sls, sigma_old, sigma_current, sls_coef_a, sls_coef_b, n_node
+        )
         r3 = rmemory_sls[sls_memory_offset(0, 0, 0)]
         assert r3 == pytest.approx(a * a * b, abs=1e-12)
 
@@ -168,13 +171,15 @@ class TestSLSSteadyState:
         sigma_current = np.full(n_node * VOIGT_COMPONENTS, 1.0)
 
         # Step 1: introduce strain
-        update_sls_memory_numpy(rmemory_sls, sigma_old, sigma_current,
-                                sls_coef_a, sls_coef_b, n_node)
+        update_sls_memory_numpy(
+            rmemory_sls, sigma_old, sigma_current, sls_coef_a, sls_coef_b, n_node
+        )
 
         # Steps 2..N: hold strain constant → R decays
         for _ in range(200):
-            update_sls_memory_numpy(rmemory_sls, sigma_old, sigma_current,
-                                    sls_coef_a, sls_coef_b, n_node)
+            update_sls_memory_numpy(
+                rmemory_sls, sigma_old, sigma_current, sls_coef_a, sls_coef_b, n_node
+            )
 
         r_final = rmemory_sls[sls_memory_offset(0, 0, 0)]
         assert r_final < 0.01, f"R should decay to near zero, got {r_final}"
@@ -193,8 +198,9 @@ class TestSLSMultipleMechanisms:
         sls_coef_a = np.array([0.9, 0.8, 0.7])
         sls_coef_b = np.array([0.05, 0.04, 0.03])
 
-        update_sls_memory_numpy(rmemory_sls, sigma_old, sigma_current,
-                                sls_coef_a, sls_coef_b, n_node)
+        update_sls_memory_numpy(
+            rmemory_sls, sigma_old, sigma_current, sls_coef_a, sls_coef_b, n_node
+        )
 
         for sls in range(N_SLS):
             r = rmemory_sls[sls_memory_offset(0, sls, 0)]

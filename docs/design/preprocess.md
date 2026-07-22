@@ -134,7 +134,7 @@ g++ -std=c++17 -O2 -march=native \
 - METIS — called via ctypes or subprocess (partition step)
 - Optional C++17 (HDF5, Eigen3) for heavy loops via subprocess
 - No YAML/TOML dependency
-- Elastic only — SLS attenuation deferred
+- SLS τ-method preprocessor available in `preprocess/attenuation.py` — writes Q, tau_sigma, tau_epsilon to model.h5
 
 ## CLI
 
@@ -545,7 +545,7 @@ config.h5
         └── weights            : float64[n_src_cell, NGLL, NGLL, NGLL] — Lagrange w_ijk (normalized Σw = 1)
 ```
 
-Note: no `/attenuation/` group. Attenuation (SLS) is deferred to future work.
+Note: SLS attenuation data (tau_sigma, tau_epsilon) stored under `/field/cell/` in model.h5, not config.h5.
 No `direction` attribute. Runtime `--direction` selects x/y/z; jobs share one `config.h5`.
 
 ## No Receivers

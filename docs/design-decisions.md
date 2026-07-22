@@ -9,9 +9,9 @@ Mathematical formulation for all methods below: [`docs/math.md`](math.md)
 
 - **Method**: Continuous Galerkin Spectral Element Method (CG-SEM)
 - **Geometry**: 3D Cartesian (start), spherical not planned
-- **Physics**: Viscoelastic (deferred — elastic-only for initial implementation)
-- **Attenuation**: Fixed Q (frequency-independent) modeled with standard linear solid (SLS) — deferred
-- **Relaxation**: Per-GLL-node τ-method SLS parameters — deferred
+- **Physics**: Viscoelastic — elastic (baseline) + SLS (implemented, see `forward/viscoelastic/`)
+- **Attenuation**: Fixed Q (frequency-independent) with standard linear solid (SLS) — implemented in `forward/viscoelastic/`, n_sls=3
+- **Relaxation**: Per-GLL-node τ-method SLS parameters — implemented, see `preprocess/attenuation.py`
 - **Wave equation**: Second-order hyperbolic, forward time integration
 
 ## 2. Discretization
@@ -61,7 +61,7 @@ Mathematical formulation for all methods below: [`docs/math.md`](math.md)
   tools/           — GMSH → model.h5 converter (Python) + VTK tools (C++ primary, Python archived)
   preprocess/      — Python + C++17: GLL geometry, material interpolation, partition, config
   forward/— C++17: core physics library (libgf) + MPI solver executable
-  forward/viscoelastic/  — C++17: viscoelastic SEM solver (SLS) — skeleton, deferred
+  forward/viscoelastic/  — C++17: viscoelastic SEM solver (SLS) — IMPLEMENTED
   compress/        - (removed) HDF5 compression - placeholder, see docs/deferred.md §2
   postprocess/     — C++17: strain GF extraction at shallow mesh vertices (Python archived)
   tests/
@@ -249,7 +249,7 @@ config.h5
         └── weights            : float64[n_src_cell, NGLL, NGLL, NGLL] — Lagrange w_ijk (normalized)
 ```
 
-Notes: no `/attenuation/`; SLS is deferred. No `direction`; runtime CLI sets it.
+Notes: `/field/cell/tau_sigma` + `/field/cell/tau_epsilon` written when SLS attenuation is active. No `direction`; runtime CLI sets it.
 
 ### Green's Function Output
 
@@ -290,7 +290,7 @@ Each tile stores recorded vertices in its x/y bounds for all saved depths. Green
 
 ## 8. Forward Solver Decisions
 
-- **Elastic only**: No SLS memory variables. Attenuation deferred to future work.
+- **Viscoelastic (SLS)**: SLS attenuation implemented — separate `forward/viscoelastic/` with element kernel, solver, and CUDA support. `has_attenuation` flag gates memory variable allocation and kernel branch. Verified: 16 ranks, 1000 steps, 0 crashes.
 - **Matrix-free assembly**: No global system matrix. K·u computed element-by-element.
 - **Global assembly (dual path)**: Two DOF numbering modes controlled by `use_global_dof` flag:
   - **Global DOF (CG-SEM)**: Element-level temp arrays + explicit `scatter_to_rank`/`gather_from_rank`
