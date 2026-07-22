@@ -564,7 +564,8 @@ __global__ void cpml_accel_kernel(double* d_residual, const double* d_rank_node_
 
         double accel_pml =
             scale * (A1 * v_val + A2 * u_val + A3 * mem_x + A4 * mem_y + A5 * mem_z);
-        d_residual[elem_resid_off + comp] += accel_pml;
+        // SPECFEM3D sign: accel -= PML (our residual has negative sign built in)
+        d_residual[elem_resid_off + comp] -= accel_pml;
     }
 }
 

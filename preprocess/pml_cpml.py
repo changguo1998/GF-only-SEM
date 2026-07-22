@@ -422,10 +422,7 @@ def compute_abar_coefficients(
 
     # Clamp coefficients for numerical stability. Large coefficients arise at
     # boundary nodes where d >> alpha (partial-fraction ill-conditioning).
-    # Clamping sacrifices PML absorption at these extreme-boundary nodes but
-    # prevents solver divergence. Interior PML nodes are unaffected.
     np.clip(coef_abar, -COEF_CLAMP_THRESHOLD, COEF_CLAMP_THRESHOLD, out=coef_abar)
-
     try:
         max_abar = float(np.max(np.abs(coef_abar)))
         if max_abar > COEF_WARN_THRESHOLD:

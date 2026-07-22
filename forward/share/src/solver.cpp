@@ -529,6 +529,13 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             if (use_global_dof) {
                 // === CG-SEM global assembly path ===
 
+                // 0. C-PML: Save PML_displ_old BEFORE predictor (uses old fields)
+                //    Matches SPECFEM3D update_displ_elastic_PML called before predictor
+                if (part.has_cpml) {
+                    cpml_save_displ_old(part, displacement, velocity, acceleration, solver_dt,
+                                        n_node);
+                }
+
                 // 1. Newmark predictor (global arrays)
                 newmark_predict(solver_dt, beta, displacement, velocity, acceleration,
                                 displacement_tilde);
@@ -559,10 +566,18 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 gather_from_rank(displacement_tilde, part.local_cell2rank_node, n_local_cell,
                                  n_node, local_cell_displacement);
 
-                // 3a. C-PML: Update PML displacement fields (before kernel)
+                // 3a. C-PML: Save PML_displ_new AFTER predictor (uses predicted fields)
                 if (part.has_cpml) {
-                    cpml_update_displ_fields(part, displacement, velocity, acceleration, solver_dt,
-                                             n_node);
+                    cpml_save_displ_new(part, displacement_tilde, velocity, acceleration,
+                                        solver_dt, n_node);
+                }
+
+                // 3b. C-PML: Update memory variables BEFORE kernel (matches SPECFEM3D
+                //     where rmemory update is inside pml_compute_accel_contribution,
+                //     before the accel contribution is computed)
+                if (part.has_cpml) {
+                    cpml_update_displ_memory(part, n_node);
+                    cpml_update_strain_memory(part, D_mat.data(), gll_wts.data(), ngll);
                 }
 
                 // 3. Zero element-local residual, compute element kernel
@@ -582,8 +597,9 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 // 4. PML damping / C-PML accel contribution
                 if (part.has_cpml) {
                     // C-PML: Add acceleration correction to element-local residual
-                    cpml_accel_contribution(part, displacement, velocity,
-                                            part.local_cell2rank_node, gll_wts,
+                    // Uses PREDICTED displacement (displacement_tilde) and velocity
+                    cpml_accel_contribution(part, displacement_tilde, velocity, acceleration,
+                                            solver_dt, part.local_cell2rank_node, gll_wts,
                                             local_cell_residual, n_local_cell, n_node);
                 } else {
                     // Legacy: linear-ramp velocity damping (backward compat)
@@ -640,11 +656,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 newmark_correct(solver_dt, beta, gamma, rank_node_mass, displacement, velocity,
                                 acceleration, residual);
 
-                // 8. C-PML: Update displacement memory variables (after corrector)
-                if (part.has_cpml) {
-                    cpml_update_displ_memory(part, n_node);
-                    cpml_update_strain_memory(part, D_mat.data(), gll_wts.data(), ngll);
-                }
+                // 8. C-PML memory updates moved to step 3b (before kernel)
             }
 
             // --- Write restart (every restart_stride solver steps) ---

@@ -52,23 +52,19 @@ void cpml_initialize(RankData& part, int n_node) {
     part.rmemory_strain.assign(n_pml_node * 27, 0.0);  // 9 gradients × 3 directions
 }
 
-void cpml_update_displ_fields(RankData& part, const std::vector<double>& displacement,
-                              const std::vector<double>& velocity,
-                              const std::vector<double>& acceleration, double dt, int n_node) {
+void cpml_save_displ_old(RankData& part, const std::vector<double>& displacement,
+                         const std::vector<double>& velocity,
+                         const std::vector<double>& acceleration, double dt, int n_node) {
     if (!part.has_cpml)
         return;
 
     const int n_local_cell = part.n_local_cell;
-    const int ngll = part.ngll;
     const double c1 = (1.0 - 2.0 * THETA) * 0.5 * dt;  // (1-2θ)/2 * dt
     const double c2 = (1.0 - THETA) * 0.5 * dt * dt;   // (1-θ)/2 * dt²
 
-    // Swap: old <- new (previous step's "new" becomes this step's "old")
-    std::swap(part.pml_displ_old, part.pml_displ_new);
-
-    // Compute new PML_displ_new = u + c1 * v
-    // (acceleration term c2 * a is only in PML_displ_old, set at the end of
-    //  the previous step; here we compute the new "new" field)
+    // PML_displ_old = u + c1 * v + c2 * a  (fresh computation, BEFORE predictor)
+    // Matches SPECFEM3D update_displ_elastic_PML called before predictor
+    // (update_displacement_scheme.f90:296)
     for (int e = 0; e < n_local_cell; ++e) {
         int region = (e < static_cast<int>(part.pml_region.size())) ? part.pml_region[e] : 0;
         if (region == 0)
@@ -77,21 +73,34 @@ void cpml_update_displ_fields(RankData& part, const std::vector<double>& displac
         int elem_off = e * n_node * 3;
         for (int n = 0; n < n_node; ++n) {
             int node_local = elem_off + n * 3;
-            // Get rank-level node index
             int rank_node = part.local_cell2rank_node[e * n_node + n];
             int rank_dof = rank_node * 3;
 
             for (int d = 0; d < 3; ++d) {
-                part.pml_displ_new[node_local + d] =
-                    displacement[rank_dof + d] + c1 * velocity[rank_dof + d];
+                part.pml_displ_old[node_local + d] = displacement[rank_dof + d] +
+                                                     c1 * velocity[rank_dof + d] +
+                                                     c2 * acceleration[rank_dof + d];
             }
         }
     }
+}
 
-    // Update PML_displ_old: add c2 * a to the swapped (previous new) field
-    // PML_displ_old was the previous step's PML_displ_new (= u_prev + c1*v_prev)
-    // Now add the acceleration term: += c2 * a_prev
-    // Note: acceleration at this point is from the previous timestep (not yet updated)
+void cpml_save_displ_new(RankData& part, const std::vector<double>& displacement_tilde,
+                         const std::vector<double>& velocity,
+                         const std::vector<double>& acceleration, double dt, int n_node) {
+    if (!part.has_cpml)
+        return;
+
+    const int n_local_cell = part.n_local_cell;
+    const double c1 = (1.0 - 2.0 * THETA) * 0.5 * dt;  // (1-2θ)/2 * dt
+    const double half_dt = 0.5 * dt;                   // dt/2 for predicted velocity
+
+    // PML_displ_new = u_tilde + c1 * v_pred
+    // where v_pred = v + dt/2 * a (predicted velocity, matching SPECFEM3D's
+    // in-place predictor veloc += dt/2*accel)
+    // No c2*a term because accel = 0 after predictor.
+    // Matches SPECFEM3D update_displ_elastic_PML called after predictor
+    // (update_displacement_scheme.f90:305)
     for (int e = 0; e < n_local_cell; ++e) {
         int region = (e < static_cast<int>(part.pml_region.size())) ? part.pml_region[e] : 0;
         if (region == 0)
@@ -99,11 +108,14 @@ void cpml_update_displ_fields(RankData& part, const std::vector<double>& displac
 
         int elem_off = e * n_node * 3;
         for (int n = 0; n < n_node; ++n) {
+            int node_local = elem_off + n * 3;
             int rank_node = part.local_cell2rank_node[e * n_node + n];
             int rank_dof = rank_node * 3;
 
             for (int d = 0; d < 3; ++d) {
-                part.pml_displ_old[elem_off + n * 3 + d] += c2 * acceleration[rank_dof + d];
+                double v_pred = velocity[rank_dof + d] + half_dt * acceleration[rank_dof + d];
+                part.pml_displ_new[node_local + d] =
+                    displacement_tilde[rank_dof + d] + c1 * v_pred;
             }
         }
     }
@@ -148,8 +160,9 @@ void cpml_update_displ_memory(RankData& part, int n_node) {
     }
 }
 
-void cpml_accel_contribution(const RankData& part, const std::vector<double>& displacement,
+void cpml_accel_contribution(const RankData& part, const std::vector<double>& displacement_tilde,
                              const std::vector<double>& velocity,
+                             const std::vector<double>& acceleration, double dt,
                              const std::vector<int32_t>& local_cell2rank_node,
                              const std::vector<double>& gll_weights, std::vector<double>& residual,
                              int n_local_cell, int n_node) {
@@ -157,6 +170,7 @@ void cpml_accel_contribution(const RankData& part, const std::vector<double>& di
         return;
 
     const int ngll = part.ngll;
+    const double half_dt = 0.5 * dt;  // dt/2 for predicted velocity
 
     for (int e = 0; e < n_local_cell; ++e) {
         int region = (e < static_cast<int>(part.pml_region.size())) ? part.pml_region[e] : 0;
@@ -201,8 +215,10 @@ void cpml_accel_contribution(const RankData& part, const std::vector<double>& di
             double scale = wgll * rho_val * jac;
 
             for (int comp = 0; comp < 3; ++comp) {
-                double u_val = displacement[rank_dof + comp];
-                double v_val = velocity[rank_dof + comp];
+                // Use PREDICTED displacement and velocity (matching SPECFEM3D
+                // which modifies displ/veloc in-place during predictor)
+                double u_val = displacement_tilde[rank_dof + comp];
+                double v_val = velocity[rank_dof + comp] + half_dt * acceleration[rank_dof + comp];
 
                 // Memory variables for this component: mem[x], mem[y], mem[z]
                 double mem_x = part.rmemory_displ[node_mem_off + comp * 3 + 0];
@@ -212,7 +228,11 @@ void cpml_accel_contribution(const RankData& part, const std::vector<double>& di
                 double accel_pml =
                     scale * (A1 * v_val + A2 * u_val + A3 * mem_x + A4 * mem_y + A5 * mem_z);
 
-                residual[elem_resid_off + n * 3 + comp] += accel_pml;
+                // SPECFEM3D sign convention: accel -= PML_contribution.
+                // Our residual already has a negative sign (scatter_residual
+                // uses r -= sigma:gradN), so we must also SUBTRACT the PML
+                // contribution to match SPECFEM3D's accel -= (force + PML).
+                residual[elem_resid_off + n * 3 + comp] -= accel_pml;
             }
         }
     }

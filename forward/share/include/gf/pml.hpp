@@ -155,21 +155,44 @@ void apply_pml_damping(const std::vector<double>& damping_profile, const std::ve
 /// @param[in] n_node       NGLL^3 (nodes per element)
 void cpml_initialize(RankData& part, int n_node);
 
-/// Update PML displacement fields for second-order convolution.
+/// Save PML displacement field BEFORE Newmark predictor (uses old fields).
 ///
-/// PML_displ_new = u + (1-2θ)/2 * dt * v                    (current step)
-/// PML_displ_old = u_prev + (1-2θ)/2 * dt * v_prev + (1-θ)/2 * dt² * a_prev
-///               (copied from previous PML_displ_new before update)
+/// PML_displ_old = u + (1-2θ)/2 * dt * v + (1-θ)/2 * dt² * a
+///
+/// Matches SPECFEM3D update_displ_elastic_PML called BEFORE the predictor
+/// (update_displacement_scheme.f90:296). Uses the OLD displacement, velocity,
+/// and acceleration (pre-predictor state).
 ///
 /// @param[in,out] part     RankData with PML displacement fields
-/// @param[in] displacement Global displacement array [n_rank_dof]
-/// @param[in] velocity     Global velocity array [n_rank_dof]
-/// @param[in] acceleration Global acceleration array [n_rank_dof]
+/// @param[in] displacement Global displacement array [n_rank_dof] (old)
+/// @param[in] velocity     Global velocity array [n_rank_dof] (old)
+/// @param[in] acceleration Global acceleration array [n_rank_dof] (old)
 /// @param[in] dt           Solver timestep
 /// @param[in] n_node       NGLL^3
-void cpml_update_displ_fields(RankData& part, const std::vector<double>& displacement,
-                              const std::vector<double>& velocity,
-                              const std::vector<double>& acceleration, double dt, int n_node);
+void cpml_save_displ_old(RankData& part, const std::vector<double>& displacement,
+                         const std::vector<double>& velocity,
+                         const std::vector<double>& acceleration, double dt, int n_node);
+
+/// Save PML displacement field AFTER Newmark predictor (uses predicted fields).
+///
+/// PML_displ_new = u_tilde + (1-2θ)/2 * dt * v_pred
+/// where v_pred = v + dt/2 * a (predicted velocity, matching SPECFEM3D's
+/// in-place predictor veloc += dt/2*accel).
+/// No acceleration term because accel = 0 after predictor.
+///
+/// Matches SPECFEM3D update_displ_elastic_PML called AFTER the predictor
+/// (update_displacement_scheme.f90:305). Uses the PREDICTED displacement
+/// (displacement_tilde) and PREDICTED velocity.
+///
+/// @param[in,out] part              RankData with PML displacement fields
+/// @param[in] displacement_tilde    Predicted displacement [n_rank_dof]
+/// @param[in] velocity              Global velocity array [n_rank_dof] (old)
+/// @param[in] acceleration          Global acceleration array [n_rank_dof] (old)
+/// @param[in] dt                    Solver timestep
+/// @param[in] n_node                NGLL^3
+void cpml_save_displ_new(RankData& part, const std::vector<double>& displacement_tilde,
+                         const std::vector<double>& velocity,
+                         const std::vector<double>& acceleration, double dt, int n_node);
 
 /// Update C-PML displacement memory variables.
 ///
@@ -199,18 +222,25 @@ void cpml_update_strain_memory(RankData& part, const double* D, const double* we
 /// Compute C-PML acceleration contribution and add to element-local residual.
 ///
 /// For each PML element and GLL node:
-///   residual += w * (1/ρ) * J * (Ā₁*v + Ā₂*u + Ā₃*mem_x + Ā₄*mem_y + Ā₅*mem_z)
+///   residual += w * ρ * J * (Ā₁*v_pred + Ā₂*u_pred + Ā₃*mem_x + Ā₄*mem_y + Ā₅*mem_z)
 ///
-/// @param[in] part         RankData with C-PML coefficients and memory
-/// @param[in] displacement Global displacement array [n_rank_dof]
-/// @param[in] velocity     Global velocity array [n_rank_dof]
+/// Uses PREDICTED displacement (u_pred = displacement_tilde) and PREDICTED
+/// velocity (v_pred = v + dt/2 * a), matching SPECFEM3D's in-place predictor
+/// which modifies displ and veloc before pml_compute_accel_contribution.
+///
+/// @param[in] part               RankData with C-PML coefficients and memory
+/// @param[in] displacement_tilde Predicted displacement [n_rank_dof]
+/// @param[in] velocity           Global velocity array [n_rank_dof] (old)
+/// @param[in] acceleration       Global acceleration array [n_rank_dof] (old)
+/// @param[in] dt                 Solver timestep
 /// @param[in] local_cell2rank_node  Element-to-rank-node mapping
-/// @param[in] gll_weights  GLL quadrature weights [NGLL]
-/// @param[in,out] residual Element-local residual [n_local_cell * n_node * 3]
-/// @param[in] n_local_cell Number of local elements
-/// @param[in] n_node       NGLL^3
-void cpml_accel_contribution(const RankData& part, const std::vector<double>& displacement,
+/// @param[in] gll_weights        GLL quadrature weights [NGLL]
+/// @param[in,out] residual       Element-local residual [n_local_cell * n_node * 3]
+/// @param[in] n_local_cell       Number of local elements
+/// @param[in] n_node             NGLL^3
+void cpml_accel_contribution(const RankData& part, const std::vector<double>& displacement_tilde,
                              const std::vector<double>& velocity,
+                             const std::vector<double>& acceleration, double dt,
                              const std::vector<int32_t>& local_cell2rank_node,
                              const std::vector<double>& gll_weights, std::vector<double>& residual,
                              int n_local_cell, int n_node);
