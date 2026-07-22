@@ -404,7 +404,49 @@ static MergedDirection merge_direction(const char* dir_path, const std::vector<d
                 }
             }
 
-            // Velocity and acceleration follow same pattern — deferred
+            // Read velocity [1, n_rec_cell, n_node_per_cell, 3]
+            if (result.has_velocity) {
+                hsize_t vrc = 0, vnp = 0;
+                std::vector<double> vel_buf;
+                read_field_4d(fid, "velocity", vrc, vnp, vel_buf);
+                for (hsize_t c = 0; c < vrc && c < nrc; ++c) {
+                    for (hsize_t p = 0; p < vnp && p < n_node_per_cell; ++p) {
+                        int32_t local_gll_idx = cell_gll_idx[c * (hsize_t)n_node_per_cell + p];
+                        if (local_gll_idx < 0 ||
+                            local_gll_idx >= (int32_t)fm.local_to_global.size())
+                            continue;
+                        int32_t global_idx = fm.local_to_global[(size_t)local_gll_idx];
+                        if (global_idx < 0 || global_idx >= (int32_t)ng)
+                            continue;
+                        double* vsrc = vel_buf.data() + (c * vnp + p) * 3;
+                        double* vdst = step_vel + (size_t)global_idx * 3;
+                        for (int comp = 0; comp < 3; ++comp)
+                            vdst[comp] += vsrc[comp];
+                    }
+                }
+            }
+
+            // Read acceleration [1, n_rec_cell, n_node_per_cell, 3]
+            if (result.has_acceleration) {
+                hsize_t arc = 0, anp = 0;
+                std::vector<double> acc_buf;
+                read_field_4d(fid, "acceleration", arc, anp, acc_buf);
+                for (hsize_t c = 0; c < arc && c < nrc; ++c) {
+                    for (hsize_t p = 0; p < anp && p < n_node_per_cell; ++p) {
+                        int32_t local_gll_idx = cell_gll_idx[c * (hsize_t)n_node_per_cell + p];
+                        if (local_gll_idx < 0 ||
+                            local_gll_idx >= (int32_t)fm.local_to_global.size())
+                            continue;
+                        int32_t global_idx = fm.local_to_global[(size_t)local_gll_idx];
+                        if (global_idx < 0 || global_idx >= (int32_t)ng)
+                            continue;
+                        double* asrc = acc_buf.data() + (c * anp + p) * 3;
+                        double* adst = step_acc + (size_t)global_idx * 3;
+                        for (int comp = 0; comp < 3; ++comp)
+                            adst[comp] += asrc[comp];
+                    }
+                }
+            }
 
             H5Fclose(fid);
         }
@@ -420,6 +462,16 @@ static MergedDirection merge_direction(const char* dir_path, const std::vector<d
                     double* ddst = step_disp + gi * 3;
                     for (int c = 0; c < 3; ++c)
                         ddst[c] *= inv;
+                }
+                if (result.has_velocity) {
+                    double* vdst = step_vel + gi * 3;
+                    for (int c = 0; c < 3; ++c)
+                        vdst[c] *= inv;
+                }
+                if (result.has_acceleration) {
+                    double* adst = step_acc + gi * 3;
+                    for (int c = 0; c < 3; ++c)
+                        adst[c] *= inv;
                 }
             }
         }
