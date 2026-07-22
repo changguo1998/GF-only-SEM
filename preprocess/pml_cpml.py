@@ -24,13 +24,17 @@ K_MIN_PML = 1.0
 K_MAX_PML = 1.0
 NPOWER = 2
 R_COEF = 1e-5  # Target reflection coefficient
-MIN_DISTANCE = 1e-6  # Singularity avoidance threshold (partial-fraction denominators)
 DIST_EPSILON = 1e-3  # Clip dist to [0, 1-DIST_EPSILON] to avoid alpha=0 at boundary
-ALPHA_MIN_SPACING = (
-    1e-3  # Minimum spacing between direction alphas (prevents partial-fraction explosion)
-)
-COEF_WARN_THRESHOLD = 1e4  # Warn if any C-PML coefficient exceeds this magnitude
-COEF_CLAMP_THRESHOLD = 7.0
+# Fallback denominator for partial-fraction formulas — SPECFEM3D's parameter
+# separation in compute_pml_profiles() should prevent this from being needed.
+MIN_DISTANCE = 1e-12
+# Factor for min_distance_between_CPML_parameter computation (SPECFEM3D: 1/8).
+MIN_DISTANCE_FACTOR = 1.0 / 8.0
+# Warn if any C-PML coefficient exceeds this magnitude (should not happen after separation).
+COEF_WARN_THRESHOLD = 1e2
+# Safety clamp: matches SPECFEM3D's approach of stopping when coefficients
+# exceed reasonable bounds. Set high (1e4) to only catch truly degenerate cases.
+COEF_SAFETY_CLAMP = 1e4
 
 # PML region codes (matching SPECFEM3D constants.h)
 CPML_X_ONLY = 1
@@ -160,22 +164,405 @@ def compute_pml_profiles(
             d_store[e, :, axis] = d_val
             alpha_store[e, :, axis] = alpha_val
 
-    # --- Enforce minimum alpha spacing between directions (Fix A) ---
-    # When two direction alphas coincide (e.g. at edges/corners where dist_x ==
-    # dist_y), the partial-fraction denominators in _l_parameter() / _lijk_parameter()
-    # collapse to the MIN_DISTANCE clamp, producing coefficients of order 1e6-1e9.
-    # Perturbing alphas apart by ALPHA_MIN_SPACING keeps denominators bounded.
-    # Only apply to PML cells (non-PML cells have all-zero alphas by design).
-    pml_mask = is_pml.reshape(-1, 1)  # [n_cell, 1] - broadcast with [n_cell, n_node]
-    for a, b in [(0, 1), (0, 2), (1, 2)]:
-        diff = alpha_store[..., a] - alpha_store[..., b]  # [n_cell, n_node]
-        too_close = (np.abs(diff) < ALPHA_MIN_SPACING) & pml_mask
-        sign = np.where(diff >= 0, 1.0, -1.0)
-        alpha_store[..., b] = np.where(
-            too_close, alpha_store[..., a] + sign * ALPHA_MIN_SPACING, alpha_store[..., b]
-        )
+    # --- SPECFEM3D: robust parameter separation for PML damping parameters ---
+    # After computing initial profiles, adjust alpha/d values at nodes where the
+    # partial-fraction denominators (alpha_x - alpha_y, alpha_x - beta_z, etc.)
+    # would be too small, causing coefficient explosion in _l_parameter() and
+    # _lijk_parameter(). This follows pml_set_local_dampingcoeff.f90 lines 1378-1833.
+    _separate_pml_parameters(gll_coords, pml_widths, pml_regions, K_store, d_store, alpha_store)
 
     return K_store, d_store, alpha_store
+
+
+# ---------------------------------------------------------------------------
+# SPECFEM3D PML parameter separation (pml_set_local_dampingcoeff.f90:1378-1833)
+# ---------------------------------------------------------------------------
+
+
+def _separate_pml_parameters(
+    gll_coords: npt.NDArray[np.float64],
+    pml_widths: dict[str, float],
+    pml_regions: npt.NDArray[np.int32],
+    K_store: npt.NDArray[np.float64],
+    d_store: npt.NDArray[np.float64],
+    alpha_store: npt.NDArray[np.float64],
+) -> None:
+    """Adjust alpha/d values to prevent partial-fraction denominator collapse.
+
+    Matches SPECFEM3D's pml_set_local_dampingcoeff.f90 separation logic
+    for XY, XZ, YZ and XYZ CPML regions.
+
+    Modifies alpha_store and d_store in-place.
+    """
+    n_cell, n_node, _ = K_store.shape
+    NGLL = gll_coords.shape[1]
+
+    # Compute min_distance_between_CPML_parameter (lines 1378-1444)
+    distance_min = np.inf
+    pml_cells = np.where(
+        np.any(K_store[..., 0] > 1.0, axis=1)
+        | np.any(d_store[..., 0] > 0.0, axis=1)
+        | np.any(d_store[..., 1] > 0.0, axis=1)
+        | np.any(d_store[..., 2] > 0.0, axis=1)
+    )[0]
+    if len(pml_cells) == 0:
+        pml_cells = np.arange(n_cell)
+    for e in pml_cells:
+        coords = gll_coords[e]  # [NGLL, NGLL, NGLL, 3]
+        d2_x = np.sum((coords[1:, :, :] - coords[:-1, :, :]) ** 2)
+        if np.any(d2_x > 0):
+            distance_min = min(distance_min, float(np.min(d2_x[d2_x > 0])))
+        d2_y = np.sum((coords[:, 1:, :] - coords[:, :-1, :]) ** 2)
+        if np.any(d2_y > 0):
+            distance_min = min(distance_min, float(np.min(d2_y[d2_y > 0])))
+        d2_z = np.sum((coords[:, :, 1:] - coords[:, :, :-1]) ** 2)
+        if np.any(d2_z > 0):
+            distance_min = min(distance_min, float(np.min(d2_z[d2_z > 0])))
+    distance_min = np.sqrt(distance_min)
+    if distance_min <= 0.0 or not np.isfinite(distance_min):
+        warnings.warn("Cannot compute min GLL distance for PML separation; skipping.")
+        return
+
+    alpha_actual_max = float(np.max(alpha_store))
+    alpha_max_pml = alpha_actual_max if alpha_actual_max > 0 else np.pi * 10.0 * 1.1
+
+    pml_w = max(
+        pml_widths.get("xmin", 0.0),
+        pml_widths.get("xmax", 0.0),
+        pml_widths.get("ymin", 0.0),
+        pml_widths.get("ymax", 0.0),
+        pml_widths.get("zmin", 0.0),
+        pml_widths.get("zmax", 0.0),
+    )
+    if pml_w <= 0:
+        return
+
+    min_sep = alpha_max_pml * distance_min / pml_w * MIN_DISTANCE_FACTOR
+    const_sep_two = min_sep * 2.0
+    const_sep_four = min_sep * 4.0
+
+    if min_sep <= 0:
+        return
+
+    # Per-element, per-node separation (lines 1447-1833)
+    for e in pml_cells:
+        region = int(pml_regions[e])
+        if region == 0:
+            continue
+
+        for n in range(n_node):
+            kx = float(K_store[e, n, 0])
+            ky = float(K_store[e, n, 1])
+            kz = float(K_store[e, n, 2])
+            dx = float(d_store[e, n, 0])
+            dy = float(d_store[e, n, 1])
+            dz = float(d_store[e, n, 2])
+            ax = float(alpha_store[e, n, 0])
+            ay = float(alpha_store[e, n, 1])
+            az = float(alpha_store[e, n, 2])
+
+            if dx == 0.0 and dy == 0.0 and dz == 0.0:
+                continue
+
+            if region == CPML_XY_ONLY:
+                ax, ay, bx, by, dx, dy = _separate_xy_node(
+                    ax, ay, kx, ky, dx, dy, min_sep, const_sep_two, const_sep_four
+                )
+            elif region == CPML_XZ_ONLY:
+                ax, az, bx, bz, dx, dz = _separate_xz_node(
+                    ax, az, kx, kz, dx, dz, min_sep, const_sep_two, const_sep_four
+                )
+            elif region == CPML_YZ_ONLY:
+                ay, az, by, bz, dy, dz = _separate_yz_node(
+                    ay, az, ky, kz, dy, dz, min_sep, const_sep_two, const_sep_four
+                )
+            elif region == CPML_XYZ:
+                ax, ay, az, bx, by, bz, dx, dy, dz = _separate_xyz_node(
+                    ax, ay, az, kx, ky, kz, dx, dy, dz, min_sep, const_sep_two, const_sep_four
+                )
+
+            alpha_store[e, n, 0] = ax
+            alpha_store[e, n, 1] = ay
+            alpha_store[e, n, 2] = az
+            d_store[e, n, 0] = dx
+            d_store[e, n, 1] = dy
+            d_store[e, n, 2] = dz
+
+
+def _separate_two_changeable(a: float, b: float, sep2: float) -> tuple[float, float]:
+    """Adjust both values to ensure |a - b| >= sep2. Keeps larger value fixed."""
+    if a >= b:
+        return b + sep2, b
+    else:
+        return a, a + sep2
+
+
+def _separate_one_changeable(a: float, b: float, sep2: float, sep4: float) -> tuple[float, float]:
+    """Adjust value a (only) to be safely away from fixed b."""
+    if a >= b:
+        return b + sep2, b
+    else:
+        return b + sep4, b
+
+
+def _separate_xy_node(
+    ax: float,
+    ay: float,
+    kx: float,
+    ky: float,
+    dx: float,
+    dy: float,
+    min_sep: float,
+    sep2: float,
+    sep4: float,
+) -> tuple[float, float, float, float, float, float]:
+    """SPECFEM3D XY_ONLY separation (lines 1453-1499)."""
+    if abs(ax - ay) < min_sep:
+        ax, ay = _separate_two_changeable(ax, ay, sep2)
+
+    bx = ax + dx / max(kx, 1.0)
+    by = ay + dy / max(ky, 1.0)
+
+    if abs(bx - ay) < min_sep:
+        bx, ay = _separate_one_changeable(bx, ay, sep2, sep4)
+    if abs(by - ax) < min_sep:
+        by, ax = _separate_one_changeable(by, ax, sep2, sep4)
+
+    if abs(ax - ay) < min_sep or abs(bx - ay) < min_sep or abs(by - ax) < min_sep:
+        warnings.warn(f"CPML XY separation failed: ax={ax:.6e} ay={ay:.6e}")
+
+    dx = (bx - ax) * max(kx, 1.0)
+    dy = (by - ay) * max(ky, 1.0)
+    return ax, ay, bx, by, dx, dy
+
+
+def _separate_xz_node(
+    ax: float,
+    az: float,
+    kx: float,
+    kz: float,
+    dx: float,
+    dz: float,
+    min_sep: float,
+    sep2: float,
+    sep4: float,
+) -> tuple[float, float, float, float, float, float]:
+    """SPECFEM3D XZ_ONLY separation (lines 1501-1547)."""
+    if abs(ax - az) < min_sep:
+        ax, az = _separate_two_changeable(ax, az, sep2)
+
+    bx = ax + dx / max(kx, 1.0)
+    bz = az + dz / max(kz, 1.0)
+
+    if abs(bx - az) < min_sep:
+        bx, az = _separate_one_changeable(bx, az, sep2, sep4)
+    if abs(bz - ax) < min_sep:
+        bz, ax = _separate_one_changeable(bz, ax, sep2, sep4)
+
+    if abs(ax - az) < min_sep or abs(bx - az) < min_sep or abs(bz - ax) < min_sep:
+        warnings.warn(f"CPML XZ separation failed: ax={ax:.6e} az={az:.6e}")
+
+    dx = (bx - ax) * max(kx, 1.0)
+    dz = (bz - az) * max(kz, 1.0)
+    return ax, az, bx, bz, dx, dz
+
+
+def _separate_yz_node(
+    ay: float,
+    az: float,
+    ky: float,
+    kz: float,
+    dy: float,
+    dz: float,
+    min_sep: float,
+    sep2: float,
+    sep4: float,
+) -> tuple[float, float, float, float, float, float]:
+    """SPECFEM3D YZ_ONLY separation (lines 1549-1595)."""
+    if abs(ay - az) < min_sep:
+        ay, az = _separate_two_changeable(ay, az, sep2)
+
+    by = ay + dy / max(ky, 1.0)
+    bz = az + dz / max(kz, 1.0)
+
+    if abs(by - az) < min_sep:
+        by, az = _separate_one_changeable(by, az, sep2, sep4)
+    if abs(bz - ay) < min_sep:
+        bz, ay = _separate_one_changeable(bz, ay, sep2, sep4)
+
+    if abs(ay - az) < min_sep or abs(by - az) < min_sep or abs(bz - ay) < min_sep:
+        warnings.warn(f"CPML YZ separation failed: ay={ay:.6e} az={az:.6e}")
+
+    dy = (by - ay) * max(ky, 1.0)
+    dz = (bz - az) * max(kz, 1.0)
+    return ay, az, by, bz, dy, dz
+
+
+def _separate_xyz_node(
+    ax: float,
+    ay: float,
+    az: float,
+    kx: float,
+    ky: float,
+    kz: float,
+    dx: float,
+    dy: float,
+    dz: float,
+    min_sep: float,
+    sep2: float,
+    sep4: float,
+) -> tuple[float, float, float, float, float, float, float, float, float]:
+    """SPECFEM3D XYZ separation (lines 1597-1825)."""
+    # Stage 1: ax vs ay
+    if abs(ax - ay) < min_sep:
+        if ax > ay:
+            ax = ay + sep2
+        else:
+            ay = ax + sep2
+        maxtemp = max(ax, ay)
+        mintemp = min(ax, ay)
+        if az > maxtemp:
+            if abs(az - maxtemp) < min_sep:
+                az = maxtemp + sep2
+        elif az < mintemp:
+            if abs(az - mintemp) < min_sep:
+                if ax > ay:
+                    ax = az + sep4
+                    ay = az + sep2
+                else:
+                    ay = az + sep4
+                    ax = az + sep2
+        else:
+            if ax > ay:
+                ax = ay + sep4
+                az = ay + sep2
+            else:
+                ay = ax + sep4
+                az = ax + sep2
+
+    # Stage 2: ax vs az
+    if abs(ax - az) < min_sep:
+        if ax > az:
+            ax = az + sep2
+        else:
+            az = ax + sep2
+        maxtemp = max(ax, az)
+        mintemp = min(ax, az)
+        if ay > maxtemp:
+            if abs(ay - maxtemp) < min_sep:
+                ay = maxtemp + sep2
+        elif ay < mintemp:
+            if abs(ay - mintemp) < min_sep:
+                if ax > az:
+                    ax = ay + sep4
+                    az = ay + sep2
+                else:
+                    az = ay + sep4
+                    ax = ay + sep2
+        else:
+            if ax > az:
+                ax = az + sep4
+                ay = az + sep2
+            else:
+                az = ax + sep4
+                ay = ax + sep2
+
+    # Stage 3: ay vs az
+    if abs(ay - az) < min_sep:
+        if ay > az:
+            ay = az + sep2
+        else:
+            az = ay + sep2
+        maxtemp = max(ay, az)
+        mintemp = min(ay, az)
+        if ax > maxtemp:
+            if abs(ax - maxtemp) < min_sep:
+                ax = maxtemp + sep2
+        elif ax < mintemp:
+            if abs(ax - mintemp) < min_sep:
+                if ay > az:
+                    ay = ax + sep4
+                    az = ax + sep2
+                else:
+                    az = ax + sep4
+                    ay = ax + sep2
+        else:
+            if ay > az:
+                ay = az + sep4
+                ax = az + sep2
+            else:
+                az = ay + sep4
+                ax = ay + sep2
+
+    if abs(ax - ay) < min_sep or abs(ay - az) < min_sep or abs(ax - az) < min_sep:
+        warnings.warn(f"CPML XYZ alpha separation failed")
+
+    # Beta adjustments
+    bx = ax + dx / max(kx, 1.0)
+    maxtemp = max(ay, az)
+    mintemp = min(ay, az)
+    if bx > maxtemp:
+        if abs(bx - maxtemp) < min_sep:
+            bx = maxtemp + sep2
+    elif bx < mintemp:
+        if abs(bx - mintemp) < min_sep:
+            bx = (ay if ay > az else az) + sep2
+    else:
+        if abs(bx - maxtemp) < min_sep:
+            bx = maxtemp + sep2
+        if abs(bx - mintemp) < min_sep:
+            bx = mintemp + sep2
+            if abs(bx - maxtemp) < min_sep:
+                bx = maxtemp + sep2
+
+    by = ay + dy / max(ky, 1.0)
+    maxtemp = max(ax, az)
+    mintemp = min(ax, az)
+    if by > maxtemp:
+        if abs(by - maxtemp) < min_sep:
+            by = maxtemp + sep2
+    elif by < mintemp:
+        if abs(by - mintemp) < min_sep:
+            by = (ax if ax > az else az) + sep2
+    else:
+        if abs(by - maxtemp) < min_sep:
+            by = maxtemp + sep2
+        if abs(by - mintemp) < min_sep:
+            by = mintemp + sep2
+            if abs(by - maxtemp) < min_sep:
+                by = maxtemp + sep2
+
+    bz = az + dz / max(kz, 1.0)
+    maxtemp = max(ax, ay)
+    mintemp = min(ax, ay)
+    if bz > maxtemp:
+        if abs(bz - maxtemp) < min_sep:
+            bz = maxtemp + sep2
+    elif bz < mintemp:
+        if abs(bz - mintemp) < min_sep:
+            bz = (ax if ax > ay else ay) + sep2
+    else:
+        if abs(bz - maxtemp) < min_sep:
+            bz = maxtemp + sep2
+        if abs(bz - mintemp) < min_sep:
+            bz = mintemp + sep2
+            if abs(bz - maxtemp) < min_sep:
+                bz = maxtemp + sep2
+
+    if (
+        abs(bx - ay) < min_sep
+        or abs(bx - az) < min_sep
+        or abs(by - ax) < min_sep
+        or abs(by - az) < min_sep
+        or abs(bz - ax) < min_sep
+        or abs(bz - ay) < min_sep
+    ):
+        warnings.warn(f"CPML XYZ beta separation failed")
+
+    dx = (bx - ax) * max(kx, 1.0)
+    dy = (by - ay) * max(ky, 1.0)
+    dz = (bz - az) * max(kz, 1.0)
+    return ax, ay, az, bx, by, bz, dx, dy, dz
 
 
 def _is_axis_active(region: int, axis: int) -> bool:
@@ -422,7 +809,7 @@ def compute_abar_coefficients(
 
     # Clamp coefficients for numerical stability. Large coefficients arise at
     # boundary nodes where d >> alpha (partial-fraction ill-conditioning).
-    np.clip(coef_abar, -COEF_CLAMP_THRESHOLD, COEF_CLAMP_THRESHOLD, out=coef_abar)
+    np.clip(coef_abar, -COEF_SAFETY_CLAMP, COEF_SAFETY_CLAMP, out=coef_abar)
     try:
         max_abar = float(np.max(np.abs(coef_abar)))
         if max_abar > COEF_WARN_THRESHOLD:
@@ -640,7 +1027,7 @@ def compute_strain_coefficients(
         coef_strain[e, :, 17] = A23
 
     # Clamp coefficients for numerical stability (see compute_abar_coefficients)
-    np.clip(coef_strain, -COEF_CLAMP_THRESHOLD, COEF_CLAMP_THRESHOLD, out=coef_strain)
+    np.clip(coef_strain, -COEF_SAFETY_CLAMP, COEF_SAFETY_CLAMP, out=coef_strain)
 
     try:
         max_strain = float(np.max(np.abs(coef_strain)))
