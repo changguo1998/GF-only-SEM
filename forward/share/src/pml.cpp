@@ -48,8 +48,9 @@ void cpml_initialize(RankData& part, int n_node) {
     // Allocate and zero-initialize memory state
     part.pml_displ_old.assign(n_pml_node * 3, 0.0);
     part.pml_displ_new.assign(n_pml_node * 3, 0.0);
-    part.rmemory_displ.assign(n_pml_node * 9, 0.0);    // 3 components × 3 directions
-    part.rmemory_strain.assign(n_pml_node * 27, 0.0);  // 9 gradients × 3 directions
+    part.rmemory_displ.assign(n_pml_node * 9, 0.0);  // 3 components × 3 directions
+    part.rmemory_strain.assign(n_pml_node * CpmlStrain::MEMORY_PER_NODE,
+                               0.0);  // 27 lijk + 12 lx/ly/lz
 }
 
 void cpml_save_displ_old(RankData& part, const std::vector<double>& displacement,
@@ -326,6 +327,51 @@ void cpml_update_strain_memory(RankData& part, const double* D, const double* /*
                         part.pml_coef_beta[beta_off + BETA_COEF1] * new_grad +
                         part.pml_coef_beta[beta_off + BETA_COEF2] * old_grad;
                 }
+            }
+
+            // --- 3b. Update LX/LY/LZ memory with α convolution ---
+            // α coefficients from pml_coef_alpha (same as for displacement memory)
+            constexpr int ALPHA_COEFS_PER_DIR = 3;
+            const double* alpha_base = &part.pml_coef_alpha[(elem_off + n) * 9];
+            size_t base_node = elem_off + n;
+
+            // LX: alpha_x (CONV_X), gradients 4,5,7,8
+            int alpha_x_off = CONV_X * ALPHA_COEFS_PER_DIR;
+            double ax0 = alpha_base[alpha_x_off + 0];
+            double ax1 = alpha_base[alpha_x_off + 1];
+            double ax2 = alpha_base[alpha_x_off + 2];
+            for (auto grad : {DUY_DY, DUY_DZ, DUZ_DY, DUZ_DZ}) {
+                int slot = lx_slot_for_grad(grad);
+                size_t mem_off = lx_memory_offset(base_node, slot);
+                part.rmemory_strain[mem_off] = ax0 * part.rmemory_strain[mem_off] +
+                                               ax1 * new_phys_grad[grad] +
+                                               ax2 * old_phys_grad[grad];
+            }
+
+            // LY: alpha_y (CONV_Y), gradients 0,2,6,8
+            int alpha_y_off = CONV_Y * ALPHA_COEFS_PER_DIR;
+            double ay0 = alpha_base[alpha_y_off + 0];
+            double ay1 = alpha_base[alpha_y_off + 1];
+            double ay2 = alpha_base[alpha_y_off + 2];
+            for (auto grad : {DUX_DX, DUX_DZ, DUZ_DX, DUZ_DZ}) {
+                int slot = ly_slot_for_grad(grad);
+                size_t mem_off = ly_memory_offset(base_node, slot);
+                part.rmemory_strain[mem_off] = ay0 * part.rmemory_strain[mem_off] +
+                                               ay1 * new_phys_grad[grad] +
+                                               ay2 * old_phys_grad[grad];
+            }
+
+            // LZ: alpha_z (CONV_Z), gradients 0,1,3,4
+            int alpha_z_off = CONV_Z * ALPHA_COEFS_PER_DIR;
+            double az0 = alpha_base[alpha_z_off + 0];
+            double az1 = alpha_base[alpha_z_off + 1];
+            double az2 = alpha_base[alpha_z_off + 2];
+            for (auto grad : {DUX_DX, DUX_DY, DUY_DX, DUY_DY}) {
+                int slot = lz_slot_for_grad(grad);
+                size_t mem_off = lz_memory_offset(base_node, slot);
+                part.rmemory_strain[mem_off] = az0 * part.rmemory_strain[mem_off] +
+                                               az1 * new_phys_grad[grad] +
+                                               az2 * old_phys_grad[grad];
             }
         }
     }

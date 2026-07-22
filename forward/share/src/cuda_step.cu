@@ -420,12 +420,10 @@ __global__ void cpml_displ_memory_kernel(double* d_rmemory_displ, const double* 
 // Per-node update of strain memory (β-convolution).
 // Computes reference-space gradients via diff ops on PML displ fields,
 // transforms to physical gradients, then updates rmemory_strain.
-__global__ void cpml_strain_memory_kernel(double* d_rmemory_strain, const double* d_pml_displ_new,
-                                          const double* d_pml_displ_old,
-                                          const double* d_pml_coef_beta,
-                                          const int32_t* d_pml_region, const double* d_D,
-                                          const double* dxi_dx, int ngll, int n_local_cell,
-                                          int n_node) {
+__global__ void cpml_strain_memory_kernel(
+    double* d_rmemory_strain, const double* d_pml_displ_new, const double* d_pml_displ_old,
+    const double* d_pml_coef_beta, const double* d_pml_coef_alpha, const int32_t* d_pml_region,
+    const double* d_D, const double* dxi_dx, int ngll, int n_local_cell, int n_node) {
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
     if (idx >= n_local_cell * n_node)
         return;
@@ -507,6 +505,50 @@ __global__ void cpml_strain_memory_kernel(double* d_rmemory_strain, const double
                 d_pml_coef_beta[beta_off + BETA_COEF1] * new_g +
                 d_pml_coef_beta[beta_off + BETA_COEF2] * old_g;
         }
+    }
+
+    // --- 3b. Update LX/LY/LZ memory with alpha convolution ---
+    constexpr int ALPHA_PER_DIR = 3;
+    size_t base_node = elem_off + n;
+    const double* alpha_base = &d_pml_coef_alpha[base_node * 9];
+
+    // LX: alpha_x (CONV_X)
+    double ax0 = alpha_base[CONV_X * ALPHA_PER_DIR + 0];
+    double ax1 = alpha_base[CONV_X * ALPHA_PER_DIR + 1];
+    double ax2 = alpha_base[CONV_X * ALPHA_PER_DIR + 2];
+    int lx_grads[] = {DUY_DY, DUY_DZ, DUZ_DY, DUZ_DZ};
+    for (int gi = 0; gi < 4; ++gi) {
+        int grad = lx_grads[gi];
+        int slot = lx_slot_for_grad(grad);
+        size_t mem_off = lx_memory_offset(base_node, slot);
+        d_rmemory_strain[mem_off] = ax0 * d_rmemory_strain[mem_off] + ax1 * new_phys_grad[grad] +
+                                    ax2 * old_phys_grad[grad];
+    }
+
+    // LY: alpha_y (CONV_Y)
+    double ay0 = alpha_base[CONV_Y * ALPHA_PER_DIR + 0];
+    double ay1 = alpha_base[CONV_Y * ALPHA_PER_DIR + 1];
+    double ay2 = alpha_base[CONV_Y * ALPHA_PER_DIR + 2];
+    int ly_grads[] = {DUX_DX, DUX_DZ, DUZ_DX, DUZ_DZ};
+    for (int gi = 0; gi < 4; ++gi) {
+        int grad = ly_grads[gi];
+        int slot = ly_slot_for_grad(grad);
+        size_t mem_off = ly_memory_offset(base_node, slot);
+        d_rmemory_strain[mem_off] = ay0 * d_rmemory_strain[mem_off] + ay1 * new_phys_grad[grad] +
+                                    ay2 * old_phys_grad[grad];
+    }
+
+    // LZ: alpha_z (CONV_Z)
+    double az0 = alpha_base[CONV_Z * ALPHA_PER_DIR + 0];
+    double az1 = alpha_base[CONV_Z * ALPHA_PER_DIR + 1];
+    double az2 = alpha_base[CONV_Z * ALPHA_PER_DIR + 2];
+    int lz_grads[] = {DUX_DX, DUX_DY, DUY_DX, DUY_DY};
+    for (int gi = 0; gi < 4; ++gi) {
+        int grad = lz_grads[gi];
+        int slot = lz_slot_for_grad(grad);
+        size_t mem_off = lz_memory_offset(base_node, slot);
+        d_rmemory_strain[mem_off] = az0 * d_rmemory_strain[mem_off] + az1 * new_phys_grad[grad] +
+                                    az2 * old_phys_grad[grad];
     }
 }
 
@@ -607,8 +649,8 @@ void cuda_cpml_update_strain_memory(CudaDeviceState& state, int ngll, int n_node
     int n_total = state.n_local_cell * n_node;
     cpml_strain_memory_kernel<<<grid_blocks(n_total), 256>>>(
         state.d_rmemory_strain, state.d_pml_displ_new, state.d_pml_displ_old,
-        state.d_pml_coef_beta, state.d_pml_region, state.d_D, state.d_dxi_dx, ngll,
-        state.n_local_cell, n_node);
+        state.d_pml_coef_beta, state.d_pml_coef_alpha, state.d_pml_region, state.d_D,
+        state.d_dxi_dx, ngll, state.n_local_cell, n_node);
     GF_CUDA_CHECK(cudaGetLastError());
 }
 

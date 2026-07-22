@@ -38,7 +38,9 @@ constexpr int COEFS_PER_NODE =
 
 // --- Strain memory strides ---
 constexpr int MEMORY_PER_GRADIENT = NDIM;
-constexpr int MEMORY_PER_NODE = NUM_GRADIENT_COMPS * MEMORY_PER_GRADIENT;
+constexpr int LIJK_MEMORY_PER_NODE = NUM_GRADIENT_COMPS * MEMORY_PER_GRADIENT;  // 27
+constexpr int LX_LY_LZ_MEMORY_PER_NODE = 12;  // 4 lx + 4 ly + 4 lz, alpha-conv
+constexpr int MEMORY_PER_NODE = LIJK_MEMORY_PER_NODE + LX_LY_LZ_MEMORY_PER_NODE;  // 39
 
 // --- β convolution coefficient strides ---
 constexpr int BETA_COEFS_PER_DIR = 3;  // NOT derived from NDIM
@@ -106,6 +108,73 @@ constexpr GF_HOST_DEVICE int gradient_of(int comp, int dir) {
 
 inline GF_HOST_DEVICE size_t strain_memory_offset(size_t node, int gradient, int conv_dir) {
     return node * MEMORY_PER_NODE + gradient * MEMORY_PER_GRADIENT + conv_dir;
+}
+
+// --- LX/LY/LZ alpha-convolved memory offsets (after 27 lijk entries) ---
+// LX (alpha_x): gradients 4(DUY_DY), 5(DUY_DZ), 7(DUZ_DY), 8(DUZ_DZ)
+inline GF_HOST_DEVICE size_t lx_memory_offset(size_t node, int slot) {
+    return node * MEMORY_PER_NODE + LIJK_MEMORY_PER_NODE + slot;
+}
+// LY (alpha_y): gradients 0(DUX_DX), 2(DUX_DZ), 6(DUZ_DX), 8(DUZ_DZ)
+inline GF_HOST_DEVICE size_t ly_memory_offset(size_t node, int slot) {
+    return node * MEMORY_PER_NODE + LIJK_MEMORY_PER_NODE + 4 + slot;
+}
+// LZ (alpha_z): gradients 0(DUX_DX), 1(DUX_DY), 3(DUY_DX), 4(DUY_DY)
+inline GF_HOST_DEVICE size_t lz_memory_offset(size_t node, int slot) {
+    return node * MEMORY_PER_NODE + LIJK_MEMORY_PER_NODE + 8 + slot;
+}
+// Mapping from gradient component to lx/ly/lz slot (returns -1 if not used)
+inline GF_HOST_DEVICE int lx_slot_for_grad(int gradient) {
+    switch (gradient) {
+        case DUY_DY:
+            return 0;
+        case DUY_DZ:
+            return 1;
+        case DUZ_DY:
+            return 2;
+        case DUZ_DZ:
+            return 3;
+        default:
+            return -1;
+    }
+}
+inline GF_HOST_DEVICE int ly_slot_for_grad(int gradient) {
+    switch (gradient) {
+        case DUX_DX:
+            return 0;
+        case DUX_DZ:
+            return 1;
+        case DUZ_DX:
+            return 2;
+        case DUZ_DZ:
+            return 3;
+        default:
+            return -1;
+    }
+}
+inline GF_HOST_DEVICE int lz_slot_for_grad(int gradient) {
+    switch (gradient) {
+        case DUX_DX:
+            return 0;
+        case DUX_DY:
+            return 1;
+        case DUY_DX:
+            return 2;
+        case DUY_DY:
+            return 3;
+        default:
+            return -1;
+    }
+}
+// Direction for lx/ly/lz alpha convolution
+inline GF_HOST_DEVICE int lx_conv_dir() {
+    return CONV_X;
+}
+inline GF_HOST_DEVICE int ly_conv_dir() {
+    return CONV_Y;
+}
+inline GF_HOST_DEVICE int lz_conv_dir() {
+    return CONV_Z;
 }
 
 inline GF_HOST_DEVICE StrainCoefficients load_strain_coefficients(const double* flat,
