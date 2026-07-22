@@ -133,31 +133,58 @@ enforcement (`ALPHA_MIN_SPACING=1e-3`), and coefficient clamping
 (`COEF_CLAMP_THRESHOLD`). These reduce coefficients from 1e9 to 1e3 but
 do NOT fully prevent divergence.
 
-#### Bug 1c: C-PML fundamentally unstable even with small coefficients
+#### Bug 1c: C-PML structural bugs (sign, ordering, timing)
 
-**Critical finding:** Even with all C-PML coefficients clamped to ±1,
-the solver still diverges at step ~300. Only when ALL coefficients are
-exactly zero is the solver stable. This indicates a structural bug in
-the C-PML time integration, not just coefficient magnitude.
+**Root causes found and fixed (commit 7dd0598):**
 
-**Suspected causes:**
+1. **Sign error (FIXED):** `cpml_accel_contribution` used `residual += PML`
+   but should use `residual -= PML`. SPECFEM3D uses `accel -= (force + PML)`;
+   our `scatter_residual` already has a negative sign (`r -= sigma:gradN`),
+   so PML must also be subtracted. The positive sign created a positive
+   feedback loop (velocity -> positive accel -> larger velocity).
 
-1. **PML displacement field uses old displacement:** `cpml_update_displ_fields()`
-   uses `displacement` (pre-predictor) instead of `displacement_tilde`
-   (post-predictor). SPECFEM3D uses the post-predictor displacement.
-1. **Memory variable feedback loop:** The recursive convolution may have
-   a sign or ordering error that causes energy injection rather than
-   absorption.
-1. **Strain memory gradient computation:** The strain memory update in
-   `cpml_update_strain_memory()` computes gradients of PML displacement
-   fields, which may not be correctly synchronized with the element
-   kernel.
+2. **PML displacement field ordering (FIXED):** `cpml_save_displ_new` used
+   OLD displacement instead of PREDICTED displacement (`displacement_tilde`).
+   SPECFEM3D computes `PML_displ_new` AFTER the Newmark predictor.
 
-**Status:** NOT FIXED. Requires deeper investigation of the C-PML
-time integration scheme against SPECFEM3D.
+3. **Memory variable update timing (FIXED):** `rmemory_displ` and
+   `rmemory_strain` were updated AFTER the corrector, but used BEFORE
+   (stale). Moved to before the element kernel.
 
-**Fix plan:** See
-[`docs/superpowers/plans/2026-07-22-cpml-divergence-fix.md`](superpowers/plans/2026-07-22-cpml-divergence-fix.md)
+**Result:** Solver stable through step 400 (was diverging at step 100).
+
+#### Bug 1d: Strain correction uses symmetric stress (NOT FIXED)
+
+**Critical architectural issue:** The strain correction (A6-A23) causes
+rapid divergence at step 400 even without the acceleration contribution.
+
+SPECFEM3D uses **non-symmetric stress** in PML elements with THREE
+separate correction groups (_x,_y, _z), each applying different PML
+corrections to all 9 gradient components. The stress is non-symmetric:
+`sigma_yx != sigma_xy`.
+
+Our element kernel uses **symmetric strain** (`eps[l][m] = 0.5*(du_dx[l][m]
+- du_dx[m][l])`), which mixes different PML corrections. This is
+fundamentally wrong for PML elements and causes exponential divergence
+when the source wave enters the PML.
+
+**Isolation test results:**
+
+| Configuration | Step 400 | Step 500 | Step 998 |
+|---------------|----------|----------|----------|
+| All zero | 1.3e5 | 1.6e5 | 1.5e5 (stable) |
+| abar only (no strain/mem) | 1.1e5 | 1.7e5 | 1.2e8 (slow growth) |
+| strain only (no abar/mem) | 5.5e13 | 3.2e26 | inf (rapid divergence) |
+| abar+mem (no strain) | 1.2e5 | 1.4e5 | 2.5e15 (growth) |
+| All four | 1.1e5 | 5.6e13 | inf (rapid divergence) |
+
+**Status:** NOT FIXED. Requires a separate PML element kernel with
+non-symmetric stress computation, matching SPECFEM3D's three-group
+approach. This is a significant architectural change.
+
+**Workaround:** Disable strain correction (zero `pml_coef_strain`) and
+rely on acceleration contribution only. PML absorption will be imperfect
+but solver will be stable for longer runs.
 
 ______________________________________________________________________
 
