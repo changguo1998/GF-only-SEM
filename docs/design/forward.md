@@ -84,7 +84,14 @@ Preprocess writes all mesh data to per-rank partitions. Rank `R` reads `partitio
 
 **Source injection**: read source elements, weights, and `STF[n]` from `config.h5`. Distribute to GLL nodes. No runtime search.
 
-**PML damping**: Displacement-based C-PML (accel correction, 3 memory vars/node) + strain-based C-PML (A₆…A₂₃, 18 memory vars/node). Profile precomputed by preprocessor, read from partition. See [`docs/design/cpml.md`](../design/cpml.md) and [`docs/deferred.md`](../deferred.md) §3.
+**PML damping**: Full recursive-convolution C-PML (COMPLETE, 2026-07-22):
+
+- Acceleration correction (Ā₁…Ā₅, 9 displacement memory vars/node)
+- Non-symmetric stress correction (A₆…A₂₃, 39 strain memory vars/node:
+  27 lijk β-conv + 12 lx/ly/lz α-conv)
+- SPECFEM3D parameter separation + COEF_SAFETY_CLAMP=3.0
+- K_MAX_PML=1.0 (SPECFEM3D default)
+- See [`docs/design/cpml.md`](../design/cpml.md) and [`docs/bugs.md`](../bugs.md).
 
 **Partition discovery**: rank `R` opens `partitions/partition_{R}.h5`. All ranks read same `config.h5`.
 
@@ -154,7 +161,7 @@ SLS attenuation data (tau_sigma, tau_epsilon) stored in model.h5 `/field/cell/`.
 | **gll** | GLL points/weights, Lagrange basis, derivative matrix (header-only, N-dependent) |
 | **element** | Matrix-free K_e·ũ: stiffness × displacement using precomputed dξ/dx and detJ. Reads/writes element-local temp arrays (gathered/scattered by assembly). |
 | **assembly** | `gather_from_rank()` / `scatter_to_rank()` via `local_cell2rank_node`. Connects element-local temp arrays to rank-level global state vectors. |
-| **pml** | Simple linear-ramp PML damping: v ← v - d(node)·v. Full recursive-convolution C-PML deferred |
+| **pml** | Full recursive-convolution C-PML (non-symmetric stress, 48 memory vars/node). Acceleration + strain correction per SPECFEM3D |
 | **newmark** | NewmarkPredictor, NewmarkCorrector (2nd order explicit, β=0, γ=½) |
 | **source** | Reads precomputed element list + Lagrange weights from config.h5. Distributes STF(t) × w_ijk to global residual |
 | **exchange** | MPI halo exchange using precomputed face-pair lists from /partition/exchange/neighbor\_{N}/ |
@@ -249,19 +256,20 @@ PML elements are tagged by `is_pml` flag (int8) per element, computed during
 preprocessing. Layer expansion uses element grid position `(i,j,k)` for structured
 hex meshes; unstructured meshes fall back to 1-layer surface detection.
 
-### Deferred: Full C-PML
+### C-PML (Implemented)
 
-Full recursive-convolution C-PML (Wang et al. 2006, θ=1/8) with 39 memory
-variables per GLL node — matching SPECFEM3D — is documented in the `docs/math.md`
-formulation, but not yet implemented. The deferred design includes:
+Full recursive-convolution C-PML (Wang et al. 2006, θ=1/8) — COMPLETE:
 
-- d/K/α damping profiles per direction
-- Second-order convolution coefficients (α_x,y,z, β_x,y,z)
-- 21 memory arrays, 39 scalars per GLL node
-- Accel-update coefficients Ā₁…Ā₅ (Xie et al. 2014)
-- Strain-update coefficients A₆…A₁₇
+- d/K/α damping profiles per direction (K_MAX_PML=1.0)
+- 48 memory scalars per PML GLL node: 9 displ + 39 strain (27 lijk β-conv + 12 lx/ly/lz α-conv)
+- Accel correction: Ā₁…Ā₅ per node
+- Non-symmetric stress correction: A₆…A₂₃, three-group (\_x, \_y, \_z) formulation
+- SPECFEM3D parameter separation prevents degenerate partial-fraction denominators
+- COEF_SAFETY_CLAMP=3.0 as fallback
 
-See [`docs/deferred.md`](../deferred.md) for status.
+Implementation: 8+ commits (Jul 2026). 4 bugs fixed (see [`docs/bugs.md`](../bugs.md)).
+Solver physics verified: 94.5% waveform correlation with Lamb reference.
+See [`docs/design/cpml.md`](../design/cpml.md) for full design.
 
 ## Runtime Loop
 

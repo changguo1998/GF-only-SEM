@@ -53,7 +53,7 @@ preprocess/
 ├── model_loader.py     — evaluate config vp/vs/density at GLL nodes
 ├── model_writer.py     — write model.h5 fields + partition files + /recording/ map
 ├── boundary_detector.py — auto boundary tagging (surface level), set is_pml flags
-├── pml.py              — C-PML: element type classification, damping profiles (simplified linear ramp)
+├── pml.py              — legacy damping profiles (simplified linear ramp); C-PML via pml_cpml.py
 ├── partition.py        — METIS partitioning + GLL node global numbering + exchange pattern
 ├── stf_evaluator.py    — evaluate stf_func() → time series array
 ├── source_locator.py   — locate source elements, compute natural coords + Lagrange weights
@@ -342,7 +342,7 @@ For each surface: check face center position
 
 Domain bounds auto-detected from `vertex_to_coord`. Output: `/field/surface/boundary_tag`.
 
-### 7. Identify PML Elements (Layer-Based)
+### 7. Identify PML Elements + C-PML Profile Computation
 
 PML elements are the elements closest to each absorbing boundary, up to `pml_thickness`
 layers deep. The `is_pml` flag is computed in two stages:
@@ -353,28 +353,22 @@ layers deep. The `is_pml` flag is computed in two stages:
    face get a preliminary 1-layer `is_pml=True`.
 
 1. **Layer expansion** (`cli.py`): for structured hex meshes, expand `is_pml` by
-   `pml_thickness` using element grid position `(i,j,k)`:
-
-   ```
-   is_pml ← i < pml_xmin OR i ≥ nx − pml_xmax
-         OR j < pml_ymin OR j ≥ ny − pml_ymax
-         OR k ≥ nz − pml_zmax
-   ```
-
-   This ensures the PML zone matches the configured thickness. Non-structured
-   topologies fall back to the 1-layer surface detection only.
-
-Classification is independent per direction: for each element, the damping ramp
-for a direction is active if the element lies in that direction's PML band.
-
-Each direction's damping uses its own distance (can differ between e.g. x and y
-for a corner element).
+   `pml_thickness` using element grid position `(i,j,k)`.
 
 Output: `/field/element/is_pml` (int8, 1=PML).
 
-**NOTE:** C-PML (K/d/α per direction, convolution coefficients Ā₁…Ā₅ for displacement correction, A₆…A₂₃ for strain correction) fully implemented in `pml_cpml.py`. See [`docs/design/cpml.md`](../design/cpml.md).
-Current damping is a simplified linear ramp from 0 at PML entry to 1 at boundary.
-See `pml.py` for details.
+**C-PML profiles** (`pml_cpml.py`, COMPLETE):
+
+- K, d, α per direction per GLL node
+- Region classification (1-7: X/Y/Z/XY/XZ/YZ/XYZ)
+- α and β convolution coefficients (9 each)
+- Accel correction coefficients Ā₁…Ā₅
+- Strain correction coefficients A₆…A₂₃ (23 entries)
+- SPECFEM3D parameter separation to prevent degenerate denominators
+- COEF_SAFETY_CLAMP=3.0 as fallback for stability with K_MAX_PML=1.0
+
+Legacy `pml.py` provides simplified linear-ramp damping as backward-compatible fallback.
+See [`docs/design/cpml.md`](../design/cpml.md) for full C-PML design.
 
 ### 8. Pre-Flight Validation
 
