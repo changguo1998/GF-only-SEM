@@ -73,30 +73,27 @@ __global__ void element_residual_kernel(
     double du_dx[3][3];
     transform_to_physical(dudxi, dudeta, dudzeta, dd, du_dx);
 
-    // --- [3] C-PML strain correction ---
-    apply_cpml_strain_correction(global_node, pml_region, e, pml_coef_strain, rmemory_strain,
-                                 du_dx);
-
-    // --- [4] Strain tensor ---
-    double eps[3][3];
-    compute_strain_tensor(du_dx, eps);
+    // --- [3-5] Stress and scatter ---
+    double sigma[3][3];
+    if (pml_region && pml_region[e] != 0) {
+        compute_pml_non_symmetric_stress(global_node, du_dx, lambda, mu, pml_coef_strain,
+                                         rmemory_strain, sigma);
+    } else {
+        double eps[3][3];
+        compute_strain_tensor(du_dx, eps);
+        double eps_kk = eps[0][0] + eps[1][1] + eps[2][2];
+        for (int l = 0; l < 3; ++l) {
+            for (int m = 0; m < 3; ++m) {
+                sigma[l][m] = 2.0 * mu * eps[l][m];
+            }
+            sigma[l][l] += lambda * eps_kk;
+        }
+    }
     (void)rmemory_sls;
     (void)sigma_old;
     (void)sls_coef_a;
     (void)sls_coef_b;
     (void)has_attenuation;
-
-    // ============================================================
-    // ===  Elastic isotropic stress                            ===
-    // ============================================================
-    double eps_kk = eps[0][0] + eps[1][1] + eps[2][2];
-    double sigma[3][3];
-    for (int l = 0; l < 3; ++l) {
-        for (int m = 0; m < 3; ++m) {
-            sigma[l][m] = 2.0 * mu * eps[l][m];
-        }
-        sigma[l][l] += lambda * eps_kk;
-    }
 
     // --- [5] Residual scatter (atomicAdd) ---
     scatter_residual(i, j, k, NGLL, sigma, dd, D, weights, jacobian[global_node], elem_offset, r);

@@ -69,56 +69,59 @@ __global__ void element_residual_kernel(
     double du_dx[3][3];
     transform_to_physical(dudxi, dudeta, dudzeta, dd, du_dx);
 
-    // [3] C-PML strain correction
-    apply_cpml_strain_correction(global_node, pml_region, e, pml_coef_strain, rmemory_strain,
-                                 du_dx);
-
-    // [4] Strain tensor
-    double eps[3][3];
-    compute_strain_tensor(du_dx, eps);
-
-    // === Step A: elastic trial stress ===
-    double eps_kk = eps[0][0] + eps[1][1] + eps[2][2];
+    // [3-5] PML non-symmetric stress or symmetric SLS path
     double sigma[3][3];
-    for (int l = 0; l < 3; ++l) {
-        for (int m = 0; m < 3; ++m) {
-            sigma[l][m] = 2.0 * mu * eps[l][m];
-        }
-        sigma[l][l] += lambda * eps_kk;
-    }
+    if (pml_region && pml_region[e] != 0) {
+        compute_pml_non_symmetric_stress(global_node, du_dx, lambda, mu, pml_coef_strain,
+                                         rmemory_strain, sigma);
+    } else {
+        // [4] Strain tensor
+        double eps[3][3];
+        compute_strain_tensor(du_dx, eps);
 
-    // === Step B: SLS memory subtraction + update ===
-    if (has_attenuation && rmemory_sls != nullptr) {
-        for (int sls = 0; sls < SLS::N_SLS; ++sls) {
-            double a = sls_coef_a[SLS::coef_offset(global_node, sls)];
-            double b = sls_coef_b[SLS::coef_offset(global_node, sls)];
+        // === Step A: elastic trial stress ===
+        double eps_kk = eps[0][0] + eps[1][1] + eps[2][2];
+        double sigma[3][3];
+        for (int l = 0; l < 3; ++l) {
+            for (int m = 0; m < 3; ++m) {
+                sigma[l][m] = 2.0 * mu * eps[l][m];
+            }
+            sigma[l][l] += lambda * eps_kk;
+        }
+
+        // === Step B: SLS memory subtraction + update ===
+        if (has_attenuation && rmemory_sls != nullptr) {
+            for (int sls = 0; sls < SLS::N_SLS; ++sls) {
+                double a = sls_coef_a[SLS::coef_offset(global_node, sls)];
+                double b = sls_coef_b[SLS::coef_offset(global_node, sls)];
+
+                for (int v = 0; v < SLS::VOIGT_COMPONENTS; ++v) {
+                    int l = VMAP[v][0];
+                    int m = VMAP[v][1];
+
+                    double sigma_prev = sigma_old[SLS::sigma_old_offset(global_node, v)];
+
+                    size_t mem_off = SLS::sls_memory_offset(global_node, sls, v);
+
+                    double delta = sigma[l][m] - sigma_prev;
+                    rmemory_sls[mem_off] = a * rmemory_sls[mem_off] + b * delta;
+
+                    sigma[l][m] -= rmemory_sls[mem_off];
+                }
+            }
 
             for (int v = 0; v < SLS::VOIGT_COMPONENTS; ++v) {
                 int l = VMAP[v][0];
                 int m = VMAP[v][1];
-
-                double sigma_prev = sigma_old[SLS::sigma_old_offset(global_node, v)];
-
-                size_t mem_off = SLS::sls_memory_offset(global_node, sls, v);
-
-                double delta = sigma[l][m] - sigma_prev;
-                rmemory_sls[mem_off] = a * rmemory_sls[mem_off] + b * delta;
-
-                sigma[l][m] -= rmemory_sls[mem_off];
+                sigma_old[SLS::sigma_old_offset(global_node, v)] = sigma[l][m];
             }
         }
 
-        for (int v = 0; v < SLS::VOIGT_COMPONENTS; ++v) {
-            int l = VMAP[v][0];
-            int m = VMAP[v][1];
-            sigma_old[SLS::sigma_old_offset(global_node, v)] = sigma[l][m];
-        }
-    }
-
-    // Symmetrize
-    sigma[1][0] = sigma[0][1];
-    sigma[2][0] = sigma[0][2];
-    sigma[2][1] = sigma[1][2];
+        // Symmetrize
+        sigma[1][0] = sigma[0][1];
+        sigma[2][0] = sigma[0][2];
+        sigma[2][1] = sigma[1][2];
+    }  // end SLS (non-PML) path
 
     // [5] Residual scatter (atomicAdd)
     scatter_residual(i, j, k, NGLL, sigma, dd, D, weights, jacobian[global_node], elem_offset, r);

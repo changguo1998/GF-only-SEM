@@ -210,9 +210,9 @@ __device__ inline void scatter_residual(int i, int j, int k, int NGLL,
         const double gradN[3] = {Dis * dd[0], Dis * dd[3], Dis * dd[6]};
         const int base = 3 * (elem_offset + (s * NGLL + j) * NGLL + k);
 
-        double r0 = -(sigma[0][0] * gradN[0] + sigma[0][1] * gradN[1] + sigma[0][2] * gradN[2]) * factor;
-        double r1 = -(sigma[1][0] * gradN[0] + sigma[1][1] * gradN[1] + sigma[1][2] * gradN[2]) * factor;
-        double r2 = -(sigma[2][0] * gradN[0] + sigma[2][1] * gradN[1] + sigma[2][2] * gradN[2]) * factor;
+        double r0 = -(sigma[0][0] * gradN[0] + sigma[1][0] * gradN[1] + sigma[2][0] * gradN[2]) * factor;
+        double r1 = -(sigma[0][1] * gradN[0] + sigma[1][1] * gradN[1] + sigma[2][1] * gradN[2]) * factor;
+        double r2 = -(sigma[0][2] * gradN[0] + sigma[1][2] * gradN[1] + sigma[2][2] * gradN[2]) * factor;
 
         atomicAdd(&elem_r[base + 0], r0);
         atomicAdd(&elem_r[base + 1], r1);
@@ -225,9 +225,9 @@ __device__ inline void scatter_residual(int i, int j, int k, int NGLL,
         const double gradN[3] = {Djs * dd[1], Djs * dd[4], Djs * dd[7]};
         const int base = 3 * (elem_offset + (i * NGLL + s) * NGLL + k);
 
-        double r0 = -(sigma[0][0] * gradN[0] + sigma[0][1] * gradN[1] + sigma[0][2] * gradN[2]) * factor;
-        double r1 = -(sigma[1][0] * gradN[0] + sigma[1][1] * gradN[1] + sigma[1][2] * gradN[2]) * factor;
-        double r2 = -(sigma[2][0] * gradN[0] + sigma[2][1] * gradN[1] + sigma[2][2] * gradN[2]) * factor;
+        double r0 = -(sigma[0][0] * gradN[0] + sigma[1][0] * gradN[1] + sigma[2][0] * gradN[2]) * factor;
+        double r1 = -(sigma[0][1] * gradN[0] + sigma[1][1] * gradN[1] + sigma[2][1] * gradN[2]) * factor;
+        double r2 = -(sigma[0][2] * gradN[0] + sigma[1][2] * gradN[1] + sigma[2][2] * gradN[2]) * factor;
 
         atomicAdd(&elem_r[base + 0], r0);
         atomicAdd(&elem_r[base + 1], r1);
@@ -240,14 +240,94 @@ __device__ inline void scatter_residual(int i, int j, int k, int NGLL,
         const double gradN[3] = {Dks * dd[2], Dks * dd[5], Dks * dd[8]};
         const int base = 3 * (elem_offset + (i * NGLL + j) * NGLL + s);
 
-        double r0 = -(sigma[0][0] * gradN[0] + sigma[0][1] * gradN[1] + sigma[0][2] * gradN[2]) * factor;
-        double r1 = -(sigma[1][0] * gradN[0] + sigma[1][1] * gradN[1] + sigma[1][2] * gradN[2]) * factor;
-        double r2 = -(sigma[2][0] * gradN[0] + sigma[2][1] * gradN[1] + sigma[2][2] * gradN[2]) * factor;
+        double r0 = -(sigma[0][0] * gradN[0] + sigma[1][0] * gradN[1] + sigma[2][0] * gradN[2]) * factor;
+        double r1 = -(sigma[0][1] * gradN[0] + sigma[1][1] * gradN[1] + sigma[2][1] * gradN[2]) * factor;
+        double r2 = -(sigma[0][2] * gradN[0] + sigma[1][2] * gradN[1] + sigma[2][2] * gradN[2]) * factor;
 
         atomicAdd(&elem_r[base + 0], r0);
         atomicAdd(&elem_r[base + 1], r1);
         atomicAdd(&elem_r[base + 2], r2);
     }
+}
+
+// 3b. C-PML non-symmetric stress (SPECFEM3D three-group formulation)
+// ---------------------------------------------------------------------------
+/// Compute non-symmetric PML stress from the raw displacement gradient.
+///
+/// SPECFEM3D uses three independent correction groups (_x, _y, _z) that
+/// apply different PML corrections to all 9 gradient components. Each
+/// stress column uses a different group, resulting in a non-symmetric
+/// stress tensor passed to the standard scatter_residual.
+///
+/// This replaces the symmetric-strain path for PML elements.
+__device__ inline void compute_pml_non_symmetric_stress(int global_node, const double du_dx[3][3],
+                                             double lambda, double mu,
+                                             const double* pml_coef_strain,
+                                             const double* rmemory_strain,
+                                             double sigma[3][3]) {
+    using namespace CpmlStrain;
+    StrainCoefficients c = load_strain_coefficients(pml_coef_strain, global_node);
+
+    auto mem = [&](int comp, int dir) -> std::tuple<double, double, double> {
+        size_t b = strain_memory_offset(global_node, gradient_of(comp, dir), 0);
+        return {rmemory_strain[b + CONV_X], rmemory_strain[b + CONV_Y],
+                rmemory_strain[b + CONV_Z]};
+    };
+
+    double Gx = c.grad_wrt_x.gradient_prefactor;
+    double Mxz = c.grad_wrt_x.memory_coef_conv_dir0;
+    double Mxy = c.grad_wrt_x.memory_coef_conv_dir1;
+    double Mxx = c.grad_wrt_x.memory_coef_conv_dir2;
+    double Gy = c.grad_wrt_y.gradient_prefactor;
+    double Myx = c.grad_wrt_y.memory_coef_conv_dir0;
+    double Myz = c.grad_wrt_y.memory_coef_conv_dir1;
+    double Myy = c.grad_wrt_y.memory_coef_conv_dir2;
+    double Gz = c.grad_wrt_z.gradient_prefactor;
+    double Mzx = c.grad_wrt_z.memory_coef_conv_dir0;
+    double Mzy = c.grad_wrt_z.memory_coef_conv_dir1;
+    double Mzz = c.grad_wrt_z.memory_coef_conv_dir2;
+    double Lx0 = c.dux_dx.gradient_prefactor;
+    double Lx1 = c.dux_dx.memory_coef_local_dir;
+    double Ly0 = c.duy_dy.gradient_prefactor;
+    double Ly1 = c.duy_dy.memory_coef_local_dir;
+    double Lz0 = c.duz_dz.gradient_prefactor;
+    double Lz1 = c.duz_dz.memory_coef_local_dir;
+    double l2m = lambda + 2.0 * mu;
+
+    auto [mx_00, my_00, mz_00] = mem(DUX, DX);
+    auto [mx_01, my_01, mz_01] = mem(DUX, DY);
+    auto [mx_02, my_02, mz_02] = mem(DUX, DZ);
+    auto [mx_10, my_10, mz_10] = mem(DUY, DX);
+    auto [mx_11, my_11, mz_11] = mem(DUY, DY);
+    auto [mx_20, my_20, mz_20] = mem(DUZ, DX);
+    auto [mx_22, my_22, mz_22] = mem(DUZ, DZ);
+
+    sigma[0][0] = l2m * (Gx * du_dx[DUX][DX] + Mxz * mz_00 + Mxy * my_00 + Mxx * mx_00) +
+                  lambda * (Lz0 * du_dx[DUY][DY] + Lz1 * mx_11) +
+                  lambda * (Ly0 * du_dx[DUZ][DZ] + Ly1 * mx_22);
+    sigma[0][1] = mu * (Gy * du_dx[DUX][DY] + Myx * mx_01 + Myz * mz_01 + Myy * my_01) +
+                  mu * (Lz0 * du_dx[DUY][DX] + Lz1 * mx_10);
+    sigma[0][2] = mu * (Ly0 * du_dx[DUZ][DX] + Ly1 * mx_20) +
+                  mu * (Gz * du_dx[DUX][DZ] + Mzx * mx_02 + Mzy * my_02 + Mzz * mz_02);
+
+    auto [mx_12, my_12, mz_12] = mem(DUY, DZ);
+    auto [mx_21, my_21, mz_21] = mem(DUZ, DY);
+
+    sigma[1][0] = mu * (Lz0 * du_dx[DUX][DY] + Lz1 * my_01) +
+                  mu * (Gx * du_dx[DUY][DX] + Mxz * mz_10 + Mxy * my_10 + Mxx * mx_10);
+    sigma[1][1] = lambda * (Lz0 * du_dx[DUX][DX] + Lz1 * my_00) +
+                  l2m * (Gy * du_dx[DUY][DY] + Myx * mx_11 + Myz * mz_11 + Myy * my_11) +
+                  lambda * (Lx0 * du_dx[DUZ][DZ] + Lx1 * my_22);
+    sigma[1][2] = mu * (Lx0 * du_dx[DUZ][DY] + Lx1 * my_21) +
+                  mu * (Gz * du_dx[DUY][DZ] + Mzx * mx_12 + Mzy * my_12 + Mzz * mz_12);
+
+    sigma[2][0] = mu * (Gx * du_dx[DUZ][DX] + Mxz * mz_20 + Mxy * my_20 + Mxx * mx_20) +
+                  mu * (Ly0 * du_dx[DUX][DZ] + Ly1 * mz_02);
+    sigma[2][1] = mu * (Gy * du_dx[DUZ][DY] + Myx * mx_21 + Myz * mz_21 + Myy * my_21) +
+                  mu * (Lx0 * du_dx[DUY][DZ] + Lx1 * mz_12);
+    sigma[2][2] = lambda * (Ly0 * du_dx[DUX][DX] + Ly1 * mz_00) +
+                  lambda * (Lx0 * du_dx[DUY][DY] + Lx1 * mz_11) +
+                  l2m * (Gz * du_dx[DUZ][DZ] + Mzx * mx_22 + Mzy * my_22 + Mzz * mz_22);
 }
 
 }  // namespace gf
