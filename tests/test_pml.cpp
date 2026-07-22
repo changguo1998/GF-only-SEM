@@ -118,8 +118,8 @@ TEST_CASE("CpmlStrain constants are dimension-consistent", "[pml][cpml]") {
     REQUIRE(NUM_DIAG_GROUPS == 3);
 
     // Coefficient strides
-    REQUIRE(LINGK_COEFS_PER_GROUP == 4);  // 1 prefactor + 3 memory dirs
-    REQUIRE(DIAG_COEFS_PER_GROUP == 2);   // 1 prefactor + 1 memory dir
+    REQUIRE(LINGK_COEFS_PER_GROUP == 4);       // 1 prefactor + 3 memory dirs
+    REQUIRE(DIAG_COEFS_PER_GROUP == 2);        // 1 prefactor + 1 memory dir
     REQUIRE(COEFS_PER_NODE == 3 * 4 + 3 * 2);  // 12 + 6 = 18
 
     // Memory strides
@@ -152,15 +152,15 @@ TEST_CASE("CpmlStrain constants are dimension-consistent", "[pml][cpml]") {
 
 TEST_CASE("gradient_of maps component+dir to correct gradient index", "[pml][cpml]") {
     // gradient_of(component, direction) = component * 3 + direction
-    REQUIRE(gradient_of(DUX, DX) == DUX_DX);   // 0*3+0 = 0
-    REQUIRE(gradient_of(DUX, DY) == DUX_DY);   // 0*3+1 = 1
-    REQUIRE(gradient_of(DUX, DZ) == DUX_DZ);   // 0*3+2 = 2
-    REQUIRE(gradient_of(DUY, DX) == DUY_DX);   // 1*3+0 = 3
-    REQUIRE(gradient_of(DUY, DY) == DUY_DY);   // 1*3+1 = 4
-    REQUIRE(gradient_of(DUY, DZ) == DUY_DZ);   // 1*3+2 = 5
-    REQUIRE(gradient_of(DUZ, DX) == DUZ_DX);   // 2*3+0 = 6
-    REQUIRE(gradient_of(DUZ, DY) == DUZ_DY);   // 2*3+1 = 7
-    REQUIRE(gradient_of(DUZ, DZ) == DUZ_DZ);   // 2*3+2 = 8
+    REQUIRE(gradient_of(DUX, DX) == DUX_DX);  // 0*3+0 = 0
+    REQUIRE(gradient_of(DUX, DY) == DUX_DY);  // 0*3+1 = 1
+    REQUIRE(gradient_of(DUX, DZ) == DUX_DZ);  // 0*3+2 = 2
+    REQUIRE(gradient_of(DUY, DX) == DUY_DX);  // 1*3+0 = 3
+    REQUIRE(gradient_of(DUY, DY) == DUY_DY);  // 1*3+1 = 4
+    REQUIRE(gradient_of(DUY, DZ) == DUY_DZ);  // 1*3+2 = 5
+    REQUIRE(gradient_of(DUZ, DX) == DUZ_DX);  // 2*3+0 = 6
+    REQUIRE(gradient_of(DUZ, DY) == DUZ_DY);  // 2*3+1 = 7
+    REQUIRE(gradient_of(DUZ, DZ) == DUZ_DZ);  // 2*3+2 = 8
 }
 
 TEST_CASE("strain_memory_offset produces unique offset per node", "[pml][cpml]") {

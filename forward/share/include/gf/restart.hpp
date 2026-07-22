@@ -69,8 +69,7 @@ public:
     /// \param pml_damping  PML damping field
     void write(int step, double time_s, const std::vector<double>& displacement,
                const std::vector<double>& velocity, const std::vector<double>& acceleration,
-               const std::vector<double>& pml_damping,
-               const struct RankData* cpml_part = nullptr);
+               const std::vector<double>& pml_damping, const struct RankData* cpml_part = nullptr);
 
     /// Finalize and close the HDF5 file.
     void close();

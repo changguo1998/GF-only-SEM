@@ -359,13 +359,15 @@ __global__ void cpml_displ_fields_kernel(double* d_displ_new, double* d_displ_ol
                                          const double* d_rank_node_velocity,
                                          const double* d_rank_node_acceleration,
                                          const int* d_local_cell2rank_node,
-                                         const int32_t* d_pml_region,
-                                         int n_local_cell, int n_node, double c1, double c2) {
+                                         const int32_t* d_pml_region, int n_local_cell, int n_node,
+                                         double c1, double c2) {
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
-    if (idx >= n_local_cell * n_node) return;
+    if (idx >= n_local_cell * n_node)
+        return;
 
     int e = idx / n_node;
-    if (d_pml_region[e] == 0) return;
+    if (d_pml_region[e] == 0)
+        return;
 
     int elem_off = idx * 3;  // 3 DOFs per node
     int rank_node = d_local_cell2rank_node[idx];
@@ -379,23 +381,23 @@ __global__ void cpml_displ_fields_kernel(double* d_displ_new, double* d_displ_ol
 
     // PML_displ_old += c2 * a  (old was swapped to previous new in host)
     for (int d = 0; d < 3; ++d) {
-        d_displ_old[elem_off + d] +=
-            c2 * d_rank_node_acceleration[rank_dof + d];
+        d_displ_old[elem_off + d] += c2 * d_rank_node_acceleration[rank_dof + d];
     }
 }
 
 // Per-node update of displacement memory (α-convolution).
-__global__ void cpml_displ_memory_kernel(double* d_rmemory_displ,
-                                         const double* d_pml_displ_new,
+__global__ void cpml_displ_memory_kernel(double* d_rmemory_displ, const double* d_pml_displ_new,
                                          const double* d_pml_displ_old,
                                          const double* d_pml_coef_alpha,
-                                         const int32_t* d_pml_region,
-                                         int n_local_cell, int n_node) {
+                                         const int32_t* d_pml_region, int n_local_cell,
+                                         int n_node) {
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
-    if (idx >= n_local_cell * n_node) return;
+    if (idx >= n_local_cell * n_node)
+        return;
 
     int e = idx / n_node;
-    if (d_pml_region[e] == 0) return;
+    if (d_pml_region[e] == 0)
+        return;
 
     int elem_off = idx;
     int node_mem_off = elem_off * 9;
@@ -408,10 +410,9 @@ __global__ void cpml_displ_memory_kernel(double* d_rmemory_displ,
         for (int d = 0; d < 3; ++d) {
             int mem_idx = node_mem_off + comp * 3 + d;
             int coef_idx = coef_off + d * 3;
-            d_rmemory_displ[mem_idx] =
-                d_pml_coef_alpha[coef_idx + 0] * d_rmemory_displ[mem_idx] +
-                d_pml_coef_alpha[coef_idx + 1] * new_val +
-                d_pml_coef_alpha[coef_idx + 2] * old_val;
+            d_rmemory_displ[mem_idx] = d_pml_coef_alpha[coef_idx + 0] * d_rmemory_displ[mem_idx] +
+                                       d_pml_coef_alpha[coef_idx + 1] * new_val +
+                                       d_pml_coef_alpha[coef_idx + 2] * old_val;
         }
     }
 }
@@ -419,18 +420,19 @@ __global__ void cpml_displ_memory_kernel(double* d_rmemory_displ,
 // Per-node update of strain memory (β-convolution).
 // Computes reference-space gradients via diff ops on PML displ fields,
 // transforms to physical gradients, then updates rmemory_strain.
-__global__ void cpml_strain_memory_kernel(double* d_rmemory_strain,
-                                          const double* d_pml_displ_new,
+__global__ void cpml_strain_memory_kernel(double* d_rmemory_strain, const double* d_pml_displ_new,
                                           const double* d_pml_displ_old,
                                           const double* d_pml_coef_beta,
-                                          const int32_t* d_pml_region,
-                                          const double* d_D, const double* dxi_dx,
-                                          int ngll, int n_local_cell, int n_node) {
+                                          const int32_t* d_pml_region, const double* d_D,
+                                          const double* dxi_dx, int ngll, int n_local_cell,
+                                          int n_node) {
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
-    if (idx >= n_local_cell * n_node) return;
+    if (idx >= n_local_cell * n_node)
+        return;
 
     int e = idx / n_node;
-    if (d_pml_region[e] == 0) return;
+    if (d_pml_region[e] == 0)
+        return;
 
     int n = idx % n_node;
     int elem_off = e * n_node;
@@ -499,8 +501,7 @@ __global__ void cpml_strain_memory_kernel(double* d_rmemory_strain,
         double old_g = old_phys_grad[grad];
         for (int conv_dir = 0; conv_dir < NUM_CONV_DIRECTIONS; ++conv_dir) {
             size_t mem_off = strain_memory_offset(elem_off + n, grad, conv_dir);
-            int beta_off =
-                (elem_off + n) * BETA_COEFS_PER_NODE + conv_dir * BETA_COEFS_PER_DIR;
+            int beta_off = (elem_off + n) * BETA_COEFS_PER_NODE + conv_dir * BETA_COEFS_PER_DIR;
             d_rmemory_strain[mem_off] =
                 d_pml_coef_beta[beta_off + BETA_COEF0] * d_rmemory_strain[mem_off] +
                 d_pml_coef_beta[beta_off + BETA_COEF1] * new_g +
@@ -511,21 +512,20 @@ __global__ void cpml_strain_memory_kernel(double* d_rmemory_strain,
 
 // Per-node acceleration correction (Ā₁…Ā₅).
 // Adds PML contribution to element-local residual.
-__global__ void cpml_accel_kernel(double* d_residual,
-                                  const double* d_rank_node_displacement,
+__global__ void cpml_accel_kernel(double* d_residual, const double* d_rank_node_displacement,
                                   const double* d_rank_node_velocity,
-                                  const int* d_local_cell2rank_node,
-                                  const int32_t* d_pml_region,
-                                  const double* d_pml_coef_abar,
-                                  const double* d_rmemory_displ,
+                                  const int* d_local_cell2rank_node, const int32_t* d_pml_region,
+                                  const double* d_pml_coef_abar, const double* d_rmemory_displ,
                                   const double* d_density, const double* d_jacobian,
-                                  const double* d_weights, int ngll,
-                                  int n_local_cell, int n_node) {
+                                  const double* d_weights, int ngll, int n_local_cell,
+                                  int n_node) {
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
-    if (idx >= n_local_cell * n_node) return;
+    if (idx >= n_local_cell * n_node)
+        return;
 
     int e = idx / n_node;
-    if (d_pml_region[e] == 0) return;
+    if (d_pml_region[e] == 0)
+        return;
 
     int n = idx % n_node;
     int elem_off = e * n_node;
@@ -573,7 +573,8 @@ __global__ void cpml_accel_kernel(double* d_residual,
 // -----------------------------------------------------------------------
 
 void cuda_cpml_update_displ_fields(CudaDeviceState& state, double solver_dt, int n_node) {
-    if (!state.has_cpml) return;
+    if (!state.has_cpml)
+        return;
 
     constexpr double THETA_CPML = 1.0 / 8.0;
     double c1 = (1.0 - 2.0 * THETA_CPML) * 0.5 * solver_dt;
@@ -581,46 +582,45 @@ void cuda_cpml_update_displ_fields(CudaDeviceState& state, double solver_dt, int
 
     int n_total = state.n_local_cell * n_node;
     cpml_displ_fields_kernel<<<grid_blocks(n_total), 256>>>(
-        state.d_pml_displ_new, state.d_pml_displ_old,
-        state.d_rank_node_displacement, state.d_rank_node_velocity,
-        state.d_rank_node_acceleration, state.d_local_cell2rank_node,
+        state.d_pml_displ_new, state.d_pml_displ_old, state.d_rank_node_displacement,
+        state.d_rank_node_velocity, state.d_rank_node_acceleration, state.d_local_cell2rank_node,
         state.d_pml_region, state.n_local_cell, n_node, c1, c2);
     GF_CUDA_CHECK(cudaGetLastError());
 }
 
 void cuda_cpml_update_displ_memory(CudaDeviceState& state, int n_node) {
-    if (!state.has_cpml) return;
+    if (!state.has_cpml)
+        return;
 
     int n_total = state.n_local_cell * n_node;
     cpml_displ_memory_kernel<<<grid_blocks(n_total), 256>>>(
         state.d_rmemory_displ, state.d_pml_displ_new, state.d_pml_displ_old,
-        state.d_pml_coef_alpha, state.d_pml_region,
-        state.n_local_cell, n_node);
+        state.d_pml_coef_alpha, state.d_pml_region, state.n_local_cell, n_node);
     GF_CUDA_CHECK(cudaGetLastError());
 }
 
 void cuda_cpml_update_strain_memory(CudaDeviceState& state, int ngll, int n_node) {
-    if (!state.has_cpml) return;
+    if (!state.has_cpml)
+        return;
 
     int n_total = state.n_local_cell * n_node;
     cpml_strain_memory_kernel<<<grid_blocks(n_total), 256>>>(
         state.d_rmemory_strain, state.d_pml_displ_new, state.d_pml_displ_old,
-        state.d_pml_coef_beta, state.d_pml_region,
-        state.d_D, state.d_dxi_dx, ngll, state.n_local_cell, n_node);
+        state.d_pml_coef_beta, state.d_pml_region, state.d_D, state.d_dxi_dx, ngll,
+        state.n_local_cell, n_node);
     GF_CUDA_CHECK(cudaGetLastError());
 }
 
 void cuda_cpml_accel_contribution(CudaDeviceState& state, int ngll, int n_node) {
-    if (!state.has_cpml) return;
+    if (!state.has_cpml)
+        return;
 
     int n_total = state.n_local_cell * n_node;
     cpml_accel_kernel<<<grid_blocks(n_total), 256>>>(
-        state.d_local_cell_residual,
-        state.d_rank_node_displacement, state.d_rank_node_velocity,
-        state.d_local_cell2rank_node, state.d_pml_region,
-        state.d_pml_coef_abar, state.d_rmemory_displ,
-        state.d_density, state.d_jacobian,
-        state.d_weights, ngll, state.n_local_cell, n_node);
+        state.d_local_cell_residual, state.d_rank_node_displacement, state.d_rank_node_velocity,
+        state.d_local_cell2rank_node, state.d_pml_region, state.d_pml_coef_abar,
+        state.d_rmemory_displ, state.d_density, state.d_jacobian, state.d_weights, ngll,
+        state.n_local_cell, n_node);
     GF_CUDA_CHECK(cudaGetLastError());
 }
 // =======================================================================
@@ -730,7 +730,8 @@ CudaDeviceState cuda_allocate_state(
 }
 
 void cuda_upload_cpml_data(CudaDeviceState& state, const RankData& part, int n_node) {
-    if (!part.has_cpml || !state.allocated) return;
+    if (!part.has_cpml || !state.allocated)
+        return;
 
     auto upload = [](auto*& d_ptr, const auto& host_vec, size_t elem_size) {
         if (!host_vec.empty()) {
@@ -758,9 +759,13 @@ void cuda_upload_cpml_data(CudaDeviceState& state, const RankData& part, int n_n
 }
 
 void cuda_free_cpml_data(CudaDeviceState& state) {
-    if (!state.has_cpml) return;
+    if (!state.has_cpml)
+        return;
     auto f = [](auto*& ptr) {
-        if (ptr) { cudaFree(ptr); ptr = nullptr; }
+        if (ptr) {
+            cudaFree(ptr);
+            ptr = nullptr;
+        }
     };
     f(state.d_pml_region);
     f(state.d_pml_coef_alpha);
@@ -781,14 +786,14 @@ void cuda_free_cpml_data(CudaDeviceState& state) {
 // ---------------------------------------------------------------------------
 
 void cuda_upload_sls_data(CudaDeviceState& state, const RankData& part, int n_node) {
-    if (!part.has_attenuation || !state.allocated) return;
+    if (!part.has_attenuation || !state.allocated)
+        return;
 
     auto upload = [](auto*& d_ptr, const auto& host_vec, size_t elem_size) {
         if (!host_vec.empty()) {
             size_t bytes = host_vec.size() * elem_size;
             GF_CUDA_CHECK(cudaMalloc(&d_ptr, bytes));
-            GF_CUDA_CHECK(cudaMemcpy(d_ptr, host_vec.data(), bytes,
-                                     cudaMemcpyHostToDevice));
+            GF_CUDA_CHECK(cudaMemcpy(d_ptr, host_vec.data(), bytes, cudaMemcpyHostToDevice));
         }
     };
 
@@ -801,7 +806,8 @@ void cuda_upload_sls_data(CudaDeviceState& state, const RankData& part, int n_no
 }
 
 void cuda_free_sls_data(CudaDeviceState& state) {
-    if (!state.has_attenuation) return;
+    if (!state.has_attenuation)
+        return;
     auto f = [](auto*& ptr) {
         if (ptr) {
             cudaFree(ptr);

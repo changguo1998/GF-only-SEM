@@ -1,6 +1,5 @@
 // forward/share/src/restart.cpp
 #include "gf/restart.hpp"
-#include "gf/types.hpp"
 
 #include <hdf5.h>
 #include <sys/stat.h>
@@ -9,6 +8,8 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#include "gf/types.hpp"
 
 namespace gf {
 
@@ -121,8 +122,7 @@ RestartWriter::~RestartWriter() {
 void RestartWriter::write(int step, double time_s, const std::vector<double>& displacement,
                           const std::vector<double>& velocity,
                           const std::vector<double>& acceleration,
-                          const std::vector<double>& pml_damping,
-                          const RankData* cpml_part) {
+                          const std::vector<double>& pml_damping, const RankData* cpml_part) {
     if (file_id_ < 0) {
         throw std::runtime_error("RestartWriter: file not open");
     }

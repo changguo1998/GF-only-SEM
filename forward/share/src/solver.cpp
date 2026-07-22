@@ -22,6 +22,7 @@
 #ifdef GF_WITH_CUDA
 #include "gf/cuda_step.hpp"
 #endif
+#include "gf/attenuation.hpp"
 #include "gf/element.hpp"
 #include "gf/exchange.hpp"
 #include "gf/gll.hpp"
@@ -31,7 +32,6 @@
 #include "gf/record.hpp"
 #include "gf/restart.hpp"
 #include "gf/types.hpp"
-#include "gf/attenuation.hpp"
 
 namespace gf {
 
@@ -248,13 +248,11 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             // Precompute SLS coefficients from tau arrays
             part.sls_coef_a.resize(n_total_nodes * SLS::N_SLS);
             part.sls_coef_b.resize(n_total_nodes * SLS::N_SLS);
-            SLS::precompute_sls_coefficients(
-                part.tau_sigma.data(), part.tau_epsilon.data(),
-                n_total_nodes, cfg.solver_dt,
-                part.sls_coef_a.data(), part.sls_coef_b.data());
+            SLS::precompute_sls_coefficients(part.tau_sigma.data(), part.tau_epsilon.data(),
+                                             n_total_nodes, cfg.solver_dt, part.sls_coef_a.data(),
+                                             part.sls_coef_b.data());
 
-            logger.debug("  SLS attenuation initialized: " +
-                         std::to_string(n_total_nodes) +
+            logger.debug("  SLS attenuation initialized: " + std::to_string(n_total_nodes) +
                          " nodes, n_sls=" + std::to_string(SLS::N_SLS));
         }
 
@@ -573,14 +571,13 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                     n_local_cell, part.dxi_dx.data(), part.jacobian.data(), part.lambda_.data(),
                     part.mu_.data(), D_mat.data(), gll_wts.data(), ngll,
                     local_cell_displacement.data(), local_cell_residual.data(),
-                    part.pml_region.empty()      ? nullptr : part.pml_region.data(),
+                    part.pml_region.empty() ? nullptr : part.pml_region.data(),
                     part.pml_coef_strain.empty() ? nullptr : part.pml_coef_strain.data(),
-                    part.rmemory_strain.empty()  ? nullptr : part.rmemory_strain.data(),
+                    part.rmemory_strain.empty() ? nullptr : part.rmemory_strain.data(),
                     part.has_attenuation ? part.rmemory_sls.data() : nullptr,
                     part.has_attenuation ? part.sigma_old.data() : nullptr,
                     part.has_attenuation ? part.sls_coef_a.data() : nullptr,
-                    part.has_attenuation ? part.sls_coef_b.data() : nullptr,
-                    part.has_attenuation);
+                    part.has_attenuation ? part.sls_coef_b.data() : nullptr, part.has_attenuation);
 
                 // 4. PML damping / C-PML accel contribution
                 if (part.has_cpml) {

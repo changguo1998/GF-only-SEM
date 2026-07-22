@@ -57,15 +57,15 @@ struct RankData {
     bool has_cpml = false;               // true if C-PML data loaded
 
     // --- SLS viscoelastic attenuation ---
-    bool has_attenuation = false;                    // true if SLS data loaded
+    bool has_attenuation = false;  // true if SLS data loaded
 
     // Per-node relaxation times (read from model.h5, shape [n_rank_node × N_SLS])
-    std::vector<double> tau_sigma;     // τ_σ — stress relaxation times
-    std::vector<double> tau_epsilon;   // τ_ε — strain relaxation times
+    std::vector<double> tau_sigma;    // τ_σ — stress relaxation times
+    std::vector<double> tau_epsilon;  // τ_ε — strain relaxation times
 
     // Per-node precomputed coefficients [n_rank_node × N_SLS]
-    std::vector<double> sls_coef_a;    // a_l = exp(-solver_dt / τ_σ)
-    std::vector<double> sls_coef_b;    // b_l = (τ_ε/τ_σ − 1)·(1 − a_l)
+    std::vector<double> sls_coef_a;  // a_l = exp(-solver_dt / τ_σ)
+    std::vector<double> sls_coef_b;  // b_l = (τ_ε/τ_σ − 1)·(1 − a_l)
 
     // Per-node SLS memory stress tensors [n_rank_node × MEMORY_PER_NODE]
     // Layout: for each node, for each SLS mechanism (0..N_SLS-1):

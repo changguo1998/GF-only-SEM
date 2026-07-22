@@ -217,16 +217,16 @@ void cpml_accel_contribution(const RankData& part, const std::vector<double>& di
 
 void cpml_update_strain_memory(RankData& part, const double* D, const double* /*weights*/,
                                int NGLL) {
-    if (!part.has_cpml) return;
+    if (!part.has_cpml)
+        return;
 
     const int n_local_cell = part.n_local_cell;
     const int n_node = NGLL * NGLL * NGLL;
 
     for (int e = 0; e < n_local_cell; ++e) {
-        int region = (e < static_cast<int>(part.pml_region.size()))
-                         ? part.pml_region[e]
-                         : 0;
-        if (region == 0) continue;
+        int region = (e < static_cast<int>(part.pml_region.size())) ? part.pml_region[e] : 0;
+        if (region == 0)
+            continue;
 
         const int elem_off = e * n_node;
 

@@ -19,101 +19,110 @@
 // ============================================================================
 namespace CpmlStrain {
 
-    // --- Spatial dimension (root constant) ---
-    constexpr int NDIM = 3;
+// --- Spatial dimension (root constant) ---
+constexpr int NDIM = 3;
 
-    // --- Counts (derived from NDIM) ---
-    constexpr int NUM_DISPLACEMENT_COMPS = NDIM;
-    constexpr int NUM_DERIVATIVE_DIRS    = NDIM;
-    constexpr int NUM_CONV_DIRECTIONS    = NDIM;
-    constexpr int NUM_GRADIENT_COMPS     = NDIM * NDIM;
-    constexpr int NUM_OFF_DIAG_GROUPS    = NDIM;
-    constexpr int NUM_DIAG_GROUPS        = NDIM;
+// --- Counts (derived from NDIM) ---
+constexpr int NUM_DISPLACEMENT_COMPS = NDIM;
+constexpr int NUM_DERIVATIVE_DIRS = NDIM;
+constexpr int NUM_CONV_DIRECTIONS = NDIM;
+constexpr int NUM_GRADIENT_COMPS = NDIM * NDIM;
+constexpr int NUM_OFF_DIAG_GROUPS = NDIM;
+constexpr int NUM_DIAG_GROUPS = NDIM;
 
-    // --- Coefficient strides ---
-    constexpr int LINGK_COEFS_PER_GROUP  = 1 + NDIM;  // prefactor + NDIM memory dirs
-    constexpr int DIAG_COEFS_PER_GROUP   = 2;          // NOT derived from NDIM
-    constexpr int COEFS_PER_NODE         = NUM_OFF_DIAG_GROUPS * LINGK_COEFS_PER_GROUP
-                                         + NUM_DIAG_GROUPS * DIAG_COEFS_PER_GROUP;
+// --- Coefficient strides ---
+constexpr int LINGK_COEFS_PER_GROUP = 1 + NDIM;  // prefactor + NDIM memory dirs
+constexpr int DIAG_COEFS_PER_GROUP = 2;          // NOT derived from NDIM
+constexpr int COEFS_PER_NODE =
+    NUM_OFF_DIAG_GROUPS * LINGK_COEFS_PER_GROUP + NUM_DIAG_GROUPS * DIAG_COEFS_PER_GROUP;
 
-    // --- Strain memory strides ---
-    constexpr int MEMORY_PER_GRADIENT    = NDIM;
-    constexpr int MEMORY_PER_NODE        = NUM_GRADIENT_COMPS * MEMORY_PER_GRADIENT;
+// --- Strain memory strides ---
+constexpr int MEMORY_PER_GRADIENT = NDIM;
+constexpr int MEMORY_PER_NODE = NUM_GRADIENT_COMPS * MEMORY_PER_GRADIENT;
 
-    // --- β convolution coefficient strides ---
-    constexpr int BETA_COEFS_PER_DIR     = 3;  // NOT derived from NDIM
-    constexpr int BETA_COEFS_PER_NODE    = NDIM * BETA_COEFS_PER_DIR;
-    constexpr int BETA_COEF0             = 0;
-    constexpr int BETA_COEF1             = 1;
-    constexpr int BETA_COEF2             = 2;
+// --- β convolution coefficient strides ---
+constexpr int BETA_COEFS_PER_DIR = 3;  // NOT derived from NDIM
+constexpr int BETA_COEFS_PER_NODE = NDIM * BETA_COEFS_PER_DIR;
+constexpr int BETA_COEF0 = 0;
+constexpr int BETA_COEF1 = 1;
+constexpr int BETA_COEF2 = 2;
 
-    // --- Displacement memory strides ---
-    constexpr int DISPL_MEM_PER_NODE     = NDIM * NDIM;
+// --- Displacement memory strides ---
+constexpr int DISPL_MEM_PER_NODE = NDIM * NDIM;
 
-    // --- Displacement field stride ---
-    constexpr int DISPL_FIELD_PER_NODE   = NDIM;
+// --- Displacement field stride ---
+constexpr int DISPL_FIELD_PER_NODE = NDIM;
 
-    // --- Offsets into pml_coef_strain (derived from group sizes) ---
-    constexpr int OFFSET_GRAD_WRT_X = 0;
-    constexpr int OFFSET_GRAD_WRT_Y = OFFSET_GRAD_WRT_X + LINGK_COEFS_PER_GROUP;
-    constexpr int OFFSET_GRAD_WRT_Z = OFFSET_GRAD_WRT_Y + LINGK_COEFS_PER_GROUP;
-    constexpr int OFFSET_DUX_DX      = OFFSET_GRAD_WRT_Z + LINGK_COEFS_PER_GROUP;
-    constexpr int OFFSET_DUY_DY      = OFFSET_DUX_DX      + DIAG_COEFS_PER_GROUP;
-    constexpr int OFFSET_DUZ_DZ      = OFFSET_DUY_DY      + DIAG_COEFS_PER_GROUP;
+// --- Offsets into pml_coef_strain (derived from group sizes) ---
+constexpr int OFFSET_GRAD_WRT_X = 0;
+constexpr int OFFSET_GRAD_WRT_Y = OFFSET_GRAD_WRT_X + LINGK_COEFS_PER_GROUP;
+constexpr int OFFSET_GRAD_WRT_Z = OFFSET_GRAD_WRT_Y + LINGK_COEFS_PER_GROUP;
+constexpr int OFFSET_DUX_DX = OFFSET_GRAD_WRT_Z + LINGK_COEFS_PER_GROUP;
+constexpr int OFFSET_DUY_DY = OFFSET_DUX_DX + DIAG_COEFS_PER_GROUP;
+constexpr int OFFSET_DUZ_DZ = OFFSET_DUY_DY + DIAG_COEFS_PER_GROUP;
 
-    // --- Structs ---
-    struct OffDiagonalCorrection {
-        double gradient_prefactor;
-        double memory_coef_conv_dir0;
-        double memory_coef_conv_dir1;
-        double memory_coef_conv_dir2;
-    };
+// --- Structs ---
+struct OffDiagonalCorrection {
+    double gradient_prefactor;
+    double memory_coef_conv_dir0;
+    double memory_coef_conv_dir1;
+    double memory_coef_conv_dir2;
+};
 
-    struct DiagonalCorrection {
-        double gradient_prefactor;
-        double memory_coef_local_dir;
-    };
+struct DiagonalCorrection {
+    double gradient_prefactor;
+    double memory_coef_local_dir;
+};
 
-    struct StrainCoefficients {
-        OffDiagonalCorrection grad_wrt_x;
-        OffDiagonalCorrection grad_wrt_y;
-        OffDiagonalCorrection grad_wrt_z;
-        DiagonalCorrection     dux_dx;
-        DiagonalCorrection     duy_dy;
-        DiagonalCorrection     duz_dz;
-    };
+struct StrainCoefficients {
+    OffDiagonalCorrection grad_wrt_x;
+    OffDiagonalCorrection grad_wrt_y;
+    OffDiagonalCorrection grad_wrt_z;
+    DiagonalCorrection dux_dx;
+    DiagonalCorrection duy_dy;
+    DiagonalCorrection duz_dz;
+};
 
-    // --- Enums ---
-    enum Gradient : int {
-        DUX_DX = 0, DUX_DY = 1, DUX_DZ = 2,
-        DUY_DX = 3, DUY_DY = 4, DUY_DZ = 5,
-        DUZ_DX = 6, DUZ_DY = 7, DUZ_DZ = 8
-    };
-    enum Component : int { DUX = 0, DUY = 1, DUZ = 2 };
-    enum Direction : int { DX = 0, DY = 1, DZ = 2 };
-    enum ConvDir : int { CONV_X = 0, CONV_Y = 1, CONV_Z = 2 };
+// --- Enums ---
+enum Gradient : int {
+    DUX_DX = 0,
+    DUX_DY = 1,
+    DUX_DZ = 2,
+    DUY_DX = 3,
+    DUY_DY = 4,
+    DUY_DZ = 5,
+    DUZ_DX = 6,
+    DUZ_DY = 7,
+    DUZ_DZ = 8
+};
+enum Component : int { DUX = 0, DUY = 1, DUZ = 2 };
+enum Direction : int { DX = 0, DY = 1, DZ = 2 };
+enum ConvDir : int { CONV_X = 0, CONV_Y = 1, CONV_Z = 2 };
 
-    // --- Helpers ---
-    constexpr GF_HOST_DEVICE int gradient_of(int comp, int dir) { return comp * NUM_DERIVATIVE_DIRS + dir; }
+// --- Helpers ---
+constexpr GF_HOST_DEVICE int gradient_of(int comp, int dir) {
+    return comp * NUM_DERIVATIVE_DIRS + dir;
+}
 
-    inline GF_HOST_DEVICE size_t strain_memory_offset(size_t node, int gradient, int conv_dir) {
-        return node * MEMORY_PER_NODE + gradient * MEMORY_PER_GRADIENT + conv_dir;
-    }
+inline GF_HOST_DEVICE size_t strain_memory_offset(size_t node, int gradient, int conv_dir) {
+    return node * MEMORY_PER_NODE + gradient * MEMORY_PER_GRADIENT + conv_dir;
+}
 
-    inline GF_HOST_DEVICE StrainCoefficients load_strain_coefficients(const double* flat, size_t node) {
-        const double* base = flat + node * COEFS_PER_NODE;
-        StrainCoefficients c;
-        c.grad_wrt_x = {base[OFFSET_GRAD_WRT_X + 0], base[OFFSET_GRAD_WRT_X + 1],
-                        base[OFFSET_GRAD_WRT_X + 2], base[OFFSET_GRAD_WRT_X + 3]};
-        c.grad_wrt_y = {base[OFFSET_GRAD_WRT_Y + 0], base[OFFSET_GRAD_WRT_Y + 1],
-                        base[OFFSET_GRAD_WRT_Y + 2], base[OFFSET_GRAD_WRT_Y + 3]};
-        c.grad_wrt_z = {base[OFFSET_GRAD_WRT_Z + 0], base[OFFSET_GRAD_WRT_Z + 1],
-                        base[OFFSET_GRAD_WRT_Z + 2], base[OFFSET_GRAD_WRT_Z + 3]};
-        c.dux_dx     = {base[OFFSET_DUX_DX + 0], base[OFFSET_DUX_DX + 1]};
-        c.duy_dy     = {base[OFFSET_DUY_DY + 0], base[OFFSET_DUY_DY + 1]};
-        c.duz_dz     = {base[OFFSET_DUZ_DZ + 0], base[OFFSET_DUZ_DZ + 1]};
-        return c;
-    }
+inline GF_HOST_DEVICE StrainCoefficients load_strain_coefficients(const double* flat,
+                                                                  size_t node) {
+    const double* base = flat + node * COEFS_PER_NODE;
+    StrainCoefficients c;
+    c.grad_wrt_x = {base[OFFSET_GRAD_WRT_X + 0], base[OFFSET_GRAD_WRT_X + 1],
+                    base[OFFSET_GRAD_WRT_X + 2], base[OFFSET_GRAD_WRT_X + 3]};
+    c.grad_wrt_y = {base[OFFSET_GRAD_WRT_Y + 0], base[OFFSET_GRAD_WRT_Y + 1],
+                    base[OFFSET_GRAD_WRT_Y + 2], base[OFFSET_GRAD_WRT_Y + 3]};
+    c.grad_wrt_z = {base[OFFSET_GRAD_WRT_Z + 0], base[OFFSET_GRAD_WRT_Z + 1],
+                    base[OFFSET_GRAD_WRT_Z + 2], base[OFFSET_GRAD_WRT_Z + 3]};
+    c.dux_dx = {base[OFFSET_DUX_DX + 0], base[OFFSET_DUX_DX + 1]};
+    c.duy_dy = {base[OFFSET_DUY_DY + 0], base[OFFSET_DUY_DY + 1]};
+    c.duz_dz = {base[OFFSET_DUZ_DZ + 0], base[OFFSET_DUZ_DZ + 1]};
+    return c;
+}
 
 }  // namespace CpmlStrain
 
@@ -185,10 +194,7 @@ void cpml_update_displ_memory(RankData& part, int n_node);
 /// @param[in]     D        GLL derivative matrix [NGLL * NGLL]
 /// @param[in]     weights  GLL quadrature weights [NGLL]
 /// @param[in]     NGLL     Number of GLL points per axis
-void cpml_update_strain_memory(RankData& part,
-                               const double* D,
-                               const double* weights,
-                               int NGLL);
+void cpml_update_strain_memory(RankData& part, const double* D, const double* weights, int NGLL);
 
 /// Compute C-PML acceleration contribution and add to element-local residual.
 ///

@@ -15,10 +15,11 @@
  * precomputation, and passes SLS parameters to the element kernel.
  */
 
-#include "gf/solver.hpp"       // run_forward()
-#include "gf/solver_viscoelastic.hpp"
+#include "gf/solver.hpp"  // run_forward()
 
 #include <cstdio>
+
+#include "gf/solver_viscoelastic.hpp"
 
 namespace gf {
 

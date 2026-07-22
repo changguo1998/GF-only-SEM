@@ -47,7 +47,8 @@ int main(int argc, char** argv) {
     {
         int n_devices = 0;
         cudaError_t cerr = cudaGetDeviceCount(&n_devices);
-        if (cerr != cudaSuccess) n_devices = 0;
+        if (cerr != cudaSuccess)
+            n_devices = 0;
 
         if (n_devices == 0) {
             if (rank == 0)
@@ -103,8 +104,7 @@ int main(int argc, char** argv) {
 
         if (direction != "x" && direction != "y" && direction != "z") {
             if (rank == 0) {
-                std::cerr << "Error: --direction must be x, y, or z, got '" << direction
-                          << "'\n";
+                std::cerr << "Error: --direction must be x, y, or z, got '" << direction << "'\n";
                 print_usage(argv[0]);
             }
 #ifndef GF_NO_MPI
@@ -115,7 +115,8 @@ int main(int argc, char** argv) {
 
         if (rank == 0) {
             std::cout << "gf_solver_viscoelastic: direction=" << direction;
-            if (resume_mode) std::cout << " (resume mode)";
+            if (resume_mode)
+                std::cout << " (resume mode)";
             std::cout << std::endl;
             std::cout << "  input:  config.h5 + model.h5\n"
                       << "  output: wavefields/" << direction << "/record_{r}_{step}.h5"

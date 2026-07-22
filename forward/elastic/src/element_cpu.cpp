@@ -21,15 +21,11 @@ template <>
 void compute_element_residual<BackendCPU>(int n_elem, const double* dxi_dx, const double* jacobian,
                                           const double* lambda_, const double* mu_,
                                           const double* D, const double* weights, int NGLL,
-                                          const double* u, double* r,
-                                          const int32_t* pml_region,
+                                          const double* u, double* r, const int32_t* pml_region,
                                           const double* pml_coef_strain,
-                                          const double* rmemory_strain,
-                                          double* /*rmemory_sls*/,
-                                          double* /*sigma_old*/,
-                                          const double* /*sls_coef_a*/,
-                                          const double* /*sls_coef_b*/,
-                                          bool /*has_attenuation*/) {
+                                          const double* rmemory_strain, double* /*rmemory_sls*/,
+                                          double* /*sigma_old*/, const double* /*sls_coef_a*/,
+                                          const double* /*sls_coef_b*/, bool /*has_attenuation*/) {
     const int n_node = NGLL * NGLL * NGLL;
 
     for (int elem = 0; elem < n_elem; ++elem) {
@@ -48,23 +44,22 @@ void compute_element_residual<BackendCPU>(int n_elem, const double* dxi_dx, cons
                     // --- Material coefficients ---
                     const double lambda = elem_lambda[n];
                     const double mu = elem_mu[n];
-                    if (mu <= 0.0) continue;
+                    if (mu <= 0.0)
+                        continue;
 
                     const double* dd = &elem_dxi_dx[9 * n];
 
                     // --- [1] Reference-space gradient ---
                     double dudxi[3], dudeta[3], dudzeta[3];
-                    compute_reference_gradient(i, j, k, NGLL, D, elem_u,
-                                               dudxi, dudeta, dudzeta);
+                    compute_reference_gradient(i, j, k, NGLL, D, elem_u, dudxi, dudeta, dudzeta);
 
                     // --- [2] Physical gradient ---
                     double du_dx[3][3];
                     transform_to_physical(dudxi, dudeta, dudzeta, dd, du_dx);
 
                     // --- [3] C-PML strain correction ---
-                    apply_cpml_strain_correction(elem, n, n_node,
-                                                  pml_region, pml_coef_strain,
-                                                  rmemory_strain, du_dx);
+                    apply_cpml_strain_correction(elem, n, n_node, pml_region, pml_coef_strain,
+                                                 rmemory_strain, du_dx);
 
                     // --- [4] Strain tensor ---
                     double eps[3][3];
@@ -83,8 +78,7 @@ void compute_element_residual<BackendCPU>(int n_elem, const double* dxi_dx, cons
                     }
 
                     // --- [5] Residual scatter ---
-                    scatter_residual(i, j, k, NGLL, sigma, dd,
-                                     D, weights, elem_jac[n], elem_r);
+                    scatter_residual(i, j, k, NGLL, sigma, dd, D, weights, elem_jac[n], elem_r);
                 }
             }
         }

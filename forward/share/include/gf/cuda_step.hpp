@@ -25,29 +25,29 @@ struct CudaDeviceState {
     double* d_jacobian = nullptr;       // [n_total_nodes]
     double* d_lambda_ = nullptr;        // [n_total_nodes] λ at GLL nodes
     double* d_mu_ = nullptr;            // [n_total_nodes] μ at GLL nodes
-    double* d_density = nullptr;         // [n_total_nodes] density at GLL nodes
+    double* d_density = nullptr;        // [n_total_nodes] density at GLL nodes
     double* d_D = nullptr;              // [ngll * ngll] derivative matrix
     double* d_weights = nullptr;        // [ngll] quadrature weights
     int* d_src_elem_offsets = nullptr;  // [n_src_cell] local element index for source elems
 
     // --- C-PML device buffers (persistent, allocated when has_cpml) ---
-    int32_t* d_pml_region = nullptr;          // [n_local_cell]
-    double* d_pml_coef_alpha = nullptr;       // [n_total_nodes * 9]
-    double* d_pml_coef_beta = nullptr;        // [n_total_nodes * 9]
-    double* d_pml_coef_abar = nullptr;        // [n_total_nodes * 5]
-    double* d_pml_coef_strain = nullptr;      // [n_total_nodes * 18]
-    double* d_pml_displ_old = nullptr;        // [n_total_nodes * 3]
-    double* d_pml_displ_new = nullptr;        // [n_total_nodes * 3]
-    double* d_rmemory_displ = nullptr;        // [n_total_nodes * 9]
-    double* d_rmemory_strain = nullptr;       // [n_total_nodes * 27]
-    int n_pml_nodes_used = 0;                 // number of actual C-PML GLL nodes
+    int32_t* d_pml_region = nullptr;      // [n_local_cell]
+    double* d_pml_coef_alpha = nullptr;   // [n_total_nodes * 9]
+    double* d_pml_coef_beta = nullptr;    // [n_total_nodes * 9]
+    double* d_pml_coef_abar = nullptr;    // [n_total_nodes * 5]
+    double* d_pml_coef_strain = nullptr;  // [n_total_nodes * 18]
+    double* d_pml_displ_old = nullptr;    // [n_total_nodes * 3]
+    double* d_pml_displ_new = nullptr;    // [n_total_nodes * 3]
+    double* d_rmemory_displ = nullptr;    // [n_total_nodes * 9]
+    double* d_rmemory_strain = nullptr;   // [n_total_nodes * 27]
+    int n_pml_nodes_used = 0;             // number of actual C-PML GLL nodes
     bool has_cpml = false;
 
     // --- SLS attenuation device buffers (persistent, allocated when has_attenuation) ---
-    double* d_rmemory_sls = nullptr;   // [n_total_nodes * MEMORY_PER_NODE]  R_l Voigt
-    double* d_sigma_old = nullptr;     // [n_total_nodes * VOIGT_COMPONENTS]  prev stress
-    double* d_sls_coef_a = nullptr;    // [n_total_nodes * N_SLS]  a_l = exp(-dt/tau_s)
-    double* d_sls_coef_b = nullptr;    // [n_total_nodes * N_SLS]  b_l
+    double* d_rmemory_sls = nullptr;  // [n_total_nodes * MEMORY_PER_NODE]  R_l Voigt
+    double* d_sigma_old = nullptr;    // [n_total_nodes * VOIGT_COMPONENTS]  prev stress
+    double* d_sls_coef_a = nullptr;   // [n_total_nodes * N_SLS]  a_l = exp(-dt/tau_s)
+    double* d_sls_coef_b = nullptr;   // [n_total_nodes * N_SLS]  b_l
     bool has_attenuation = false;
 
     // --- Global DOF arrays (CG-SEM assembly) ---

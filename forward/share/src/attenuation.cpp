@@ -7,9 +7,8 @@
 
 namespace SLS {
 
-void precompute_sls_coefficients(const double* tau_sigma, const double* tau_epsilon,
-                                 int n_node, double solver_dt,
-                                 double* coef_a, double* coef_b) {
+void precompute_sls_coefficients(const double* tau_sigma, const double* tau_epsilon, int n_node,
+                                 double solver_dt, double* coef_a, double* coef_b) {
     for (int node = 0; node < n_node; ++node) {
         for (int l = 0; l < N_SLS; ++l) {
             double tau_s = tau_sigma[tau_offset(node, l)];

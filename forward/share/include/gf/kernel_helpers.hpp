@@ -34,15 +34,18 @@ namespace gf {
 /// \param[out] dudxi     3-component gradient along ξ
 /// \param[out] dudeta    3-component gradient along η
 /// \param[out] dudzeta   3-component gradient along ζ
-inline void compute_reference_gradient(int i, int j, int k, int NGLL,
-                                       const double* __restrict D,
-                                       const double* __restrict elem_u,
-                                       double* __restrict dudxi,
-                                       double* __restrict dudeta,
-                                       double* __restrict dudzeta) {
-    dudxi[0] = 0.0;   dudxi[1] = 0.0;   dudxi[2] = 0.0;
-    dudeta[0] = 0.0;  dudeta[1] = 0.0;  dudeta[2] = 0.0;
-    dudzeta[0] = 0.0; dudzeta[1] = 0.0; dudzeta[2] = 0.0;
+inline void compute_reference_gradient(int i, int j, int k, int NGLL, const double* __restrict D,
+                                       const double* __restrict elem_u, double* __restrict dudxi,
+                                       double* __restrict dudeta, double* __restrict dudzeta) {
+    dudxi[0] = 0.0;
+    dudxi[1] = 0.0;
+    dudxi[2] = 0.0;
+    dudeta[0] = 0.0;
+    dudeta[1] = 0.0;
+    dudeta[2] = 0.0;
+    dudzeta[0] = 0.0;
+    dudzeta[1] = 0.0;
+    dudzeta[2] = 0.0;
 
     for (int s = 0; s < NGLL; ++s) {
         const double Di_s = D[i * NGLL + s];
@@ -54,8 +57,8 @@ inline void compute_reference_gradient(int i, int j, int k, int NGLL,
         const int n_ijs = (i * NGLL + j) * NGLL + s;
 
         for (int dir = 0; dir < 3; ++dir) {
-            dudxi[dir]   += Di_s * elem_u[3 * n_sjk + dir];
-            dudeta[dir]  += Dj_s * elem_u[3 * n_isk + dir];
+            dudxi[dir] += Di_s * elem_u[3 * n_sjk + dir];
+            dudeta[dir] += Dj_s * elem_u[3 * n_isk + dir];
             dudzeta[dir] += Dk_s * elem_u[3 * n_ijs + dir];
         }
     }
@@ -74,11 +77,9 @@ inline void compute_reference_gradient(int i, int j, int k, int NGLL,
 ///                 dd[6..8] = (dξ/dz, dη/dz, dζ/dz)
 /// \param[out] du_dx  physical gradient [3][3]:
 ///                    du_dx[comp][0]=∂/∂x, [1]=∂/∂y, [2]=∂/∂z
-inline void transform_to_physical(const double dudxi[3],
-                                   const double dudeta[3],
-                                   const double dudzeta[3],
-                                   const double dd[9],
-                                   double du_dx[3][3]) {
+inline void transform_to_physical(const double dudxi[3], const double dudeta[3],
+                                  const double dudzeta[3], const double dd[9],
+                                  double du_dx[3][3]) {
     for (int comp = 0; comp < 3; ++comp) {
         du_dx[comp][0] = dudxi[comp] * dd[0] + dudeta[comp] * dd[1] + dudzeta[comp] * dd[2];
         du_dx[comp][1] = dudxi[comp] * dd[3] + dudeta[comp] * dd[4] + dudzeta[comp] * dd[5];
@@ -100,18 +101,16 @@ inline void transform_to_physical(const double dudxi[3],
 /// \param[in]     pml_coef_strain   A₆…A₂₃ coefficients [n_elem·NGLL³·18]
 /// \param[in]     rmemory_strain    strain memory [n_elem·NGLL³·27]
 /// \param[in,out] du_dx             physical gradients, modified in-place
-inline void apply_cpml_strain_correction(int elem, int node, int n_node,
-                                          const int32_t* pml_region,
-                                          const double* pml_coef_strain,
-                                          const double* rmemory_strain,
-                                          double du_dx[3][3]) {
-    if (!pml_region || pml_region[elem] == 0) return;
+inline void apply_cpml_strain_correction(int elem, int node, int n_node, const int32_t* pml_region,
+                                         const double* pml_coef_strain,
+                                         const double* rmemory_strain, double du_dx[3][3]) {
+    if (!pml_region || pml_region[elem] == 0)
+        return;
 
     // --- Bring CpmlStrain symbols into scope ---
     using namespace CpmlStrain;
     const int global_node = elem * n_node + node;
     StrainCoefficients coef = load_strain_coefficients(pml_coef_strain, global_node);
-
 
     // Off-diagonal: duy/dx and duz/dx — corrected by grad_wrt_x (lijk z,y,x)
     for (int comp : {DUY, DUZ}) {
@@ -120,10 +119,10 @@ inline void apply_cpml_strain_correction(int elem, int node, int n_node,
         double mem_z = rmemory_strain[m_base + CONV_Z];
         double mem_y = rmemory_strain[m_base + CONV_Y];
         double mem_x = rmemory_strain[m_base + CONV_X];
-        du_dx[comp][DX] = coef.grad_wrt_x.gradient_prefactor * grad
-                        + coef.grad_wrt_x.memory_coef_conv_dir0 * mem_z
-                        + coef.grad_wrt_x.memory_coef_conv_dir1 * mem_y
-                        + coef.grad_wrt_x.memory_coef_conv_dir2 * mem_x;
+        du_dx[comp][DX] = coef.grad_wrt_x.gradient_prefactor * grad +
+                          coef.grad_wrt_x.memory_coef_conv_dir0 * mem_z +
+                          coef.grad_wrt_x.memory_coef_conv_dir1 * mem_y +
+                          coef.grad_wrt_x.memory_coef_conv_dir2 * mem_x;
     }
 
     // Off-diagonal: dux/dy and duz/dy — corrected by grad_wrt_y (lijk x,z,y)
@@ -133,10 +132,10 @@ inline void apply_cpml_strain_correction(int elem, int node, int n_node,
         double mem_x = rmemory_strain[m_base + CONV_X];
         double mem_z = rmemory_strain[m_base + CONV_Z];
         double mem_y = rmemory_strain[m_base + CONV_Y];
-        du_dx[comp][DY] = coef.grad_wrt_y.gradient_prefactor * grad
-                        + coef.grad_wrt_y.memory_coef_conv_dir0 * mem_x
-                        + coef.grad_wrt_y.memory_coef_conv_dir1 * mem_z
-                        + coef.grad_wrt_y.memory_coef_conv_dir2 * mem_y;
+        du_dx[comp][DY] = coef.grad_wrt_y.gradient_prefactor * grad +
+                          coef.grad_wrt_y.memory_coef_conv_dir0 * mem_x +
+                          coef.grad_wrt_y.memory_coef_conv_dir1 * mem_z +
+                          coef.grad_wrt_y.memory_coef_conv_dir2 * mem_y;
     }
 
     // Off-diagonal: dux/dz and duy/dz — corrected by grad_wrt_z (lijk x,y,z)
@@ -146,10 +145,10 @@ inline void apply_cpml_strain_correction(int elem, int node, int n_node,
         double mem_x = rmemory_strain[m_base + CONV_X];
         double mem_y = rmemory_strain[m_base + CONV_Y];
         double mem_z = rmemory_strain[m_base + CONV_Z];
-        du_dx[comp][DZ] = coef.grad_wrt_z.gradient_prefactor * grad
-                        + coef.grad_wrt_z.memory_coef_conv_dir0 * mem_x
-                        + coef.grad_wrt_z.memory_coef_conv_dir1 * mem_y
-                        + coef.grad_wrt_z.memory_coef_conv_dir2 * mem_z;
+        du_dx[comp][DZ] = coef.grad_wrt_z.gradient_prefactor * grad +
+                          coef.grad_wrt_z.memory_coef_conv_dir0 * mem_x +
+                          coef.grad_wrt_z.memory_coef_conv_dir1 * mem_y +
+                          coef.grad_wrt_z.memory_coef_conv_dir2 * mem_z;
     }
 
     // Diagonal: dux/dx — corrected by dux_dx (lx)
@@ -157,8 +156,8 @@ inline void apply_cpml_strain_correction(int elem, int node, int n_node,
         double grad = du_dx[DUX][DX];
         size_t m_off = strain_memory_offset(global_node, DUX_DX, CONV_X);
         double mem_x = rmemory_strain[m_off];
-        du_dx[DUX][DX] = coef.dux_dx.gradient_prefactor * grad
-                       + coef.dux_dx.memory_coef_local_dir * mem_x;
+        du_dx[DUX][DX] =
+            coef.dux_dx.gradient_prefactor * grad + coef.dux_dx.memory_coef_local_dir * mem_x;
     }
 
     // Diagonal: duy/dy — corrected by duy_dy (ly)
@@ -166,8 +165,8 @@ inline void apply_cpml_strain_correction(int elem, int node, int n_node,
         double grad = du_dx[DUY][DY];
         size_t m_off = strain_memory_offset(global_node, DUY_DY, CONV_Y);
         double mem_y = rmemory_strain[m_off];
-        du_dx[DUY][DY] = coef.duy_dy.gradient_prefactor * grad
-                       + coef.duy_dy.memory_coef_local_dir * mem_y;
+        du_dx[DUY][DY] =
+            coef.duy_dy.gradient_prefactor * grad + coef.duy_dy.memory_coef_local_dir * mem_y;
     }
 
     // Diagonal: duz/dz — corrected by duz_dz (lz)
@@ -175,8 +174,8 @@ inline void apply_cpml_strain_correction(int elem, int node, int n_node,
         double grad = du_dx[DUZ][DZ];
         size_t m_off = strain_memory_offset(global_node, DUZ_DZ, CONV_Z);
         double mem_z = rmemory_strain[m_off];
-        du_dx[DUZ][DZ] = coef.duz_dz.gradient_prefactor * grad
-                       + coef.duz_dz.memory_coef_local_dir * mem_z;
+        du_dx[DUZ][DZ] =
+            coef.duz_dz.gradient_prefactor * grad + coef.duz_dz.memory_coef_local_dir * mem_z;
     }
 }
 
@@ -212,13 +211,10 @@ inline void compute_strain_tensor(const double du_dx[3][3], double eps[3][3]) {
 /// \param[in]  weights    GLL quadrature weights [NGLL]
 /// \param[in]  jacobian_det   |J| at this node
 /// \param[in,out] elem_r  element residual [NGLL³ × 3], accumulated
-inline void scatter_residual(int i, int j, int k, int NGLL,
-                              const double sigma[3][3],
-                              const double dd[9],
-                              const double* __restrict D,
-                              const double* __restrict weights,
-                              double jacobian_det,
-                              double* __restrict elem_r) {
+inline void scatter_residual(int i, int j, int k, int NGLL, const double sigma[3][3],
+                             const double dd[9], const double* __restrict D,
+                             const double* __restrict weights, double jacobian_det,
+                             double* __restrict elem_r) {
     const double factor = jacobian_det * weights[i] * weights[j] * weights[k];
 
     // --- ξ-direction: contributions to nodes (s, j, k) ---
@@ -226,12 +222,12 @@ inline void scatter_residual(int i, int j, int k, int NGLL,
         const double Dis = D[i * NGLL + s];
         const double gradN[3] = {Dis * dd[0], Dis * dd[3], Dis * dd[6]};
         const int n_s = (s * NGLL + j) * NGLL + k;
-        elem_r[3 * n_s + 0] -= (sigma[0][0] * gradN[0] + sigma[0][1] * gradN[1] +
-                                sigma[0][2] * gradN[2]) * factor;
-        elem_r[3 * n_s + 1] -= (sigma[1][0] * gradN[0] + sigma[1][1] * gradN[1] +
-                                sigma[1][2] * gradN[2]) * factor;
-        elem_r[3 * n_s + 2] -= (sigma[2][0] * gradN[0] + sigma[2][1] * gradN[1] +
-                                sigma[2][2] * gradN[2]) * factor;
+        elem_r[3 * n_s + 0] -=
+            (sigma[0][0] * gradN[0] + sigma[0][1] * gradN[1] + sigma[0][2] * gradN[2]) * factor;
+        elem_r[3 * n_s + 1] -=
+            (sigma[1][0] * gradN[0] + sigma[1][1] * gradN[1] + sigma[1][2] * gradN[2]) * factor;
+        elem_r[3 * n_s + 2] -=
+            (sigma[2][0] * gradN[0] + sigma[2][1] * gradN[1] + sigma[2][2] * gradN[2]) * factor;
     }
 
     // --- η-direction: contributions to nodes (i, s, k) ---
@@ -239,12 +235,12 @@ inline void scatter_residual(int i, int j, int k, int NGLL,
         const double Djs = D[j * NGLL + s];
         const double gradN[3] = {Djs * dd[1], Djs * dd[4], Djs * dd[7]};
         const int n_s = (i * NGLL + s) * NGLL + k;
-        elem_r[3 * n_s + 0] -= (sigma[0][0] * gradN[0] + sigma[0][1] * gradN[1] +
-                                sigma[0][2] * gradN[2]) * factor;
-        elem_r[3 * n_s + 1] -= (sigma[1][0] * gradN[0] + sigma[1][1] * gradN[1] +
-                                sigma[1][2] * gradN[2]) * factor;
-        elem_r[3 * n_s + 2] -= (sigma[2][0] * gradN[0] + sigma[2][1] * gradN[1] +
-                                sigma[2][2] * gradN[2]) * factor;
+        elem_r[3 * n_s + 0] -=
+            (sigma[0][0] * gradN[0] + sigma[0][1] * gradN[1] + sigma[0][2] * gradN[2]) * factor;
+        elem_r[3 * n_s + 1] -=
+            (sigma[1][0] * gradN[0] + sigma[1][1] * gradN[1] + sigma[1][2] * gradN[2]) * factor;
+        elem_r[3 * n_s + 2] -=
+            (sigma[2][0] * gradN[0] + sigma[2][1] * gradN[1] + sigma[2][2] * gradN[2]) * factor;
     }
 
     // --- ζ-direction: contributions to nodes (i, j, s) ---
@@ -252,12 +248,12 @@ inline void scatter_residual(int i, int j, int k, int NGLL,
         const double Dks = D[k * NGLL + s];
         const double gradN[3] = {Dks * dd[2], Dks * dd[5], Dks * dd[8]};
         const int n_s = (i * NGLL + j) * NGLL + s;
-        elem_r[3 * n_s + 0] -= (sigma[0][0] * gradN[0] + sigma[0][1] * gradN[1] +
-                                sigma[0][2] * gradN[2]) * factor;
-        elem_r[3 * n_s + 1] -= (sigma[1][0] * gradN[0] + sigma[1][1] * gradN[1] +
-                                sigma[1][2] * gradN[2]) * factor;
-        elem_r[3 * n_s + 2] -= (sigma[2][0] * gradN[0] + sigma[2][1] * gradN[1] +
-                                sigma[2][2] * gradN[2]) * factor;
+        elem_r[3 * n_s + 0] -=
+            (sigma[0][0] * gradN[0] + sigma[0][1] * gradN[1] + sigma[0][2] * gradN[2]) * factor;
+        elem_r[3 * n_s + 1] -=
+            (sigma[1][0] * gradN[0] + sigma[1][1] * gradN[1] + sigma[1][2] * gradN[2]) * factor;
+        elem_r[3 * n_s + 2] -=
+            (sigma[2][0] * gradN[0] + sigma[2][1] * gradN[1] + sigma[2][2] * gradN[2]) * factor;
     }
 }
 

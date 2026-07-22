@@ -21,11 +21,11 @@
 namespace SLS {
 
 // --- Compile-time constants ---
-constexpr int N_SLS            = 3;   // number of relaxation mechanisms per GLL node
-constexpr int NDIM             = 3;   // spatial dimensions
-constexpr int VOIGT_COMPONENTS = 6;   // independent symmetric stress/strain components
-constexpr int MEMORY_PER_NODE  = N_SLS * VOIGT_COMPONENTS;  // 18 doubles per node
-constexpr int TAU_PER_NODE     = N_SLS * 2;                 // τ_σ + τ_ε × 3
+constexpr int N_SLS = 3;             // number of relaxation mechanisms per GLL node
+constexpr int NDIM = 3;              // spatial dimensions
+constexpr int VOIGT_COMPONENTS = 6;  // independent symmetric stress/strain components
+constexpr int MEMORY_PER_NODE = N_SLS * VOIGT_COMPONENTS;  // 18 doubles per node
+constexpr int TAU_PER_NODE = N_SLS * 2;                    // τ_σ + τ_ε × 3
 
 // --- Voigt index ---
 // Maps 3×3 symmetric tensor indices (l,m) to 1D Voigt index:
@@ -39,8 +39,8 @@ inline constexpr int voigt_index(int l, int m) noexcept {
 
 /// Offset into rmemory_sls[n_node × MEMORY_PER_NODE] for node, mechanism, voigt.
 inline constexpr size_t sls_memory_offset(size_t node, int mechanism, int voigt) noexcept {
-    return node * MEMORY_PER_NODE + static_cast<size_t>(mechanism) * VOIGT_COMPONENTS
-           + static_cast<size_t>(voigt);
+    return node * MEMORY_PER_NODE + static_cast<size_t>(mechanism) * VOIGT_COMPONENTS +
+           static_cast<size_t>(voigt);
 }
 
 /// Offset into tau_sigma or tau_epsilon [n_node × N_SLS].
@@ -69,9 +69,8 @@ inline constexpr size_t coef_offset(size_t node, int mechanism) noexcept {
 /// @param solver_dt      Simulation timestep (seconds)
 /// @param[out] coef_a    Output array [n_node × N_SLS], allocated by caller
 /// @param[out] coef_b    Output array [n_node × N_SLS], allocated by caller
-void precompute_sls_coefficients(const double* tau_sigma, const double* tau_epsilon,
-                                 int n_node, double solver_dt,
-                                 double* coef_a, double* coef_b);
+void precompute_sls_coefficients(const double* tau_sigma, const double* tau_epsilon, int n_node,
+                                 double solver_dt, double* coef_a, double* coef_b);
 
 }  // namespace SLS
 

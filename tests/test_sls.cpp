@@ -1,7 +1,6 @@
 // tests/test_sls.cpp — SLS attenuation constants and helpers
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
-
 #include <cmath>
 #include <vector>
 
@@ -36,9 +35,9 @@ TEST_CASE("SLS offset functions compute correct flat indices", "[sls][offsets]")
 
     // sls_memory_offset
     {
-        size_t expected = node * SLS::MEMORY_PER_NODE
-                        + static_cast<size_t>(mechanism) * SLS::VOIGT_COMPONENTS
-                        + static_cast<size_t>(voigt);
+        size_t expected = node * SLS::MEMORY_PER_NODE +
+                          static_cast<size_t>(mechanism) * SLS::VOIGT_COMPONENTS +
+                          static_cast<size_t>(voigt);
         REQUIRE(SLS::sls_memory_offset(node, mechanism, voigt) == expected);
     }
 
@@ -75,8 +74,7 @@ TEST_CASE("SLS coefficient precomputation", "[sls][coefficients]") {
         }
     }
 
-    SLS::precompute_sls_coefficients(tau_sigma.data(), tau_epsilon.data(),
-                                     n_node, solver_dt,
+    SLS::precompute_sls_coefficients(tau_sigma.data(), tau_epsilon.data(), n_node, solver_dt,
                                      coef_a.data(), coef_b.data());
 
     double expected_a = std::exp(-solver_dt / tau_s);
@@ -102,8 +100,7 @@ TEST_CASE("SLS no-attenuation limit (tau_e == tau_s)", "[sls][limit]") {
     std::vector<double> coef_a(1 * SLS::N_SLS);
     std::vector<double> coef_b(1 * SLS::N_SLS);
 
-    SLS::precompute_sls_coefficients(tau_sigma.data(), tau_epsilon.data(),
-                                     1, solver_dt,
+    SLS::precompute_sls_coefficients(tau_sigma.data(), tau_epsilon.data(), 1, solver_dt,
                                      coef_a.data(), coef_b.data());
 
     for (int l = 0; l < SLS::N_SLS; ++l) {
@@ -122,8 +119,7 @@ TEST_CASE("SLS coefficient bounds", "[sls][bounds]") {
     std::vector<double> coef_a(1 * SLS::N_SLS);
     std::vector<double> coef_b(1 * SLS::N_SLS);
 
-    SLS::precompute_sls_coefficients(tau_sigma.data(), tau_epsilon.data(),
-                                     1, solver_dt,
+    SLS::precompute_sls_coefficients(tau_sigma.data(), tau_epsilon.data(), 1, solver_dt,
                                      coef_a.data(), coef_b.data());
 
     for (int l = 0; l < SLS::N_SLS; ++l) {

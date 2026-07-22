@@ -9,12 +9,11 @@
  */
 
 #define GF_ELEMENT_CUDA_SOURCE
-#include "gf/element.hpp"
-
 #include "gf/attenuation.hpp"
 #include "gf/cuda_check.h"
 #include "gf/cuda_device_manager.hpp"
 #include "gf/cuda_step.hpp"
+#include "gf/element.hpp"
 #include "gf/kernel_helpers.cuh"
 #include "gf/pml.hpp"
 
@@ -28,32 +27,26 @@ __device__ static inline int idx(int i, int j, int k, int NGLL) {
 }  // anonymous namespace
 
 // Voigt -> tensor index pairs
-__device__ static constexpr int VMAP[6][2] = {{0, 0}, {1, 1}, {2, 2},
-                                              {0, 1}, {0, 2}, {1, 2}};
+__device__ static constexpr int VMAP[6][2] = {{0, 0}, {1, 1}, {2, 2}, {0, 1}, {0, 2}, {1, 2}};
 
 // -----------------------------------------------------------------------
 // Element residual kernel
 // -----------------------------------------------------------------------
-__global__ void element_residual_kernel(const double* __restrict__ dxi_dx,
-                                        const double* __restrict__ jacobian,
-                                        const double* __restrict__ lambda_,
-                                        const double* __restrict__ mu_,
-                                        const double* __restrict__ D,
-                                        const double* __restrict__ weights, int NGLL,
-                                        const double* __restrict__ u, double* r,
-                                        const int32_t* __restrict__ pml_region,
-                                        const double* __restrict__ pml_coef_strain,
-                                        const double* __restrict__ rmemory_strain,
-                                        double* __restrict__ rmemory_sls,
-                                        double* __restrict__ sigma_old,
-                                        const double* __restrict__ sls_coef_a,
-                                        const double* __restrict__ sls_coef_b,
-                                        bool has_attenuation) {
+__global__ void element_residual_kernel(
+    const double* __restrict__ dxi_dx, const double* __restrict__ jacobian,
+    const double* __restrict__ lambda_, const double* __restrict__ mu_,
+    const double* __restrict__ D, const double* __restrict__ weights, int NGLL,
+    const double* __restrict__ u, double* r, const int32_t* __restrict__ pml_region,
+    const double* __restrict__ pml_coef_strain, const double* __restrict__ rmemory_strain,
+    double* __restrict__ rmemory_sls, double* __restrict__ sigma_old,
+    const double* __restrict__ sls_coef_a, const double* __restrict__ sls_coef_b,
+    bool has_attenuation) {
     int e = blockIdx.x;
     int i = threadIdx.x;
     int j = threadIdx.y;
     int k = threadIdx.z;
-    if (i >= NGLL || j >= NGLL || k >= NGLL) return;
+    if (i >= NGLL || j >= NGLL || k >= NGLL)
+        return;
 
     int n_node = NGLL * NGLL * NGLL;
     int elem_offset = e * n_node;
@@ -62,23 +55,23 @@ __global__ void element_residual_kernel(const double* __restrict__ dxi_dx,
 
     double lambda = lambda_[global_node];
     double mu = mu_[global_node];
-    if (mu <= 0.0) return;
+    if (mu <= 0.0)
+        return;
 
     const double* dd = &dxi_dx[9 * global_node];
     const double* elem_u = u + 3 * elem_offset;
 
     // [1] Reference-space gradient
     double dudxi[3], dudeta[3], dudzeta[3];
-    compute_reference_gradient(i, j, k, NGLL, D, elem_u,
-                               dudxi, dudeta, dudzeta);
+    compute_reference_gradient(i, j, k, NGLL, D, elem_u, dudxi, dudeta, dudzeta);
 
     // [2] Physical gradient
     double du_dx[3][3];
     transform_to_physical(dudxi, dudeta, dudzeta, dd, du_dx);
 
     // [3] C-PML strain correction
-    apply_cpml_strain_correction(global_node, pml_region, e,
-                                  pml_coef_strain, rmemory_strain, du_dx);
+    apply_cpml_strain_correction(global_node, pml_region, e, pml_coef_strain, rmemory_strain,
+                                 du_dx);
 
     // [4] Strain tensor
     double eps[3][3];
@@ -104,15 +97,12 @@ __global__ void element_residual_kernel(const double* __restrict__ dxi_dx,
                 int l = VMAP[v][0];
                 int m = VMAP[v][1];
 
-                double sigma_prev = sigma_old[
-                    SLS::sigma_old_offset(global_node, v)];
+                double sigma_prev = sigma_old[SLS::sigma_old_offset(global_node, v)];
 
-                size_t mem_off = SLS::sls_memory_offset(
-                    global_node, sls, v);
+                size_t mem_off = SLS::sls_memory_offset(global_node, sls, v);
 
                 double delta = sigma[l][m] - sigma_prev;
-                rmemory_sls[mem_off] =
-                    a * rmemory_sls[mem_off] + b * delta;
+                rmemory_sls[mem_off] = a * rmemory_sls[mem_off] + b * delta;
 
                 sigma[l][m] -= rmemory_sls[mem_off];
             }
@@ -121,8 +111,7 @@ __global__ void element_residual_kernel(const double* __restrict__ dxi_dx,
         for (int v = 0; v < SLS::VOIGT_COMPONENTS; ++v) {
             int l = VMAP[v][0];
             int m = VMAP[v][1];
-            sigma_old[SLS::sigma_old_offset(global_node, v)]
-                = sigma[l][m];
+            sigma_old[SLS::sigma_old_offset(global_node, v)] = sigma[l][m];
         }
     }
 
@@ -132,9 +121,7 @@ __global__ void element_residual_kernel(const double* __restrict__ dxi_dx,
     sigma[2][1] = sigma[1][2];
 
     // [5] Residual scatter (atomicAdd)
-    scatter_residual(i, j, k, NGLL, sigma, dd,
-                     D, weights, jacobian[global_node],
-                     elem_offset, r);
+    scatter_residual(i, j, k, NGLL, sigma, dd, D, weights, jacobian[global_node], elem_offset, r);
 }
 
 // -----------------------------------------------------------------------
@@ -147,19 +134,12 @@ CudaDeviceBuffers g_cuda_buffers;
 }  // anonymous namespace
 
 template <>
-void compute_element_residual<BackendCUDA>(int n_elem, const double* dxi_dx,
-                                           const double* jacobian, const double* lambda_,
-                                           const double* mu_, const double* D,
-                                           const double* weights, int NGLL, const double* u,
-                                           double* r,
-                                           const int32_t* /*pml_region*/,
-                                           const double* /*pml_coef_strain*/,
-                                           const double* /*rmemory_strain*/,
-                                           double* /*rmemory_sls*/,
-                                           double* /*sigma_old*/,
-                                           const double* /*sls_coef_a*/,
-                                           const double* /*sls_coef_b*/,
-                                           bool /*has_attenuation*/) {
+void compute_element_residual<BackendCUDA>(
+    int n_elem, const double* dxi_dx, const double* jacobian, const double* lambda_,
+    const double* mu_, const double* D, const double* weights, int NGLL, const double* u,
+    double* r, const int32_t* /*pml_region*/, const double* /*pml_coef_strain*/,
+    const double* /*rmemory_strain*/, double* /*rmemory_sls*/, double* /*sigma_old*/,
+    const double* /*sls_coef_a*/, const double* /*sls_coef_b*/, bool /*has_attenuation*/) {
 #ifdef GF_WITH_CUDA
     const int n_node = NGLL * NGLL * NGLL;
 
@@ -182,12 +162,11 @@ void compute_element_residual<BackendCUDA>(int n_elem, const double* dxi_dx,
     // --- Launch kernel (one block per element) ---
     dim3 block(NGLL, NGLL, NGLL);
     dim3 grid(n_elem, 1, 1);
-    element_residual_kernel<<<grid, block>>>(g_cuda_buffers.d_dxi_dx, g_cuda_buffers.d_jacobian,
-                                             g_cuda_buffers.d_lambda, g_cuda_buffers.d_mu,
-                                             g_cuda_buffers.d_D, g_cuda_buffers.d_weights, NGLL,
-                                             g_cuda_buffers.d_u, g_cuda_buffers.d_r,
-                                             nullptr, nullptr, nullptr,
-                                             nullptr, nullptr, nullptr, nullptr, false);
+    element_residual_kernel<<<grid, block>>>(
+        g_cuda_buffers.d_dxi_dx, g_cuda_buffers.d_jacobian, g_cuda_buffers.d_lambda,
+        g_cuda_buffers.d_mu, g_cuda_buffers.d_D, g_cuda_buffers.d_weights, NGLL,
+        g_cuda_buffers.d_u, g_cuda_buffers.d_r, nullptr, nullptr, nullptr, nullptr, nullptr,
+        nullptr, nullptr, false);
 
     // --- Check for launch errors ---
     GF_CUDA_CHECK(cudaGetLastError());
@@ -198,10 +177,17 @@ void compute_element_residual<BackendCUDA>(int n_elem, const double* dxi_dx,
     // --- Synchronize ---
     GF_CUDA_CHECK(cudaDeviceSynchronize());
 #else
-    (void)n_elem; (void)dxi_dx; (void)jacobian; (void)lambda_; (void)mu_;
-    (void)D; (void)weights; (void)NGLL; (void)u; (void)r;
-    fprintf(stderr,
-            "compute_element_residual<BackendCUDA> called without GF_WITH_CUDA.\n");
+    (void)n_elem;
+    (void)dxi_dx;
+    (void)jacobian;
+    (void)lambda_;
+    (void)mu_;
+    (void)D;
+    (void)weights;
+    (void)NGLL;
+    (void)u;
+    (void)r;
+    fprintf(stderr, "compute_element_residual<BackendCUDA> called without GF_WITH_CUDA.\n");
     std::abort();
 #endif
 }
@@ -219,14 +205,11 @@ void cuda_launch_element_residual(const CudaDeviceState& state, int ngll, int n_
     double* d_output = state.use_global_dof ? state.d_local_cell_residual : state.d_residual;
 
     GF_CUDA_CHECK(cudaMemset(d_output, 0, n_elem * n_node * 3 * sizeof(double)));
-    element_residual_kernel<<<grid, block>>>(state.d_dxi_dx, state.d_jacobian, state.d_lambda_,
-                                             state.d_mu_, state.d_D, state.d_weights, ngll,
-                                             d_input, d_output,
-                                             state.d_pml_region, state.d_pml_coef_strain,
-                                             state.d_rmemory_strain,
-                                             state.d_rmemory_sls, state.d_sigma_old,
-                                             state.d_sls_coef_a, state.d_sls_coef_b,
-                                             state.has_attenuation);
+    element_residual_kernel<<<grid, block>>>(
+        state.d_dxi_dx, state.d_jacobian, state.d_lambda_, state.d_mu_, state.d_D, state.d_weights,
+        ngll, d_input, d_output, state.d_pml_region, state.d_pml_coef_strain,
+        state.d_rmemory_strain, state.d_rmemory_sls, state.d_sigma_old, state.d_sls_coef_a,
+        state.d_sls_coef_b, state.has_attenuation);
     GF_CUDA_CHECK(cudaGetLastError());
     GF_CUDA_CHECK(cudaDeviceSynchronize());
 }
