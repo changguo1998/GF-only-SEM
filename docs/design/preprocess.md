@@ -372,7 +372,7 @@ for a corner element).
 
 Output: `/field/element/is_pml` (int8, 1=PML).
 
-**NOTE:** Full C-PML (d/K/α per direction, convolution coefficients) is deferred.
+**NOTE:** C-PML (K/d/α per direction, convolution coefficients Ā₁…Ā₅ for displacement correction, A₆…A₂₃ for strain correction) fully implemented in `pml_cpml.py`. See [`docs/design/cpml.md`](../design/cpml.md).
 Current damping is a simplified linear ramp from 0 at PML entry to 1 at boundary.
 See `pml.py` for details.
 

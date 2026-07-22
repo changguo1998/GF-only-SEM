@@ -84,7 +84,7 @@ Preprocess writes all mesh data to per-rank partitions. Rank `R` reads `partitio
 
 **Source injection**: read source elements, weights, and `STF[n]` from `config.h5`. Distribute to GLL nodes. No runtime search.
 
-**PML damping**: simple linear-ramp profile applied to velocity. Profile precomputed by preprocessor, read from `partition_{r}.h5`. Full recursive-convolution C-PML is deferred.
+**PML damping**: Displacement-based C-PML (accel correction, 3 memory vars/node) + strain-based C-PML (A₆…A₂₃, 18 memory vars/node). Profile precomputed by preprocessor, read from partition. See [`docs/design/cpml.md`](../design/cpml.md) and [`docs/deferred.md`](../deferred.md) §3.
 
 **Partition discovery**: rank `R` opens `partitions/partition_{R}.h5`. All ranks read same `config.h5`.
 
@@ -145,7 +145,7 @@ Read from [`preprocess.md`](preprocess.md):
 | `/simulation/` | solver_dt, output_dt_s, snapshot_stride, restart_dt_s, restart_stride, log_stride, nsteps, cfl_safety, snapshot_precision, record_depth_max_m, record_depth_actual_m, nx_elements, ny_elements, nz_elements, pml\_{x,y,z}{min,max}, tilex_elements, tiley_elements |
 | `/domain/` | Bounds, pml_thickness per face |
 | `/source/` | Position (x,y,z), stf[nsteps] (precomputed time series), precomputed element list + Lagrange weights |
-No `/attenuation/` — elastic-only, attenuation deferred. No `direction` — passed via CLI `--direction` flag.
+SLS attenuation data (tau_sigma, tau_epsilon) stored in model.h5 `/field/cell/`. No `direction` — passed via CLI `--direction` flag.
 
 ## Physics Components
 
