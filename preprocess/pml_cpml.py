@@ -30,7 +30,7 @@ ALPHA_MIN_SPACING = (
     1e-3  # Minimum spacing between direction alphas (prevents partial-fraction explosion)
 )
 COEF_WARN_THRESHOLD = 1e4  # Warn if any C-PML coefficient exceeds this magnitude
-COEF_CLAMP_THRESHOLD = 10.0  # Clamp coefficients to [-COEF_CLAMP_THRESHOLD, +COEF_CLAMP_THRESHOLD] for numerical stability
+COEF_CLAMP_THRESHOLD = 7.0
 
 # PML region codes (matching SPECFEM3D constants.h)
 CPML_X_ONLY = 1
