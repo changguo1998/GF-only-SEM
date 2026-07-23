@@ -58,7 +58,7 @@ SEM uses Gauss-Lobatto-Legendre (GLL) quadrature with N+1 points per axis. Nodes
 | GLL points per axis | NGLL = N+1 | 4 (test) / 6 (prod) |
 | GLL nodes per element | NGLL³ | 64 (test) / 216 (prod) |
 | Total GLL points | ξ_i, i=0..N | Roots of P'\_N(ξ); endpoints −1, +1 |
-| Quadrature weights | w_i | 2/(N(N+1)[P_N(ξ_i)]²) |
+| Quadrature weights | w_i | 2/(N[N+1](P_N(ξ_i))²) |
 | Derivative matrix | D_ij = ℓ'\_j(ξ_i) | Off-diagonal: P_N(ξ_i)/[P_N(ξ_j)(ξ_i−ξ_j)]; Diagonal endpoints: ∓N(N+1)/4; Diagonal interior: 0 |
 P_N(x) computed via Bonnet's recurrence:
 
@@ -197,23 +197,21 @@ ______________________________________________________________________
 
 ## 6. C-PML (Convolutional Perfectly Matched Layer)
 
-### 6.1 Damping Profile
+### Status
 
-Simplified ramp profile (full C-PML with K, α, convolution coefficients deferred):
+Full recursive-convolution C-PML (Wang et al. 2006, θ=1/8) — COMPLETE.
+Matching SPECFEM3D implementation with non-symmetric stress correction.
+See [`docs/design/cpml.md`](design/cpml.md) for the complete design.
 
-For each PML element and face direction, damping increases linearly from 0 at the PML-entry interface to 1.0 at the physical domain boundary:
+### Memory Variables per PML Node
 
-<center>d(x_axis) = clamp(|x_axis − pml_start| / pml_width, 0, 1)</center>
+Each PML GLL node stores 48 memory scalars:
 
-### 6.2 Application to Velocity
+- 9 displacement memory (3 directions × 3 components for Ã₁…Ã₅ correction)
+- 39 strain memory (27 lijk β-convolved + 12 lx/ly/lz α-convolved for A₆…A₂₃ correction)
 
-<center>v_i ← v_i − d(node)·v_i</center>
-
-All 3 DOF components at a node share the same damping coefficient. Non-PML elements: d = 0 everywhere (no effect).
-
-Note: full C-PML memory variables are deferred. Future implementation follows Wang et al. (2006, eq. 21, θ=1/8), matching SPECFEM3D.
-
-______________________________________________________________________
+Key parameters: K_MAX_PML=1.0, CFS α-shift only (no coordinate stretching).
+COEF_SAFETY_CLAMP=3.0 as fallback for pathological coefficients.
 
 ## 7. Source Injection
 

@@ -1,6 +1,6 @@
 # C-PML Design (Recursive Convolution Perfectly Matched Layer)
 
-**Status:** COMPLETE (2026-07-22) — verified against SPECFEM3D, 94.5% waveform correlation with Lamb reference
+**Status:** COMPLETE (2026-07-22) — verified against SPECFEM3D, 99.1% scaled waveform correlation with Lamb reference (residual ~3× systematic SEM discretization factor)
 **Reference:** Wang et al. (2006), Xie et al. (2014), SPECFEM3D implementation
 
 ## 1. Overview
@@ -302,7 +302,7 @@ MIN_DISTANCE = 1e-6         # Singularity avoidance threshold
 | All 6 C++ executables build clean | ✅ |
 | Halfspace 1000-step stability (max|u|≈2.4e5, no inf/nan) | ✅ |
 | 4 SPECFEM3D-alignment bugs fixed (see `docs/bugs.md`) | ✅ |
-| Lamb reference waveform correlation: 94.5% (best-aligned) | ✅ |
+| Lamb reference waveform correlation: 99.1% (scaled, best-aligned) | ✅ |
 | Backward compatibility (old damping fallback) | ✅ |
 
 ### Known Limitations

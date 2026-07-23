@@ -268,7 +268,7 @@ Full recursive-convolution C-PML (Wang et al. 2006, θ=1/8) — COMPLETE:
 - COEF_SAFETY_CLAMP=3.0 as fallback
 
 Implementation: 8+ commits (Jul 2026). 4 bugs fixed (see [`docs/bugs.md`](../bugs.md)).
-Solver physics verified: 94.5% waveform correlation with Lamb reference.
+Solver physics verified: 99.1% scaled waveform correlation with Lamb reference (residual ~3× systematic SEM discretization factor — see [`docs/bugs.md`](../bugs.md)).
 See [`docs/design/cpml.md`](../design/cpml.md) for full design.
 
 ## Runtime Loop
