@@ -209,6 +209,7 @@ greenfun/
 ├── library.py # GreenFunctionLibrary: index + KDTree on SEM source xyz
 ├── source_run.py # SourceRun: single greenfun run, tile loading + vertex KDTree
 ├── interpolator.py # trilinear interpolation (structured hex mesh, 8 corners)
+├── gll_interpolator.py # spectral GLL Lagrange interpolation (basis='gll')
 ├── index_cache.py # \_greenfun_index.h5 read/write + blake2b hash check
 └── query.py # GreenQuery result dataclass + CLI entry gf_greenquery
 
@@ -267,13 +268,27 @@ class GreenQuery:
 - `source_xyz` (real source) is looked up among that run's **recorded
   vertices** (SEM records), interpolated if off-grid.
 
-### Trilinear interpolation
+### Interpolation modes
 
-Recorded vertices lie on a regular Cartesian hex mesh. Use
-`scipy.spatial.KDTree` to find the 8 corner vertices (2×2×2 cube) around a
-query point, compute local coordinates `(α, β, γ) ∈ [0, 1]³`, and weight each
-corner's Green tensor value by the trilinear weight. The interpolation is
-applied independently per `(t, component, force_direction)`.
+The library auto-detects the tile basis at load time:
+
+#### GLL-basis interpolation (default for current tiles)
+
+Postprocess writes tiles with `basis="gll"`, storing unique GLL node IDs,
+coordinates, and `cell_gll_node_index` mapping each recording cell to its
+125 GLL nodes. `GLLInterpolator` (`gll_interpolator.py`) locates the cell
+containing a query point, maps to reference coordinates `(ξ,η,ζ) ∈ [-1,1]³`,
+and evaluates the 3D tensor-product GLL Lagrange basis for spectral-accuracy
+interpolation. Exact GLL-node matches are returned directly via KDTree
+(zero interpolation error).
+
+#### Trilinear fallback (legacy `basis="mesh_vertices"`)
+
+For vertex-only tiles, use `scipy.spatial.KDTree` to find the 8 corner
+vertices (2×2×2 cube) around a query point, compute local coordinates
+`(α, β, γ) ∈ [0, 1]³`, and weight each corner's value by the trilinear
+weight. The interpolation is applied independently per
+`(t, component, force_direction)`.
 
 Out-of-range queries (depth > `record_depth_max_m`, or inside PML) raise
 `ValueError` with a range hint.
@@ -314,13 +329,27 @@ function-call and CLI paths share one core implementation.
 - `docs/deferred.md` unchanged; GLL-point wavefield interpolation is recorded
   here as a future enhancement (see below).
 
-## Future Enhancement: GLL-Point Wavefield Interpolation
+| GLL-basis interpolation | `GLLInterpolator` | Spectral accuracy via tensor-product Lagrange basis |
+| Legacy vertex trilinear | `TrilinearInterpolator` | 8-corner fallback for vertex-only tiles |
 
-The current design interpolates on recorded mesh vertices (trilinear). If
-forward is extended to output the full GLL-point wavefield, the reader can
-detect a tile's `basis` attribute and switch to GLL-basis interpolation for
-higher accuracy. This is deferred; the trilinear path is the v1 default and
-degrades gracefully when only vertex data exists.
+GLL interpolation was originally planned as a future enhancement; it is now
+the default output format of `gf_postprocess` (which writes `basis="gll"`).
+The greenfun library auto-selects the interpolator based on the tile's
+`basis` attribute. See [`docs/deferred.md`](../deferred.md) for remaining
+items.
+
+### Updated file listing
+
+```
+greenfun/
+├── __init__.py          # exports GreenFunctionLibrary
+├── library.py           # GreenFunctionLibrary: index + KDTree on SEM source xyz
+├── source_run.py        # SourceRun: single greenfun run, tile loading + vertex KDTree
+├── interpolator.py      # TrilinearInterpolator (legacy, basis="mesh_vertices")
+├── gll_interpolator.py  # GLLInterpolator (spectral, basis="gll") — current default
+├── index_cache.py       # _greenfun_index.h5 read/write + blake2b hash check
+└── query.py             # GreenQuery result dataclass + CLI entry gf_greenquery
+```
 
 ## Testing
 

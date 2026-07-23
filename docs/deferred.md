@@ -128,16 +128,21 @@ mass-weighted, displacement/velocity/acceleration use count-based average.
 and 9.50e7 to 2.60 (layer). Waveform correlation improved from 0.945
 to 0.991 (halfspace).
 
-### Remaining: trilinear interpolation degradation
+### Interpolation accuracy
 
-The example `compare.sh` queries a receiver point that is NOT at a mesh
-vertex, so the library trilinearly interpolates the 3×3 Green tensor over
-8 corner vertices. Off-diagonal components vary strongly with azimuth and
-distance, so interpolating them across vertices with different geometries
-introduces error. This degrades the interpolated rel_l2 to ~0.58 (halfspace)
-and ~0.88 (layer). **Mitigation:** query at recorded vertices (no
-interpolation) for accurate comparison, or implement GLL-basis
-interpolation. This is a query-accuracy limitation, not a solver bug.
+The library now supports two interpolation modes:
+
+- **GLL-basis interpolation** (current default for `basis="gll"` tiles):
+  spectral accuracy via tensor-product Lagrange basis. Exact GLL-node
+  matches return directly via KDTree (zero interpolation error). This
+  is the output format of `gf_postprocess` (commit `18087ef`).
+- **Trilinear interpolation** (legacy fallback for `basis="mesh_vertices"`
+  tiles): degrades off-diagonal components (rel_l2≈0.58 halfspace, ~0.88
+  layer). See [`docs/design/postprocess.md`](design/postprocess.md).
+
+**Mitigation:** Use current GLL-format tiles (re-run `gf_postprocess`).
+For vertex-only tiles, query at recorded vertices or re-postprocess.
+This is a tile-format limitation, not a solver bug.
 
 ### Verified correct (solver physics)
 
