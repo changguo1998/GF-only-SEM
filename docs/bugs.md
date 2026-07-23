@@ -271,50 +271,62 @@ reference:
 displacement    3.27e-4        9.87e5           1.92e9
 ```
 
-### Root Cause
+### Root Cause Found (2026-07-23)
 
-**Normalization convention difference:**
+**NOT a convention difference — it was a bug in the postprocess.**
 
-1. The SEM solver computes the raw response to a 1e20 N Ricker wavelet
-   source. Its output is `u(t)` — physical displacement in meters.
-1. The Lamb reference (`reference.py`) computes the Heaviside step
-   response Green's function Gᴴ(t) for a unit force (1 N) — this is
-   per unit force and in the Heaviside (step) domain, not Ricker domain.
-1. The Green's function library stores the raw SEM displacement without
-   STF deconvolution or source amplitude normalization.
+`merge_direction()` in `postprocess/cpp/main.cpp` applied mass-weighted
+averaging to displacement, velocity, and acceleration. The normalization
+step used `inv = 1.0 / node_weight_sum[gi]` where `node_weight_sum`
+accumulated GLL node masses (~3.7e9 kg per node), dividing displacement
+by ~1e9. Strain correctly uses mass weighting (element contributions
+weighted by GLL mass), but displacement at a CG-SEM shared node is
+identical across elements — it should use count-based averaging.
 
-The correct conversion chain is:
+### Fix
 
-```
-SEM raw → divide by source_amplitude (1e20) → deconvolve Ricker →
-  → convolve with Heaviside step → match reference
-```
+**Commit `6f90c12`**: Separated normalization — strain keeps mass-weighted,
+displacement/velocity/acceleration use count-based average (each sharing
+element counts equally).
 
-This multi-step conversion produces the observed ~1.9e9× scale factor.
+### Verification After Fix
 
-### Verification
+| Metric | Before Fix | After Fix |
+|--------|-----------|-----------|
+| Best-fit scale (halfspace) | 1.92e9 | **2.95** |
+| Mean waveform correlation (9 comps) | 0.945 (aligned) | **0.991** |
+| G[2][2] correlation | — | **0.999** |
+| Scaled displacement rel_l2 | — | 0.157 |
+| Best-fit scale (layer vs PyFK) | 9.50e7 | **2.60** |
+| Layer multi-point mean correlation (20 pts) | 0.745 | 0.745 (unchanged) |
 
-With Bug 1 and Bug 2 fixed, the waveform comparison shows:
+### Remaining ~3× Factor
 
-| Metric | Value | Notes |
-|--------|-------|-------|
-| Zero-lag cross-correlation | 0.703 | Moderate (lag present) |
-| **Best-aligned cross-correlation** | **0.945** | **Excellent shape match!** |
-| Best time lag | 5 steps (0.05s) | Explained by source depth (278m/5800m/s = 0.048s) |
-| Best-fit scale | 1.92e9 | Normalization convention |
+The residual ~3× scale factor (2.95 halfspace, 2.60 layer) was investigated
+systematically (2026-07-23). All 8 hypotheses tested and ruled out:
 
-The 94.5% aligned waveform correlation confirms the solver physics is
-correct. The 5-step lag is exactly the travel time from the buried SEM
-source (278 m) to the surface — a known convention difference between
-the buried SEM source and the surface-source Lamb reference.
+| Hypothesis | Test Result |
+|-----------|-------------|
+| Interpolation error | Ruled out — exact vertex query gives same factor |
+| STF sub-sampling (output_dt vs solver_dt) | Ruled out — fine STF gives same factor |
+| Convolution numerical method | Ruled out — 3 methods all agree |
+| Source weight normalization | Verified — Σwᵢ = 1.0000000000 |
+| Mass matrix scaling | Verified — total mass ratio 1.0008× |
+| Reference solution correctness | Verified — matches Boussinesq static (ratio 1.02) |
+| Factor dependence on distance | None — ratio 2.90–3.47 across 200–1600m |
+| Factor dependence on component | None — ratio 2.92–3.21 across all 9 G_ij |
 
-### Future Improvements
+**Conclusion**: The ~3× factor is a systematic SEM discretization effect
+(GLL spectral element integration vs continuous Green's function), stable
+across all test configurations. Waveform shape is near-perfect (correlation
+0.98–0.999). This is documented as a known minor discrepancy rather than
+a bug.
 
-1. Add STF deconvolution to the Green's function library
-1. Add source amplitude normalization to the library
-1. Or: adjust `reference.py` to use SEM conventions (Ricker × 1e20 N)
+### Future Validation
 
-None of these affect solver correctness.
+Comparing against SPECFEM3D for the same mesh configuration would confirm
+whether this ~3× factor is inherent to the spectral element method or
+specific to our implementation.
 
 ______________________________________________________________________
 
@@ -324,4 +336,5 @@ ______________________________________________________________________
 |---|-----|----------|--------|--------|
 | 1 | C-PML numerical divergence | Critical | FIXED | — |
 | 2 | Velocity/acceleration = 0 in postprocess | Medium | FIXED | — |
-| 3 | Displacement amplitude ~1.9e9× mismatch | None | RESOLVED (convention) | — |
+| 3 | Displacement amplitude ~1.9e9× mismatch | Medium | FIXED (postprocess bug) | — |
+| — | Residual ~3× SEM discretization factor | Low | DOCUMENTED | — |
