@@ -112,8 +112,21 @@ ______________________________________________________________________
   actual cause was a Green tensor index convention mismatch (transpose bug) in
   the postprocess. Fixed 2026-07-19 (`postprocess/cpp/main.cpp`).
 
-After both fixes, all 9 Green tensor components match the Lamb analytic
-reference within 0.94–1.03× at raw vertices (rel_l2 ≈ 0.21).
+#### Third issue found and fixed (2026-07-23)
+
+A **postprocess mass-weighting bug** was discovered: `merge_direction()` in
+`postprocess/cpp/main.cpp` applied mass-weighted averaging to displacement,
+velocity, and acceleration (same normalization as strain). Since CG-SEM
+shared nodes have identical displacement across elements, count-based
+averaging is correct. The mass-weighted path divided by ~3.7e9 kg per
+node, suppressing displacement by ~1.9e9×.
+
+**Fix:** commit `6f90c12` — separate normalization: strain keeps
+mass-weighted, displacement/velocity/acceleration use count-based average.
+
+**After fix:** best-fit scale reduced from 1.92e9 to 2.95 (halfspace)
+and 9.50e7 to 2.60 (layer). Waveform correlation improved from 0.945
+to 0.991 (halfspace).
 
 ### Remaining: trilinear interpolation degradation
 

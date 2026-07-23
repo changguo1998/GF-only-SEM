@@ -73,7 +73,7 @@ Elastic-only forward solver (SLS/attenuation deferred).
 
 Buried source support implemented (`source_z_m = None`→free surface, `float`→buried). Preprocessor auto-detects surface vs buried mode and excludes PML elements for buried sources.
 
-**Example validation pipelines** (`examples/halfspace`, `examples/layer`) run end-to-end: SEM → reference → comparison. All 9 Green tensor components match analytic/PyFK references within 3–6% at raw mesh vertices (rel_l2≈0.21 full-waveform). The earlier "P-SV coupling bias" was a Green tensor index convention mismatch (transpose bug) in the postprocess, fixed 2026-07-19 — see [`docs/deferred.md`](docs/deferred.md) §6. Interpolated query points degrade accuracy due to trilinear interpolation of off-diagonal components.
+**Example validation pipelines** (`examples/halfspace`, `examples/layer`) run end-to-end: SEM → reference → comparison. After fixing a postprocess mass-weighting bug (commit `6f90c12`), scaled waveform correlation improved from 0.945 to 0.991 (halfspace) and 0.745 to 0.745 (layer, unchanged — amplitude-only fix). A residual systematic factor of ~3× (2.95 halfspace, 2.60 layer) remains, attributed to SEM GLL discretization vs continuous Green's function — see [`docs/bugs.md`](docs/bugs.md) §Issue 3. The earlier "P-SV coupling bias" was a Green tensor index convention mismatch (transpose bug) in the postprocess, fixed 2026-07-19 — see [`docs/deferred.md`](docs/deferred.md) §6. Interpolated query points degrade accuracy due to trilinear interpolation of off-diagonal components.
 
 | Solver variant | Multi-rank | DOF numbering | Status |
 |---------------|------------|---------------|--------|

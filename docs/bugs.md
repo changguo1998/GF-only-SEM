@@ -258,8 +258,8 @@ ______________________________________________________________________
 
 ## Issue 3: Displacement amplitude mismatch (~1.9e9×)
 
-**Status:** RESOLVED — normalization convention difference, not a bug
-**Severity:** None (expected behavior)
+**Status:** FIXED (2026-07-23, commit 6f90c12) — postprocess mass-weighting bug
+**Severity:** Medium — affects displacement amplitude by ~1.9e9×
 
 ### Symptom
 

@@ -19,6 +19,15 @@ bin/
 wavefields/
 restart/
 
+# Example regeneratable artifacts (from running run.sh)
+examples/*/greenfun/
+examples/*/partitions/
+examples/*/model.h5
+examples/*/vtk/
+examples/*/record_*.h5
+examples/*/output_*.h5
+examples/*/config.h5
+
 # Rebuildable greenfun cache
 _greenfun_index.h5
 
