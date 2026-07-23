@@ -10,8 +10,8 @@ No receivers. Output is the configured shallow mesh-vertex field.
 
 | File | Responsibility |
 |------|----------------|
-| `reader.hh` | HDF5 readers: config, model, record discovery and per-file scatter |
-| `writer.hh` | HDF5 tile writer with element-count and spatial binning |
+| `reader.hpp` | HDF5 readers: config, model, record discovery and per-file scatter |
+| `writer.hpp` | HDF5 tile writer with element-count and spatial binning |
 | `main.cpp` | CLI entry point, pipeline orchestration, machine-parseable stats |
 | `CMakeLists.txt` | CMake build (HDF5 + OpenMP) |
 | `_archive/` | Archived Python implementation (reference only) |

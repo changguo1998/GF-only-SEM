@@ -10,7 +10,7 @@
 
 #define GF_ELEMENT_CUDA_SOURCE
 #include "gf/attenuation.hpp"
-#include "gf/cuda_check.h"
+#include "gf/cuda_check.hpp"
 #include "gf/cuda_device_manager.hpp"
 #include "gf/cuda_step.hpp"
 #include "gf/element.hpp"

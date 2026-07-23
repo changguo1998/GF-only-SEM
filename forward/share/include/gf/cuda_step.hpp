@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "gf/cuda_check.h"
+#include "gf/cuda_check.hpp"
 #include "gf/types.hpp"
 
 namespace gf {

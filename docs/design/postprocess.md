@@ -35,13 +35,13 @@ wavefields/{x,y,z}/record_{r}_{step}.h5
 ## Architecture
 
 C++17 header-only design. Single binary `gf_postprocess` (built via CMake, target `gf_postprocess`,
-lands in `bin/gf_postprocess`). No compiled library — all logic in `main.cpp`, `reader.hh`, `writer.hh`.
+lands in `bin/gf_postprocess`). No compiled library — all logic in `main.cpp`, `reader.hpp`, `writer.hpp`.
 
 | File | Role |
 |------|------|
 | `cpp/main.cpp` | CLI, pipeline orchestration, merge, assembly, subset, binning |
-| `cpp/reader.hh` | HDF5 readers: config, model, record discovery and per-file scatter |
-| `cpp/writer.hh` | HDF5 tile writer with element-count and spatial binning |
+| `cpp/reader.hpp` | HDF5 readers: config, model, record discovery and per-file scatter |
+| `cpp/writer.hpp` | HDF5 tile writer with element-count and spatial binning |
 
 ## CLI
 
@@ -189,8 +189,8 @@ postprocess/
 ├── cpp/
 │   ├── CMakeLists.txt          (builds gf_postprocess)
 │   ├── main.cpp                (CLI, pipeline)
-│   ├── reader.hh               (config, model, record readers)
-│   └── writer.hh               (tile writer + binning)
+│   ├── reader.hpp               (config, model, record readers)
+│   └── writer.hpp               (tile writer + binning)
 └── _archive/                   (archived Python reference)
     ├── src/gf_post/*.py
     └── tests/

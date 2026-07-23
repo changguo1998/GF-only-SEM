@@ -165,7 +165,7 @@ naturally drops the cache — which is correct, since the cache is rebuildable.
 
 Three files in `postprocess/cpp/`:
 
-### reader.hh
+### reader.hpp
 
 1. `ConfigParams` gains `double source_x_m, source_y_m, source_z_m`;
    `read_config` reads `/source` attrs `x`, `y`, `z`.
@@ -180,7 +180,7 @@ Three files in `postprocess/cpp/`:
    force-x → column 0, force-y → column 1, force-z → column 2.
 1. Tile extraction loop builds both strain and displacement subsets per tile.
 
-### writer.hh
+### writer.hpp
 
 5. `write_tile` gains parameters `source_xyz_m[3]`, `vertex_coords[n_local, 3]`,
    `displacement_tensor[n_steps, n_local, 3, 3]`.

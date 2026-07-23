@@ -19,9 +19,9 @@
 #include <string>
 #include <vector>
 
-#include "h5io.hh"
-#include "topology.hh"
-#include "vtk_writer.hh"
+#include "h5io.hpp"
+#include "topology.hpp"
+#include "vtk_writer.hpp"
 
 using namespace gf_topology;
 using namespace gf_h5io;

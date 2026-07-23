@@ -3,7 +3,7 @@
 // and CG-SEM global scatter/gather.
 // Keeps all state on device, no per-step H2D/D2H copies.
 
-#include "gf/cuda_check.h"
+#include "gf/cuda_check.hpp"
 #include "gf/cuda_step.hpp"
 #include "gf/pml.hpp"
 

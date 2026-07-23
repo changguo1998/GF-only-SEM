@@ -83,6 +83,7 @@ Buried source support implemented (`source_z_m = None`â†’free surface, `float`â†
 ## Cross-Cutting Conventions
 
 - **Naming**: X2Y for topology relations, 1-based with signed direction
+- **Header extension**: `.hpp` for C++ headers (no `.hh` or `.h`). CUDA-specific headers use `.cuh`.
 - **Config**: Python importable scripts (no YAML/TOML)
 - **Data model**: `model.h5` = mesh-dependent precomputed data; `config.h5` = simulation params
 - **SI-unit suffixes** on config fields (`_m`, `_s`, `_m_s`, `_kg_m3`)

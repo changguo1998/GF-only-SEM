@@ -77,10 +77,8 @@ if(MPI_FOUND)
 
     # Exchange tests (MPI, requires mpirun -np 2 for multi-rank cases)
     add_executable(test_exchange test_exchange.cpp)
-    target_include_directories(
-        test_exchange
-        PRIVATE ${CMAKE_SOURCE_DIR}/forward/share/include ${CMAKE_SOURCE_DIR}/compress/include
-                ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
+    target_include_directories(test_exchange PRIVATE ${CMAKE_SOURCE_DIR}/forward/share/include
+                                                     ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
     target_link_libraries(test_exchange PRIVATE libgf Catch2::Catch2 MPI::MPI_CXX Eigen3::Eigen
                                                 ${HDF5_C_LIBRARIES})
     target_compile_features(test_exchange PRIVATE cxx_std_17)
@@ -108,9 +106,8 @@ endif()
 if(TARGET libgf_cuda_nompi)
     add_executable(test_element_cuda test_element_cuda.cu)
     target_include_directories(
-        test_element_cuda
-        PRIVATE ${CMAKE_SOURCE_DIR}/forward/share/include ${CMAKE_SOURCE_DIR}/compress/include
-                ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
+        test_element_cuda PRIVATE ${CMAKE_SOURCE_DIR}/forward/share/include ${EIGEN3_INCLUDE_DIR}
+                                  ${HDF5_INCLUDE_DIRS})
     # Eigen3 include for CUDA: use compile-option -I (bypasses response file issues)
     get_filename_component(_eigen_prefix "${Eigen3_DIR}/../../.." ABSOLUTE)
     target_compile_options(test_element_cuda

@@ -11,7 +11,7 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include "gf/cuda_check.h"
+#include "gf/cuda_check.hpp"
 #include "gf/cuda_device_manager.hpp"
 #include "gf/cuda_step.hpp"
 #include "gf/element.hpp"

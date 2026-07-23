@@ -18,7 +18,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "reader.hh"  // for ConfigParams, ModelData
+#include "reader.hpp"  // for ConfigParams, ModelData
 
 // -----------------------------------------------------------------------
 // Tile index helpers

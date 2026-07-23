@@ -26,8 +26,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "reader.hh"
-#include "writer.hh"
+#include "reader.hpp"
+#include "writer.hpp"
 
 // -----------------------------------------------------------------------
 // CLI argument parsing

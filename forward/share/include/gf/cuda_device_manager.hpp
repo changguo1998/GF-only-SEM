@@ -16,7 +16,7 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include "gf/cuda_check.h"
+#include "gf/cuda_check.hpp"
 
 namespace gf {
 

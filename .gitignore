@@ -1,5 +1,7 @@
 .sisyphus
 build/
+docs/_archive/
+# Stop tracking files once archived to _archive/
 __pycache__/
 .pytest_cache/
 *.egg-info/
