@@ -14,7 +14,7 @@ Full math formulation: [`docs/math.md`](docs/math.md)
 |--------|----------|---------|-----------|
 | `preprocess/` | Python + C++17 | GLL geometry, material interpolation, PML, partition, config; C++ accelerator (default, OpenMP) | [`preprocess/AGENTS.md`](preprocess/AGENTS.md) |
 | `forward/` | C++17 | Elastic SEM solver (libgf_elastic) + MPI executable | [`forward/AGENTS.md`](forward/AGENTS.md) |
-| `forward/viscoelastic/` | C++17 | Viscoelastic SEM solver (SLS) — skeleton, implementation deferred | [`forward/viscoelastic/AGENTS.md`](forward/viscoelastic/AGENTS.md) |
+| `forward/viscoelastic/` | C++17 | Viscoelastic SEM solver (SLS) — SLS attenuation — complete | [`forward/viscoelastic/AGENTS.md`](forward/viscoelastic/AGENTS.md) |
 | `postprocess/` | C++17 | Strain Green's function extraction (Python archived in `_archive/`) | [`postprocess/AGENTS.md`](postprocess/AGENTS.md) |
 | `tools/` | C++17 + Python | VTK visualization tools (C++ primary, Python archived); GMSH→HDF5 conversion (Python) | [`tools/AGENTS.md`](tools/AGENTS.md) |
 | `tests/` | Python + C++ | Shared test infrastructure (pytest + Catch2) | [`tests/AGENTS.md`](tests/AGENTS.md) |
@@ -36,29 +36,34 @@ Full math formulation: [`docs/math.md`](docs/math.md)
 
 ### Spack (development machine)
 
-Dependencies managed via Spack. Activate before building:
+### Build Environment
+
+First-time setup:
 
 ```bash
-source $HOME/.spack/share/spack/setup-env.sh
-spack load cuda        # CUDA 13.2 — required for CUDA backend
-spack load /zkrqzmds   # OpenMPI 5.0.10 (use hash to disambiguate)
+uv sync                                # create Python venv + dev tools
+source scripts/env.sh                  # load Spack packages + add bin/ to PATH
 ```
 
-Available packages: `openmpi@5.0.10`, `cuda@13.2.1`, `eigen@3.4.0`.
+Build all solvers and tools:
+
+```bash
+scripts/build.sh                       # auto-detect CPU / CUDA
+scripts/build.sh cpu                   # CPU only
+scripts/build.sh cuda                  # CPU + CUDA
+scripts/build.sh -t gf_postprocess     # single target
+```
+
+Run a solver:
+
+```bash
+scripts/solver.sh                      # interactive menu
+scripts/solver.sh elastic cpu mpi -- --direction x
+scripts/solver.sh elastic cuda -- --direction x
+```
+
+Spack packages required: `openmpi@5.0.10`, `cuda@13.2.1` (optional), `eigen@3.4.0`.
 System HDF5 at `/usr/include/hdf5/serial/`.
-
-### Building Forward Solver
-
-```bash
-cd forward
-# CPU (default)
-cmake -B build -DGF_DEVICE_BACKEND=CPU
-cmake --build build
-
-# CUDA (requires cuda loaded via spack)
-cmake -B build -DGF_DEVICE_BACKEND=CUDA
-cmake --build build
-```
 
 ### Formatting
 
@@ -69,7 +74,7 @@ and spack-installed `llvm` for clang-format.
 
 CG-SEM global-DOF assembly fix complete — waves now correctly propagate across element interfaces (both within-rank and cross-rank). All 221 tests pass (202 Python + 19 C++ Catch2).
 
-Elastic-only forward solver (SLS/attenuation deferred).
+Elastic + viscoelastic (SLS) forward solvers complete. See `scripts/solver.sh` to select.
 
 Buried source support implemented (`source_z_m = None`→free surface, `float`→buried). Preprocessor auto-detects surface vs buried mode and excludes PML elements for buried sources.
 

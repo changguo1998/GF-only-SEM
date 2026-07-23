@@ -17,25 +17,34 @@ config.py + model.h5 → preprocess → partition_{r}.h5 + config.h5
 
 ```bash
 # Environment
+# Install dependencies
 uv sync --group dev
-source env_setup.sh
 
-# Build (all auto-detected targets)
-cmake -B build && cmake --build build --target gf_solver_elastic_mpi
+# Set up environment (Spack + venv + PATH)
+source scripts/env.sh
 
-# Run example
-bash examples/halfspace/run.sh
-```
+# Build all solvers and tools
+scripts/build.sh
+
+# Run a solver (interactive menu)
+scripts/solver.sh
+
+# Or run directly:
+scripts/solver.sh elastic cpu mpi -- --direction x
+scripts/solver.sh elastic cuda -- --direction x
 
 ## Forward Solvers
 
-Three binaries built from the same source, switchable by name:
+Six solver binaries, selected via `scripts/solver.sh` or directly:
 
-| Binary | Backend | MPI | Use case |
-|--------|---------|-----|----------|
-| `gf_solver_elastic_mpi` | CPU | yes | CPU cluster, workstation |
-| `gf_solver_elastic_cuda` | CUDA | no | Single GPU, no MPI |
-| `gf_solver_elastic_mpi_cuda` | CUDA | yes | Multi-GPU cluster |
+| Binary | Physics | Backend | MPI |
+|--------|---------|---------|-----|
+| `gf_solver_elastic_mpi` | elastic | CPU | yes |
+| `gf_solver_elastic_cuda` | elastic | CUDA | no |
+| `gf_solver_elastic_mpi_cuda` | elastic | CUDA | yes |
+| `gf_solver_viscoelastic_mpi` | viscoelastic | CPU | yes |
+| `gf_solver_viscoelastic_cuda` | viscoelastic | CUDA | no |
+| `gf_solver_viscoelastic_mpi_cuda` | viscoelastic | CUDA | yes |
 
 - MPI and CUDA are auto-detected by CMake. Missing dependencies skip their targets.
 - GPU auto-binds via `cudaSetDevice(rank % n_devices)`.
@@ -56,13 +65,17 @@ Three binaries built from the same source, switchable by name:
 ### Build
 
 ```bash
-# All available targets (auto-detects MPI + CUDA)
-cmake -B build && cmake --build build
+scripts/build.sh              # all targets (auto-detect CPU/CUDA)
+scripts/build.sh cpu          # CPU only
+scripts/build.sh cuda         # CPU + CUDA
+scripts/build.sh -t gf_postprocess  # single target
+```
 
-# Individual targets
-cmake --build build --target gf_solver_elastic_mpi        # MPI + CPU
-cmake --build build --target gf_solver_elastic_cuda        # CUDA single-GPU
-cmake --build build --target gf_solver_elastic_mpi_cuda    # MPI + CUDA multi-GPU
+### Run
+
+```bash
+scripts/solver.sh                       # interactive menu
+scripts/solver.sh elastic cpu mpi -- --direction x
 ```
 
 ### Run
