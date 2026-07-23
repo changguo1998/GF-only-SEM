@@ -84,8 +84,8 @@ TEST_CASE("SLS coefficient precomputation", "[sls][coefficients]") {
         for (int l = 0; l < SLS::N_SLS; ++l) {
             double a = coef_a[SLS::coef_offset(node, l)];
             double b = coef_b[SLS::coef_offset(node, l)];
-            REQUIRE(a == Catch::Approx(expected_a).epsilon(1e-12));
-            REQUIRE(b == Catch::Approx(expected_b).epsilon(1e-12));
+            REQUIRE_THAT(a, Catch::Matchers::WithinRel(expected_a, 1e-12));
+            REQUIRE_THAT(b, Catch::Matchers::WithinRel(expected_b, 1e-12));
         }
     }
 }
@@ -105,7 +105,7 @@ TEST_CASE("SLS no-attenuation limit (tau_e == tau_s)", "[sls][limit]") {
 
     for (int l = 0; l < SLS::N_SLS; ++l) {
         double b = coef_b[SLS::coef_offset(0, l)];
-        REQUIRE(b == Catch::Approx(0.0).margin(1e-15));
+        REQUIRE_THAT(b, Catch::Matchers::WithinAbs(0.0, 1e-15));
     }
 }
 

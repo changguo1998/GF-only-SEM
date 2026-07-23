@@ -15,7 +15,7 @@ config.py + model.h5 → preprocess → partition_{r}.h5 + config.h5
 
 ## Quick Start
 
-```bash
+````bash
 # Environment
 # Install dependencies
 uv sync --group dev
@@ -69,7 +69,7 @@ scripts/build.sh              # all targets (auto-detect CPU/CUDA)
 scripts/build.sh cpu          # CPU only
 scripts/build.sh cuda         # CPU + CUDA
 scripts/build.sh -t gf_postprocess  # single target
-```
+````
 
 ### Run
 
@@ -100,6 +100,22 @@ gf_postprocess model.h5 config.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wav
 
 # C++ accelerator thread count
 export OMP_NUM_THREADS=8   # default: all available CPUs
+```
+
+### Install
+
+```bash
+scripts/install.sh                              # → /usr/local, auto-backend
+scripts/install.sh /opt/gf-calculation          # custom prefix
+scripts/install.sh ~/.local cpu                 # user install, CPU only
+```
+
+Binaries go to `$PREFIX/bin/`. Add to PATH and run:
+
+```bash
+export PATH="/opt/gf-calculation/bin:$PATH"
+solver.sh                                       # interactive solver selector
+solver.sh elastic cpu mpi -- --direction x
 ```
 
 ## Configuration

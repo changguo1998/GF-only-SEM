@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.18)
 project(gf_calculation LANGUAGES CXX)
+include(GNUInstallDirs)
 
 # -----------------------------------------------------------------------
 # Dependencies (auto-detected where available)
@@ -73,3 +74,23 @@ add_custom_target(
 if(TARGET test_element_cuda)
     add_dependencies(test_all test_element_cuda)
 endif()
+
+# -----------------------------------------------------------------------
+# Install scripts (convenience wrappers)
+# -----------------------------------------------------------------------
+install(
+    PROGRAMS ${CMAKE_SOURCE_DIR}/scripts/solver.sh ${CMAKE_SOURCE_DIR}/scripts/build.sh
+             ${CMAKE_SOURCE_DIR}/scripts/env.sh
+    DESTINATION ${CMAKE_INSTALL_BINDIR}
+    COMPONENT gf_scripts)
+
+# -----------------------------------------------------------------------
+# CPack (packaging support)
+# -----------------------------------------------------------------------
+set(CPACK_PACKAGE_NAME "gf-calculation")
+set(CPACK_PACKAGE_VERSION "1.0.0")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+    "3D viscoelastic SEM forward solver with Green's function extraction")
+set(CPACK_PACKAGE_VENDOR "gf-calculation")
+set(CPACK_GENERATOR "TGZ;DEB;RPM")
+include(CPack)

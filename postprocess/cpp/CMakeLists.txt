@@ -10,6 +10,7 @@ project(gf_postprocess_cpp LANGUAGES CXX)
 
 find_package(HDF5 REQUIRED COMPONENTS C)
 find_package(OpenMP QUIET)
+include(GNUInstallDirs)
 
 add_executable(gf_postprocess main.cpp)
 
@@ -28,3 +29,5 @@ endif()
 target_compile_features(gf_postprocess PRIVATE cxx_std_17)
 
 set_target_properties(gf_postprocess PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
+
+install(TARGETS gf_postprocess RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT gf_tools)

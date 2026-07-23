@@ -4,6 +4,7 @@ project(gf_forward LANGUAGES CXX C)
 if(CMAKE_CUDA_COMPILER OR DEFINED ENV{CUDACXX})
     enable_language(CUDA)
 endif()
+include(GNUInstallDirs)
 
 # -----------------------------------------------------------------------
 # Dependencies (propagated to subdirectories)
@@ -65,6 +66,7 @@ function(add_gf_physics_solvers)
         set_target_properties(${EXE_MPI} PROPERTIES RUNTIME_OUTPUT_DIRECTORY
                                                     "${CMAKE_SOURCE_DIR}/bin")
         message(STATUS "  -> ${EXE_MPI} (CPU + MPI)")
+        install(TARGETS ${EXE_MPI} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT gf_solver)
     endif()
 
     # ── 2. CUDA, no MPI (single GPU) ──
@@ -88,6 +90,8 @@ function(add_gf_physics_solvers)
         set_target_properties(${EXE_CUDA} PROPERTIES RUNTIME_OUTPUT_DIRECTORY
                                                      "${CMAKE_SOURCE_DIR}/bin")
         message(STATUS "  -> ${EXE_CUDA} (CUDA, no MPI)")
+        install(TARGETS ${EXE_CUDA} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+                                            COMPONENT gf_solver)
     endif()
 
     # ── 3. CUDA + MPI (multi-GPU) ──
@@ -110,6 +114,8 @@ function(add_gf_physics_solvers)
         set_target_properties(${EXE_MPI_CUDA} PROPERTIES RUNTIME_OUTPUT_DIRECTORY
                                                          "${CMAKE_SOURCE_DIR}/bin")
         message(STATUS "  -> ${EXE_MPI_CUDA} (CUDA + MPI)")
+        install(TARGETS ${EXE_MPI_CUDA} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+                                                COMPONENT gf_solver)
     endif()
 endfunction()
 

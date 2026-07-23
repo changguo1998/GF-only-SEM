@@ -79,8 +79,8 @@ if(MPI_FOUND)
     add_executable(test_exchange test_exchange.cpp)
     target_include_directories(test_exchange PRIVATE ${CMAKE_SOURCE_DIR}/forward/share/include
                                                      ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
-    target_link_libraries(test_exchange PRIVATE libgf_elastic Catch2::Catch2 MPI::MPI_CXX Eigen3::Eigen
-                                                ${HDF5_C_LIBRARIES})
+    target_link_libraries(test_exchange PRIVATE libgf_elastic Catch2::Catch2 MPI::MPI_CXX
+                                                Eigen3::Eigen ${HDF5_C_LIBRARIES})
     target_compile_features(test_exchange PRIVATE cxx_std_17)
 
     add_test(NAME "Exchange halo transfers data between two ranks"
@@ -112,8 +112,9 @@ if(TARGET libgf_elastic_cuda_nompi)
     get_filename_component(_eigen_prefix "${Eigen3_DIR}/../../.." ABSOLUTE)
     target_compile_options(test_element_cuda
                            PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-I${_eigen_prefix}/include/eigen3>)
-    target_link_libraries(test_element_cuda PRIVATE libgf_elastic_cuda_nompi Catch2::Catch2WithMain
-                                                    Eigen3::Eigen ${HDF5_C_LIBRARIES} CUDA::cudart)
+    target_link_libraries(
+        test_element_cuda PRIVATE libgf_elastic_cuda_nompi Catch2::Catch2WithMain Eigen3::Eigen
+                                  ${HDF5_C_LIBRARIES} CUDA::cudart)
     target_compile_features(test_element_cuda PRIVATE cxx_std_17)
     target_compile_definitions(test_element_cuda PRIVATE GF_WITH_CUDA GF_ACTIVE_BACKEND=1)
     target_compile_options(test_element_cuda

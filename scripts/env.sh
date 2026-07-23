@@ -30,33 +30,33 @@ echo ""
 
 VENV="${PROJECT_ROOT}/.venv/bin/activate"
 if [ -f "${VENV}" ]; then
-    source "${VENV}"
-    echo "[OK] Python venv: $(which python3)"
+	source "${VENV}"
+	echo "[OK] Python venv: $(which python3)"
 else
-    echo "[WARN] Python venv not found at ${VENV}"
-    echo "       Python packages may not be available."
-    echo "       Create with: uv sync"
+	echo "[WARN] Python venv not found at ${VENV}"
+	echo "       Python packages may not be available."
+	echo "       Create with: uv sync"
 fi
 
 # ── 2. Spack ──────────────────────────────────────────────────────────────
 
 SPACK_SETUP="${HOME}/.spack/share/spack/setup-env.sh"
 if [ -f "${SPACK_SETUP}" ]; then
-    source "${SPACK_SETUP}"
-    echo "[OK] Spack loaded"
+	source "${SPACK_SETUP}"
+	echo "[OK] Spack loaded"
 else
-    echo "[WARN] Spack not found at ${SPACK_SETUP}"
-    echo "       C++ builds may fail."
+	echo "[WARN] Spack not found at ${SPACK_SETUP}"
+	echo "       C++ builds may fail."
 fi
 
 # Load Spack packages (best-effort)
 _spack_load() {
-    local pkg="$1"
-    if spack load "$pkg" 2>/dev/null; then
-        echo "[OK] spack: $pkg"
-    else
-        echo "[WARN] spack: $pkg — not found (build may fail)"
-    fi
+	local pkg="$1"
+	if spack load "$pkg" 2>/dev/null; then
+		echo "[OK] spack: $pkg"
+	else
+		echo "[WARN] spack: $pkg — not found (build may fail)"
+	fi
 }
 
 _spack_load openmpi
@@ -66,11 +66,11 @@ _spack_load hdf5
 # ── 3. Project binaries ───────────────────────────────────────────────────
 
 if [ -d "$BIN_DIR" ]; then
-    export PATH="${BIN_DIR}:${PATH}"
-    count=$(ls -1 "$BIN_DIR"/gf_* 2>/dev/null | wc -l)
-    echo "[OK] ${count} solver/tool binaries in ${BIN_DIR}"
+	export PATH="${BIN_DIR}:${PATH}"
+	count=$(ls -1 "$BIN_DIR"/gf_* 2>/dev/null | wc -l)
+	echo "[OK] ${count} solver/tool binaries in ${BIN_DIR}"
 else
-    echo "[INFO] ${BIN_DIR}/ does not exist yet — build first with scripts/build.sh"
+	echo "[INFO] ${BIN_DIR}/ does not exist yet — build first with scripts/build.sh"
 fi
 
 echo ""

@@ -6,6 +6,7 @@ project(gf_preprocess_cpp LANGUAGES CXX)
 find_package(Eigen3 REQUIRED)
 find_package(HDF5 REQUIRED COMPONENTS C)
 find_package(OpenMP QUIET)
+include(GNUInstallDirs)
 
 add_executable(gf_preprocess_cpp main.cpp)
 add_executable(gf_preprocess_stage2 stage2_main.cpp)
@@ -31,3 +32,6 @@ target_compile_features(gf_preprocess_stage2 PRIVATE cxx_std_17)
 
 set_target_properties(gf_preprocess_cpp gf_preprocess_stage2 PROPERTIES RUNTIME_OUTPUT_DIRECTORY
                                                                         "${CMAKE_SOURCE_DIR}/bin")
+
+install(TARGETS gf_preprocess_cpp gf_preprocess_stage2 RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+                                                               COMPONENT gf_tools)

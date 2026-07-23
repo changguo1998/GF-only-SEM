@@ -62,6 +62,29 @@ scripts/solver.sh elastic cpu mpi -- --direction x
 scripts/solver.sh elastic cuda -- --direction x
 ```
 
+Install to system (requires Spack + venv):
+
+```bash
+scripts/install.sh                      # → /usr/local/bin, auto-backend
+scripts/install.sh /opt/gf-calculation  # → custom prefix
+scripts/install.sh ~/.local cpu         # → user install, CPU only
+```
+
+To uninstall:
+
+```bash
+# List installed files
+cmake --install build-install --component gf_solver --prefix /tmp/list 2>/dev/null; \
+  grep -r ... ;# alternatively, check scripts/install.sh output
+rm -f /usr/local/bin/gf_solver_*
+rm -f /usr/local/bin/gf_preprocess_*
+rm -f /usr/local/bin/gf_postprocess
+rm -f /usr/local/bin/gf_model2vtk
+rm -f /usr/local/bin/gf_partition2vtk
+rm -f /usr/local/bin/gf_wavefield2vtk*
+rm -f /usr/local/bin/solver.sh build.sh env.sh
+```
+
 Spack packages required: `openmpi@5.0.10`, `cuda@13.2.1` (optional), `eigen@3.4.0`.
 System HDF5 at `/usr/include/hdf5/serial/`.
 
