@@ -49,8 +49,8 @@ logger: logging.Logger | None = None
 # ── Accelerator binary discovery ──
 
 
-_STAGE1_BINARY: str | None = None
-_STAGE2_BINARY: str | None = None
+_PREPROCESS_BINARY: str | None = None
+_PREPROCESS_BINARY: str | None = None
 
 
 def _find_binary(name: str, extra_dirs: list[str] | None = None) -> str | None:
@@ -76,9 +76,9 @@ def _find_binary(name: str, extra_dirs: list[str] | None = None) -> str | None:
 
 
 def _init_accelerators() -> None:
-    global _STAGE1_BINARY, _STAGE2_BINARY
-    _STAGE1_BINARY = _find_binary("gf_preprocess_cpp")
-    _STAGE2_BINARY = _find_binary("gf_preprocess_stage2")
+    global _PREPROCESS_BINARY, _PREPROCESS_BINARY
+    _PREPROCESS_BINARY = _find_binary("gf_preprocess")
+    _PREPROCESS_BINARY = _find_binary("gf_preprocess")
 
 
 def _run_binary(
@@ -115,7 +115,7 @@ def step_gll_geometry(
 ) -> dict:
     N = int(config.polynomial_order)
     """Compute GLL geometry + CFL h_min. C++ accelerator if available."""
-    if _STAGE1_BINARY is not None:
+    if _PREPROCESS_BINARY is not None:
         # Ensure domain attrs for C++
         from preprocess.accelerator import _ensure_domain_attrs
 
@@ -124,18 +124,20 @@ def step_gll_geometry(
         pml = getattr(config, "pml_thickness", {}) or {}
         args = [
             os.path.abspath(model_path),
+            "--N",
             str(N),
+            "--cfl-safety",
             str(float(config.cfl_safety)),
+            "--nx",
             str(int(getattr(config, "nx_elements", 0))),
+            "--ny",
             str(int(getattr(config, "ny_elements", 0))),
-            str(int(pml.get("xmin", 0))),
-            str(int(pml.get("xmax", 0))),
-            str(int(pml.get("ymin", 0))),
-            str(int(pml.get("ymax", 0))),
-            str(int(pml.get("zmin", 0))),
-            str(int(pml.get("zmax", 0))),
         ]
-        proc = _run_binary(_STAGE1_BINARY, args, desc="C++ stage1 (GLL+CFL)")
+        for face in ["xmin", "xmax", "ymin", "ymax", "zmin", "zmax"]:
+            thick = int(pml.get(face, 0))
+            if thick > 0:
+                args.extend([f"--pml-{face}", str(thick)])
+        proc = _run_binary(_PREPROCESS_BINARY, ["stage1"] + args, desc="C++ stage1 (GLL+CFL)")
         if proc is not None:
             # Parse CFL info from stdout
             h_min = None
@@ -304,7 +306,7 @@ def step_lame_and_cfl(
     N = int(config.polynomial_order)
     """Compute λ/μ, CFL solver_dt, nsteps. C++ stage2 if available."""
 
-    if _STAGE2_BINARY is not None:
+    if _PREPROCESS_BINARY is not None:
         # Write vp/vs/density + config to HDF5, run stage2
         logger.info("Writing material arrays for C++ stage2...")
         with h5py.File(model_path, "a") as f:
@@ -424,10 +426,10 @@ def main() -> None:
 
     # Init accelerators
     _init_accelerators()
-    if _STAGE1_BINARY:
-        logger.info(f"C++ stage1 found: {_STAGE1_BINARY}")
-    if _STAGE2_BINARY:
-        logger.info(f"C++ stage2 found: {_STAGE2_BINARY}")
+    if _PREPROCESS_BINARY:
+        logger.info(f"C++ stage1 found: {_PREPROCESS_BINARY}")
+    if _PREPROCESS_BINARY:
+        logger.info(f"C++ stage2 found: {_PREPROCESS_BINARY}")
 
     # ── Step 1: GLL geometry + CFL h_min ──
     gll = step_gll_geometry(model_path, topology, config, domain_bounds)

@@ -55,6 +55,7 @@ add_subdirectory(forward)
 add_subdirectory(tools/cpp)
 add_subdirectory(postprocess/cpp)
 add_subdirectory(tests)
+add_subdirectory(preprocess/cpp)
 
 # -----------------------------------------------------------------------
 # Alias target for convenience

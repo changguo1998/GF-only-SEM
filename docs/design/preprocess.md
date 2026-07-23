@@ -40,12 +40,12 @@ Single Python CLI. Reads `model.h5` and `config.py` from CWD. No CLI args. No YA
 
 Outputs: extend `model.h5` and write one `partition_{r}.h5` per rank. No monolithic `model.h5`.
 
-```
+````
 preprocess/
 ├── __init__.py
 ├── cli.py              — adaptive pipeline entry point (step functions check C++ first)
 ├── accelerator.py      — legacy; `_ensure_domain_attrs()` only; `run_accelerator` superseded
-├── stage2_runner.py    — wrap `gf_preprocess_stage2` for λ/μ, solver_dt, nsteps
+├── stage2_runner.py    — wrap `gf_preprocess stage2` for λ/μ, solver_dt, nsteps
 ├── config_loader.py    — importlib load config.py, validate
 ├── config_writer.py    — write config.h5
 ├── topology_reader.py  — read model.h5 /topology/
@@ -61,29 +61,25 @@ preprocess/
 ├── preflight.py        — comprehensive pre-flight validation
 ├── recording_map.py    — build shallow mesh-vertex recording map
 ├── cpp/
-│   ├── CMakeLists.txt  — builds both targets
+│   ├── CMakeLists.txt  — builds single gf_preprocess
 │   ├── main.cpp        — stage1: GLL geom, CFL h_min, PML damping, boundary tag
 │   └── stage2_main.cpp — stage2: λ/μ, solver_dt, nsteps, pre-flight stats
-├── cpp/
-│   ├── CMakeLists.txt   — build target
-│   └── main.cpp         — GLL geometry, CFL h_min, PML damping (no MPI)
-```
 
 ## C++ Accelerator
 
-Two binaries produced from a single `cpp/CMakeLists.txt`. Adaptive integration: each CLI
+Single `gf_preprocess` binary with `stage1`/`stage2` subcommands.. Adaptive integration: each CLI
 step function checks binary availability independently and falls back to Python.
 
-### Stage1: `gf_preprocess_cpp`
+### Stage1: `gf_preprocess stage1`
 
 - **Source**: `preprocess/cpp/main.cpp`
 - **Dependencies**: HDF5, Eigen3
 - **Data flow**: reads `/topology/`, writes `/field/cell/{coords,dxi_dx,jacobian,mass,is_pml,damping}` + `/field/surface/boundary_tag`
-- **CLI**: `gf_preprocess_cpp <model.h5> <N> <cfl_safety> <nx> <ny> [pml_xmin pml_xmax pml_ymin pml_ymax pml_zmin pml_zmax]`
+- **CLI**: `gf_preprocess stage1 <model.h5> --N N --cfl-safety VAL [--nx N] [--ny N] [--pml-* THICK]`
 - **stdout**: prints `H_MIN=...`, `CFL_DT=...`, `OMP_THREADS=...`
 - **OpenMP**: auto-detected; single-thread fallback if unavailable
 
-### Stage2: `gf_preprocess_stage2`
+### Stage2: `gf_preprocess stage2`
 
 - **Source**: `preprocess/cpp/stage2_main.cpp`
 - **Dependencies**: HDF5 (no Eigen3 needed)
@@ -91,14 +87,14 @@ step function checks binary availability independently and falls back to Python.
   `/field/surface/boundary_tag`; writes `/field/element/{lambda,mu}`.
   Python wrapper copies all arrays from `/field/element/` to `/field/cell/` for forward solver.
   `/field/surface/boundary_tag`; writes `/field/cell/{lambda,mu}`
-- **CLI**: `gf_preprocess_stage2 <model.h5>`
+- **CLI**: `gf_preprocess stage2 <model.h5>`
 - **stdout**: prints `STAT_NCELL`, `STAT_NGLL`, `STAT_SOLVER_DT`, `STAT_NSTEPS`, `STAT_SNAPSHOT_STRIDE`,
   `STAT_CFL_DT`, `STAT_LAM_MIN` etc. — parsed by `stage2_runner.py`
 - **Single-thread** (no OpenMP needed)
 
 ### Integration
 
-`cli.py` discovers both binaries at startup (`_init_accelerators()`). Each step function
+`cli.py` discovers gf_preprocess at startup (`_init_accelerators()`). Each step function
 either reads precomputed HDF5 results (if C++ ran a previous step) or invokes the C++
 binary. Falls back to pure Python per step if binary absent or fails.
 
@@ -111,8 +107,8 @@ function is superseded by the per-step adaptive approach in `cli.py`.
 cd preprocess/cpp
 cmake -B build
 cmake --build build
-# binaries at: bin/gf_preprocess_cpp, bin/gf_preprocess_stage2
-```
+# binaries at: bin/gf_preprocess, bin/gf_preprocess
+````
 
 Or manually:
 
@@ -120,11 +116,11 @@ Or manually:
 g++ -std=c++17 -O2 -march=native -fopenmp \
     -I<eigen3>/include/eigen3 \
     -I/usr/include/hdf5/serial -L/usr/lib/x86_64-linux-gnu/hdf5/serial \
-    -o bin/gf_preprocess_cpp preprocess/cpp/main.cpp -lhdf5 -lm
+    -o bin/gf_preprocess preprocess/cpp/main.cpp -lhdf5 -lm
 
 g++ -std=c++17 -O2 -march=native \
     -I/usr/include/hdf5/serial -L/usr/lib/x86_64-linux-gnu/hdf5/serial \
-    -o bin/gf_preprocess_stage2 preprocess/cpp/stage2_main.cpp -lhdf5 -lm
+    -o bin/gf_preprocess preprocess/cpp/stage2_main.cpp -lhdf5 -lm
 ```
 
 ## Technology
@@ -302,7 +298,7 @@ Output: `/field/element/mass`.
 ### 5. Compute λ/μ and CFL Validation (Stage2)
 
 Compute Lamé parameters λ and μ from material properties, then derive solver timestep.
-This step uses C++ stage2 (`gf_preprocess_stage2`) if available; otherwise Python fallback.
+This step uses C++ stage2 (`gf_preprocess`) if available; otherwise Python fallback.
 
 **λ/μ:**
 

@@ -21,10 +21,10 @@ def _find_stage2_binary() -> str | None:
     project_root = os.path.dirname(this_dir)
 
     candidates = [
-        os.path.join(project_root, "bin", "gf_preprocess_stage2"),
-        os.path.join(this_dir, "cpp", "bin", "gf_preprocess_stage2"),
-        os.path.join(this_dir, "cpp", "build", "gf_preprocess_stage2"),
-        "gf_preprocess_stage2",  # PATH
+        os.path.join(project_root, "bin", "gf_preprocess"),
+        os.path.join(this_dir, "cpp", "bin", "gf_preprocess"),
+        os.path.join(this_dir, "cpp", "build", "gf_preprocess"),
+        "gf_preprocess",  # PATH
     ]
     for cand in candidates:
         if os.path.isfile(cand) and os.access(cand, os.X_OK):
@@ -51,7 +51,7 @@ def run_stage2(model_path: str) -> dict[str, str]:
             "gf_preprocess_stage2 not found. Build with: cmake --build preprocess/cpp/build"
         )
 
-    cmd = [binary, os.path.abspath(model_path)]
+    cmd = [binary, "stage2", os.path.abspath(model_path)]
     logger.info(f"Running stage2: {' '.join(shlex.quote(str(x)) for x in cmd)}")
 
     try:

@@ -6,13 +6,18 @@
 # Builds gf-calculation executables. Auto-detects MPI and CUDA availability.
 #
 # Usage:
-#   ./scripts/build.sh              # build all available targets
-#   ./scripts/build.sh cpu          # CPU-only (MPI solvers)
-#   ./scripts/build.sh cuda         # CPU + CUDA solvers
-#   ./scripts/build.sh --clean      # clean build
-#   ./scripts/build.sh -t gf_solver_elastic_mpi  # single target
+#   scripts/build.sh                           # build all, auto-detect backend
+#   scripts/build.sh --backend cpu             # CPU only
+#   scripts/build.sh --backend cuda            # CPU + CUDA
+#   scripts/build.sh --clean                   # clean rebuild
+#   scripts/build.sh --target gf_postprocess   # single target
 #
-# After building, run: source scripts/env.sh  (to add bin/ to PATH)
+# Options:
+#   --backend cpu|cuda    Device backend (default: auto-detect)
+#   --target TARGET       Build a specific target
+#   --clean               Remove build/ and rebuild
+#   -j N                  Parallel jobs (default: nproc)
+#   -h, --help            Show this help
 # ===========================================================================
 
 set -euo pipefail
@@ -21,36 +26,33 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 BUILD_DIR="${PROJECT_ROOT}/build"
-BUILD_MODE="${1:-all}"
-TARGET="${2:-}"
+BACKEND="auto"
+TARGET=""
+CLEAN=false
 
 # ── Colors ────────────────────────────────────────────────────────────────
 
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 
 # ── Help ──────────────────────────────────────────────────────────────────
 
 usage() {
     cat <<EOF
-Usage: $0 [MODE] [-- TARGET]
-
-Modes:
-  (default)   Build all available targets
-  cpu         CPU-only: elastic + viscoelastic MPI solvers
-  cuda        CPU + CUDA: all solvers (requires CUDA toolkit)
-  --clean     Remove build/ and rebuild from scratch
+Usage: $0 [--backend BACKEND] [--target TARGET] [--clean] [-j N]
 
 Options:
-  -t, --target TARGET   Build a specific target (e.g. gf_solver_elastic_mpi)
+  --backend cpu|cuda    Device backend (default: auto-detect)
+  --target TARGET       Build a specific target (e.g. gf_solver_elastic_mpi)
+  --clean               Remove build/ directory and rebuild
   -j N                  Parallel jobs (default: \$(nproc))
   -h, --help            Show this help
 
 Examples:
-  $0                          # build everything
-  $0 cpu                      # CPU only
-  $0 cuda                     # CPU + CUDA
-  $0 --clean                  # clean rebuild
-  $0 -t gf_postprocess        # single tool
+  $0                                     # build all, auto-backend
+  $0 --backend cpu                       # CPU only
+  $0 --backend cuda                      # CPU + CUDA
+  $0 --clean                             # clean rebuild
+  $0 --target gf_postprocess             # single target
 EOF
     exit 0
 }
@@ -65,75 +67,76 @@ configure() {
 
 # ── Main ──────────────────────────────────────────────────────────────────
 
-case "$BUILD_MODE" in
-    -h|--help)
-        usage
-        ;;
-    --clean)
-        echo -e "${YELLOW}Cleaning build directory...${NC}"
-        rm -rf "$BUILD_DIR"
-        configure CPU
-        ;;
-    cpu)
-        configure CPU
-        ;;
-    cuda)
-        configure CUDA
-        ;;
-    all)
-        if [ -d "$BUILD_DIR" ] && [ -f "$BUILD_DIR/CMakeCache.txt" ]; then
-            echo -e "${GREEN}Reusing existing build configuration${NC}"
-        else
-            # Auto-detect: try CUDA first, fall back to CPU
-            if command -v nvcc &>/dev/null || [ -n "${CUDACXX:-}" ]; then
-                configure CUDA
-            else
-                configure CPU
-            fi
-        fi
-        ;;
-    -t|--target)
-        TARGET="$2"
-        if [ -z "$TARGET" ]; then
-            echo "ERROR: -t requires a target name"
-            exit 1
-        fi
-        if [ ! -d "$BUILD_DIR" ]; then
-            configure CPU
-        fi
-        echo -e "${YELLOW}Building target: ${TARGET}${NC}"
-        cmake --build "$BUILD_DIR" --target "$TARGET" -j "$(nproc)"
-        echo ""
-        echo -e "${GREEN}Done. Binary at: bin/${TARGET}${NC}"
-        echo "  Run: source scripts/env.sh"
-        exit 0
-        ;;
-    *)
-        echo "Unknown mode: $BUILD_MODE"
-        usage
-        ;;
-esac
+# Parse options
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -h|--help) usage ;;
+        --backend)
+            case "$2" in
+                cpu|c) BACKEND="CPU" ;;
+                cuda|gpu|g) BACKEND="CUDA" ;;
+                *) echo -e "${RED}Unknown backend: $2${NC}" >&2; exit 1 ;;
+            esac
+            shift 2 ;;
+        --target)
+            TARGET="$2"; shift 2 ;;
+        --clean)
+            CLEAN=true; shift ;;
+        -j)
+            JOBS="$2"; shift 2 ;;
+        -*)
+            echo -e "${RED}Unknown option: $1${NC}" >&2; usage ;;
+        *)
+            echo -e "${RED}Unexpected argument: $1${NC}" >&2; usage ;;
+    esac
+done
 
-# ── Build ─────────────────────────────────────────────────────────────────
+JOBS="${JOBS:-$(nproc)}"
 
-echo -e "${YELLOW}Building all targets...${NC}"
-cmake --build "$BUILD_DIR" -j "$(nproc)"
-
-echo ""
-echo -e "${GREEN}=== Build complete ===${NC}"
-echo ""
-
-# Show what was built
-if [ -d "${PROJECT_ROOT}/bin" ]; then
-    echo "Built executables:"
-    ls -1 "${PROJECT_ROOT}/bin/" 2>/dev/null | while read -r f; do
-        printf "  %s\n" "$f"
-    done
+if $CLEAN; then
+    echo -e "${YELLOW}Cleaning build directory...${NC}"
+    rm -rf "$BUILD_DIR"
 fi
 
-echo ""
-echo "To set up your shell:"
-echo "  source scripts/env.sh"
-echo ""
-echo "To run a solver:"
-echo "  scripts/solver.sh"
+# Configure if needed
+if [ ! -d "$BUILD_DIR" ] || [ ! -f "$BUILD_DIR/CMakeCache.txt" ]; then
+    if [ "$BACKEND" = "auto" ]; then
+        if command -v nvcc &>/dev/null || [ -n "${CUDACXX:-}" ]; then
+            BACKEND="CUDA"
+        else
+            BACKEND="CPU"
+        fi
+    fi
+    configure "$BACKEND"
+elif [ -f "$BUILD_DIR/CMakeCache.txt" ]; then
+    echo -e "${GREEN}Reusing existing build configuration${NC}"
+fi
+
+# Build
+if [ -n "$TARGET" ]; then
+    echo -e "${YELLOW}Building target: ${TARGET}${NC}"
+    cmake --build "$BUILD_DIR" --target "$TARGET" -j "$JOBS"
+    echo ""
+    echo -e "${GREEN}Done. Binary at: bin/${TARGET}${NC}"
+    echo "  Run: source scripts/env.sh"
+else
+    echo -e "${YELLOW}Building all targets...${NC}"
+    cmake --build "$BUILD_DIR" -j "$JOBS"
+    echo ""
+    echo -e "${GREEN}=== Build complete ===${NC}"
+    echo ""
+
+    if [ -d "${PROJECT_ROOT}/bin" ]; then
+        echo "Built executables:"
+        ls -1 "${PROJECT_ROOT}/bin/" 2>/dev/null | while read -r f; do
+            printf "  %s\n" "$f"
+        done
+    fi
+
+    echo ""
+    echo "To set up your shell:"
+    echo "  source scripts/env.sh"
+    echo ""
+    echo "To run a solver:"
+    echo "  scripts/solver.sh"
+fi

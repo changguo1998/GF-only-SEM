@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <string>
 #include <vector>
@@ -877,31 +878,75 @@ static void print_cfl_info(double h_min, double cfl_safety) {
 // -----------------------------------------------------------------------
 // main
 // -----------------------------------------------------------------------
-int main(int argc, char** argv) {
-    if (argc < 6) {
+int stage1_main(int argc, char** argv) {
+    if (argc < 2) {
         fprintf(stderr,
-                "Usage: gf_preprocess_cpp <mesh.h5> <N> <cfl_safety> <nx> <ny>\n"
-                "       [pml_xmin pml_xmax pml_ymin pml_ymax pml_zmin pml_zmax]\n");
+                "Usage: gf_preprocess stage1 <model.h5> [options]\\n"
+                "  --N <N>                 Polynomial order (required)\\n"
+                "  --cfl-safety <float>    CFL safety factor, 0 < val < 1 (required)\\n"
+                "  --nx <n>                Elements in X direction\\n"
+                "  --ny <n>                Elements in Y direction\\n"
+                "  --pml-xmin <thick>      PML thickness on -X face (default 0)\\n"
+                "  --pml-xmax <thick>      PML thickness on +X face (default 0)\\n"
+                "  --pml-ymin <thick>      PML thickness on -Y face (default 0)\\n"
+                "  --pml-ymax <thick>      PML thickness on +Y face (default 0)\\n"
+                "  --pml-zmin <thick>      PML thickness on -Z face (default 0)\\n"
+                "  --pml-zmax <thick>      PML thickness on +Z face (default 0)\\n");
         return 1;
     }
 
-    const char* mesh_path = argv[1];
-    int N = std::atoi(argv[2]);
-    double cfl_safety = std::atof(argv[3]);
-    int64_t nx_elements = static_cast<int64_t>(std::atol(argv[4]));
-    int64_t ny_elements = static_cast<int64_t>(std::atol(argv[5]));
-
+    const char* mesh_path = nullptr;
+    int N = -1;
+    double cfl_safety = -1.0;
+    int64_t nx_elements = 0;
+    int64_t ny_elements = 0;
     double pml_thickness[6] = {0, 0, 0, 0, 0, 0};
-    if (argc >= 12) {
-        for (int f = 0; f < 6; ++f)
-            pml_thickness[f] = std::atof(argv[6 + f]);
+
+    for (int i = 1; i < argc; ++i) {
+        const char* arg = argv[i];
+        if (arg[0] == '-' && arg[1] == '-') {
+            if (std::strcmp(arg + 2, "N") == 0 && i + 1 < argc) {
+                N = std::atoi(argv[++i]);
+            } else if (std::strcmp(arg + 2, "cfl-safety") == 0 && i + 1 < argc) {
+                cfl_safety = std::atof(argv[++i]);
+            } else if (std::strcmp(arg + 2, "nx") == 0 && i + 1 < argc) {
+                nx_elements = static_cast<int64_t>(std::atol(argv[++i]));
+            } else if (std::strcmp(arg + 2, "ny") == 0 && i + 1 < argc) {
+                ny_elements = static_cast<int64_t>(std::atol(argv[++i]));
+            } else if (std::strcmp(arg + 2, "pml-xmin") == 0 && i + 1 < argc) {
+                pml_thickness[0] = std::atof(argv[++i]);
+            } else if (std::strcmp(arg + 2, "pml-xmax") == 0 && i + 1 < argc) {
+                pml_thickness[1] = std::atof(argv[++i]);
+            } else if (std::strcmp(arg + 2, "pml-ymin") == 0 && i + 1 < argc) {
+                pml_thickness[2] = std::atof(argv[++i]);
+            } else if (std::strcmp(arg + 2, "pml-ymax") == 0 && i + 1 < argc) {
+                pml_thickness[3] = std::atof(argv[++i]);
+            } else if (std::strcmp(arg + 2, "pml-zmin") == 0 && i + 1 < argc) {
+                pml_thickness[4] = std::atof(argv[++i]);
+            } else if (std::strcmp(arg + 2, "pml-zmax") == 0 && i + 1 < argc) {
+                pml_thickness[5] = std::atof(argv[++i]);
+            } else {
+                fprintf(stderr, "ERROR: unknown option: %s\\n", arg);
+                return 1;
+            }
+        } else if (!mesh_path) {
+            mesh_path = arg;
+        } else {
+            fprintf(stderr, "ERROR: unexpected argument: %s\\n", arg);
+            return 1;
+        }
+    }
+
+    if (!mesh_path) {
+        fprintf(stderr, "ERROR: model.h5 path required\\n");
+        return 1;
     }
     if (N < 1) {
-        fprintf(stderr, "ERROR: N must be >= 1, got %d\n", N);
+        fprintf(stderr, "ERROR: --N is required and must be >= 1\\n");
         return 1;
     }
-    if (cfl_safety <= 0 || cfl_safety >= 1) {
-        fprintf(stderr, "ERROR: cfl_safety must be in (0,1), got %g\n", cfl_safety);
+    if (cfl_safety <= 0.0 || cfl_safety >= 1.0) {
+        fprintf(stderr, "ERROR: --cfl-safety must be in (0,1), got %g\\n", cfl_safety);
         return 1;
     }
 

@@ -20,7 +20,7 @@ Read `model.h5` + `config.py`. Write extended `model.h5`, `config.h5`, and per-r
 | `config_loader.py` | import and validate `config.py` |
 | `config_writer.py` | write `config.h5` |
 | `model_writer.py` | write mesh fields and partition files, including `/recording/`; precomputes λ, μ from Vp, Vs, density |
-| `stage2_runner.py` | wrap `gf_preprocess_stage2` for λ/μ, solver_dt, nsteps |
+| `stage2_runner.py` | wrap `gf_preprocess` for λ/μ, solver_dt, nsteps |
 | `topology_reader.py` | read `/topology/` group from model.h5 |
 | `recording_map.py` | build shallow mesh-vertex recording map |
 | `accelerator.py` | optional C++ subprocess for GLL geometry, CFL, PML damping |
@@ -79,25 +79,22 @@ Each rank writes:
 
 [`../docs/design/preprocess.md`](../docs/design/preprocess.md)
 
-## C++ Accelerator
+Single binary with subcommands:
 
-Two binaries:
+- **`gf_preprocess stage1`**: GLL geometry, CFL h_min, PML expansion + damping, boundary tagging.
 
-- **`gf_preprocess_cpp`** (stage1): GLL geometry, CFL h_min, PML expansion + damping, boundary tagging.
-
-  - Source: `cpp/main.cpp`, built to `bin/gf_preprocess_cpp`
-  - CLI: `gf_preprocess_cpp <model.h5> <N> <cfl_safety> <nx> <ny> [pml_thickness...]`
+  - Source: `cpp/main.cpp`
+  - CLI: `gf_preprocess stage1 <model.h5> --N N --cfl-safety VAL [--nx N] [--ny N] [--pml-* THICK]`
   - OpenMP multi-threading; logs `H_MIN`, `CFL_DT`, `OMP_THREADS` to stdout
 
-- **`gf_preprocess_stage2`** (stage2): λ/μ from Vp/Vs/density, CFL solver_dt, snapshot_stride, nsteps, pre-flight stats.
+- **`gf_preprocess stage2`**: λ/μ from Vp/Vs/density, CFL solver_dt, snapshot_stride, nsteps, pre-flight stats.
 
-  - Source: `cpp/stage2_main.cpp`, built to `bin/gf_preprocess_stage2`
-  - CLI: `gf_preprocess_stage2 <model.h5>`
+  - Source: `cpp/stage2_main.cpp`
+  - CLI: `gf_preprocess stage2 <model.h5>`
   - Reads `/field/element/{vp,vs,density}` + `/config/` attrs; writes `/field/element/{lambda,mu}`
   - Prints `STAT_*` lines parsed by `stage2_runner.py`
 
-Integration: `cli.py` discovers both binaries at startup, runs each step via subprocess when
-the binary exists. Falls back to pure Python per step independently. `accelerator.py` provides
-`_ensure_domain_attrs()` helper (legacy; `run_accelerator` superseded by `stage2_runner.py`).
+Integration: `cli.py` discovers `gf_preprocess` at startup, dispatches via subprocess with
+`stage1`/`stage2` subcommand. Falls back to pure Python per step independently.
 
-Both binaries built from single `cpp/CMakeLists.txt`. CPU only (no MPI, no CUDA).
+Built from `preprocess/cpp/CMakeLists.txt`. CPU only (no MPI, no CUDA).

@@ -26,7 +26,7 @@ def _find_binary() -> str | None:
     """Locate gf_preprocess_cpp binary.
 
     Search order:
-      1. Project bin/ directory (bin/gf_preprocess_cpp)
+      1. Project bin/ directory (bin/gf_preprocess)
       2. Same directory as this module (preprocess/cpp/gf_preprocess_cpp)
       3. PATH (gf_preprocess_cpp)
       4. CMake build directories

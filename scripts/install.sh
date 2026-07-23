@@ -1,21 +1,19 @@
 #!/usr/bin/env bash
 # ===========================================================================
-# scripts/install.sh — gf-calculation install wrapper
+# scripts/install.sh — gf-calculation install wrapper (Linux FHS)
 # ===========================================================================
 #
 # Builds and installs gf-calculation to a specified prefix (default: /usr/local).
-# Follows Linux FHS conventions — binaries go to $PREFIX/bin.
 #
 # Usage:
-#   scripts/install.sh [PREFIX] [BACKEND]
+#   scripts/install.sh                                     # → /usr/local
+#   scripts/install.sh --prefix /opt/gf-calculation        # custom prefix
+#   scripts/install.sh --prefix ~/.local --backend cpu     # user install
 #
-#   PREFIX   Install directory (default: /usr/local)
-#   BACKEND  cpu | cuda (default: auto-detect)
-#
-# Examples:
-#   scripts/install.sh                          # → /usr/local, auto-backend
-#   scripts/install.sh /opt/gf-calculation cpu  # → /opt/gf-calculation, CPU only
-#   scripts/install.sh ~/.local                 # → ~/.local/bin (user install)
+# Options:
+#   --prefix PATH     Install directory (default: /usr/local)
+#   --backend cpu|cuda Device backend (default: auto-detect)
+#   -h, --help        Show this help
 # ===========================================================================
 
 set -euo pipefail
@@ -23,36 +21,68 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-PREFIX="${1:-/usr/local}"
-BACKEND="${2:-auto}"
+PREFIX="/usr/local"
+BACKEND="auto"
 
 # ── Colors ────────────────────────────────────────────────────────────────
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 
-# ── Pre-flight checks ─────────────────────────────────────────────────────
+# ── Help ──────────────────────────────────────────────────────────────────
 
-# Source environment if available
+usage() {
+    cat <<EOF
+Usage: $0 [--prefix PATH] [--backend BACKEND]
+
+Options:
+  --prefix PATH     Install directory (default: /usr/local)
+  --backend cpu|cuda Device backend (default: auto-detect)
+  -h, --help        Show this help
+
+Examples:
+  $0                                          # → /usr/local, auto-backend
+  $0 --prefix /opt/gf-calculation             # custom prefix
+  $0 --prefix ~/.local --backend cpu          # user install, CPU only
+EOF
+    exit 0
+}
+
+# ── Parse options ─────────────────────────────────────────────────────────
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -h|--help) usage ;;
+        --prefix)
+            PREFIX="$2"; shift 2 ;;
+        --backend)
+            case "$2" in
+                cpu|c) BACKEND="CPU" ;;
+                cuda|gpu|g) BACKEND="CUDA" ;;
+                *) echo -e "${RED}Unknown backend: $2${NC}" >&2; exit 1 ;;
+            esac
+            shift 2 ;;
+        -*)
+            echo -e "${RED}Unknown option: $1${NC}" >&2; usage ;;
+        *)
+            echo -e "${RED}Unexpected argument: $1${NC}" >&2; usage ;;
+    esac
+done
+
+# ── Resolve backend ───────────────────────────────────────────────────────
+
+if [ "$BACKEND" = "auto" ]; then
+    if command -v nvcc &>/dev/null || [ -n "${CUDACXX:-}" ]; then
+        BACKEND="CUDA"
+    else
+        BACKEND="CPU"
+    fi
+fi
+
+# ── Source environment if available ───────────────────────────────────────
+
 if [ -f "${SCRIPT_DIR}/env.sh" ]; then
     source "${SCRIPT_DIR}/env.sh" 2>/dev/null || true
 fi
-
-# Resolve backend
-case "$BACKEND" in
-    auto)
-        if command -v nvcc &>/dev/null || [ -n "${CUDACXX:-}" ]; then
-            BACKEND="CUDA"
-        else
-            BACKEND="CPU"
-        fi
-        ;;
-    cpu|c)     BACKEND="CPU" ;;
-    cuda|gpu)  BACKEND="CUDA" ;;
-    *)
-        echo -e "${RED}Unknown backend: $BACKEND (use cpu or cuda)${NC}" >&2
-        exit 1
-        ;;
-esac
 
 echo -e "${GREEN}=== gf-calculation install ===${NC}"
 echo "  Prefix:  ${PREFIX}"
@@ -92,7 +122,6 @@ echo ""
 echo -e "${GREEN}=== Install complete ===${NC}"
 echo ""
 
-# Show what was installed
 if [ -d "${PREFIX}/bin" ]; then
     echo "Binaries installed to ${PREFIX}/bin/:"
     for f in "${PREFIX}"/bin/gf_* "${PREFIX}"/bin/*.sh; do
@@ -106,5 +135,6 @@ echo ""
 echo "Add ${PREFIX}/bin to your PATH:"
 echo "  export PATH=\"${PREFIX}/bin:\$PATH\""
 echo ""
-echo "To uninstall: rm -f ${PREFIX}/bin/gf_* ${PREFIX}/bin/solver.sh"
-echo "              rm -f ${PREFIX}/bin/build.sh ${PREFIX}/bin/env.sh"
+echo "To uninstall:"
+echo "  rm -f ${PREFIX}/bin/gf_* ${PREFIX}/bin/solver.sh"
+echo "  rm -f ${PREFIX}/bin/build.sh ${PREFIX}/bin/env.sh"

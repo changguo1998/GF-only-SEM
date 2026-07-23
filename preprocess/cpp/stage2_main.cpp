@@ -150,7 +150,7 @@ static void write_4d_double(hid_t loc, const char* name, hsize_t n_cell, hsize_t
 // Main
 // -----------------------------------------------------------------------
 
-int main(int argc, char** argv) {
+int stage2_main(int argc, char** argv) {
     if (argc < 2) {
         fprintf(stderr, "Usage: gf_preprocess_stage2 <model.h5>\n");
         return 1;
