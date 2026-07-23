@@ -23,7 +23,7 @@ element kernel instead of the elastic one.
   helpers from `kernel_helpers.cuh`, `atomicAdd` for residual scatter
 - **Solver**: `src/solver.cpp` — thin wrapper: `run_viscoelastic_forward()`
   delegates to the shared `run_forward()` (from `forward/share/src/solver.cpp`).
-  The viscoelastic behaviour comes from linking `libgf_visco` instead of `libgf`.
+  The viscoelastic behaviour comes from linking `libgf_visco` instead of `libgf_elastic`.
 
 ## Memory Layout
 

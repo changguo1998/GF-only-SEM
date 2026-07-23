@@ -12,10 +12,10 @@ Elastic CG-SEM solver. Reads `config.h5` + `partition_{r}.h5`. Computes full vol
 |--------|----------------|----------------|
 | `types.hpp` | — | config and rank data structs |
 | `gll.hpp` | — | GLL nodes, weights, derivative matrices |
-| `backend.hpp` | — | device backend tags (`BackendCPU`, `BackendCUDA`, `ActiveBackend`) |
-| `cuda_check.h` | — | `GF_CUDA_CHECK()` error macro |
+| `backend.hpp` | — | backend tags (`BackendCPU`, `BackendCUDA`, `ActiveBackend`) kept for future template paths |
+| `cuda_check.hpp` | — | `GF_CUDA_CHECK()` error macro |
 | `cuda_device_manager.hpp` | — | persistent CUDA device buffer manager |
-| `element.hpp` | `element_cpu.cpp`, `element_cuda.cu` | backend-templated element residual (K·u) |
+| `element.hpp` | `element_cpu.cpp`, `element_cuda.cu` | element residual — plain function, link-time physics selection |
 | `assembly.hpp` | `assembly.cpp` | global residual assembly |
 | `newmark.hpp` | `newmark.cpp` | explicit Newmark time step |
 | `source.hpp` | `source.cpp` | point force injection |
@@ -23,13 +23,29 @@ Elastic CG-SEM solver. Reads `config.h5` + `partition_{r}.h5`. Computes full vol
 | `exchange.hpp` | `exchange.cpp`, `exchange_noop.cpp` | MPI halo exchange (or no-op stub) |
 | `io.hpp` | `io.cpp` | HDF5 input |
 | `record.hpp` | `record.cpp` | shallow strain writer |
-| `solver.hpp` | `solver.cpp` | time loop (backend-agnostic, dispatches via `ActiveBackend`) |
+| `solver.hpp` | `solver.cpp` | time loop — calls `compute_element_residual` (link-time dispatch) |
+| `attenuation.hpp` | `attenuation.cpp` | SLS coefficient precomputation (used by viscoelastic only) |
 | — | `main.cpp` | CLI for all 3 binaries, `--direction` |
 
-### Device Backend
+### Element Residual
 
-`compute_element_residual` is backend-templated (`BackendCPU` / `BackendCUDA`).
-Each solver binary uses a compile-time backend selection via `GF_ACTIVE_BACKEND`.
+`compute_element_residual` is a plain (non-template) function with the same
+name in every physics library. The correct implementation is selected at
+link time:
+
+- `libgf_elastic` provides the elastic stress law (σ = 2με + λ·tr(ε)·I)
+- `libgf_visco` provides the SLS viscoelastic stress law (σ = σ_elastic − ΣR_l)
+
+CPU vs CUDA dispatch is handled by which source file provides the function:
+
+- `element_cpu.cpp` — CPU implementation (compiled into CPU-only libraries).
+  Guarded by `#ifndef GF_WITH_CUDA` to suppress the symbol when compiled
+  into CUDA libraries.
+- `element_cuda.cu` — CUDA implementation (compiled into CUDA libraries).
+  Launches the GPU kernel and copies the result back to host.
+
+The older `BackendCPU` / `BackendCUDA` tag types and `ActiveBackend` alias
+are kept in `backend.hpp` for any future template-based code paths.
 
 Elastic coefficients λ and μ are precomputed at GLL nodes during preprocessing
 and read from partition files — the kernel receives λ, μ directly instead of
@@ -73,8 +89,8 @@ Three solver binaries are produced, selectable by name:
 | `gf_solver_elastic_mpi_cuda` | CUDA | yes | Multi-GPU cluster |
 
 All three share the same source code. MPI-dependent code is guarded by
-`#ifndef GF_NO_MPI`. Backend dispatch uses `ActiveBackend` (set by CMake
-define `GF_ACTIVE_BACKEND`).
+`#ifndef GF_NO_MPI`. Element residual selection is at link time (which
+library provides `compute_element_residual`).
 
 ```bash
 # MPI + CPU (default)
@@ -101,7 +117,7 @@ Caller creates directories.
 Newmark predict (global)
 → sync predicted displacement (MPI — average at shared nodes)
 → gather predicted → element-local
-→ residual K·u  [dispatched to active backend]
+→ residual K·u  [link-time selected element kernel]
 → PML damping on velocity (global)
 → source injection (element-local)
 → scatter element-local → global (atomic accumulation)

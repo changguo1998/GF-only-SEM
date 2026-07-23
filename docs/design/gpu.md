@@ -20,7 +20,7 @@ Design rules:
 
 ### Backend Tags (`include/gf/backend.hpp`)
 
-Empty tag types with compile-time dispatch via `ActiveBackend` alias:
+Empty tag types (kept for future template-based code paths):
 
 ```cpp
 namespace gf {
@@ -39,21 +39,17 @@ using ActiveBackend = BackendCPU;
 
 ### Kernel Entry (`include/gf/element.hpp`)
 
-Backend-templated function with batched element interface:
+Plain (non-template) function with batched element interface. The CPU and CUDA
+implementations share the same signature; the correct one is selected at link
+time by which library (`libgf_elastic` or `libgf_elastic_cuda_*`) is linked.
 
 ```cpp
-template <typename Backend>
 void compute_element_residual(
     int n_cell,            // <-- batched: process all elements in one call
     const double* dxi_dx, const double* jacobian,
     const double* lambda_, const double* mu_,
     const double* D, const double* weights, int NGLL,
     const double* u, double* r);
-
-extern template void compute_element_residual<BackendCPU>(...);
-#ifdef GF_WITH_CUDA
-extern template void compute_element_residual<BackendCUDA>(...);
-#endif
 ```
 
 **Why batched?** GPU throughput requires launching all elements in one kernel
@@ -65,16 +61,16 @@ from batching.
 
 | Header | Purpose |
 |--------|---------|
-| `include/gf/backend.hpp` | Backend tag types + `ActiveBackend` alias |
-| `include/gf/cuda_check.h` | `GF_CUDA_CHECK()` macro wrapping CUDA runtime API |
+| `include/gf/backend.hpp` | Backend tag types (kept for future template paths) |
+| `include/gf/cuda_check.hpp` | `GF_CUDA_CHECK()` macro wrapping CUDA runtime API |
 | `include/gf/cuda_device_manager.hpp` | `CudaDeviceBuffers` struct + allocate/free/copy helpers |
 
 ### Source Files
 
 ```
 forward/share/src/
-├── element_cpu.cpp        — CPU specialization (loops over n_cell internally)
-├── element_cuda.cu        — CUDA kernel + specialization (grid.x = n_cell)
+├── element_cpu.cpp        — CPU implementation (loops over n_cell internally)
+├── element_cuda.cu        — CUDA kernel + implementation (grid.x = n_cell)
 ├── element_hip.hip.cpp    — deferred
 └── element_sycl.cpp       — deferred
 ```
@@ -91,7 +87,7 @@ for (int elem = 0; elem < n_local; ++elem) {
 }
 
 // After (backend-agnostic):
-compute_element_residual<gf::ActiveBackend>(
+compute_element_residual(
     n_local,
     part.dxi_dx.data(), part.jacobian.data(),
     part.lambda_.data(), part.mu_.data(),
@@ -206,9 +202,9 @@ cmake --build build
 | `tests/test_element.cpp` | CPU | Always built (updated to new batched API) |
 | `tests/test_element_cuda.cu` | CUDA | Built only when `GF_DEVICE_BACKEND=CUDA` |
 
-CUDA tests compare `compute_element_residual<BackendCPU>` vs
-`compute_element_residual<BackendCUDA>` on random input, requiring
-identical residual to `1e-12` tolerance.
+CUDA tests compare the CUDA result against an inline CPU reference
+(`reference_element_residual` in the test file), requiring identical
+residual to `1e-12` tolerance.
 
 ## Limits & Future Work
 
@@ -225,17 +221,17 @@ identical residual to `1e-12` tolerance.
 ```
 forward/
 ├── include/gf/
-│   ├── backend.hpp              — backend tags + ActiveBackend
-│   ├── cuda_check.h             — GF_CUDA_CHECK macro
+│   ├── backend.hpp              — backend tags (kept for future use)
+│   ├── cuda_check.hpp             — GF_CUDA_CHECK macro
 │   ├── cuda_device_manager.hpp  — persistent device buffer manager
-│   └── element.hpp              — backend-templated batched residual
+│   └── element.hpp              — plain function, link-time dispatch
 ├── src/
-│   ├── element_cpu.cpp          — CPU specialization (batched)
-│   ├── element_cuda.cu          — CUDA kernel + specialization
+│   ├── element_cpu.cpp          — CPU implementation (batched)
+│   ├── element_cuda.cu          — CUDA kernel + implementation
 │   ├── element_hip.hip.cpp      — HIP (deferred)
 │   └── element_sycl.cpp         — SYCL (deferred)
 ├── CMakeLists.txt               — GF_DEVICE_BACKEND option
-└── solver.cpp                   — single batched call with ActiveBackend
+└── solver.cpp                   — single batched call with link-time dispatch
 tests/
 ├── test_element.cpp             — CPU tests (updated API)
 ├── test_element_cuda.cu         — CUDA-vs-CPU comparison tests

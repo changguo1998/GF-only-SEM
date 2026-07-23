@@ -423,9 +423,9 @@ forward/
 ├── include/gf/
 │   ├── types.hpp              — Vec3, Mat33, GLLQuad, RankData
 │   ├── gll.hpp                — GLL quadrature (header-only)
-│   ├── element.hpp            — backend-templated matrix-free stiffness × displacement
+│   ├── element.hpp            — plain function, link-time physics selection
 │   ├── backend.hpp            — BackendCPU, BackendCUDA, ActiveBackend tags
-│   ├── cuda_check.h           — GF_CUDA_CHECK() error macro
+│   ├── cuda_check.hpp           — GF_CUDA_CHECK() error macro
 │   ├── cuda_device_manager.hpp— persistent CUDA device buffer manager
 │   ├── assembly.hpp           — assemble_residual(), add_source_to_rhs()
 │   ├── pml.hpp                — PML damping application
