@@ -311,6 +311,7 @@ static MergedDirection merge_direction(const char* dir_path, const std::vector<d
         double* step_acc = result.acceleration.data() + snap_idx * ng * 3;
 
         std::vector<double> node_weight_sum(ng, 0.0);
+        std::vector<int> node_count(ng, 0);
         bool any_mass_weight = false;
         bool use_mass_weighted = !cell_mass.empty() && ngll > 0 && n_model_cell > 0;
         int ngll2 = ngll * ngll;
@@ -400,6 +401,7 @@ static MergedDirection merge_direction(const char* dir_path, const std::vector<d
                         double* ddst = step_disp + (size_t)global_idx * 3;
                         for (int comp = 0; comp < 3; ++comp)
                             ddst[comp] += dsrc[comp];
+                        node_count[(size_t)global_idx]++;
                     }
                 }
             }
@@ -422,6 +424,7 @@ static MergedDirection merge_direction(const char* dir_path, const std::vector<d
                         double* vdst = step_vel + (size_t)global_idx * 3;
                         for (int comp = 0; comp < 3; ++comp)
                             vdst[comp] += vsrc[comp];
+                        node_count[(size_t)global_idx]++;
                     }
                 }
             }
@@ -444,6 +447,7 @@ static MergedDirection merge_direction(const char* dir_path, const std::vector<d
                         double* adst = step_acc + (size_t)global_idx * 3;
                         for (int comp = 0; comp < 3; ++comp)
                             adst[comp] += asrc[comp];
+                        node_count[(size_t)global_idx]++;
                     }
                 }
             }
@@ -451,31 +455,37 @@ static MergedDirection merge_direction(const char* dir_path, const std::vector<d
             H5Fclose(fid);
         }
 
-        // Mass-weighted average for strain; simple average for displacement
+        // Mass-weighted average for strain (element contributions weighted by GLL mass);
+        // count-based average for displacement/velocity/acceleration (CG-SEM enforces
+        // continuity at shared nodes — they should be identical, so count averaging
+        // is correct and avoids spurious mass scaling).
         for (size_t gi = 0; gi < ng; ++gi) {
             if (node_weight_sum[gi] > 0.0) {
-                double inv = 1.0 / node_weight_sum[gi];
                 double* dst = step_data + gi * 6;
+                double inv_mass = 1.0 / node_weight_sum[gi];
                 for (int c = 0; c < 6; ++c)
-                    dst[c] *= inv;
+                    dst[c] *= inv_mass;
+            }
+            if (node_count[gi] > 0) {
+                double inv_cnt = 1.0 / (double)node_count[gi];
                 if (result.has_displacement) {
                     double* ddst = step_disp + gi * 3;
                     for (int c = 0; c < 3; ++c)
-                        ddst[c] *= inv;
+                        ddst[c] *= inv_cnt;
                 }
                 if (result.has_velocity) {
                     double* vdst = step_vel + gi * 3;
                     for (int c = 0; c < 3; ++c)
-                        vdst[c] *= inv;
+                        vdst[c] *= inv_cnt;
                 }
                 if (result.has_acceleration) {
                     double* adst = step_acc + gi * 3;
                     for (int c = 0; c < 3; ++c)
-                        adst[c] *= inv;
+                        adst[c] *= inv_cnt;
                 }
             }
         }
-    }
+    }  // snap_idx loop
 
     return result;
 }
