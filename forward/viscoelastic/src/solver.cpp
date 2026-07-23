@@ -4,7 +4,7 @@
  *
  * Delegates to the shared run_forward() in libgf_shared.  The viscoelastic
  * behaviour comes from linking the viscoelastic element kernel (libgf_visco)
- * instead of the elastic one (libgf).  The shared solver picks up the
+ * instead of the elastic one (libgf_elastic).  The shared solver picks up the
  * correct link-time selection of compute_element_residual at
  * link time.
  *

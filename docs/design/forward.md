@@ -4,7 +4,7 @@
 
 ## Goal
 
-`libgf` C++ physics library plus 3 solver binaries (`gf_solver_elastic_mpi`, `gf_solver_elastic_cuda`, `gf_solver_elastic_mpi_cuda`) for elastic SEM forward modeling.
+`libgf_elastic` C++ physics library plus 3 solver binaries (`gf_solver_elastic_mpi`, `gf_solver_elastic_cuda`, `gf_solver_elastic_mpi_cuda`) for elastic SEM forward modeling.
 
 ## Data Flow
 
@@ -65,7 +65,7 @@ Caller creates directories.
 
 ## Architecture
 
-`libgf` is a static physics library linked into solver executables. Three variants:
+`libgf_elastic` is the static elastic physics library linked into solver executables. Three variants:
 
 | Binary | Backend | MPI | Build definition |
 |--------|---------|-----|-----------------|

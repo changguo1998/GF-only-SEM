@@ -182,9 +182,9 @@ set(GF_DEVICE_BACKEND "CPU" CACHE STRING "Device backend: CPU, CUDA")
 if(GF_DEVICE_BACKEND STREQUAL "CUDA")
     enable_language(CUDA)
     list(APPEND BACKEND_SRCS src/element_cuda.cu)
-    target_compile_definitions(libgf PRIVATE GF_WITH_CUDA)
-    target_compile_definitions(libgf PRIVATE GF_ACTIVE_BACKEND=1)
-    set_target_properties(libgf PROPERTIES CUDA_ARCHITECTURES "80;86;87;90")
+    target_compile_definitions(libgf_elastic PRIVATE GF_WITH_CUDA)
+    target_compile_definitions(libgf_elastic PRIVATE GF_ACTIVE_BACKEND=1)
+    set_target_properties(libgf_elastic PROPERTIES CUDA_ARCHITECTURES "80;86;87;90")
 endif()
 ```
 

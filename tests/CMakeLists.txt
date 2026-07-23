@@ -9,7 +9,7 @@ list(PREPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)
 
 # ---------------------------------------------------------------
-# Forward solver tests (require MPI — link libgf)
+# Forward solver tests (require MPI — link libgf_elastic)
 # ---------------------------------------------------------------
 
 if(MPI_FOUND)
@@ -18,7 +18,7 @@ if(MPI_FOUND)
         add_executable(${name} ${source})
         target_include_directories(${name} PRIVATE ${CMAKE_SOURCE_DIR}/forward/share/include
                                                    ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
-        target_link_libraries(${name} PRIVATE libgf Catch2::Catch2WithMain MPI::MPI_CXX
+        target_link_libraries(${name} PRIVATE libgf_elastic Catch2::Catch2WithMain MPI::MPI_CXX
                                               Eigen3::Eigen ${HDF5_C_LIBRARIES})
         target_compile_features(${name} PRIVATE cxx_std_17)
     endfunction()
@@ -79,7 +79,7 @@ if(MPI_FOUND)
     add_executable(test_exchange test_exchange.cpp)
     target_include_directories(test_exchange PRIVATE ${CMAKE_SOURCE_DIR}/forward/share/include
                                                      ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
-    target_link_libraries(test_exchange PRIVATE libgf Catch2::Catch2 MPI::MPI_CXX Eigen3::Eigen
+    target_link_libraries(test_exchange PRIVATE libgf_elastic Catch2::Catch2 MPI::MPI_CXX Eigen3::Eigen
                                                 ${HDF5_C_LIBRARIES})
     target_compile_features(test_exchange PRIVATE cxx_std_17)
 
@@ -103,7 +103,7 @@ endif()
 # ---------------------------------------------------------------
 # CUDA element residual tests (requires CUDA toolkit, no MPI needed)
 # ---------------------------------------------------------------
-if(TARGET libgf_cuda_nompi)
+if(TARGET libgf_elastic_cuda_nompi)
     add_executable(test_element_cuda test_element_cuda.cu)
     target_include_directories(
         test_element_cuda PRIVATE ${CMAKE_SOURCE_DIR}/forward/share/include ${EIGEN3_INCLUDE_DIR}
@@ -112,7 +112,7 @@ if(TARGET libgf_cuda_nompi)
     get_filename_component(_eigen_prefix "${Eigen3_DIR}/../../.." ABSOLUTE)
     target_compile_options(test_element_cuda
                            PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-I${_eigen_prefix}/include/eigen3>)
-    target_link_libraries(test_element_cuda PRIVATE libgf_cuda_nompi Catch2::Catch2WithMain
+    target_link_libraries(test_element_cuda PRIVATE libgf_elastic_cuda_nompi Catch2::Catch2WithMain
                                                     Eigen3::Eigen ${HDF5_C_LIBRARIES} CUDA::cudart)
     target_compile_features(test_element_cuda PRIVATE cxx_std_17)
     target_compile_definitions(test_element_cuda PRIVATE GF_WITH_CUDA GF_ACTIVE_BACKEND=1)

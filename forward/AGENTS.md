@@ -6,7 +6,7 @@ Elastic CG-SEM solver. Reads `config.h5` + `partition_{r}.h5`. Computes full vol
 
 ## Architecture
 
-### Library (`libgf`)
+### Library (`libgf_elastic`)
 
 | Header | Implementation | Responsibility |
 |--------|----------------|----------------|
