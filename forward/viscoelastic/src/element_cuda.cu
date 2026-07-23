@@ -8,7 +8,6 @@
  * and updates SLS memory variables inline.
  */
 
-#define GF_ELEMENT_CUDA_SOURCE
 #include "gf/attenuation.hpp"
 #include "gf/cuda_check.hpp"
 #include "gf/cuda_device_manager.hpp"
@@ -136,14 +135,13 @@ namespace {
 CudaDeviceBuffers g_cuda_buffers;
 }  // anonymous namespace
 
-template <>
-void compute_element_residual<BackendCUDA>(
-    int n_elem, const double* dxi_dx, const double* jacobian, const double* lambda_,
-    const double* mu_, const double* D, const double* weights, int NGLL, const double* u,
-    double* r, const int32_t* /*pml_region*/, const double* /*pml_coef_strain*/,
-    const double* /*rmemory_strain*/, double* /*rmemory_sls*/, double* /*sigma_old*/,
-    const double* /*sls_coef_a*/, const double* /*sls_coef_b*/, bool /*has_attenuation*/) {
-#ifdef GF_WITH_CUDA
+void compute_element_residual(int n_elem, const double* dxi_dx, const double* jacobian,
+                              const double* lambda_, const double* mu_, const double* D,
+                              const double* weights, int NGLL, const double* u, double* r,
+                              const int32_t* /*pml_region*/, const double* /*pml_coef_strain*/,
+                              const double* /*rmemory_strain*/, double* /*rmemory_sls*/,
+                              double* /*sigma_old*/, const double* /*sls_coef_a*/,
+                              const double* /*sls_coef_b*/, bool /*has_attenuation*/) {
     const int n_node = NGLL * NGLL * NGLL;
 
     // --- Allocate / reuse device buffers ---
@@ -179,20 +177,6 @@ void compute_element_residual<BackendCUDA>(
 
     // --- Synchronize ---
     GF_CUDA_CHECK(cudaDeviceSynchronize());
-#else
-    (void)n_elem;
-    (void)dxi_dx;
-    (void)jacobian;
-    (void)lambda_;
-    (void)mu_;
-    (void)D;
-    (void)weights;
-    (void)NGLL;
-    (void)u;
-    (void)r;
-    fprintf(stderr, "compute_element_residual<BackendCUDA> called without GF_WITH_CUDA.\n");
-    std::abort();
-#endif
 }
 
 // -----------------------------------------------------------------------

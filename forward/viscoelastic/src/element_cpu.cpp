@@ -8,7 +8,6 @@
  * and updates the SLS memory variables inline.
  */
 
-#define GF_ELEMENT_CPU_SOURCE
 #include "gf/attenuation.hpp"
 #include "gf/element.hpp"
 #include "gf/kernel_helpers.hpp"
@@ -26,15 +25,14 @@ inline int idx(int i, int j, int k, int NGLL) {
 // Voigt component -> tensor index pairs
 static constexpr int VMAP[6][2] = {{0, 0}, {1, 1}, {2, 2}, {0, 1}, {0, 2}, {1, 2}};
 
-template <>
-void compute_element_residual<BackendCPU>(int n_elem, const double* dxi_dx, const double* jacobian,
-                                          const double* lambda_, const double* mu_,
-                                          const double* D, const double* weights, int NGLL,
-                                          const double* u, double* r, const int32_t* pml_region,
-                                          const double* pml_coef_strain,
-                                          const double* rmemory_strain, double* rmemory_sls,
-                                          double* sigma_old, const double* sls_coef_a,
-                                          const double* sls_coef_b, bool has_attenuation) {
+#ifndef GF_WITH_CUDA
+void compute_element_residual(int n_elem, const double* dxi_dx, const double* jacobian,
+                              const double* lambda_, const double* mu_, const double* D,
+                              const double* weights, int NGLL, const double* u, double* r,
+                              const int32_t* pml_region, const double* pml_coef_strain,
+                              const double* rmemory_strain, double* rmemory_sls, double* sigma_old,
+                              const double* sls_coef_a, const double* sls_coef_b,
+                              bool has_attenuation) {
     const int n_node = NGLL * NGLL * NGLL;
 
     for (int elem = 0; elem < n_elem; ++elem) {
@@ -132,4 +130,5 @@ void compute_element_residual<BackendCPU>(int n_elem, const double* dxi_dx, cons
     }
 }
 
+#endif  // !GF_WITH_CUDA
 }  // namespace gf

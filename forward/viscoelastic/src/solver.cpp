@@ -5,7 +5,7 @@
  * Delegates to the shared run_forward() in libgf_shared.  The viscoelastic
  * behaviour comes from linking the viscoelastic element kernel (libgf_visco)
  * instead of the elastic one (libgf).  The shared solver picks up the
- * correct specialization of compute_element_residual<ActiveBackend> at
+ * correct link-time selection of compute_element_residual at
  * link time.
  *
  * The model.h5 file must contain /field/cell/tau_sigma and
@@ -34,8 +34,8 @@ int run_viscoelastic_forward(const std::string& direction, bool resume_mode,
     //   - Snapshot and restart I/O
     //
     // The viscoelastic element kernel is used because this binary is linked
-    // against libgf_visco (which provides the SLS specialization of
-    // compute_element_residual<BackendCPU>).
+    // against libgf_visco (which provides the SLS implementation of
+    // compute_element_residual ).
 
     return run_forward(direction, resume_mode, effective_nprocs);
 }

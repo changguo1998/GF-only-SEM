@@ -3,8 +3,8 @@
  * @brief CUDA element residual tests — compare CUDA result against CPU reference.
  *
  * Builds only when GF_WITH_CUDA is enabled.
- * Each test generates random input, runs both CPU and CUDA backends,
- * and compares the residual with tight tolerance.
+ * Each test generates random input, runs the CUDA backend and compares against
+ * an inline CPU reference implementation.
  */
 
 #include <catch2/catch_test_macros.hpp>
@@ -16,6 +16,7 @@
 #include "gf/backend.hpp"
 #include "gf/element.hpp"
 #include "gf/gll.hpp"
+#include "gf/kernel_helpers.hpp"
 #include "gf/types.hpp"
 
 using namespace gf;
@@ -28,6 +29,57 @@ void random_fill(std::vector<double>& v, unsigned seed = 42) {
     std::srand(seed);
     for (auto& x : v) {
         x = 2.0 * static_cast<double>(std::rand()) / RAND_MAX - 1.0;
+    }
+}
+
+/// Inline CPU reference for element residual (elastic, no SLS/PML).
+///
+/// Duplicates the elastic CPU kernel algorithm so that CUDA-only builds
+/// (where libgf_cuda_nompi provides only the CUDA implementation of
+/// compute_element_residual) can still cross-validate the result.
+void reference_element_residual(int n_elem, const double* dxi_dx, const double* jacobian,
+                                const double* lambda_, const double* mu_, const double* D,
+                                const double* weights, int NGLL, const double* u, double* r) {
+    const int n_node = NGLL * NGLL * NGLL;
+    for (int elem = 0; elem < n_elem; ++elem) {
+        const double* dd_all = dxi_dx + elem * n_node * 9;
+        const double* elem_lambda = lambda_ + elem * n_node;
+        const double* elem_mu = mu_ + elem * n_node;
+        const double* elem_u = u + elem * n_node * 3;
+        double* elem_r = r + elem * n_node * 3;
+
+        for (int i = 0; i < NGLL; ++i) {
+            for (int j = 0; j < NGLL; ++j) {
+                for (int k = 0; k < NGLL; ++k) {
+                    const int n = (i * NGLL + j) * NGLL + k;
+                    const double lambda = elem_lambda[n];
+                    const double mu = elem_mu[n];
+                    if (mu <= 0.0)
+                        continue;
+                    const double* dd = &dd_all[9 * n];
+
+                    double dudxi[3], dudeta[3], dudzeta[3];
+                    compute_reference_gradient(i, j, k, NGLL, D, elem_u, dudxi, dudeta, dudzeta);
+
+                    double du_dx[3][3];
+                    transform_to_physical(dudxi, dudeta, dudzeta, dd, du_dx);
+
+                    double eps[3][3];
+                    compute_strain_tensor(du_dx, eps);
+                    double eps_kk = eps[0][0] + eps[1][1] + eps[2][2];
+
+                    double sigma[3][3];
+                    for (int l = 0; l < 3; ++l) {
+                        for (int m = 0; m < 3; ++m) {
+                            sigma[l][m] = 2.0 * mu * eps[l][m];
+                        }
+                        sigma[l][l] += lambda * eps_kk;
+                    }
+                    scatter_residual(i, j, k, NGLL, sigma, dd, D, weights,
+                                     jacobian[elem * n_node + n], elem_r);
+                }
+            }
+        }
     }
 }
 
@@ -96,7 +148,7 @@ struct RandomElement {
 
 }  // anonymous namespace
 
-TEST_CASE("CUDA element residual matches CPU — N=3 random", "[element][cuda]") {
+TEST_CASE("CUDA element residual matches CPU reference — N=3 random", "[element][cuda]") {
     int N = 3;
     RandomElement elem(N, 42);
 
@@ -106,20 +158,19 @@ TEST_CASE("CUDA element residual matches CPU — N=3 random", "[element][cuda]")
     std::vector<double> r_cpu(elem.n_node * 3, 0.0);
     std::vector<double> r_cuda(elem.n_node * 3, 0.0);
 
-    // CPU reference
-    compute_element_residual<BackendCPU>(1, elem.dxi_dx.data(), elem.jacobian.data(),
-                                         elem.lambda_.data(), elem.mu_.data(), elem.D.data(),
-                                         elem.w.data(), elem.ngll, u.data(), r_cpu.data());
+    // CPU reference (inline)
+    reference_element_residual(1, elem.dxi_dx.data(), elem.jacobian.data(), elem.lambda_.data(),
+                               elem.mu_.data(), elem.D.data(), elem.w.data(), elem.ngll, u.data(),
+                               r_cpu.data());
 
     // CUDA result
-    compute_element_residual<BackendCUDA>(1, elem.dxi_dx.data(), elem.jacobian.data(),
-                                          elem.lambda_.data(), elem.mu_.data(), elem.D.data(),
-                                          elem.w.data(), elem.ngll, u.data(), r_cuda.data());
+    compute_element_residual(1, elem.dxi_dx.data(), elem.jacobian.data(), elem.lambda_.data(),
+                             elem.mu_.data(), elem.D.data(), elem.w.data(), elem.ngll, u.data(),
+                             r_cuda.data());
 
     // Compare with relative tolerance
     // GPU uses atomicAdd which changes summation order vs CPU sequential loop.
     // This introduces machine-epsilon-level differences (~4e-16 relative).
-    // Use relative tolerance to account for this fundamental parallel computation behavior.
     double max_rel_diff = 0.0;
     size_t max_idx = 0;
     for (size_t i = 0; i < r_cpu.size(); ++i) {
@@ -135,7 +186,7 @@ TEST_CASE("CUDA element residual matches CPU — N=3 random", "[element][cuda]")
     REQUIRE(max_rel_diff < 1.0e-12);
 }
 
-TEST_CASE("CUDA element residual matches CPU — N=5 random", "[element][cuda]") {
+TEST_CASE("CUDA element residual matches CPU reference — N=5 random", "[element][cuda]") {
     int N = 5;
     RandomElement elem(N, 123);
 
@@ -145,13 +196,13 @@ TEST_CASE("CUDA element residual matches CPU — N=5 random", "[element][cuda]")
     std::vector<double> r_cpu(elem.n_node * 3, 0.0);
     std::vector<double> r_cuda(elem.n_node * 3, 0.0);
 
-    compute_element_residual<BackendCPU>(1, elem.dxi_dx.data(), elem.jacobian.data(),
-                                         elem.lambda_.data(), elem.mu_.data(), elem.D.data(),
-                                         elem.w.data(), elem.ngll, u.data(), r_cpu.data());
+    reference_element_residual(1, elem.dxi_dx.data(), elem.jacobian.data(), elem.lambda_.data(),
+                               elem.mu_.data(), elem.D.data(), elem.w.data(), elem.ngll, u.data(),
+                               r_cpu.data());
 
-    compute_element_residual<BackendCUDA>(1, elem.dxi_dx.data(), elem.jacobian.data(),
-                                          elem.lambda_.data(), elem.mu_.data(), elem.D.data(),
-                                          elem.w.data(), elem.ngll, u.data(), r_cuda.data());
+    compute_element_residual(1, elem.dxi_dx.data(), elem.jacobian.data(), elem.lambda_.data(),
+                             elem.mu_.data(), elem.D.data(), elem.w.data(), elem.ngll, u.data(),
+                             r_cuda.data());
 
     // Compare with relative tolerance
     double max_rel_diff = 0.0;
@@ -178,9 +229,9 @@ TEST_CASE("CUDA element residual — rigid body translation zero", "[element][cu
     }
 
     std::vector<double> r(elem.n_node * 3, 0.0);
-    compute_element_residual<BackendCUDA>(1, elem.dxi_dx.data(), elem.jacobian.data(),
-                                          elem.lambda_.data(), elem.mu_.data(), elem.D.data(),
-                                          elem.w.data(), elem.ngll, u.data(), r.data());
+    compute_element_residual(1, elem.dxi_dx.data(), elem.jacobian.data(), elem.lambda_.data(),
+                             elem.mu_.data(), elem.D.data(), elem.w.data(), elem.ngll, u.data(),
+                             r.data());
 
     for (size_t i = 0; i < r.size(); ++i) {
         REQUIRE_THAT(r[i], WithinAbs(0.0, 1e-5));

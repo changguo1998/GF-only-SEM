@@ -582,7 +582,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
 
                 // 3. Zero element-local residual, compute element kernel
                 std::fill(local_cell_residual.begin(), local_cell_residual.end(), 0.0);
-                compute_element_residual<gf::ActiveBackend>(
+                compute_element_residual(
                     n_local_cell, part.dxi_dx.data(), part.jacobian.data(), part.lambda_.data(),
                     part.mu_.data(), D_mat.data(), gll_wts.data(), ngll,
                     local_cell_displacement.data(), local_cell_residual.data(),

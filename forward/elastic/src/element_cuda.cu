@@ -1,13 +1,12 @@
 /**
  * @file element_cuda.cu
- * @brief CUDA specialization of compute_element_residual<BackendCUDA> — elastic.
+ * @brief CUDA compute_element_residual — elastic.
  *
  * Batched kernel: grid.x = n_elem (one block per element), one thread per
  * GLL node (i,j,k).  Calls the five shared geometry/mechanics helpers from
  * kernel_helpers.cuh and inserts elastic isotropic stress.
  */
 
-#define GF_ELEMENT_CUDA_SOURCE
 #include <cstdio>
 #include <cstdlib>
 
@@ -100,7 +99,7 @@ __global__ void element_residual_kernel(
 }
 
 // -----------------------------------------------------------------------
-// CUDA specialization: batched element residual
+// Host-side CUDA dispatch: batched element residual
 // -----------------------------------------------------------------------
 
 // File-scope persistent device buffer cache.
@@ -108,14 +107,13 @@ namespace {
 CudaDeviceBuffers g_cuda_buffers;
 }  // anonymous namespace
 
-template <>
-void compute_element_residual<BackendCUDA>(
-    int n_elem, const double* dxi_dx, const double* jacobian, const double* lambda_,
-    const double* mu_, const double* D, const double* weights, int NGLL, const double* u,
-    double* r, const int32_t* /*pml_region*/, const double* /*pml_coef_strain*/,
-    const double* /*rmemory_strain*/, double* /*rmemory_sls*/, double* /*sigma_old*/,
-    const double* /*sls_coef_a*/, const double* /*sls_coef_b*/, bool /*has_attenuation*/) {
-#ifdef GF_WITH_CUDA
+void compute_element_residual(int n_elem, const double* dxi_dx, const double* jacobian,
+                              const double* lambda_, const double* mu_, const double* D,
+                              const double* weights, int NGLL, const double* u, double* r,
+                              const int32_t* /*pml_region*/, const double* /*pml_coef_strain*/,
+                              const double* /*rmemory_strain*/, double* /*rmemory_sls*/,
+                              double* /*sigma_old*/, const double* /*sls_coef_a*/,
+                              const double* /*sls_coef_b*/, bool /*has_attenuation*/) {
     const int n_node = NGLL * NGLL * NGLL;
 
     // --- Allocate / reuse device buffers ---
@@ -151,22 +149,6 @@ void compute_element_residual<BackendCUDA>(
 
     // --- Synchronize ---
     GF_CUDA_CHECK(cudaDeviceSynchronize());
-#else
-    (void)n_elem;
-    (void)dxi_dx;
-    (void)jacobian;
-    (void)lambda_;
-    (void)mu_;
-    (void)D;
-    (void)weights;
-    (void)NGLL;
-    (void)u;
-    (void)r;
-    fprintf(stderr,
-            "compute_element_residual<BackendCUDA> called without GF_WITH_CUDA. "
-            "Recompile with -DGF_WITH_CUDA and CUDA toolkit.\n");
-    std::abort();
-#endif
 }
 
 // Element residual kernel launch using pre-existing device pointers (GPU-native mode).

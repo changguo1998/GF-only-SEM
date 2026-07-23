@@ -3,11 +3,11 @@
 /// @file
 /// Device backend tags for compile-time dispatch.
 ///
-/// Each backend is an empty tag type. The active backend is selected
+/// Each backend is an empty tag type for device dispatch.
 /// via CMake define GF_DEVICE_BACKEND and aliased as ActiveBackend.
 ///
 /// Usage:
-///   compute_element_residual<gf::ActiveBackend>(...);
+///   compute_element_residual(...);
 ///
 /// New backends add a tag struct and a specialization in their own
 /// source file (e.g., element_cuda.cu, element_hip.hip.cpp).

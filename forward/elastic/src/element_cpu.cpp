@@ -1,4 +1,3 @@
-#define GF_ELEMENT_CPU_SOURCE
 #include <cmath>
 
 #include "gf/element.hpp"
@@ -17,15 +16,18 @@ static inline int idx(int i, int j, int k, int NGLL) {
 ///
 /// Calls the five shared geometry/mechanics helpers from kernel_helpers.hpp
 /// and inserts the elastic isotropic stress law between strain and scatter.
-template <>
-void compute_element_residual<BackendCPU>(int n_elem, const double* dxi_dx, const double* jacobian,
-                                          const double* lambda_, const double* mu_,
-                                          const double* D, const double* weights, int NGLL,
-                                          const double* u, double* r, const int32_t* pml_region,
-                                          const double* pml_coef_strain,
-                                          const double* rmemory_strain, double* /*rmemory_sls*/,
-                                          double* /*sigma_old*/, const double* /*sls_coef_a*/,
-                                          const double* /*sls_coef_b*/, bool /*has_attenuation*/) {
+///
+/// Guarded: suppressed in CUDA builds (GF_WITH_CUDA defined) so that CUDA
+/// libraries can link element_cpu.cpp without symbol collision with the
+/// CUDA implementation in element_cuda.cu.
+#ifndef GF_WITH_CUDA
+void compute_element_residual(int n_elem, const double* dxi_dx, const double* jacobian,
+                              const double* lambda_, const double* mu_, const double* D,
+                              const double* weights, int NGLL, const double* u, double* r,
+                              const int32_t* pml_region, const double* pml_coef_strain,
+                              const double* rmemory_strain, double* /*rmemory_sls*/,
+                              double* /*sigma_old*/, const double* /*sls_coef_a*/,
+                              const double* /*sls_coef_b*/, bool /*has_attenuation*/) {
     const int n_node = NGLL * NGLL * NGLL;
 
     for (int elem = 0; elem < n_elem; ++elem) {
@@ -80,5 +82,6 @@ void compute_element_residual<BackendCPU>(int n_elem, const double* dxi_dx, cons
         }
     }
 }
+#endif  // !GF_WITH_CUDA
 
 }  // namespace gf

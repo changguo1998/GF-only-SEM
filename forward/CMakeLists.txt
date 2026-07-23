@@ -69,9 +69,8 @@ function(add_gf_physics_solvers)
 
     # ── 2. CUDA, no MPI (single GPU) ──
     if(CUDAToolkit_FOUND)
-        add_library(
-            ${LIB_CUDA_NOSPI} STATIC ${ARG_CPU_ELEM_SRCS} ${ARG_CUDA_ELEM_SRCS} ${SHARED_SRCS}
-                                     ${NOOP_EXCHANGE} ${CUDA_STEP} ${ARG_EXTRA_SRCS})
+        add_library(${LIB_CUDA_NOSPI} STATIC ${ARG_CUDA_ELEM_SRCS} ${SHARED_SRCS} ${NOOP_EXCHANGE}
+                                             ${CUDA_STEP} ${ARG_EXTRA_SRCS})
         target_include_directories(${LIB_CUDA_NOSPI} PUBLIC ${INCLUDES})
         target_compile_options(${LIB_CUDA_NOSPI}
                                PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-I${_ep}/include/eigen3>)
@@ -93,8 +92,8 @@ function(add_gf_physics_solvers)
 
     # ── 3. CUDA + MPI (multi-GPU) ──
     if(CUDAToolkit_FOUND AND MPI_FOUND)
-        add_library(${LIB_CUDA} STATIC ${ARG_CPU_ELEM_SRCS} ${ARG_CUDA_ELEM_SRCS} ${SHARED_SRCS}
-                                       ${CUDA_STEP} ${ARG_EXTRA_SRCS})
+        add_library(${LIB_CUDA} STATIC ${ARG_CUDA_ELEM_SRCS} ${SHARED_SRCS} ${CUDA_STEP}
+                                       ${ARG_EXTRA_SRCS})
         target_include_directories(${LIB_CUDA} PUBLIC ${INCLUDES})
         target_compile_options(${LIB_CUDA}
                                PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-I${_ep}/include/eigen3>)
