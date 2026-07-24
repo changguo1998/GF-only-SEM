@@ -327,6 +327,21 @@ static int run_main(int argc, char** argv) {
     if (!source_result.cell_ids.empty()) {
         fprintf(stderr, "  Cell %d, xi=(%g,%g,%g)\n", source_result.cell_ids[0],
                 source_result.xi[0], source_result.eta[0], source_result.zeta[0]);
+    // Write source cell count to source attrs
+    if (!source_result.cell_ids.empty()) {
+        hid_t src_grp = H5Gopen2(model_fid, "source", H5P_DEFAULT);
+        if (src_grp >= 0) {
+            hsize_t one = 1;
+            hid_t spc = H5Screate(H5S_SCALAR);
+            hid_t attr = H5Acreate2(src_grp, "n_src_cell", H5T_NATIVE_INT, spc,
+                                   H5P_DEFAULT, H5P_DEFAULT);
+            int n_src = source_result.n_src_cell;
+            H5Awrite(attr, H5T_NATIVE_INT, &n_src);
+            H5Aclose(attr);
+            H5Sclose(spc);
+            H5Gclose(src_grp);
+        }
+    }
     }
 
     H5Fclose(model_fid);

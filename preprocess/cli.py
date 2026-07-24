@@ -511,11 +511,24 @@ def main() -> None:
             "h_min": h_min,
             "used_cpp": True,
         }
-        # C++ write solver_dt as attr — try reading it
+        # Read solver_dt from C++ output (/info group in model.h5)
         solver_dt = 0.0
         snapshot_stride = 1
-        nsteps = len(stf_t) if len(stf_t) > 0 else 0
+        nsteps = 0
         cfl_dt = 0.0
+        with h5py.File(model_path, "r") as _f:
+            if "info" in _f:
+                info = _f["info"]
+                if "solver_dt" in info.attrs:
+                    solver_dt = float(info.attrs["solver_dt"])
+                if "snapshot_stride" in info.attrs:
+                    snapshot_stride = int(info.attrs["snapshot_stride"])
+                if "nsteps" in info.attrs:
+                    nsteps = int(info.attrs["nsteps"])
+        if solver_dt <= 0.0:
+            solver_dt = float(config.output_dt_s)
+        if nsteps <= 0:
+            nsteps = len(stf_t) if len(stf_t) > 0 else 0
         # source info from config.py
         source_z = getattr(config, "source_z_m", None)
         if source_z is None:
@@ -523,15 +536,37 @@ def main() -> None:
         source_xyz_arr = np.array(
             [config.source_x_m, config.source_y_m, source_z], dtype=np.float64
         )
-        src_result = {
-            "n_src_cell": 0,
-            "cell_ids": np.array([], dtype=np.int64),
-            "xi": np.array([], dtype=np.float64),
-            "eta": np.array([], dtype=np.float64),
-            "zeta": np.array([], dtype=np.float64),
-            "weights": np.array([], dtype=np.float64),
-            "mode": "surface",
-        }
+        # ── Source location (Python: C++ didn't write cells to HDF5) ──
+        try:
+            from preprocess.source_locator import locate_source
+
+            # Use already-loaded topology from main()
+            source_xyz_arr = np.array(
+                [float(config.source_x_m), float(config.source_y_m), float(source_z)],
+                dtype=np.float64,
+            )
+            with h5py.File(model_path, "r") as _f:
+                gll_coords_arr = np.array(_f["field/element/coords"], dtype=np.float64)
+                btag = np.array(_f["field/surface/boundary_tag"], dtype=np.int64)
+                if "field/element/is_pml" in _f:
+                    is_pml_arr = np.array(_f["field/element/is_pml"], dtype=np.bool_)
+                else:
+                    is_pml_arr = None
+            src_result = locate_source(topology, source_xyz_arr, gll_coords_arr, btag, N, is_pml_arr)
+            logger.info(f"  Source in {src_result['n_src_cell']} element(s)")
+        except (ImportError, Exception) as _e:
+            logger.warning(f"  Source location failed: {_e}")
+            import traceback
+            traceback.print_exc()
+            src_result = {
+                "n_src_cell": 0,
+                "cell_ids": np.array([], dtype=np.int64),
+                "xi": np.array([], dtype=np.float64),
+                "eta": np.array([], dtype=np.float64),
+                "zeta": np.array([], dtype=np.float64),
+                "weights": np.array([], dtype=np.float64),
+                "mode": "surface",
+            }
 
         # ── Step 8: Partition (read C++ results, compute per_rank) ──
         n_ranks = int(config.n_ranks)

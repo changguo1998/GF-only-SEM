@@ -343,17 +343,21 @@ def _read_settings(work_dir: Path, relative_tolerance: float) -> dict:
         sim = cfg["simulation"].attrs
         stf_t = np.asarray(cfg["source/stf_t"], dtype=np.float64)
         stf_v = np.asarray(cfg["source/stf_values"], dtype=np.float64)
+        # Compute SEM output time axis: solver_dt * snapshot_stride interval
         stride = int(sim["snapshot_stride"])
         output_dt_s = float(sim["output_dt_s"])
-        output_time_s = stf_t[::stride]
+        solver_dt = float(sim["solver_dt"])
+        nsteps = int(sim["nsteps"])
+        n_snapshots = nsteps // stride
+        output_time_s = np.arange(n_snapshots, dtype=np.float64) * solver_dt * stride
         source_values = np.interp(output_time_s, stf_t, stf_v)
 
     with h5py.File(work_dir / "model.h5", "r") as mod:
-        is_pml = np.asarray(mod["field/cell/is_pml"], dtype=bool)
+        is_pml = np.asarray(mod["field/element/is_pml"], dtype=bool)
         interior = ~is_pml
-        vp = np.asarray(mod["field/cell/vp"][interior], dtype=np.float64)
-        vs = np.asarray(mod["field/cell/vs"][interior], dtype=np.float64)
-        rho = np.asarray(mod["field/cell/density"][interior], dtype=np.float64)
+        vp = np.asarray(mod["field/element/vp"][interior], dtype=np.float64)
+        vs = np.asarray(mod["field/element/vs"][interior], dtype=np.float64)
+        rho = np.asarray(mod["field/element/density"][interior], dtype=np.float64)
 
     def _uniform(values: npt.NDArray[np.float64], name: str) -> float:
         center = float(np.median(values))
