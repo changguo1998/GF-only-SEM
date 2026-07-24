@@ -23,30 +23,50 @@ using Arr8x3 = Eigen::Matrix<double, 8, 3>;
 /// Compute Gauss-Lobatto-Legendre nodes in [-1, 1].
 /// Uses Newton iteration on the GLL derivative polynomial.
 std::vector<double> gll_points(int N) {
+    // Gauss-Lobatto-Legendre nodes in [-1, 1].
+    // Uses Newton iteration to find the zeros of P_N'(x) (interior nodes).
     int n = N + 1;
     std::vector<double> xi(n);
     if (n == 1) {
         xi[0] = 0.0;
         return xi;
     }
+    if (n == 2) {
+        xi[0] = -1.0;
+        xi[1] = 1.0;
+        return xi;
+    }
     xi[0] = -1.0;
     xi[n - 1] = 1.0;
+
     // Chebyshev initial guess for interior points
     for (int i = 1; i < n - 1; ++i) {
-        xi[i] = -std::cos(M_PI * (i + 0.5) / N);
+        xi[i] = -std::cos(M_PI * i / N);
     }
-    // Newton iteration
-    for (int iter = 0; iter < 20; ++iter) {
+
+    // Newton iteration: find zeros of P_N'(x)
+    // P_N'(x) = N * (x*P_N(x) - P_{N-1}(x)) / (x^2 - 1)
+    // P_N''(x) = (2*x*P_N'(x) - N*(N+1)*P_N(x)) / (1 - x^2)
+    for (int iter = 0; iter < 30; ++iter) {
         double max_delta = 0.0;
         for (int i = 1; i < n - 1; ++i) {
             double x = xi[i];
-            double pn = 1.0, pn1 = x;
+
+            // Evaluate P_{N-1}(x) and P_N(x) via recurrence
+            double pn = 1.0;  // P_0
+            double pn1 = x;   // P_1
             for (int k = 2; k <= N; ++k) {
                 double pk = ((2.0 * k - 1.0) * x * pn1 - (k - 1.0) * pn) / k;
                 pn = pn1;
                 pn1 = pk;
             }
-            double delta = (x * pn1 - pn) / (N * pn1);
+            // pn = P_{N-1}(x), pn1 = P_N(x)
+
+            double x2 = x * x;
+            double pprime = N * (x * pn1 - pn) / (x2 - 1.0);
+            double p2prime = (2.0 * x * pprime - N * (N + 1.0) * pn1) / (1.0 - x2);
+            double delta = pprime / p2prime;
+
             xi[i] -= delta;
             max_delta = std::max(max_delta, std::abs(delta));
         }
@@ -182,11 +202,11 @@ SourceResult locate_source(const Config& cfg, const double* gll_coords_flat, int
             }
         }
     }
-
-    if (candidates.empty()) {
-        fprintf(stderr, "ERROR: source not found in any candidate element\n");
-        std::exit(1);
-    }
+    for (int _i = 0; _i < (int)candidates.size() && _i < 5; ++_i)
+        if (candidates.empty()) {
+            fprintf(stderr, "ERROR: source not found in any candidate element\n");
+            std::exit(1);
+        }
 
     // GLL points
     auto gll_pts = gll_points(ngll - 1);
@@ -194,6 +214,23 @@ SourceResult locate_source(const Config& cfg, const double* gll_coords_flat, int
     // Newton iteration for each candidate
     int stride = ngll * ngll * ngll * 3;
     for (int e : candidates) {
+        {
+            // Debug: check AABB for this candidate
+            double xmin = 1e30, xmax = -1e30, ymin = 1e30, ymax = -1e30, zmin = 1e30, zmax = -1e30;
+            int s = ngll * ngll * ngll * 3;
+            const double* ec = gll_coords_flat + e * s;
+            for (int i = 0; i < ngll * ngll * ngll; ++i) {
+                xmin = std::min(xmin, ec[i * 3 + 0]);
+                xmax = std::max(xmax, ec[i * 3 + 0]);
+                ymin = std::min(ymin, ec[i * 3 + 1]);
+                ymax = std::max(ymax, ec[i * 3 + 1]);
+                zmin = std::min(zmin, ec[i * 3 + 2]);
+                zmax = std::max(zmax, ec[i * 3 + 2]);
+            }
+            fprintf(stderr,
+                    "  DEBUG: candidate e=%d AABB: x=[%.1f,%.1f] y=[%.1f,%.1f] z=[%.1f,%.1f]\n", e,
+                    xmin, xmax, ymin, ymax, zmin, zmax);
+        }
         // Extract corners from GLL coords
         Arr8x3 corners;
         int idx = ngll - 1;
@@ -212,6 +249,8 @@ SourceResult locate_source(const Config& cfg, const double* gll_coords_flat, int
         corners.row(7) = get_node(0, idx, idx);
 
         Vec3 xi = newton_find_xi(source_pt, corners);
+        fprintf(stderr, "  DEBUG: element %d -> xi=(%g,%g,%g) inside=%d\n", e, xi[0], xi[1], xi[2],
+                inside_element(xi));
         if (!inside_element(xi))
             continue;
 
@@ -219,6 +258,13 @@ SourceResult locate_source(const Config& cfg, const double* gll_coords_flat, int
         std::vector<double> w;
         compute_source_weights_3d(xi, gll_pts, w, w_ngll);
 
+        fprintf(stderr, "  DEBUG: w_ngll=%d, w.size()=%zu, first 5 w=%.6f %.6f %.6f %.6f %.6f\n",
+                w_ngll, w.size(), w[0], w[1], w[2], w[3], w[4]);
+        {
+            double s = 0;
+            for (double v : w)
+                s += v;
+        }
         double w_sum = 0.0;
         for (double v : w)
             w_sum += v;

@@ -72,6 +72,9 @@ else()
 endif()
 
 target_sources(gf_preprocess PRIVATE "${_config_source}")
+if(GF_USER_CONFIG)
+    target_compile_definitions(gf_preprocess PRIVATE GF_HAS_USER_MATERIAL)
+endif()
 
 # ── Legacy material-only source (deprecated) ───────────────────────────────
 

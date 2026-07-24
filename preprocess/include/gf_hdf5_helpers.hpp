@@ -12,6 +12,13 @@
 namespace gf {
 namespace h5 {
 
+/// Create link creation property list with intermediate group creation enabled.
+inline hid_t lcpl_with_groups() {
+    hid_t lcpl = H5Pcreate(H5P_LINK_CREATE);
+    H5Pset_create_intermediate_group(lcpl, 1);
+    return lcpl;
+}
+
 /// Open HDF5 file, exit on failure.
 inline hid_t open_or_fail(const char* path, unsigned flags) {
     hid_t fid = H5Fopen(path, flags, H5P_DEFAULT);
@@ -69,8 +76,8 @@ inline void write_double(hid_t fid, const char* name, const std::vector<double>&
                          const std::vector<hsize_t>& dims) {
     H5Ldelete(fid, name, H5P_DEFAULT);
     hid_t space = H5Screate_simple(static_cast<int>(dims.size()), dims.data(), nullptr);
-    hid_t ds =
-        H5Dcreate2(fid, name, H5T_NATIVE_DOUBLE, space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    hid_t ds = H5Dcreate2(fid, name, H5T_NATIVE_DOUBLE, space, lcpl_with_groups(), H5P_DEFAULT,
+                          H5P_DEFAULT);
     H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, data.data());
     H5Dclose(ds);
     H5Sclose(space);
@@ -81,8 +88,8 @@ inline void write_int32(hid_t fid, const char* name, const std::vector<int32_t>&
                         const std::vector<hsize_t>& dims) {
     H5Ldelete(fid, name, H5P_DEFAULT);
     hid_t space = H5Screate_simple(static_cast<int>(dims.size()), dims.data(), nullptr);
-    hid_t ds =
-        H5Dcreate2(fid, name, H5T_NATIVE_INT32, space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    hid_t ds = H5Dcreate2(fid, name, H5T_NATIVE_INT32, space, lcpl_with_groups(), H5P_DEFAULT,
+                          H5P_DEFAULT);
     H5Dwrite(ds, H5T_NATIVE_INT32, H5S_ALL, H5S_ALL, H5P_DEFAULT, data.data());
     H5Dclose(ds);
     H5Sclose(space);
@@ -93,8 +100,8 @@ inline void write_int64(hid_t fid, const char* name, const std::vector<int64_t>&
                         const std::vector<hsize_t>& dims) {
     H5Ldelete(fid, name, H5P_DEFAULT);
     hid_t space = H5Screate_simple(static_cast<int>(dims.size()), dims.data(), nullptr);
-    hid_t ds =
-        H5Dcreate2(fid, name, H5T_NATIVE_INT64, space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    hid_t ds = H5Dcreate2(fid, name, H5T_NATIVE_INT64, space, lcpl_with_groups(), H5P_DEFAULT,
+                          H5P_DEFAULT);
     H5Dwrite(ds, H5T_NATIVE_INT64, H5S_ALL, H5S_ALL, H5P_DEFAULT, data.data());
     H5Dclose(ds);
     H5Sclose(space);

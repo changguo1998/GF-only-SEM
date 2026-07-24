@@ -329,6 +329,38 @@ int stage2_main(int argc, char** argv) {
 
     H5Gclose(elem_wgid);
     H5Gclose(fld_gid);
+    // Write solver_dt, snapshot_stride, nsteps to /info attrs
+    {
+        hid_t info_gid = H5Gopen2(fid, "info", H5P_DEFAULT);
+        if (info_gid >= 0) {
+            {
+                hid_t s = H5Screate(H5S_SCALAR);
+                hid_t a = H5Acreate2(info_gid, "solver_dt", H5T_NATIVE_DOUBLE, s, H5P_DEFAULT,
+                                     H5P_DEFAULT);
+                H5Awrite(a, H5T_NATIVE_DOUBLE, &solver_dt);
+                H5Aclose(a);
+                H5Sclose(s);
+            }
+            {
+                hid_t s = H5Screate(H5S_SCALAR);
+                hid_t a = H5Acreate2(info_gid, "snapshot_stride", H5T_NATIVE_INT, s, H5P_DEFAULT,
+                                     H5P_DEFAULT);
+                H5Awrite(a, H5T_NATIVE_INT, &snapshot_stride);
+                H5Aclose(a);
+                H5Sclose(s);
+            }
+            {
+                int64_t ns = nsteps;
+                hid_t s = H5Screate(H5S_SCALAR);
+                hid_t a =
+                    H5Acreate2(info_gid, "nsteps", H5T_NATIVE_INT64, s, H5P_DEFAULT, H5P_DEFAULT);
+                H5Awrite(a, H5T_NATIVE_INT64, &ns);
+                H5Aclose(a);
+                H5Sclose(s);
+            }
+            H5Gclose(info_gid);
+        }
+    }
     H5Fclose(fid);
 
     // ---- Print stats to stdout (machine-parseable for Python) ----

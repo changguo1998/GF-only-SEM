@@ -130,6 +130,54 @@ static int run_main(int argc, char** argv) {
             "  Looking for vp/vs/density in HDF5 (Python path)...\n");
 #endif
 
+    // Write /config group attributes before stage2 (stage2 reads them from HDF5)
+    {
+        hid_t config_fid = gf::h5::open_or_fail(model_path, H5F_ACC_RDWR);
+        hid_t cfg_grp = H5Gcreate2(config_fid, "config", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        gf::Config stage2_cfg = gf::get_config();
+
+        auto write_dbl = [&](const char* name, double v) {
+            hid_t sp = H5Screate(H5S_SCALAR);
+            hid_t a = H5Acreate2(cfg_grp, name, H5T_NATIVE_DOUBLE, sp, H5P_DEFAULT, H5P_DEFAULT);
+            H5Awrite(a, H5T_NATIVE_DOUBLE, &v);
+            H5Aclose(a);
+            H5Sclose(sp);
+        };
+        auto write_i64 = [&](const char* name, int64_t v) {
+            hid_t sp = H5Screate(H5S_SCALAR);
+            hid_t a = H5Acreate2(cfg_grp, name, H5T_NATIVE_INT64, sp, H5P_DEFAULT, H5P_DEFAULT);
+            H5Awrite(a, H5T_NATIVE_INT64, &v);
+            H5Aclose(a);
+            H5Sclose(sp);
+        };
+        auto write_str = [&](const char* name, const char* v) {
+            hid_t sp = H5Screate(H5S_SCALAR);
+            hid_t tp = H5Tcopy(H5T_C_S1);
+            H5Tset_size(tp, std::strlen(v));
+            H5Tset_strpad(tp, H5T_STR_NULLTERM);
+            hid_t a = H5Acreate2(cfg_grp, name, tp, sp, H5P_DEFAULT, H5P_DEFAULT);
+            H5Awrite(a, tp, v);
+            H5Aclose(a);
+            H5Tclose(tp);
+            H5Sclose(sp);
+        };
+
+        write_dbl("cfl_safety", stage2_cfg.cfl_safety);
+        write_dbl("output_dt_s", stage2_cfg.output_dt_s);
+        write_dbl("total_duration_s", stage2_cfg.total_duration_s);
+        write_dbl("storage_limit_gb", stage2_cfg.storage_limit_gb);
+        write_dbl("record_depth_max_m", stage2_cfg.record_depth_max_m);
+        write_i64("n_ranks", stage2_cfg.n_ranks);
+        write_i64("nx_elements", stage2_cfg.nx_elements);
+        write_i64("ny_elements", stage2_cfg.ny_elements);
+        write_i64("NGLL", stage2_cfg.polynomial_order + 1);
+        write_str("snapshot_precision",
+                  stage2_cfg.snapshot_precision_bytes == 4 ? "float32" : "float64");
+
+        H5Gclose(cfg_grp);
+        H5Fclose(config_fid);
+    }
+
     // ═════════════════════════════════════════════════════════════════════════
     //  Stage 2: λ/μ, solver_dt
     // ═════════════════════════════════════════════════════════════════════════
@@ -268,7 +316,8 @@ static int run_main(int argc, char** argv) {
     // Number of surfaces from topology/surface_to_edge
     std::vector<hsize_t> s2e_dims = gf::h5::get_dims(model_fid, "topology/surface_to_edge");
 
-    std::vector<int64_t> boundary_tag = gf::h5::read_int64(model_fid, "field/element/boundary");
+    std::vector<int64_t> boundary_tag =
+        gf::h5::read_int64(model_fid, "field/surface/boundary_tag");
 
     gf::SourceResult source_result =
         gf::locate_source(cfg, gll_coords.data(), n_cell, ngll, cell_to_surface.data(),
@@ -289,32 +338,18 @@ static int run_main(int argc, char** argv) {
     gf::partition_metis(model_path, cfg.n_ranks);
     gf::compute_global_node_ids(model_path, ngll);
 
-    // Read solver_dt from stage2 output
+    // Read solver_dt from stage2 output (/info group)
     model_fid = gf::h5::open_or_fail(model_path, H5F_ACC_RDWR);
     double solver_dt = 0.0;
     {
-        hid_t dset = H5Dopen2(model_fid, "field/element/lambda", H5P_DEFAULT);
-        if (dset >= 0) {
-            H5Dclose(dset);
-            // Read solver_dt attribute written by stage2
-            if (H5Aexists(model_fid, "solver_dt")) {
-                hid_t attr =
-                    H5Aopen_by_name(model_fid, ".", "solver_dt", H5P_DEFAULT, H5P_DEFAULT);
+        hid_t info_gid = H5Gopen2(model_fid, "info", H5P_DEFAULT);
+        if (info_gid >= 0) {
+            if (H5Aexists(info_gid, "solver_dt")) {
+                hid_t attr = H5Aopen(info_gid, "solver_dt", H5P_DEFAULT);
                 H5Aread(attr, H5T_NATIVE_DOUBLE, &solver_dt);
                 H5Aclose(attr);
             }
-        }
-    }
-    if (solver_dt <= 0.0) {
-        // Fallback: read from config group if present
-        hid_t cfg_grp = H5Gopen2(model_fid, "config", H5P_DEFAULT);
-        if (cfg_grp >= 0) {
-            if (H5Aexists(cfg_grp, "solver_dt")) {
-                hid_t attr = H5Aopen(cfg_grp, "solver_dt", H5P_DEFAULT);
-                H5Aread(attr, H5T_NATIVE_DOUBLE, &solver_dt);
-                H5Aclose(attr);
-            }
-            H5Gclose(cfg_grp);
+            H5Gclose(info_gid);
         }
     }
     if (solver_dt <= 0.0)
