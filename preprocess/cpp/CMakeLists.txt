@@ -1,9 +1,4 @@
 # preprocess/cpp/CMakeLists.txt — C++ preprocessor
-#
-# gf_preprocess stage1 <model.h5> --N N --cfl-safety VAL ... gf_preprocess stage2 <model.h5>
-# gf_preprocess run <model.h5>   # stage1 → material → stage2
-#
-# User config (optional): cmake -B build -DGF_USER_CONFIG=my_config.cpp
 
 cmake_minimum_required(VERSION 3.16)
 project(gf_preprocess_cpp LANGUAGES CXX)
@@ -15,7 +10,7 @@ include(GNUInstallDirs)
 
 # ── Core sources ────────────────────────────────────────────────────────────
 
-add_executable(gf_preprocess gf_preprocess.cpp main.cpp stage2_main.cpp)
+add_executable(gf_preprocess gf_preprocess.cpp main.cpp stage2_main.cpp source_locator.cpp)
 
 # ── Config source (default or user-provided) ───────────────────────────────
 
