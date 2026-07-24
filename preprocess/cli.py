@@ -552,11 +552,14 @@ def main() -> None:
                     is_pml_arr = np.array(_f["field/element/is_pml"], dtype=np.bool_)
                 else:
                     is_pml_arr = None
-            src_result = locate_source(topology, source_xyz_arr, gll_coords_arr, btag, N, is_pml_arr)
+            src_result = locate_source(
+                topology, source_xyz_arr, gll_coords_arr, btag, N, is_pml_arr
+            )
             logger.info(f"  Source in {src_result['n_src_cell']} element(s)")
         except (ImportError, Exception) as _e:
             logger.warning(f"  Source location failed: {_e}")
             import traceback
+
             traceback.print_exc()
             src_result = {
                 "n_src_cell": 0,
