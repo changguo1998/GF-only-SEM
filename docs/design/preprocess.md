@@ -10,21 +10,15 @@ Python module. Reads mesh topology and `config.py`. Computes derived model data 
 
 ```
 model.h5 (/topology/) ─────────┐
-config.py (script, importable) ─┤
+config.py  ─────────────────────┤
                                 ↓
-                          preprocessor (Python + adaptive C++ acceleration)
-                          ├── import config.py
-                          ├── read model.h5 topology
-                          ├── [C++ stage1: GLL coords, J, dξ/dx, mass, CFL h_min, PML mask, damping, boundary]
-                          │   └── fallback: Python gll_geometry.py + boundary_detector.py + pml.py
-                          ├── call config.py material functions → GLL nodes (Python model_loader.py)
-                          ├── [C++ stage2: λ/μ, CFL solver_dt, snapshot_stride, nsteps, pre-flight]
-                          │   └── fallback: Python numpy + cfl_validator.py
-                          ├── source + STF (Python)
-                          ├── validate (Python preflight.py)
-                          ├── partition (METIS) + GLL global numbering + exchange patterns
-                          ├── build shallow recording map
-                          ├── write model.h5, config.h5, partition_{r}.h5
+                          preprocessor (C++ unified + Python fallback)
+                          ├── [C++ run: GLL geometry → material → λ/μ → C-PML
+                          │           → STF → source → METIS partition
+                          │           → global node IDs → config.h5]
+                          │   └── fallback: per-step Python pipeline
+                          ├── build shallow recording map (Python only)
+                          ├── write model.h5, partition_{r}.h5 (Python)
                           ↓
                      model.h5 (extended) + partition_{r}.h5 + config.h5
                           │
@@ -43,32 +37,42 @@ Outputs: extend `model.h5` and write one `partition_{r}.h5` per rank. No monolit
 ````
 preprocess/
 ├── __init__.py
-├── cli.py              — adaptive pipeline entry point (step functions check C++ first)
+├── cli.py              — adaptive pipeline entry point (C++ unified run or per-step Python)
 ├── accelerator.py      — legacy; `_ensure_domain_attrs()` only; `run_accelerator` superseded
-├── stage2_runner.py    — wrap `gf_preprocess stage2` for λ/μ, solver_dt, nsteps
+├── stage2_runner.py    — wrap `gf_preprocess stage2` for λ/μ, solver_dt, nsteps (fallback)
 ├── config_loader.py    — importlib load config.py, validate
-├── config_writer.py    — write config.h5
+├── config_writer.py    — write config.h5 (Python fallback)
 ├── topology_reader.py  — read model.h5 /topology/
 ├── gll_geometry.py     — compute GLL node coords, jacobian, dξ/dx per element (Python fallback)
-├── model_loader.py     — evaluate config vp/vs/density at GLL nodes
+├── model_loader.py     — evaluate config vp/vs/density at GLL nodes (Python fallback)
 ├── model_writer.py     — write model.h5 fields + partition files + /recording/ map
 ├── boundary_detector.py — auto boundary tagging (surface level), set is_pml flags
-├── pml.py              — legacy damping profiles (simplified linear ramp); C-PML via pml_cpml.py
-├── partition.py        — METIS partitioning + GLL node global numbering + exchange pattern
-├── stf_evaluator.py    — evaluate stf_func() → time series array
-├── source_locator.py   — locate source elements, compute natural coords + Lagrange weights
-├── cfl_validator.py    — compute cfl_dt, derive solver_dt and snapshot_stride
+├── pml.py              — legacy damping profiles; C-PML via pml_cpml.py
+├── partition.py        — METIS partitioning + GLL node global numbering (Python fallback)
+├── stf_evaluator.py    — evaluate stf_func() → time series array (Python fallback)
+├── source_locator.py   — locate source elements, compute natural coords (Python fallback)
+├── cfl_validator.py    — compute cfl_dt, derive solver_dt and snapshot_stride (Python fallback)
 ├── preflight.py        — comprehensive pre-flight validation
-├── recording_map.py    — build shallow mesh-vertex recording map
+├── recording_map.py    — build shallow mesh-vertex recording map (Python only)
 ├── cpp/
-│   ├── CMakeLists.txt  — builds single gf_preprocess
-│   ├── main.cpp        — stage1: GLL geom, CFL h_min, PML damping, boundary tag
-│   └── stage2_main.cpp — stage2: λ/μ, solver_dt, nsteps, pre-flight stats
+│   ├── CMakeLists.txt    — builds gf_preprocess (METIS, HDF5, Eigen3)
+│   ├── gf_preprocess.cpp — unified entry: stage1 / stage2 / run subcommands
+│   ├── main.cpp          — stage1: GLL geom, CFL h_min, PML damping, boundary tag
+│   ├── stage2_main.cpp   — stage2: λ/μ, solver_dt, nsteps, pre-flight stats
+│   ├── cpml.cpp          — C-PML κ/d/α profiles
+│   ├── source_locator.cpp — Newton iteration + Lagrange weights
+│   ├── config_default.cpp — default config + STF + material model
+│   ├── metis_partition.cpp — METIS C API wrapper + global node numbering
+│   ├── config_writer.cpp — config.h5 writer
 
-## C++ Accelerator
+Single `gf_preprocess` binary with `stage1`/`stage2`/`run` subcommands.  `gf_preprocess run`
+executes the full pipeline (stage1 → material → stage2 → C-PML → STF → source → METIS
+→ global node IDs → config.h5), replacing the older per-step approach for all steps except
+recording map construction.
 
-Single `gf_preprocess` binary with `stage1`/`stage2` subcommands.. Adaptive integration: each CLI
-step function checks binary availability independently and falls back to Python.
+Adaptive integration: `cli.py` tries `gf_preprocess run` first.  If available and successful,
+the Python side reads results from HDF5 and only runs recording map + model write.  Falls back
+to per-step Python execution if `gf_preprocess` is missing or fails.
 
 ### Stage1: `gf_preprocess stage1`
 
@@ -81,25 +85,21 @@ step function checks binary availability independently and falls back to Python.
 
 ### Stage2: `gf_preprocess stage2`
 
-- **Source**: `preprocess/cpp/stage2_main.cpp`
-- **Dependencies**: HDF5 (no Eigen3 needed)
-- **Data flow**: C++ reads `/field/element/{coords,jacobian,vp,vs,density}` + `/config/` attrs +
-  `/field/surface/boundary_tag`; writes `/field/element/{lambda,mu}`.
-  Python wrapper copies all arrays from `/field/element/` to `/field/cell/` for forward solver.
-  `/field/surface/boundary_tag`; writes `/field/cell/{lambda,mu}`
+  - **Source**: `preprocess/cpp/stage2_main.cpp`
+  - **Dependencies**: HDF5 (no Eigen3 needed)
+- **Data flow**: reads `/field/element/{coords,jacobian,vp,vs,density}`; writes `/field/element/{lambda,mu}`
 - **CLI**: `gf_preprocess stage2 <model.h5>`
-- **stdout**: prints `STAT_NCELL`, `STAT_NGLL`, `STAT_SOLVER_DT`, `STAT_NSTEPS`, `STAT_SNAPSHOT_STRIDE`,
-  `STAT_CFL_DT`, `STAT_LAM_MIN` etc. — parsed by `stage2_runner.py`
-- **Single-thread** (no OpenMP needed)
+  - **Single-thread** (no OpenMP needed)
 
-### Integration
+### Unified: `gf_preprocess run`
 
-`cli.py` discovers gf_preprocess at startup (`_init_accelerators()`). Each step function
-either reads precomputed HDF5 results (if C++ ran a previous step) or invokes the C++
-binary. Falls back to pure Python per step if binary absent or fails.
-
-`accelerator.py` (legacy) provides `_ensure_domain_attrs()` only. The old `run_accelerator()`
-function is superseded by the per-step adaptive approach in `cli.py`.
+- **Source**: `preprocess/cpp/gf_preprocess.cpp`
+- **Dependencies**: HDF5, Eigen3, METIS
+- **Data flow**: chains all preprocess steps.  Reads model.h5 topology; writes coords, vp/vs/density,
+  lambda/mu, C-PML profiles, STF, partition, global node IDs, and config.h5.
+- **CLI**: `gf_preprocess run <model.h5> --N N --cfl-safety VAL [--nx N] [--ny N] [--pml-* THICK]`
+- **Config**: user compiles material model via `-DGF_MATERIAL_USER_SOURCE=config.cpp`
+- **Python path**: without user material, vp/vs/density must already exist in model.h5 (Python stage)
 
 ### Build
 

@@ -397,7 +397,7 @@ def step_lame_and_cfl(
 
 
 def _try_cpp_run(model_path, config, domain_bounds):
-    """Try gf_preprocess run — unified C++ path covering steps 1-7."""
+    """Try gf_preprocess run — unified C++ path covering the full pipeline."""
     if _PREPROCESS_BINARY is None:
         return False
     import h5py as _h5
@@ -457,9 +457,7 @@ def main() -> None:
     # Init accelerators
     _init_accelerators()
     if _PREPROCESS_BINARY:
-        logger.info(f"C++ stage1 found: {_PREPROCESS_BINARY}")
-    if _PREPROCESS_BINARY:
-        logger.info(f"C++ stage2 found: {_PREPROCESS_BINARY}")
+        logger.info(f"C++ preprocessor found: {_PREPROCESS_BINARY}")
 
     # ── Unified C++ path (gf_preprocess run) or per-step Python ──
     cpp_done = _try_cpp_run(model_path, config, domain_bounds)
