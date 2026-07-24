@@ -8,73 +8,50 @@
 
 namespace gf {
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  Simulation configuration — returned by get_config()
-// ═══════════════════════════════════════════════════════════════════════════
-
 struct Config {
-    int nx_elements = 0;
-    int ny_elements = 0;
+    int nx_elements = 0, ny_elements = 0;
     double lx_m = 0.0, ly_m = 0.0, lz_m = 0.0;
     int polynomial_order = 4;
-
-    double output_dt_s = 0.01;
-    double total_duration_s = 5.0;
-    double cfl_safety = 0.5;
+    double output_dt_s = 0.01, total_duration_s = 5.0, cfl_safety = 0.5;
     int log_stride = 100;
     double restart_dt_s = 0.5;
-
     int snapshot_precision_bytes = 4;
-    double storage_limit_gb = 10.0;
-    double record_depth_max_m = 0.0;
-    std::vector<int> tilex_elements;
-    std::vector<int> tiley_elements;
-
+    double storage_limit_gb = 10.0, record_depth_max_m = 0.0;
+    std::vector<int> tilex_elements, tiley_elements;
     int n_ranks = 1;
-
-    int pml_xmin = 0, pml_xmax = 0;
-    int pml_ymin = 0, pml_ymax = 0;
+    int pml_xmin = 0, pml_xmax = 0, pml_ymin = 0, pml_ymax = 0;
     int pml_zmin = 0, pml_zmax = 0;
-
-    double source_x_m = 0.0, source_y_m = 0.0;
-    double source_z_m = -1.0;  // negative = free surface
-    double source_force_amplitude_n = 1.0e20;
-    double f0_for_pml_hz = 2.0;
-
+    double source_x_m = 0.0, source_y_m = 0.0, source_z_m = -1.0;
+    double source_force_amplitude_n = 1.0e20, f0_for_pml_hz = 2.0;
     std::string title = "gf_calculation";
 };
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  Source location result
-// ═══════════════════════════════════════════════════════════════════════════
 
 struct SourceResult {
     std::vector<int> cell_ids;
     std::vector<double> xi, eta, zeta;
-    std::vector<std::vector<double>> weights;  // per-cell, flat [ngll^3]
+    std::vector<std::vector<double>> weights;
     int n_src_cell = 0;
 };
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  User must implement
-// ═══════════════════════════════════════════════════════════════════════════
+// ── User must implement ────────────────────────────────────────────────────
 
 Config get_config();
 double stf_func(double t_s);
-void evaluate_vp(std::size_t n, const double* x, const double* y, const double* z, double* result);
-void evaluate_vs(std::size_t n, const double* x, const double* y, const double* z, double* result);
-void evaluate_density(std::size_t n, const double* x, const double* y, const double* z,
-                      double* result);
+void evaluate_vp(std::size_t n, const double* x, const double* y, const double* z, double* r);
+void evaluate_vs(std::size_t n, const double* x, const double* y, const double* z, double* r);
+void evaluate_density(std::size_t n, const double* x, const double* y, const double* z, double* r);
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  Framework utilities (provided, users do not implement)
-// ═══════════════════════════════════════════════════════════════════════════
+// ── Framework utilities ─────────────────────────────────────────────────────
 
 void evaluate_stf_array(double dt, int nsteps, std::vector<double>& times,
                         std::vector<double>& values);
-
 SourceResult locate_source(const Config& cfg, const double* gll_coords_flat, int n_cell, int ngll,
                            const int64_t* cell_to_surface, int n_surface,
                            const int64_t* boundary_tag, const bool* is_pml);
+void compute_cpml_profiles(const double* gll_coords_flat, int n_cell, int ngll, const bool* is_pml,
+                           const int* pml_regions, const double* domain_bounds,
+                           const double* pml_widths, const double* vp_flat, double f0_hz,
+                           std::vector<double>& K_store, std::vector<double>& d_store,
+                           std::vector<double>& alpha_store);
 
 }  // namespace gf

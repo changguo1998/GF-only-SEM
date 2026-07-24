@@ -10,7 +10,8 @@ include(GNUInstallDirs)
 
 # ── Core sources ────────────────────────────────────────────────────────────
 
-add_executable(gf_preprocess gf_preprocess.cpp main.cpp stage2_main.cpp source_locator.cpp)
+add_executable(gf_preprocess gf_preprocess.cpp main.cpp stage2_main.cpp source_locator.cpp
+                             cpml.cpp)
 
 # ── Config source (default or user-provided) ───────────────────────────────
 
