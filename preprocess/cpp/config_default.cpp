@@ -1,10 +1,7 @@
 /// config_default.cpp — default implementations of gf::Config functions
-///
-/// These are compiled into gf_preprocess when no user config is provided
-/// (GF_USER_CONFIG not set).  They provide sensible defaults that users
-/// can override by supplying their own config.cpp.
 
 #include <cmath>
+#include <vector>
 
 #include "gf_config.h"
 
@@ -14,7 +11,7 @@ namespace gf {
 
 Config get_config() {
     Config cfg;
-    cfg.title = "gf_calculation (default config — user should override)";
+    cfg.title = "gf_calculation (default config)";
     return cfg;
 }
 
@@ -26,6 +23,16 @@ double stf_func(double t_s) {
     double t0_s = 1.0;
     double a = M_PI * f0_hz * (t_s - t0_s);
     return 1.0e20 * (1.0 - 2.0 * a * a) * std::exp(-(a * a));
+}
+
+void evaluate_stf_array(double dt, int nsteps, std::vector<double>& times,
+                        std::vector<double>& values) {
+    times.resize(nsteps);
+    values.resize(nsteps);
+    for (int i = 0; i < nsteps; ++i) {
+        times[i] = i * dt;
+        values[i] = stf_func(times[i]);
+    }
 }
 
 // ── Material ───────────────────────────────────────────────────────────────
