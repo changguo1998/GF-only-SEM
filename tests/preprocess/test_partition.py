@@ -180,7 +180,7 @@ class TestPartition:
         gll_coords = np.zeros((2, 2, 2, 2, 3), dtype=np.float64)  # dummy N=1 coords
         # Only topology shape matters for dual graph
 
-        result = partition(topo, gll_coords, n_ranks=2)
+        result = partition(topo, int(gll_coords.shape[1]), n_ranks=2)
 
         # Check element_to_rank has 2 entries
         assert result["element_to_rank"].shape == (2,)
@@ -202,7 +202,7 @@ class TestPartition:
         topo = _make_two_cube_topo()
         gll_coords = np.zeros((2, 2, 2, 2, 3), dtype=np.float64)
 
-        result = partition(topo, gll_coords, n_ranks=2)
+        result = partition(topo, int(gll_coords.shape[1]), n_ranks=2)
 
         all_local = []
         for rank, rd in result["per_rank"].items():
@@ -215,7 +215,7 @@ class TestPartition:
         topo = _make_two_cube_topo()
         gll_coords = np.zeros((2, 2, 2, 2, 3), dtype=np.float64)
 
-        result = partition(topo, gll_coords, n_ranks=1)
+        result = partition(topo, int(gll_coords.shape[1]), n_ranks=1)
 
         assert result["element_to_rank"].shape == (2,)
         assert np.all(result["element_to_rank"] == 0)
@@ -239,7 +239,7 @@ class TestPartition:
                     gll_coords[0, i, j, k] = [pts[i], pts[j], pts[k]]
                     gll_coords[1, i, j, k] = [pts[i], pts[j], pts[k] + 1.0]
 
-        result = partition(topo, gll_coords, n_ranks=2)
+        result = partition(topo, int(gll_coords.shape[1]), n_ranks=2)
 
         # Check that exchange lists exist and are consistent
         exchange_found = False
@@ -403,7 +403,7 @@ class TestPartition:
         topo = TopologyData(verts, e2v, s2e, c2s, 32, 48, 24, 4)
         gll_coords = np.zeros((4, 2, 2, 2, 3), dtype=np.float64)
 
-        result = partition(topo, gll_coords, n_ranks=4)
+        result = partition(topo, int(gll_coords.shape[1]), n_ranks=4)
 
         assert result["element_to_rank"].shape == (4,)
         assert len(np.unique(result["element_to_rank"])) == 4  # all ranks used
@@ -499,7 +499,7 @@ class TestComputeLocalElement2RankNode:
                         gll_coords[e, i, j, k, 1] = float(j)
                         gll_coords[e, i, j, k, 2] = float(k + e)
 
-        result = partition(topo, gll_coords, n_ranks=2)
+        result = partition(topo, int(gll_coords.shape[1]), n_ranks=2)
 
         for rank, rd in result["per_rank"].items():
             assert "local_cell2rank_node" in rd
@@ -519,7 +519,7 @@ class TestComputeLocalElement2RankNode:
                         gll_coords[e, i, j, k, 1] = float(j) / 2.0
                         gll_coords[e, i, j, k, 2] = float(k) / 2.0 + float(e)
 
-        result = partition(topo, gll_coords, n_ranks=2)
+        result = partition(topo, int(gll_coords.shape[1]), n_ranks=2)
 
         exchange_found = False
         for rank, rd in result["per_rank"].items():

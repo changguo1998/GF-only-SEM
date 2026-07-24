@@ -627,7 +627,7 @@ def main() -> None:
     try:
         from preprocess.partition import partition
 
-        partition_result = partition(topology, coords, n_ranks)
+        partition_result = partition(topology, N + 1, n_ranks)
     except ImportError:
         partition_result = None
         logger.info("  partition.py not available — skipping")
