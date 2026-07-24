@@ -532,6 +532,39 @@ def main() -> None:
             "weights": np.array([], dtype=np.float64),
             "mode": "surface",
         }
+
+        # ── Step 8: Partition (read C++ results, compute per_rank) ──
+        n_ranks = int(config.n_ranks)
+        logger.info(f"Building partition data from C++ results ({n_ranks} ranks)...")
+        try:
+            import h5py as _h5
+
+            with _h5.File(model_path, "r") as pf:
+                if "partition/element_to_rank" in pf:
+                    element_to_rank_arr = np.array(pf["partition/element_to_rank"], dtype=np.int64)
+                else:
+                    element_to_rank_arr = np.zeros(n_cell, dtype=np.int64)
+                if "partition/global_cell2global_node" in pf:
+                    gcn4d = np.array(pf["partition/global_cell2global_node"], dtype=np.int32)
+                    n_global_node = int(gcn4d.max()) + 1 if gcn4d.size > 0 else 0
+                else:
+                    gcn4d = np.zeros((n_cell, n_gll, n_gll, n_gll), dtype=np.int32)
+                    n_global_node = 0
+
+            from preprocess.partition import compute_per_rank
+
+            per_rank = compute_per_rank(topology, n_gll, element_to_rank_arr, gcn4d)
+            partition_result = {
+                "element_to_rank": element_to_rank_arr,
+                "n_ranks": n_ranks,
+                "per_rank": per_rank,
+                "global_cell2global_node": gcn4d,
+                "n_global_node": n_global_node,
+            }
+            logger.info(f"  {n_ranks} ranks, {n_global_node} global nodes")
+        except ImportError:
+            partition_result = None
+            logger.info("  partition.py not available — skipping")
     else:
         # ── Step 1: GLL geometry + CFL h_min ──
         gll = step_gll_geometry(model_path, topology, config, domain_bounds)
@@ -619,16 +652,16 @@ def main() -> None:
             stf_t = np.arange(nsteps) * solver_dt
             stf_values = np.array([config.stf_func(t) for t in stf_t])
 
-    # ── Step 8: Partition ──
-    n_ranks = int(config.n_ranks)
-    logger.info(f"Partitioning into {n_ranks} ranks...")
-    try:
-        from preprocess.partition import partition
+        # ── Step 8: Partition ──
+        n_ranks = int(config.n_ranks)
+        logger.info(f"Partitioning into {n_ranks} ranks...")
+        try:
+            from preprocess.partition import partition
 
-        partition_result = partition(topology, N + 1, n_ranks)
-    except ImportError:
-        partition_result = None
-        logger.info("  partition.py not available — skipping")
+            partition_result = partition(topology, n_gll, n_ranks)
+        except ImportError:
+            partition_result = None
+            logger.info("  partition.py not available — skipping")
 
     # ── Step 9: Recording map ──
     logger.info("Building recording map...")

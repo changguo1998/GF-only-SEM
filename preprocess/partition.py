@@ -262,57 +262,36 @@ def compute_local_cell2rank_node(
 # ── Main partition entry point ────────────────────────────────────────────
 
 
-def partition(topology: TopologyData, ngll: int, n_ranks: int) -> dict:
-    """Partition elements across MPI ranks (METIS, topology-only).
+def compute_per_rank(
+    topology: TopologyData,
+    ngll: int,
+    element_to_rank: npt.NDArray[np.int64],
+    global_cell2global_node: npt.NDArray[np.int32],
+) -> dict:
+    """Compute per-rank data structures from an existing partition.
 
-    Builds a dual graph from cell adjacency, calls METIS k-way
-    partitioning, then computes global node numbering from topology
-    face adjacency.
+    Given element_to_rank and global_cell2global_node (from e.g. C++),
+    computes local/ghost elements, exchange DOF patterns, and compact
+    per-rank node numbering.  Does NOT call METIS — the partition must
+    already exist.
 
-    Args:
-        topology:  Mesh topology.
-        ngll:  Number of GLL nodes per dimension (polynomial_order + 1).
-        n_ranks:  Number of MPI ranks (partitions).
-
-    Returns:
-        dict with:
-          element_to_rank: [n_cell] int64 array
-          n_ranks: number of ranks
-          per_rank: dict rank → dict with:
-            local_cell_ids: list of 0-based element indices local to this rank
-            ghost_cell_ids: list of 0-based element indices owned by other ranks
-                               but needed by this rank
-            ghost_owners: list of rank IDs for each ghost element
-            local_cell2rank_node: [n_local+n_ghost, ngll, ngll, ngll] int32
-            n_rank_node: int
-            exchange: dict neighbor_rank → {
-                "send_dof": list of per-rank global DOF indices (node_id*3+dir),
-                "recv_dof": list of per-rank global DOF indices (node_id*3+dir),
-            }
+    Returns the per_rank dict (same format as partition().per_rank).
     """
     n_cell = topology.n_cell
     n_surface = topology.n_surface
     c2s = topology.cell_to_surface
     n_node = ngll * ngll * ngll
+    n_ranks = int(element_to_rank.max()) + 1 if n_cell > 0 else 1
 
-    # ── METIS partition ──────────────────────────────────────────────
-    adjacency_list, _ = _build_dual_graph(topology)
-
-    if n_ranks > 1 and n_cell > 1:
-        part_result = pymetis.part_graph(n_ranks, adjacency=adjacency_list, recursive=True)
-        element_to_rank = np.array(part_result[1], dtype=np.int64)
-    else:
-        element_to_rank = np.zeros(n_cell, dtype=np.int64)
-
-    # ── Per-rank locals + ghosts ────────────────────────────────────
-    per_rank: dict[int, dict] = {}
-
+    # elem_surf_to_face
     elem_surf_to_face: list[dict[int, int]] = [{} for _ in range(n_cell)]
     for e in range(n_cell):
         for face_idx, signed_sid in enumerate(c2s[e]):
             abs_sid = abs(int(signed_sid)) - 1
             elem_surf_to_face[e][abs_sid] = face_idx
 
+    # Init per_rank
+    per_rank: dict[int, dict] = {}
     for rank in range(n_ranks):
         locals_list: list[int] = [e for e in range(n_cell) if element_to_rank[e] == rank]
         per_rank[rank] = {
@@ -361,12 +340,12 @@ def partition(topology: TopologyData, ngll: int, n_ranks: int) -> dict:
             cells = surf_to_cells.get(surf_idx, [])
             for i in range(len(cells)):
                 for j in range(i + 1, len(cells)):
-                    c1, c2 = cells[i], cells[j]
-                    r1, r2 = int(element_to_rank[c1]), int(element_to_rank[c2])
-                    if r1 == r2:
+                    ci, cj = cells[i], cells[j]
+                    ri, rj = int(element_to_rank[ci]), int(element_to_rank[cj])
+                    if ri == rj:
                         continue
 
-                    for local_cell, local_rank, neighbor_rank in [(c1, r1, r2), (c2, r2, r1)]:
+                    for local_cell, local_rank, neighbor_rank in [(ci, ri, rj), (cj, rj, ri)]:
                         if local_rank != rank:
                             continue
                         if neighbor_rank not in exchange_dof:
@@ -384,10 +363,11 @@ def partition(topology: TopologyData, ngll: int, n_ranks: int) -> dict:
 
         rd["exchange"] = exchange_dof
 
-    # ── Topology-driven global node numbering ────────────────────────
-    global_cell2global_node, n_global_node = compute_global_cell2global_node(topology, ngll)
+    # Per-rank compaction
+    n_global_node = (
+        int(global_cell2global_node.max()) + 1 if global_cell2global_node.size > 0 else 0
+    )
 
-    # Per-rank compaction: slice global → compact 0..n_rank_node-1
     for rank in range(n_ranks):
         rd = per_rank[rank]
         locals_list = list(rd["local_cell_ids"])
@@ -414,14 +394,11 @@ def partition(topology: TopologyData, ngll: int, n_ranks: int) -> dict:
                     remainder = old_dof % (n_node * 3)
                     node = remainder // 3
                     direction = remainder % 3
-
                     k_idx = node % ngll
                     j_idx = (node // ngll) % ngll
                     i_idx = node // (ngll * ngll)
-
                     node_id = int(ibool_compact_4d[local_idx, i_idx, j_idx, k_idx])
                     new_dofs.append(node_id * 3 + direction)
-
                 ex[key] = new_dofs
 
             # Deduplicate exchange DOFs
@@ -436,10 +413,58 @@ def partition(topology: TopologyData, ngll: int, n_ranks: int) -> dict:
             ex["send_dof"] = uniq_send
             ex["recv_dof"] = uniq_recv
 
+    return per_rank
+
+
+def partition(topology: TopologyData, ngll: int, n_ranks: int) -> dict:
+    """Partition elements across MPI ranks (METIS, topology-only).
+
+    Builds a dual graph from cell adjacency, calls METIS k-way
+    partitioning, then computes global node numbering from topology
+    face adjacency.
+
+    Args:
+        topology:  Mesh topology.
+        ngll:  Number of GLL nodes per dimension (polynomial_order + 1).
+        n_ranks:  Number of MPI ranks (partitions).
+
+    Returns:
+        dict with:
+          element_to_rank: [n_cell] int64 array
+          n_ranks: number of ranks
+          per_rank: dict rank → dict with:
+            local_cell_ids: list of 0-based element indices local to this rank
+            ghost_cell_ids: list of 0-based element indices owned by other ranks
+                               but needed by this rank
+            ghost_owners: list of rank IDs for each ghost element
+            local_cell2rank_node: [n_local+n_ghost, ngll, ngll, ngll] int32
+            n_rank_node: int
+            exchange: dict neighbor_rank → {
+                "send_dof": list of per-rank global DOF indices (node_id*3+dir),
+                "recv_dof": list of per-rank global DOF indices (node_id*3+dir),
+            }
+    """
+    n_cell = topology.n_cell
+
+    # ── METIS partition ──
+    adjacency_list, _ = _build_dual_graph(topology)
+
+    if n_ranks > 1 and n_cell > 1:
+        part_result = pymetis.part_graph(n_ranks, adjacency=adjacency_list, recursive=True)
+        element_to_rank = np.array(part_result[1], dtype=np.int64)
+    else:
+        element_to_rank = np.zeros(n_cell, dtype=np.int64)
+
+    # ── Global node numbering ──
+    global_cell2global_node, _n_global = compute_global_cell2global_node(topology, ngll)
+
+    # ── Per-rank computation ──
+    per_rank = compute_per_rank(topology, ngll, element_to_rank, global_cell2global_node)
+
     return {
         "element_to_rank": element_to_rank,
         "n_ranks": n_ranks,
         "per_rank": per_rank,
         "global_cell2global_node": global_cell2global_node,
-        "n_global_node": n_global_node,
+        "n_global_node": _n_global,
     }
