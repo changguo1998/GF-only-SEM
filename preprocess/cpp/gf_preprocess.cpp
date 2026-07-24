@@ -22,6 +22,8 @@
 #include <string>
 #include <vector>
 
+#include "gf_config.h"
+
 #ifdef GF_HAS_USER_MATERIAL
 #include "gf_material_user.h"
 #endif
@@ -165,15 +167,116 @@ static int run_main(int argc, char** argv) {
             "  Looking for vp/vs/density in HDF5 (Python path)...\n");
 #endif
 
-    // ── Stage 2: λ/μ, solver_dt, stats ──
-    fprintf(stderr, "=== Stage 2 (λ/μ + CFL) ===\n");
-    char* stage2_args[] = {argv[0], const_cast<char*>(model_path), nullptr};
-    rc = stage2_main(2, stage2_args);
-    if (rc != 0) {
-        fprintf(stderr, "ERROR: stage2 failed with code %d\n", rc);
-        return rc;
+    // ── Post-stage2: C-PML, STF ──
+    fprintf(stderr, "=== Post-stage2 steps (C-PML + STF) ===\n");
+
+    hid_t fid2 = open_or_fail(model_path, H5F_ACC_RDWR);
+
+    // Get config (available regardless of GF_HAS_USER_MATERIAL)
+    gf::Config cfg = gf::get_config();
+
+    // Read coords for shape info
+    std::vector<double> cm = read_dataset_double(fid2, "field/element/coords");
+    hid_t dds = H5Dopen2(fid2, "field/element/coords", H5P_DEFAULT);
+    hid_t ssp = H5Dget_space(dds);
+    hsize_t cdims[8];
+    int cnd = H5Sget_simple_extent_ndims(ssp);
+    H5Sget_simple_extent_dims(ssp, cdims, nullptr);
+    int nc = static_cast<int>(cdims[0]);
+    int ng = static_cast<int>(cdims[1]);
+    H5Dclose(dds);
+    H5Sclose(ssp);
+
+    // Read vp, is_pml, domain bounds
+    std::vector<double> vp = read_dataset_double(fid2, "field/element/vp");
+    std::vector<double> damp = read_dataset_double(fid2, "field/element/damping");
+    std::vector<int> isp(nc, false);
+    for (int e = 0; e < nc; ++e)
+        for (int i = 0; i < ng * ng * ng; ++i)
+            if (damp[e * ng * ng * ng + i] > 0.0) {
+                isp[e] = 1;
+                break;
+            }
+
+    double db[6] = {};
+    hid_t dom = H5Gopen2(fid2, "domain", H5P_DEFAULT);
+    if (dom >= 0) {
+        auto rd = [&](const char* n, double& v) {
+            if (H5Aexists(dom, n)) {
+                hid_t a = H5Aopen(dom, n, H5P_DEFAULT);
+                H5Aread(a, H5T_NATIVE_DOUBLE, &v);
+                H5Aclose(a);
+            }
+        };
+        rd("xmin", db[0]);
+        rd("xmax", db[1]);
+        rd("ymin", db[2]);
+        rd("ymax", db[3]);
+        rd("zmin", db[4]);
+        rd("zmax", db[5]);
+        H5Gclose(dom);
     }
 
+    double dx = (db[1] - db[0]) / std::max(cfg.nx_elements, 1);
+    double dy = (db[3] - db[2]) / std::max(cfg.ny_elements, 1);
+    int nz_el = nc / std::max(cfg.nx_elements * cfg.ny_elements, 1);
+    double dz = (db[5] - db[4]) / std::max(nz_el, 1);
+    double pw[6] = {cfg.pml_xmin * dx, cfg.pml_xmax * dx, cfg.pml_ymin * dy,
+                    cfg.pml_ymax * dy, cfg.pml_zmin * dz, cfg.pml_zmax * dz};
+
+    // PML regions: classify from is_pml + element position
+    std::vector<int> pmr(nc, 0);
+    for (int e = 0; e < nc; ++e) {
+        if (!isp[e])
+            continue;
+        const double* ec = cm.data() + e * ng * ng * ng * 3;
+        double xmin = 1e30, xmax = -1e30, ymin = 1e30, ymax = -1e30, zmin = 1e30, zmax = -1e30;
+        for (int i = 0; i < ng * ng * ng; ++i) {
+            xmin = std::min(xmin, ec[i * 3]);
+            xmax = std::max(xmax, ec[i * 3]);
+            ymin = std::min(ymin, ec[i * 3 + 1]);
+            ymax = std::max(ymax, ec[i * 3 + 1]);
+            zmin = std::min(zmin, ec[i * 3 + 2]);
+            zmax = std::max(zmax, ec[i * 3 + 2]);
+        }
+        int rx = (pw[0] > 0 && xmin <= db[0] + pw[0])   ? 1
+                 : (pw[1] > 0 && xmax >= db[1] - pw[1]) ? 1
+                                                        : 0;
+        int ry = (pw[2] > 0 && ymin <= db[2] + pw[2])   ? 2
+                 : (pw[3] > 0 && ymax >= db[3] - pw[3]) ? 2
+                                                        : 0;
+        int rz = (pw[4] > 0 && zmin <= db[4] + pw[4])   ? 3
+                 : (pw[5] > 0 && zmax >= db[5] - pw[5]) ? 3
+                                                        : 0;
+        pmr[e] = rx + ry + rz;
+    }
+
+    // C-PML profiles
+    std::vector<double> K_store, d_store, alpha_store;
+    gf::compute_cpml_profiles(cm.data(), nc, ng, isp.data(), pmr.data(), db, pw, vp.data(),
+                              cfg.f0_for_pml_hz, K_store, d_store, alpha_store);
+    std::vector<hsize_t> p3d = {static_cast<hsize_t>(nc), static_cast<hsize_t>(ng * ng * ng), 3};
+    H5Ldelete(fid2, "field/element/cpml_K", H5P_DEFAULT);
+    H5Ldelete(fid2, "field/element/cpml_d", H5P_DEFAULT);
+    H5Ldelete(fid2, "field/element/cpml_alpha", H5P_DEFAULT);
+    write_dataset_double(fid2, "field/element/cpml_K", K_store, p3d);
+    write_dataset_double(fid2, "field/element/cpml_d", d_store, p3d);
+    write_dataset_double(fid2, "field/element/cpml_alpha", alpha_store, p3d);
+    fprintf(stderr, "  C-PML: %zu K/d/alpha values written\n", K_store.size() / 3);
+
+    // STF
+    int nsteps = static_cast<int>(cfg.total_duration_s / cfg.output_dt_s) + 1;
+    double sdt = cfg.output_dt_s;
+    std::vector<double> st, sv;
+    gf::evaluate_stf_array(sdt, nsteps, st, sv);
+    std::vector<hsize_t> sdim = {static_cast<hsize_t>(nsteps)};
+    H5Ldelete(fid2, "config/stf_t", H5P_DEFAULT);
+    H5Ldelete(fid2, "config/stf_values", H5P_DEFAULT);
+    write_dataset_double(fid2, "config/stf_t", st, sdim);
+    write_dataset_double(fid2, "config/stf_values", sv, sdim);
+    fprintf(stderr, "  STF: %d timesteps, dt=%g\n", nsteps, sdt);
+
+    H5Fclose(fid2);
     fprintf(stderr, "=== Preprocess complete ===\n");
     return 0;
 }

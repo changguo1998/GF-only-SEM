@@ -67,7 +67,7 @@ inline double damping_value(double dist, double vp, double pml_width) {
 
 void compute_cpml_profiles(const double* gll_coords_flat,  // [n_cell * ngll³ * 3]
                            int n_cell, int ngll,
-                           const bool* is_pml,           // [n_cell]
+                           const int* is_pml,            // [n_cell]
                            const int* pml_regions,       // [n_cell], 0=interior, 1-7=PML
                            const double* domain_bounds,  // [6]: xmin,xmax,ymin,ymax,zmin,zmax
                            const double* pml_widths,     // [6]: corresponding PML widths

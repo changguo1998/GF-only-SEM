@@ -139,7 +139,7 @@ void compute_source_weights_3d(const Vec3& xi_vec, const std::vector<double>& gl
 
 SourceResult locate_source(const Config& cfg, const double* gll_coords_flat, int n_cell, int ngll,
                            const int64_t* cell_to_surface, int n_surface,
-                           const int64_t* boundary_tag, const bool* is_pml) {
+                           const int64_t* boundary_tag, const int* is_pml) {
     SourceResult result;
 
     Vec3 source_pt(cfg.source_x_m, cfg.source_y_m, cfg.source_z_m >= 0 ? cfg.source_z_m : 0.0);

@@ -47,8 +47,8 @@ void evaluate_stf_array(double dt, int nsteps, std::vector<double>& times,
                         std::vector<double>& values);
 SourceResult locate_source(const Config& cfg, const double* gll_coords_flat, int n_cell, int ngll,
                            const int64_t* cell_to_surface, int n_surface,
-                           const int64_t* boundary_tag, const bool* is_pml);
-void compute_cpml_profiles(const double* gll_coords_flat, int n_cell, int ngll, const bool* is_pml,
+                           const int64_t* boundary_tag, const int* is_pml);
+void compute_cpml_profiles(const double* gll_coords_flat, int n_cell, int ngll, const int* is_pml,
                            const int* pml_regions, const double* domain_bounds,
                            const double* pml_widths, const double* vp_flat, double f0_hz,
                            std::vector<double>& K_store, std::vector<double>& d_store,
