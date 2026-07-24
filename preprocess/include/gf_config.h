@@ -54,4 +54,15 @@ void compute_cpml_profiles(const double* gll_coords_flat, int n_cell, int ngll, 
                            std::vector<double>& K_store, std::vector<double>& d_store,
                            std::vector<double>& alpha_store);
 
+// ── METIS partition + global node numbering ──
+void partition_metis(const char* model_path, int n_ranks);
+void compute_global_node_ids(const char* model_path, int ngll);
+
+// ── config.h5 writer ──
+void write_config_h5(const char* config_path, const Config& cfg, double solver_dt,
+                     int snapshot_stride, int nsteps, const std::vector<double>& stf_t,
+                     const std::vector<double>& stf_values, const std::vector<double>& source_xyz,
+                     const SourceResult& src_result, double record_depth_actual_m,
+                     const std::vector<int32_t>& element_to_rank, int n_ranks, double log_dt_s);
+
 }  // namespace gf

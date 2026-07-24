@@ -71,6 +71,26 @@ static void write_dataset_double(hid_t fid, const char* name, const std::vector<
     H5Sclose(space);
 }
 
+static std::vector<int64_t> read_dataset_int64(hid_t fid, const char* name) {
+    hid_t ds = H5Dopen2(fid, name, H5P_DEFAULT);
+    if (ds < 0) {
+        fprintf(stderr, "ERROR: dataset not found: %s\n", name);
+        std::exit(1);
+    }
+    hid_t space = H5Dget_space(ds);
+    hsize_t dims[8];
+    int ndims = H5Sget_simple_extent_ndims(space);
+    H5Sget_simple_extent_dims(space, dims, nullptr);
+    hsize_t total = 1;
+    for (int i = 0; i < ndims; ++i)
+        total *= dims[i];
+    std::vector<int64_t> buf(total);
+    H5Dread(ds, H5T_NATIVE_INT64, H5S_ALL, H5S_ALL, H5P_DEFAULT, buf.data());
+    H5Dclose(ds);
+    H5Sclose(space);
+    return buf;
+}
+
 // ── run subcommand ─────────────────────────────────────────────────────────
 
 static int run_main(int argc, char** argv) {
@@ -167,8 +187,17 @@ static int run_main(int argc, char** argv) {
             "  Looking for vp/vs/density in HDF5 (Python path)...\n");
 #endif
 
-    // ── Post-stage2: C-PML, STF ──
-    fprintf(stderr, "=== Post-stage2 steps (C-PML + STF) ===\n");
+    // ── Stage 2: λ/μ, solver_dt ──
+    fprintf(stderr, "=== Stage 2 (λ/μ + CFL) ===\n");
+    char* stage2_args[] = {argv[0], const_cast<char*>(model_path), nullptr};
+    rc = stage2_main(2, stage2_args);
+    if (rc != 0) {
+        fprintf(stderr, "ERROR: stage2 failed with code %d\n", rc);
+        return rc;
+    }
+
+    // ── Post-stage2: C-PML, source, STF ──
+    fprintf(stderr, "=== Post-stage2 steps (C-PML + source + STF) ===\n");
 
     hid_t fid2 = open_or_fail(model_path, H5F_ACC_RDWR);
 
@@ -269,14 +298,73 @@ static int run_main(int argc, char** argv) {
     double sdt = cfg.output_dt_s;
     std::vector<double> st, sv;
     gf::evaluate_stf_array(sdt, nsteps, st, sv);
-    std::vector<hsize_t> sdim = {static_cast<hsize_t>(nsteps)};
+    H5Gcreate2(fid2, "config", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    if (H5Lexists(fid2, "config", H5P_DEFAULT)) {
+        // group exists or just created
+    }
     H5Ldelete(fid2, "config/stf_t", H5P_DEFAULT);
     H5Ldelete(fid2, "config/stf_values", H5P_DEFAULT);
-    write_dataset_double(fid2, "config/stf_t", st, sdim);
-    write_dataset_double(fid2, "config/stf_values", sv, sdim);
+    {
+        std::vector<hsize_t> sd = {static_cast<hsize_t>(nsteps)};
+        write_dataset_double(fid2, "config/stf_t", st, sd);
+        write_dataset_double(fid2, "config/stf_values", sv, sd);
+    }
     fprintf(stderr, "  STF: %d timesteps, dt=%g\n", nsteps, sdt);
 
+    // ── Source location ──
+    fprintf(stderr, "=== Source location ===\n");
+    double source_xyz[3] = {cfg.source_x_m, cfg.source_y_m, cfg.source_z_m};
+    // Read boundary_tag + cell_to_surface from HDF5 for source locator
+    std::vector<int64_t> c2s_flat = read_dataset_int64(fid2, "topology/cell_to_surface");
+    // Get n_cell, n_surface from stored topology shapes
+    hid_t c2s_ds = H5Dopen2(fid2, "topology/cell_to_surface", H5P_DEFAULT);
+    hid_t c2s_sp = H5Dget_space(c2s_ds);
+    hsize_t tdim[8];
+    int tnd = H5Sget_simple_extent_ndims(c2s_sp);
+    H5Sget_simple_extent_dims(c2s_sp, tdim, nullptr);
+    int n_cell_topo = static_cast<int>(tdim[0]);
+    H5Dclose(c2s_ds);
+    H5Sclose(c2s_sp);
+    int n_surf = 0;
+    {
+        hid_t sds = H5Dopen2(fid2, "topology/surface_to_edge", H5P_DEFAULT);
+        hid_t ssp = H5Dget_space(sds);
+        hsize_t sd[8];
+        H5Sget_simple_extent_dims(ssp, sd, nullptr);
+        n_surf = static_cast<int>(sd[0]);
+        H5Dclose(sds);
+        H5Sclose(ssp);
+    }
+    std::vector<int64_t> btag = read_dataset_int64(fid2, "field/element/boundary");
+
+    gf::SourceResult src_result = gf::locate_source(
+        cfg, cm.data(), n_cell_topo, ng, c2s_flat.data(), n_surf, btag.data(), isp.data());
+    fprintf(stderr, "  Source in %d element(s)\n", src_result.n_src_cell);
+    fprintf(stderr, "  Cell %d, xi=(%g,%g,%g)\n",
+            src_result.cell_ids.empty() ? -1 : src_result.cell_ids[0],
+            src_result.xi.empty() ? 0.0 : src_result.xi[0],
+            src_result.eta.empty() ? 0.0 : src_result.eta[0],
+            src_result.zeta.empty() ? 0.0 : src_result.zeta[0]);
+
     H5Fclose(fid2);
+
+    // ── METIS partition ──
+    gf::partition_metis(model_path, cfg.n_ranks);
+
+    // ── Global node numbering ──
+    gf::compute_global_node_ids(model_path, ng);
+
+    // ── config.h5 ──
+    double solver_dt_final = 0.01;  // FIXME: read from stage2 output or HDF5 attr
+    int snap_stride = 1;
+    double log_dt_s = cfg.log_stride * cfg.output_dt_s;
+    std::vector<double> src_xyz_vec = {source_xyz[0], source_xyz[1], source_xyz[2]};
+    // Build element_to_rank for config writer (re-read from partition group)
+    std::vector<int32_t> empty_etr;  // will be filled from HDF5 by write_config_h5 if needed
+    gf::write_config_h5("config.h5", cfg, solver_dt_final, snap_stride, nsteps, st, sv,
+                        src_xyz_vec, src_result, cfg.record_depth_max_m, empty_etr, cfg.n_ranks,
+                        log_dt_s);
+
     fprintf(stderr, "=== Preprocess complete ===\n");
     return 0;
 }

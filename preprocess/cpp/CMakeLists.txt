@@ -8,12 +8,53 @@ find_package(HDF5 REQUIRED COMPONENTS C)
 find_package(OpenMP QUIET)
 include(GNUInstallDirs)
 
-# ── Core sources ────────────────────────────────────────────────────────────
+add_executable(
+    gf_preprocess
+    gf_preprocess.cpp
+    main.cpp
+    stage2_main.cpp
+    source_locator.cpp
+    cpml.cpp
+    metis_partition.cpp
+    config_writer.cpp)
 
-add_executable(gf_preprocess gf_preprocess.cpp main.cpp stage2_main.cpp source_locator.cpp
-                             cpml.cpp)
+# ── METIS (spack-installed) ───────────────────────────────────────────────── METIS is a required
+# spack package for the C++ path. Search the spack install tree and standard system paths.
+find_library(
+    METIS_LIBRARY metis
+    HINTS ${METIS_ROOT}/lib $ENV{METIS_ROOT}/lib
+    PATHS /usr/lib /usr/local/lib
+    PATH_SUFFIXES lib)
+find_path(
+    METIS_INCLUDE_DIR metis.h
+    HINTS ${METIS_ROOT}/include $ENV{METIS_ROOT}/include
+    PATHS /usr/include /usr/local/include
+    PATH_SUFFIXES include)
+if(METIS_LIBRARY AND METIS_INCLUDE_DIR)
+    message(STATUS "METIS: ${METIS_LIBRARY}")
+else()
+    # Try spack location
+    execute_process(
+        COMMAND spack location -i metis
+        OUTPUT_VARIABLE _spack_metis_dir
+        OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    if(_spack_metis_dir)
+        find_library(
+            METIS_LIBRARY metis
+            HINTS ${_spack_metis_dir}/lib
+            NO_DEFAULT_PATH)
+        find_path(
+            METIS_INCLUDE_DIR metis.h
+            HINTS ${_spack_metis_dir}/include
+            NO_DEFAULT_PATH)
+    endif()
+endif()
+if(NOT METIS_LIBRARY)
+    message(FATAL_ERROR "METIS library not found. Install: spack install metis")
+endif()
 
-# ── Config source (default or user-provided) ───────────────────────────────
+# ── Config source ──────────────────────────────────────────────────── ── Config source (default
+# or user-provided) ───────────────────────────────
 
 set(_config_source "${CMAKE_CURRENT_SOURCE_DIR}/config_default.cpp")
 set(GF_USER_CONFIG
@@ -51,8 +92,8 @@ endif()
 
 target_include_directories(
     gf_preprocess PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/preprocess/include
-                          ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
-target_link_libraries(gf_preprocess PRIVATE Eigen3::Eigen ${HDF5_C_LIBRARIES})
+                          ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS} ${METIS_INCLUDE_DIR})
+target_link_libraries(gf_preprocess PRIVATE Eigen3::Eigen ${HDF5_C_LIBRARIES} ${METIS_LIBRARY})
 
 if(OpenMP_CXX_FOUND)
     target_link_libraries(gf_preprocess PRIVATE OpenMP::OpenMP_CXX)
