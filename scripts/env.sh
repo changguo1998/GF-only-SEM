@@ -61,6 +61,7 @@ _spack_load() {
 
 _spack_load openmpi
 _spack_load eigen
+_spack_load cuda    # optional: uncomment for GPU builds (cuda@13.2.1)
 _spack_load hdf5
 
 # ── 3. Project binaries ───────────────────────────────────────────────────

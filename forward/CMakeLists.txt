@@ -42,8 +42,8 @@ function(add_gf_physics_solvers)
     set(EXE_MPI_CUDA gf_solver_${ARG_SOLVER}_mpi_cuda)
 
     # Shared infrastructure (same for every physics variant)
-    set(SHARED_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/../share/src/solver.cpp"
-                    "${CMAKE_CURRENT_SOURCE_DIR}/../share/src/exchange.cpp")
+    set(SHARED_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/../share/src/solver.cpp")
+    set(MPI_EXCHANGE "${CMAKE_CURRENT_SOURCE_DIR}/../share/src/exchange.cpp")
     set(NOOP_EXCHANGE "${CMAKE_CURRENT_SOURCE_DIR}/../share/src/exchange_noop.cpp")
     set(CUDA_STEP "${CMAKE_CURRENT_SOURCE_DIR}/../share/src/cuda_step.cu")
 
@@ -55,7 +55,8 @@ function(add_gf_physics_solvers)
 
     # ── 1. CPU + MPI ──
     if(MPI_FOUND)
-        add_library(${LIB_CPU} STATIC ${ARG_CPU_ELEM_SRCS} ${SHARED_SRCS} ${ARG_EXTRA_SRCS})
+        add_library(${LIB_CPU} STATIC ${ARG_CPU_ELEM_SRCS} ${SHARED_SRCS} ${MPI_EXCHANGE}
+                         ${ARG_EXTRA_SRCS})
         target_include_directories(${LIB_CPU} PUBLIC ${INCLUDES})
         target_link_libraries(${LIB_CPU} PUBLIC libgf_shared MPI::MPI_CXX)
         target_compile_definitions(${LIB_CPU} PRIVATE GF_ACTIVE_BACKEND=0)
@@ -96,8 +97,8 @@ function(add_gf_physics_solvers)
 
     # ── 3. CUDA + MPI (multi-GPU) ──
     if(CUDAToolkit_FOUND AND MPI_FOUND)
-        add_library(${LIB_CUDA} STATIC ${ARG_CUDA_ELEM_SRCS} ${SHARED_SRCS} ${CUDA_STEP}
-                                       ${ARG_EXTRA_SRCS})
+        add_library(${LIB_CUDA} STATIC ${ARG_CUDA_ELEM_SRCS} ${SHARED_SRCS} ${MPI_EXCHANGE}
+                         ${CUDA_STEP} ${ARG_EXTRA_SRCS})
         target_include_directories(${LIB_CUDA} PUBLIC ${INCLUDES})
         target_compile_options(${LIB_CUDA}
                                PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-I${_ep}/include/eigen3>)
