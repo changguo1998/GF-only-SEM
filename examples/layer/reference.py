@@ -233,7 +233,8 @@ def _read_time_and_stf(
         output_dt_s = float(sim["output_dt_s"])
         stf_t = np.asarray(cfg["source/stf_t"], dtype=np.float64)
         stf_v = np.asarray(cfg["source/stf_values"], dtype=np.float64)
-    output_time_s = stf_t[::stride]
+        nsteps_int = int(sim["nsteps"])
+    output_time_s = np.arange(nsteps_int // stride) * output_dt_s
     source_values = np.interp(output_time_s, stf_t, stf_v)
     return output_time_s, output_dt_s, source_values
 

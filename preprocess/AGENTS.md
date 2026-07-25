@@ -20,7 +20,7 @@ Read `model.h5` + `config.py`. Write extended `model.h5`, `config.h5`, and per-r
 | `config_loader.py` | import and validate `config.py` |
 | `config_writer.py` | write `config.h5` |
 | `model_writer.py` | write mesh fields and partition files, including `/recording/`; precomputes λ, μ from Vp, Vs, density |
-| `stage2_runner.py` | wrap `gf_preprocess` for λ/μ, solver_dt, nsteps |
+| `stage2_runner.py` | wrap `gf_preprocess stage2` for λ/μ, solver_dt, nsteps (fallback) |
 | `topology_reader.py` | read `/topology/` group from model.h5 |
 | `recording_map.py` | build shallow mesh-vertex recording map |
 | `accelerator.py` | optional C++ subprocess for GLL geometry, CFL, PML damping |
@@ -31,8 +31,8 @@ Read `model.h5` + `config.py`. Write extended `model.h5`, `config.h5`, and per-r
 ```
 model.h5 + config.py
 → load config
-→ C++ stage1? → GLL geometry + CFL h_min + PML + boundary
-→ else → Python gll_geometry + boundary_detector + PML
+→ C++ run? → unified gf_preprocess run (stage1 + C-PML + STF + METIS + config)
+→ else → Python gll_geometry + boundary_detector + PML + ...
 → material at GLL nodes (Python model_loader.py)
 → C++ stage2? → λ/μ + CFL solver_dt + nsteps
 → else → Python numpy + cfl_validator

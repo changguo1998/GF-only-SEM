@@ -77,7 +77,7 @@ To uninstall:
 cmake --install build-install --component gf_solver --prefix /tmp/list 2>/dev/null; \
   grep -r ... ;# alternatively, check scripts/install.sh output
 rm -f /usr/local/bin/gf_solver_*
-rm -f /usr/local/bin/gf_preprocess_*
+rm -f /usr/local/bin/gf_preprocess
 rm -f /usr/local/bin/gf_postprocess
 rm -f /usr/local/bin/gf_model2vtk
 rm -f /usr/local/bin/gf_partition2vtk
@@ -95,7 +95,7 @@ and spack-installed `llvm` for clang-format.
 
 ## Project State
 
-CG-SEM global-DOF assembly fix complete — waves now correctly propagate across element interfaces (both within-rank and cross-rank). All 221 tests pass (202 Python + 19 C++ Catch2).
+CG-SEM global-DOF assembly fix complete — waves now correctly propagate across element interfaces (both within-rank and cross-rank). All 207 Python tests pass. C++ Catch2 tests (17) require MPI-enabled build configuration.
 
 Elastic + viscoelastic (SLS) forward solvers complete. See `scripts/solver.sh` to select.
 
@@ -121,7 +121,7 @@ Buried source support implemented (`source_z_m = None`→free surface, `float`�
 - **config.py is source of truth**: All simulation parameters live in `config.py`. Scripts read it at runtime; no duplicated constants. See `examples/halfspace/config.py`.
 - **Fixed filenames**: Examples use fixed output names (`model.h5`, `config.h5`, `partition_{r}.h5`, `record_{r}.h5`, `restart_{r}.h5`). No CLI overrides, except input paths.
 - **Console scripts in root pyproject**: Tool entry points live in root `pyproject.toml` `[project.scripts]` and install via `gf-calculation`, not `gf-preprocess`.
-- **Pipeline scripts read config**: `run.sh` derives `N_RANKS` and runtime params from `config.py`, not hardcoded values.
+- **Pipeline scripts read config**: `compare.sh` derives `N_RANKS` and runtime params from `config.py`, not hardcoded values.
 - **Run formatter before stage/commit**: Run `bash format.sh` before `git add` or `git commit`. It formats Python, Markdown, C/C++, CUDA, and CMake files.
 
 ## External Reference Codes

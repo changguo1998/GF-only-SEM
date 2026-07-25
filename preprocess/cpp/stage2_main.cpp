@@ -5,7 +5,7 @@
  * Computes λ, μ, solver timestep, nsteps, and pre-flight statistics.
  *
  * Usage:
- *   gf_preprocess_stage2 <model.h5>
+ *   gf_preprocess stage2 <model.h5>
  *
  * Reads from model.h5:
  *   /topology/                     — n_cell, connectivity

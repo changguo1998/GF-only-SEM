@@ -112,7 +112,7 @@ bash examples/layer/compare.sh
 
 # Or manually (after SEM pipeline has run):
 # --source = displacement observation point; --receiver = point matching SEM source
-examples/layer/.pyfk-venv/bin/python examples/layer/reference.py examples/layer/greenfun \
+examples/layer/.venv/bin/python examples/layer/reference.py examples/layer/greenfun \
   --source 5500 5000 0 --receiver 5000 5000 250 --output /tmp/layer_ref.npz
 
 python examples/layer/compare.py examples/layer/greenfun \
@@ -134,10 +134,46 @@ piecewise functions compatible with the SEM preprocessor.
 
 ```bash
 cd examples/layer
-uv venv .pyfk-venv --python 3.9
-.pyfk-venv/bin/python -m ensurepip --upgrade
-.pyfk-venv/bin/python -m pip install pyfk obspy h5py
+uv venv .venv --python 3.9
+.venv/bin/python -m ensurepip --upgrade
+.venv/bin/python -m pip install pyfk obspy h5py
 ```
+
+## Model × Solver × Language End-to-End Test Cases
+
+Each `{model}-{physics}-{runtime}-{language}/` directory contains `compare.sh`
+that runs the full pipeline in-place via recursive sourcing of `scripts/env.sh`.
+Naming: `model` = halfspace/layer, `physics` = elastic/viscoelastic,
+`runtime` = mpi/gpu, `language` = python/cpp.
+
+### Quick Matrix
+
+| Language | Runtime | halfspace-elastic | halfspace-visco | layer-elastic | layer-visco |
+|----------|---------|-------------------|-----------------|---------------|-------------|
+| python | mpi | ✅ | ✅ | ✅ | ✅ |
+| python | gpu | ✅ (CUDA) | ✅ (CUDA) | ✅ (CUDA) | ✅ (CUDA) |
+| cpp | mpi | ✅ | ✅ | ✅ | ✅ |
+| cpp | gpu | ✅ (CUDA) | ✅ (CUDA) | ✅ (CUDA) | ✅ (CUDA) |
+
+**Usage:**
+
+```bash
+source scripts/env.sh && scripts/build.sh cpu
+bash examples/halfspace-elastic-mpi-python/compare.sh    # single case
+
+# All MPI cases (8 total):
+for d in examples/*-mpi-*/; do bash "$d/compare.sh"; done
+
+# GPU cases auto-skip if no GPU present
+```
+
+**Language variants:**
+
+- `python` — Python config (`config.py`) + Python preprocess
+- `cpp` — C++ config (`config_user_*.cpp`) + C++ preprocess (`gf_preprocess run`)
+
+**Note:** viscoelastic cases run without SLS attenuation, output = elastic.
+GPU cases check `nvidia-smi` and skip gracefully if no GPU is available.
 
 ## Adding a New Example
 

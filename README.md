@@ -138,9 +138,9 @@ Key fields: `polynomial_order`, `output_dt_s`, `total_duration_s`, `cfl_safety`,
 ## Testing
 
 ```bash
-python -m pytest tests -q                          # Python (104)
+python -m pytest tests -q                          # Python (207)
 ctest --test-dir build --output-on-failure          # C++ (Catch2)
-bash examples/halfspace/run.sh                      # Full pipeline
+bash examples/halfspace/compare.sh                  # Full pipeline
 ```
 
 ## Documentation

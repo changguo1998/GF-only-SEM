@@ -10,10 +10,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK_DIR="${SCRIPT_DIR}"
 
 # PyFK Python from the local environment
-PYFK_PYTHON="${SCRIPT_DIR}/.pyfk-venv/bin/python"
+PYFK_PYTHON="${SCRIPT_DIR}/.venv/bin/python"
 if [ ! -x "${PYFK_PYTHON}" ]; then
-	echo "ERROR: PyFK not found at ${PYFK_PYTHON}"
-	echo "Install: cd ${SCRIPT_DIR} && uv venv .pyfk-venv --python 3.9 && .pyfk-venv/bin/pip install pyfk obspy"
+	echo "ERROR: pyfk environment not found at ${PYFK_PYTHON}"
+	echo "Install: cd ${SCRIPT_DIR} && uv venv .venv --python 3.9 && .venv/bin/pip install pyfk obspy h5py"
 	exit 1
 fi
 

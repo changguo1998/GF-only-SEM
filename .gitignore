@@ -11,8 +11,7 @@ build*/
 build/*/
 
 # Compiled C++ binaries
-preprocess/cpp/gf_preprocess_cpp
-preprocess/cpp/gf_preprocess_cpp_debug
+preprocess/cpp/gf_preprocess
 *.o
 *_nothread
 bin/

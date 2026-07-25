@@ -22,7 +22,7 @@ tests/
 ├── preprocess/                 — Python preprocess tests
 ├── tools/                      — GMSH→HDF5 tests
 ├── postprocess/                — Python postprocess tests
-└── examples/halfspace/         — end-to-end run.sh pipeline
+└── ../examples/                — per-model test case pipelines
 ```
 
 ## Commands
@@ -31,5 +31,5 @@ tests/
 python -m pytest tests -q
 ctest --test-dir build --output-on-failure
 ./build/tests/test_gll "[GLL]" --reporter compact
-bash examples/halfspace/run.sh
+bash examples/halfspace/compare.sh
 ```

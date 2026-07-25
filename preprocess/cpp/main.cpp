@@ -5,8 +5,9 @@
  * results back to mesh.h5.
  *
  * Usage:
- *   gf_preprocess_cpp <mesh.h5> <N> <cfl_safety> \
- *       <pml_xmin> <pml_xmax> <pml_ymin> <pml_ymax> <pml_zmin> <pml_zmax>
+ *   gf_preprocess stage1 <mesh.h5> \
+ *       --N <N> --cfl-safety <val> --nx <nx> --ny <ny> \
+ *       --pml-xmin <n> --pml-xmax <n> --pml-ymin <n> --pml-ymax <n> --pml-zmax <n>
  *
  * Sets field/element/{coords,dxi_dx,jacobian,mass,damping} and
  * field/info/solver_dt in mesh.h5.

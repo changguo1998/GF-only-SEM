@@ -74,7 +74,7 @@ cmake --build . --target gf_postprocess
 
 ## Tests
 
-Tests: the C++ binary is validated via the halfspace example pipeline (`examples/halfspace/run.sh`). The archived Python implementation (`_archive/`) includes pytest tests for the reference code.
+Tests: the C++ binary is validated via the halfspace example pipeline (`examples/halfspace/compare.sh`). The archived Python implementation (`_archive/`) includes pytest tests for the reference code.
 
 ## Design Doc
 
