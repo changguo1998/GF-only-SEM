@@ -6,5 +6,5 @@
 #   source scripts/env.sh
 # ===========================================================================
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/scripts/env.sh"
+ENV_SETUP_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${ENV_SETUP_SCRIPT_DIR}/scripts/env.sh"

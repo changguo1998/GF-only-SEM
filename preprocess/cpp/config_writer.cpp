@@ -37,6 +37,7 @@ void write_double_dataset(hid_t fid, const char* name, const std::vector<double>
     H5Sclose(space);
 }
 
+/// Write an integer attribute to an HDF5 location.
 void write_int_attr(hid_t loc, const char* name, int value) {
     hid_t attr_space = H5Screate(H5S_SCALAR);
     hid_t attr = H5Acreate2(loc, name, H5T_NATIVE_INT, attr_space, H5P_DEFAULT, H5P_DEFAULT);
@@ -45,6 +46,7 @@ void write_int_attr(hid_t loc, const char* name, int value) {
     H5Sclose(attr_space);
 }
 
+/// Write a double attribute to an HDF5 location.
 void write_double_attr(hid_t loc, const char* name, double value) {
     hid_t attr_space = H5Screate(H5S_SCALAR);
     hid_t attr = H5Acreate2(loc, name, H5T_NATIVE_DOUBLE, attr_space, H5P_DEFAULT, H5P_DEFAULT);
@@ -53,6 +55,7 @@ void write_double_attr(hid_t loc, const char* name, double value) {
     H5Sclose(attr_space);
 }
 
+/// Write a string attribute to an HDF5 location.
 void write_string_attr(hid_t loc, const char* name, const std::string& value) {
     hid_t attr_space = H5Screate(H5S_SCALAR);
     hid_t str_type = H5Tcopy(H5T_C_S1);

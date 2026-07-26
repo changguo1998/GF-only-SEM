@@ -33,7 +33,9 @@
 #include "gf_material_user.h"
 #endif
 
+/// C++ preprocessor stage 1: compute GLL geometry and model arrays.
 extern int stage1_main(int argc, char** argv);
+/// C++ preprocessor stage 2: partition mesh and write per-rank HDF5.
 extern int stage2_main(int argc, char** argv);
 
 // ═════════════════════════════════════════════════════════════════════════════

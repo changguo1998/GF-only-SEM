@@ -6,7 +6,10 @@ Viscoelastic CG-SEM solver with SLS attenuation. Extends the elastic solver
 with standard linear solid (SLS) memory variables for frequency-independent Q
 attenuation.
 
-**Status: COMPLETE.** All 9 implementation tasks done (7 commits, Jul 2026).
+**Status: COMPLETE & VERIFIED.** All 9 implementation tasks done (7 commits, Jul 2026).
+End-to-end verified: 16 MPI ranks, 1000 steps, 0 crashes.
+Elastic-limit regression (Q→∞): max_rel_l2=0.0 across all 4 MPI C++/Python variants
+(halfspace + layer), 2026-07-26 — bit-identical to elastic solver.
 End-to-end verified: 16 MPI ranks, 1000 steps, 0 crashes.
 
 ## Architecture

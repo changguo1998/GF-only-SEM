@@ -42,6 +42,7 @@ static hid_t open_or_fail(const char* path, unsigned flags) {
     return fid;
 }
 
+/// Read a 1D int64 dataset from an HDF5 file.
 static std::vector<int64_t> read_int64_1d(hid_t loc, const char* name, hsize_t& n_out) {
     hid_t ds = H5Dopen2(loc, name, H5P_DEFAULT);
     if (ds < 0) {
@@ -62,6 +63,7 @@ static std::vector<int64_t> read_int64_1d(hid_t loc, const char* name, hsize_t& 
     return buf;
 }
 
+/// Read attr double from HDF5.
 static void read_attr_double(hid_t loc, const char* name, double& val) {
     hid_t attr = H5Aopen(loc, name, H5P_DEFAULT);
     if (attr < 0) {
@@ -231,6 +233,7 @@ struct Topology {
     std::vector<double> vertex_to_coord;   // [n_vertex, 3]
 };
 
+/// Read mesh topology (vertices, cells, surfaces, adjacency) from mesh file.
 static Topology read_topology(const char* mesh_path) {
     hid_t fid = open_or_fail(mesh_path, H5F_ACC_RDONLY);
     hid_t topo_gid = H5Gopen2(fid, "topology", H5P_DEFAULT);

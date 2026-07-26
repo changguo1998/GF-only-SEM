@@ -4,9 +4,11 @@ This file lists known deferred work. When work resumes, use the linked design or
 
 ______________________________________________________________________
 
-## 1. SLS Viscoelastic Attenuation
+## 1. SLS Viscoelastic Attenuation [ARCHIVED]
 
-**Status: COMPLETE.** Implemented via 7 commits (Jul 2026):
+**Status: COMPLETE & VERIFIED.** Implemented via 7 commits (Jul 2026).
+Elastic-limit regression (Q→∞) verified 2026-07-26: max_rel_l2=0.0 across
+all 4 MPI C++/Python variants (halfspace + layer).
 
 - `c90268e`: SLS namespace, constants, `precompute_sls_coefficients()`, RankData fields
 - `7ec4d18`: Preprocess τ computation (`preprocess/attenuation.py`), I/O + restart
@@ -49,11 +51,11 @@ written uncompressed. If compression is needed in the future, re-implement from
 
 ______________________________________________________________________
 
-## 3. Full C-PML Implementation (Strain Correction)
+## 3. Full C-PML Implementation (Strain Correction) [ARCHIVED]
 
-**Status: COMPLETE.** Displacement-based C-PML (acceleration correction, 3 memory
-variables/node) and strain-based correction (A₆…A₂₃, 18 memory variables/node)
-are both implemented. Key commits:
+**Status: COMPLETE & VERIFIED.** Displacement-based C-PML (acceleration correction,
+3 memory variables/node) and strain-based correction (A₆…A₂₃, 18 memory
+variables/node) are both implemented. All 4 bugs (1a-1d) fixed. Key commits:
 
 - `18b89ca`: CUDA C-PML strain correction (element kernel + runtime)
 - `71aac4a`: C-PML strain correction unit tests (7 new, 1443 assertions)
@@ -102,9 +104,9 @@ Same pattern as CUDA: add tag struct, source file, CMake branch. See [`design/gp
 
 ______________________________________________________________________
 
-## 6. SEM Amplitude & Radiation Pattern Discrepancy
+## 6. SEM Amplitude & Radiation Pattern Discrepancy [ARCHIVED]
 
-**Status: RESOLVED.** Two issues were found and fixed:
+**Status: RESOLVED.** Three issues were found and fixed:
 
 - **E-W wavefield asymmetry (1.77×)**: CG-SEM element-interface assembly bug.
   Fixed by global GLL node numbering (`cff2cd1`, 2026-07-17).

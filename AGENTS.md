@@ -95,18 +95,35 @@ and spack-installed `llvm` for clang-format.
 
 ## Project State
 
-CG-SEM global-DOF assembly fix complete — waves now correctly propagate across element interfaces (both within-rank and cross-rank). All 207 Python tests pass. C++ Catch2 tests (17) require MPI-enabled build configuration.
+All previously tracked bugs (C-PML divergence, postprocess velocity/acceleration zeros,
+postprocess mass-weighting) are fixed and verified. See
+[`docs/bugs.md`](docs/bugs.md) (archived) and
+[`docs/design/known-limitations.md`](docs/design/known-limitations.md) (~3× SEM factor).
 
-Elastic + viscoelastic (SLS) forward solvers complete. See `scripts/solver.sh` to select.
+Elastic + viscoelastic (SLS) forward solvers complete and verified. SLS elastic-limit
+regression (Q→∞) confirmed: max_rel_l2=0.0 (bit-identical to elastic) across all
+4 MPI C++/Python variants (halfspace + layer). See `scripts/solver.sh` to select.
+
+CG-SEM global-DOF assembly fix complete — waves correctly propagate across element
+interfaces (both within-rank and cross-rank). All 207 Python tests pass. C++ Catch2
+tests (17) require MPI-enabled build configuration.
 
 Buried source support implemented (`source_z_m = None`→free surface, `float`→buried). Preprocessor auto-detects surface vs buried mode and excludes PML elements for buried sources.
 
-**Example validation pipelines** (`examples/halfspace`, `examples/layer`) run end-to-end: SEM → reference → comparison. After fixing a postprocess mass-weighting bug (commit `6f90c12`), scaled waveform correlation improved from 0.945 to 0.991 (halfspace) and 0.745 to 0.745 (layer, unchanged — amplitude-only fix). A residual systematic factor of ~3× (2.95 halfspace, 2.60 layer) remains, attributed to SEM GLL discretization vs continuous Green's function — see [`docs/bugs.md`](docs/bugs.md) §Issue 3. The earlier "P-SV coupling bias" was a Green tensor index convention mismatch (transpose bug) in the postprocess, fixed 2026-07-19 — see [`docs/deferred.md`](docs/deferred.md) §6. Interpolated query points degrade accuracy due to trilinear interpolation of off-diagonal components.
+**Full example validation suite** (`scripts/run_all_examples.sh`) runs all 18 examples
+end-to-end. Last run (2026-07-26): 10 PASSED, 0 FAILED, 8 SKIP (no GPU).
+
+After fixing the postprocess mass-weighting bug (commit `6f90c12`) and Green tensor
+index convention mismatch (transpose bug, 2026-07-19), scaled waveform correlation
+is 0.991 (halfspace) / 0.745 (layer). A residual ~3× scale factor (2.95 halfspace,
+2.60 layer) is documented as a known SEM discretization limitation.
 
 | Solver variant | Multi-rank | DOF numbering | Status |
 |---------------|------------|---------------|--------|
-| CPU + MPI | ✅ (16 ranks) | Global (ibool) | ✅ Verified — diagonals 1.01-1.03× ref |
-| CUDA single | N/A | Global (ibool) | ✅ Verified — rel_l2=0.644 matches CPU 16-rank. Global node ID merge in read_partition_all (93e8c32) |
+| CPU + MPI (elastic) | ✅ (16 ranks) | Global (ibool) | ✅ Verified — diagonals 1.01-1.03× ref |
+| CPU + MPI (viscoelastic) | ✅ (16 ranks) | Global (ibool) | ✅ Verified — elastic limit rel_l2=0.0 |
+| CUDA single (elastic) | N/A | Global (ibool) | ✅ Verified — rel_l2=0.644 matches CPU 16-rank |
+| CUDA single (viscoelastic) | N/A | Global (ibool) | ✅ Builds, awaiting GPU hardware test |
 
 ## Cross-Cutting Conventions
 

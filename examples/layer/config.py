@@ -171,3 +171,7 @@ SMTH = 1.0
 PMIN = 0.0
 PMAX = 1.0
 KMAX = 15.0
+
+# ── SLS attenuation (elastic-limit regression) ───
+q_mu = 1.0e9  # Shear quality factor (→∞ → elastic limit)
+q_kappa = 1.0e9  # Bulk quality factor (→∞ → elastic limit)

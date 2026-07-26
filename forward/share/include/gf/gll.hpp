@@ -49,6 +49,7 @@ inline std::vector<double> gll_nodes(int N) {
     if (N < 1)
         throw std::invalid_argument("GLL order N must be >= 1");
     int ngl = N + 1;
+    /// Compute GLL quadrature nodes on [-1, 1] for polynomial order N.
     std::vector<double> nodes(ngl);
     nodes[0] = -1.0;
     nodes[N] = 1.0;
@@ -88,6 +89,7 @@ inline std::vector<double> gll_weights(int N, const std::vector<double>& nodes) 
     if (N < 1)
         throw std::invalid_argument("GLL order N must be >= 1");
     int ngl = N + 1;
+    /// Compute GLL quadrature weights for polynomial order N.
     std::vector<double> w(ngl);
     for (int i = 0; i < ngl; ++i) {
         double pn = detail::legendre_p(N, nodes[i]);
@@ -104,6 +106,7 @@ inline std::vector<double> gll_derivative_matrix(int N, const std::vector<double
     if (N < 1)
         throw std::invalid_argument("GLL order N must be >= 1");
     int ngl = N + 1;
+    /// Compute GLL differentiation matrix (size NGL×NGL, flat).
     std::vector<double> D(ngl * ngl, 0.0);
     // Precompute Legendre polynomial values at each node
     std::vector<double> PN(ngl);
@@ -135,6 +138,7 @@ inline std::vector<double> gll_derivative_matrix(int N, const std::vector<double
 // -----------------------------------------------------------------------
 inline std::vector<double> lagrange_basis(double xi, const std::vector<double>& nodes) {
     int ngl = static_cast<int>(nodes.size());
+    /// Evaluate all NGL Lagrange basis polynomials at coordinate xi.
     std::vector<double> ell(ngl, 1.0);
     for (int j = 0; j < ngl; ++j) {
         for (int k = 0; k < ngl; ++k) {

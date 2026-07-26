@@ -116,3 +116,8 @@ def vs_m_s(x_m, y_m, z_m):
 def density_kg_m3(x_m, y_m, z_m):
     """Density [kg/m³]."""
     return 2700.0
+
+
+# ── SLS attenuation (elastic-limit regression) ───
+q_mu = 1.0e9  # Shear quality factor (→∞ → elastic limit)
+q_kappa = 1.0e9  # Bulk quality factor (→∞ → elastic limit)

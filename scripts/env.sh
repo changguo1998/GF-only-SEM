@@ -16,8 +16,8 @@
 #   4. Export PROJECT_ROOT, BIN_DIR for downstream scripts
 # ===========================================================================
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENV_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$ENV_SCRIPT_DIR/.." && pwd)"
 BIN_DIR="${PROJECT_ROOT}/bin"
 
 export PROJECT_ROOT BIN_DIR
@@ -59,7 +59,7 @@ _spack_load() {
 	fi
 }
 
-_spack_load openmpi
+_spack_load /jncd4ux # openmpi@5.0.10 (specific hash to avoid ambiguity)
 _spack_load eigen
 _spack_load cuda # optional: uncomment for GPU builds (cuda@13.2.1)
 _spack_load hdf5

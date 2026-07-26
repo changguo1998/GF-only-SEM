@@ -34,6 +34,7 @@ public:
 
     ~Logger() { close(); }
 
+    /// Log a info-level message (rank 0 only).
     void info(const std::string& msg) {
         write("INFO", msg);
         if (rank_ == 0) {
@@ -41,8 +42,10 @@ public:
         }
     }
 
+    /// Log a debug-level message (rank 0 only).
     void debug(const std::string& msg) { write("DEBUG", msg); }
 
+    /// Log a error-level message (rank 0 only).
     void error(const std::string& msg) {
         write("ERROR", msg);
         if (rank_ == 0) {
@@ -50,6 +53,7 @@ public:
         }
     }
 
+    /// Log a raw-level message (rank 0 only).
     void raw(const std::string& msg) {
         // Write to file without timestamp prefix; echo to stdout for rank 0
         if (file_.is_open()) {
@@ -60,6 +64,7 @@ public:
         }
     }
 
+    /// Print progress message to stderr (overwrites current line).
     void progress(const std::string& msg) {
         // Log file: full timestamped line (no in-place).
         // No carriage-return or ANSI escape sequences here — just clean lines.
@@ -96,6 +101,7 @@ public:
         }
     }
 
+    /// Finalize progress output with a newline.
     void progress_done() {
         // Write newline to /dev/tty so subsequent output starts on a fresh line.
         if (rank_ == 0) {
@@ -107,6 +113,7 @@ public:
         }
     }
 
+    /// Close the logger resource.
     void close() {
         if (file_.is_open()) {
             file_.close();
@@ -117,6 +124,7 @@ private:
     std::ofstream file_;
     int rank_;
 
+    /// Write a log message with the given severity level.
     void write(const std::string& level, const std::string& msg) {
         if (!file_.is_open())
             return;

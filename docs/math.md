@@ -58,7 +58,7 @@ SEM uses Gauss-Lobatto-Legendre (GLL) quadrature with N+1 points per axis. Nodes
 | GLL points per axis | NGLL = N+1 | 4 (test) / 6 (prod) |
 | GLL nodes per element | NGLL³ | 64 (test) / 216 (prod) |
 | Total GLL points | ξ_i, i=0..N | Roots of P'\_N(ξ); endpoints −1, +1 |
-| Quadrature weights | w_i | 2/(N[N+1](P_N(ξ_i))²) |
+| Quadrature weights | w_i | 2/(N[N+1](<P_N(%CE%BE_i)>)²) |
 | Derivative matrix | D_ij = ℓ'\_j(ξ_i) | Off-diagonal: P_N(ξ_i)/[P_N(ξ_j)(ξ_i−ξ_j)]; Diagonal endpoints: ∓N(N+1)/4; Diagonal interior: 0 |
 P_N(x) computed via Bonnet's recurrence:
 

@@ -22,6 +22,7 @@
 
 #include "gf/solver.hpp"
 
+/// Print command-line usage and exit.
 void print_usage(const char* prog) {
     std::cerr << "Usage: " << prog << " --direction {x,y,z} [--resume]\n"
               << "  All I/O paths are frozen relative to CWD:\n"

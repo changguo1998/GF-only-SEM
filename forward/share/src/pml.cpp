@@ -122,6 +122,7 @@ void cpml_save_displ_new(RankData& part, const std::vector<double>& displacement
     }
 }
 
+/// Update C-PML displacement memory variables (host-side).
 void cpml_update_displ_memory(RankData& part, int n_node) {
     if (!part.has_cpml)
         return;
@@ -319,6 +320,8 @@ void cpml_update_strain_memory(RankData& part, const double* D, const double* /*
                 double new_grad = new_phys_grad[grad];
                 double old_grad = old_phys_grad[grad];
                 for (int conv_dir = 0; conv_dir < NUM_CONV_DIRECTIONS; ++conv_dir) {
+                    /// Compute flat memory offset for C-PML strain memory (node, gradient,
+                    /// component).
                     size_t mem_off = strain_memory_offset(elem_off + n, grad, conv_dir);
                     int beta_off =
                         (elem_off + n) * BETA_COEFS_PER_NODE + conv_dir * BETA_COEFS_PER_DIR;

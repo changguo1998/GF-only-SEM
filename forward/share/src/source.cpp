@@ -9,6 +9,7 @@
 
 namespace gf {
 
+/// Convert 3D GLL index (i,j,k) to flat 1D index.
 static inline int idx3(int i, int j, int k, int ngll) {
     return (i * ngll + j) * ngll + k;
 }

@@ -11,7 +11,7 @@ PROJECT_ROOT="$(cd "$CASE_DIR/../.." && pwd)"
 BIN="${PROJECT_ROOT}/bin"
 
 # ── Environment (recursive import) ──────────────────────────
-source "${PROJECT_ROOT}/scripts/env.sh" 2>&1 | grep '\[OK\]' || true
+source "${PROJECT_ROOT}/scripts/env.sh" > /dev/null 2>&1 || true
 # spack load cuda  # GPU required
 
 

@@ -9,6 +9,7 @@
 
 namespace gf {
 
+/// Return the simulation configuration for this example.
 Config get_config() {
     Config c;
     c.title = "layer_example";
@@ -44,6 +45,7 @@ Config get_config() {
     return c;
 }
 
+/// Source time function: evaluate force amplitude at time t.
 double stf_func(double t_s) {
     double f0_hz = 2.0;
     double t0_s = 1.0;

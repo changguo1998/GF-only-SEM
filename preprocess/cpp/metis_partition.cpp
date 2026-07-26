@@ -135,6 +135,7 @@ void partition_metis(const char* model_path, int n_ranks) {
     idx_t ncon = 1;
     idx_t nparts = static_cast<idx_t>(n_ranks);
     idx_t edgecut = 0;
+    // Allocate METIS partition result array (one element→rank mapping per cell).
     std::vector<idx_t> metis_partition(n_cell, 0);
 
     int metis_rc = METIS_PartGraphRecursive(&nvtxs, &ncon, xadj.data(), adjncy.data(),

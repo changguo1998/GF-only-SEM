@@ -37,6 +37,7 @@ struct H5FileGuard {
         else if (type == H5I_DATATYPE)
             H5Tclose(id);
     }
+    /// Return the underlying HDF5 identifier.
     hid_t get() const { return id; }
 };
 
@@ -51,6 +52,7 @@ hid_t open_read(const std::string& path) {
 
 // Read a dataset given name, filling a typed vector
 template <typename T>
+/// Read dataset impl from HDF5.
 std::vector<T> read_dataset_impl(hid_t file_id, const std::string& name) {
     hid_t dset = H5Dopen2(file_id, name.c_str(), H5P_DEFAULT);
     if (dset < 0) {
@@ -96,6 +98,7 @@ std::vector<T> read_dataset_impl(hid_t file_id, const std::string& name) {
 
 // Try-read a dataset; return empty vector if not found
 template <typename T>
+/// Read try dataset from HDF5.
 std::vector<T> try_read_dataset(hid_t file_id, const std::string& name) {
     if (H5Lexists(file_id, name.c_str(), H5P_DEFAULT) > 0) {
         return read_dataset_impl<T>(file_id, name);
@@ -103,6 +106,7 @@ std::vector<T> try_read_dataset(hid_t file_id, const std::string& name) {
     return {};
 }
 
+/// Read attr int from HDF5.
 bool read_attr_int(hid_t loc_id, const std::string& name, int& out) {
     if (H5Aexists(loc_id, name.c_str()) <= 0)
         return false;
@@ -113,6 +117,7 @@ bool read_attr_int(hid_t loc_id, const std::string& name, int& out) {
     return H5Aread(attr, H5T_NATIVE_INT, &out) >= 0;
 }
 
+/// Read attr double from HDF5.
 bool read_attr_double(hid_t loc_id, const std::string& name, double& out) {
     if (H5Aexists(loc_id, name.c_str()) <= 0)
         return false;
@@ -123,6 +128,7 @@ bool read_attr_double(hid_t loc_id, const std::string& name, double& out) {
     return H5Aread(attr, H5T_NATIVE_DOUBLE, &out) >= 0;
 }
 
+/// Read attr string from HDF5.
 bool read_attr_string(hid_t loc_id, const std::string& name, std::string& out) {
     if (H5Aexists(loc_id, name.c_str()) <= 0)
         return false;
@@ -162,14 +168,17 @@ std::vector<double> read_dataset_double(hid_t file_id, const std::string& name) 
     return read_dataset_impl<double>(file_id, name);
 }
 
+/// Read dataset int64 from HDF5.
 std::vector<int64_t> read_dataset_int64(hid_t file_id, const std::string& name) {
     return read_dataset_impl<int64_t>(file_id, name);
 }
 
+/// Read dataset int32 from HDF5.
 std::vector<int32_t> read_dataset_int32(hid_t file_id, const std::string& name) {
     return read_dataset_impl<int32_t>(file_id, name);
 }
 
+/// Read dataset int from HDF5.
 std::vector<int> read_dataset_int(hid_t file_id, const std::string& name) {
     // Check if dataset exists; return empty if not.
     if (H5Lexists(file_id, name.c_str(), H5P_DEFAULT) <= 0) {
@@ -179,6 +188,7 @@ std::vector<int> read_dataset_int(hid_t file_id, const std::string& name) {
     return std::vector<int>(tmp.begin(), tmp.end());
 }
 
+/// Read partition from HDF5.
 RankData read_partition(const std::string& path, int /*rank*/) {
     hid_t fid = open_read(path);
     H5FileGuard guard(fid);
@@ -321,6 +331,7 @@ RankData read_partition(const std::string& path, int /*rank*/) {
     return data;
 }
 
+/// Read partition all from HDF5.
 RankData read_partition_all(const std::string& partition_dir) {
     // Count partitions by scanning partition_{r}.h5 files
     int n_partitions = 0;
@@ -585,6 +596,7 @@ RankData read_partition_range(const std::string& partition_dir, int effective_ra
 
     return merged;
 }
+/// Read config from HDF5.
 ConfigData read_config(const std::string& path) {
     hid_t fid = open_read(path);
     H5FileGuard guard(fid);

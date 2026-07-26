@@ -120,6 +120,7 @@ void cuda_cpml_update_displ_fields(CudaDeviceState& state, double solver_dt, int
 /// C-PML: update displacement memory variables on device.
 void cuda_cpml_update_displ_memory(CudaDeviceState& state, int n_node);
 
+/// C-PML: update strain memory variables (A₆–A₂₃ convolution) on device.
 void cuda_cpml_update_strain_memory(CudaDeviceState& state, int ngll, int n_node);
 
 /// C-PML: add acceleration correction to element-local residual on device.
@@ -151,6 +152,7 @@ void cuda_upload_sls_data(CudaDeviceState& state, const struct RankData& part, i
 /// Free SLS device buffers.
 void cuda_free_sls_data(CudaDeviceState& state);
 
+/// CG-SEM global scatter: local_cell_residual → rank_node_residual (with atomicAdd).
 void cuda_scatter_to_rank(CudaDeviceState& state);
 
 /// CG-SEM global gather: global_displacement → local_cell_displacement.

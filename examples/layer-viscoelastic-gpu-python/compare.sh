@@ -11,7 +11,7 @@ PROJECT_ROOT="$(cd "$CASE_DIR/../.." && pwd)"
 BIN="${PROJECT_ROOT}/bin"
 
 # ── Environment (recursive import) ──────────────────────────
-source "${PROJECT_ROOT}/scripts/env.sh" 2>&1 | grep '\[OK\]' || true
+source "${PROJECT_ROOT}/scripts/env.sh" > /dev/null 2>&1 || true
 # spack load cuda  # GPU required
 
 
@@ -45,6 +45,15 @@ if [ -x "${BIN}/.gf_preprocess_hidden" ]; then
     mv "${BIN}/.gf_preprocess_hidden" "${BIN}/gf_preprocess" 2>/dev/null || true
 fi
 [ -f "${CASE_DIR}/config.h5" ] || { echo "FAIL: config.h5 not created"; exit 1; }
+
+# ── Attenuation injection (SLS elastic-limit Q→∞) ──
+echo ""
+echo "=== Attenuation: injecting Q→∞ SLS parameters ==="
+cd "${CASE_DIR}"
+python3 "${PROJECT_ROOT}/examples/_shared/attenuation_inject.py" \
+    "${CASE_DIR}/model.h5" \
+    --q-mu 1e9 --q-kappa 1e9 --n-sls 3 --f0 2.0
+
 
 # ── Stage 3: Forward solver ────────────────────────────────
 echo ""
@@ -91,6 +100,22 @@ if not (lo <= max_disp <= hi):
     raise SystemExit(f'max_displacement {max_disp} outside [{lo}, {hi}]')
 print('  displacement in range — PASSED')
 " || { echo "FAIL: displacement verification failed"; exit 1; }
+
+# ── Stage 6: Elastic-limit regression ──
+ELASTIC_CASE_DIR="${CASE_DIR//viscoelastic/elastic}"
+ELASTIC_GREENFUN="${ELASTIC_CASE_DIR}/greenfun"
+if [ -d "${ELASTIC_GREENFUN}" ]; then
+    echo ""
+    echo "=== Stage 6: Elastic-limit regression ==="
+    cd "${CASE_DIR}"
+    python3 "${PROJECT_ROOT}/examples/_shared/elastic_limit_compare.py" \
+        "${ELASTIC_GREENFUN}" "${CASE_DIR}/greenfun" \
+        --tol 0.01 \
+        --output "${CASE_DIR}/elastic_limit_comparison.npz"
+else
+    echo ""
+    echo "=== Stage 6: Elastic-limit regression — SKIP (no elastic reference) ==="
+fi
 
 echo ""
 echo "=============================================================="

@@ -18,6 +18,7 @@ inline hid_t select_precision_type(bool use_float32) noexcept {
     return use_float32 ? H5T_NATIVE_FLOAT : H5T_NATIVE_DOUBLE;
 }
 
+/// Write scalar attr to HDF5.
 void write_scalar_attr(hid_t loc_id, const std::string& name, hid_t type_id, const void* value) {
     hid_t attr_space = H5Screate(H5S_SCALAR);
     if (attr_space < 0)
@@ -35,6 +36,7 @@ void write_scalar_attr(hid_t loc_id, const std::string& name, hid_t type_id, con
         throw std::runtime_error("H5Awrite failed for attr: " + name);
 }
 
+/// Write string attr to HDF5.
 void write_string_attr(hid_t loc_id, const std::string& name, const std::string& value) {
     hid_t str_type = H5Tcopy(H5T_C_S1);
     H5Tset_size(str_type, value.size());
@@ -163,6 +165,7 @@ RecordWriter::RecordWriter(const std::string& output_dir, const std::string& sou
       gll_node_ids_(rec_map.gll_node_ids),
       gll_node_coords_(rec_map.gll_node_coords),
       cell_gll_node_index_(rec_map.cell_gll_node_index),
+      /// Construct recording map from cell global indices.
       recording_cell_model_index_(rec_map.rec_cell_global) {}
 
 RecordWriter::~RecordWriter() {

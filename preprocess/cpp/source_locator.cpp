@@ -162,6 +162,7 @@ SourceResult locate_source(const Config& cfg, const double* gll_coords_flat, int
                            const int64_t* boundary_tag, const int* is_pml) {
     SourceResult result;
 
+    // User-specified source coordinates in meters.
     Vec3 source_pt(cfg.source_x_m, cfg.source_y_m, cfg.source_z_m >= 0 ? cfg.source_z_m : 0.0);
     bool is_buried = cfg.source_z_m >= 0;
 

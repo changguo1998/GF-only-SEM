@@ -106,6 +106,7 @@ constexpr GF_HOST_DEVICE int gradient_of(int comp, int dir) {
     return comp * NUM_DERIVATIVE_DIRS + dir;
 }
 
+/// Compute flat memory offset for C-PML strain memory (node, gradient, component).
 inline GF_HOST_DEVICE size_t strain_memory_offset(size_t node, int gradient, int conv_dir) {
     return node * MEMORY_PER_NODE + gradient * MEMORY_PER_GRADIENT + conv_dir;
 }
@@ -138,6 +139,7 @@ inline GF_HOST_DEVICE int lx_slot_for_grad(int gradient) {
             return -1;
     }
 }
+/// Map strain gradient index (0..8) to C-PML lx/lz memory slot.
 inline GF_HOST_DEVICE int ly_slot_for_grad(int gradient) {
     switch (gradient) {
         case DUX_DX:
@@ -152,6 +154,7 @@ inline GF_HOST_DEVICE int ly_slot_for_grad(int gradient) {
             return -1;
     }
 }
+/// Map strain gradient index (0..8) to C-PML ly/lz memory slot (z-reduced).
 inline GF_HOST_DEVICE int lz_slot_for_grad(int gradient) {
     switch (gradient) {
         case DUX_DX:
@@ -170,9 +173,11 @@ inline GF_HOST_DEVICE int lz_slot_for_grad(int gradient) {
 inline GF_HOST_DEVICE int lx_conv_dir() {
     return CONV_X;
 }
+/// Return ly direction index for C-PML strain convolution group.
 inline GF_HOST_DEVICE int ly_conv_dir() {
     return CONV_Y;
 }
+/// Return lz direction index for C-PML strain convolution group.
 inline GF_HOST_DEVICE int lz_conv_dir() {
     return CONV_Z;
 }

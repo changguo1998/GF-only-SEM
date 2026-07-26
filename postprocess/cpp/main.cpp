@@ -42,6 +42,7 @@ struct Args {
     std::string output_dir = "greenfun";
 };
 
+/// Print command-line usage and exit.
 static void print_usage(const char* prog) {
     fprintf(stderr,
             "Usage: %s <model.h5> <config.h5> --fx <dir> --fy <dir> --fz <dir> [-o <dir>]\n"
@@ -61,6 +62,7 @@ static void print_usage(const char* prog) {
             prog);
 }
 
+/// Parse command-line arguments into Args struct.
 static Args parse_args(int argc, char** argv) {
     if (argc < 7) {
         print_usage(argv[0]);
@@ -310,7 +312,9 @@ static MergedDirection merge_direction(const char* dir_path, const std::vector<d
         double* step_vel = result.velocity.data() + snap_idx * ng * 3;
         double* step_acc = result.acceleration.data() + snap_idx * ng * 3;
 
+        // Accumulate GLL mass for mass-weighted strain averaging.
         std::vector<double> node_weight_sum(ng, 0.0);
+        // Count sharing elements for count-based displacement averaging.
         std::vector<int> node_count(ng, 0);
         bool any_mass_weight = false;
         bool use_mass_weighted = !cell_mass.empty() && ngll > 0 && n_model_cell > 0;

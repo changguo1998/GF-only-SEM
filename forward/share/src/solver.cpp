@@ -71,6 +71,7 @@ inline void newmark_correct(double solver_dt, double beta, double gamma,
 
 }  // anonymous namespace
 
+/// Main forward time-integration loop (CG-SEM global DOF).
 int run_forward(const std::string& direction, bool resume_mode, int effective_nprocs) {
     // All paths relative to CWD
     std::string config_path = "config.h5";

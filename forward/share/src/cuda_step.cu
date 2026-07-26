@@ -21,6 +21,7 @@ __device__ static inline int node_idx(int i, int j, int k, int ngll) {
 // Element-local kernels (legacy / backward compat)
 // =======================================================================
 
+/// GPU kernel: Newmark predictor — compute predicted displacement u_tilde.
 __global__ void newmark_predict_kernel(double* d_disp_tilde, const double* d_disp,
                                        const double* d_vel, const double* d_acc, double dt,
                                        double beta_factor, int n_dof) {
@@ -30,6 +31,7 @@ __global__ void newmark_predict_kernel(double* d_disp_tilde, const double* d_dis
     }
 }
 
+/// GPU kernel: apply PML damping to velocity at each GLL node.
 __global__ void pml_damping_kernel(double* d_vel, const double* d_pml, int n_dof, int n_nodes) {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
     if (i < n_dof) {
@@ -43,6 +45,7 @@ __global__ void pml_damping_kernel(double* d_vel, const double* d_pml, int n_dof
     }
 }
 
+/// GPU kernel: inject source STF into element-local residual.
 __global__ void source_injection_kernel(double* d_residual, const double* d_src_weights,
                                         double stf_val, int dir, int n_src, int n_node,
                                         const int* d_src_elem_offsets) {
@@ -61,6 +64,7 @@ __global__ void source_injection_kernel(double* d_residual, const double* d_src_
     }
 }
 
+/// GPU kernel: Newmark corrector — update displacement, velocity, acceleration.
 __global__ void newmark_correct_kernel(double* d_disp, double* d_vel, double* d_acc,
                                        const double* d_residual, const double* d_mass, double dt,
                                        double beta, double gamma, int n_dof, int n_nodes) {
@@ -177,6 +181,7 @@ static int grid_blocks(int n, int threads_per_block = 256) {
     return (n + threads_per_block - 1) / threads_per_block;
 }
 
+/// GPU-native Newmark predictor: u_tilde = u + dt*v + dt²/2*(1-2β)*a.
 void cuda_newmark_predict(CudaDeviceState& state, double dt, double beta) {
     double beta_factor = 0.5 * dt * dt * (1.0 - 2.0 * beta);
     if (state.use_global_dof) {
@@ -193,6 +198,7 @@ void cuda_newmark_predict(CudaDeviceState& state, double dt, double beta) {
     GF_CUDA_CHECK(cudaDeviceSynchronize());
 }
 
+/// GPU-native: zero the residual array before element accumulation.
 void cuda_zero_residual(CudaDeviceState& state) {
     if (state.use_global_dof) {
         GF_CUDA_CHECK(
@@ -202,6 +208,7 @@ void cuda_zero_residual(CudaDeviceState& state) {
     }
 }
 
+/// GPU-native: apply C-PML damping profile to velocity on device.
 void cuda_pml_damping(CudaDeviceState& state) {
     if (state.use_global_dof) {
         pml_damping_rank_kernel<<<grid_blocks(state.n_rank_node), 256>>>(
@@ -213,6 +220,7 @@ void cuda_pml_damping(CudaDeviceState& state) {
     GF_CUDA_CHECK(cudaGetLastError());
 }
 
+/// GPU-native: launch source injection kernel.
 void cuda_source_injection(CudaDeviceState& state, int direction, double stf_val,
                            const double* h_src_weights, int n_src_cell) {
     if (stf_val == 0.0 || n_src_cell == 0)
@@ -243,6 +251,7 @@ void cuda_source_injection(CudaDeviceState& state, int direction, double stf_val
     GF_CUDA_CHECK(cudaGetLastError());
 }
 
+/// GPU-native: launch Newmark corrector kernel.
 void cuda_newmark_correct(CudaDeviceState& state, double dt, double beta, double gamma) {
     if (state.use_global_dof) {
         int n = state.n_rank_node * 3;
@@ -259,6 +268,7 @@ void cuda_newmark_correct(CudaDeviceState& state, double dt, double beta, double
     GF_CUDA_CHECK(cudaDeviceSynchronize());
 }
 
+/// GPU-native: copy displacement/velocity/acceleration state to host.
 void cuda_copy_state_to_host(const CudaDeviceState& state, std::vector<double>& h_displacement,
                              std::vector<double>& h_velocity,
                              std::vector<double>& h_acceleration) {
@@ -296,6 +306,7 @@ void cuda_scatter_to_rank(CudaDeviceState& state) {
     GF_CUDA_CHECK(cudaGetLastError());
 }
 
+/// GPU-native CG-SEM gather: rank_node → local_cell displacement.
 void cuda_gather_from_rank(CudaDeviceState& state) {
     gather_from_rank_kernel<<<grid_blocks(state.n_local_cell_dof), 256>>>(
         state.d_rank_node_displacement, state.d_local_cell2rank_node,
@@ -323,11 +334,13 @@ void cuda_copy_utilde_to_host(const CudaDeviceState& state, double* host_buf) {
                              state.n_rank_node * 3 * sizeof(double), cudaMemcpyDeviceToHost));
 }
 
+/// Copy predicted displacement from host to device for element kernel.
 void cuda_copy_utilde_from_host(CudaDeviceState& state, const double* host_buf) {
     GF_CUDA_CHECK(cudaMemcpy(state.d_rank_node_displacement_tilde, host_buf,
                              state.n_rank_node * 3 * sizeof(double), cudaMemcpyHostToDevice));
 }
 
+/// Copy element residual from device to host after kernel completes.
 void cuda_copy_residual_to_host(const CudaDeviceState& state, double* host_buf) {
     if (state.use_global_dof) {
         GF_CUDA_CHECK(cudaMemcpy(host_buf, state.d_rank_node_residual,
@@ -338,6 +351,7 @@ void cuda_copy_residual_to_host(const CudaDeviceState& state, double* host_buf) 
     }
 }
 
+/// Copy element residual from host to device (pre-kernel init).
 void cuda_copy_residual_from_host(CudaDeviceState& state, const double* host_buf) {
     if (state.use_global_dof) {
         GF_CUDA_CHECK(cudaMemcpy(state.d_rank_node_residual, host_buf,
@@ -498,6 +512,7 @@ __global__ void cpml_strain_memory_kernel(
         double new_g = new_phys_grad[grad];
         double old_g = old_phys_grad[grad];
         for (int conv_dir = 0; conv_dir < NUM_CONV_DIRECTIONS; ++conv_dir) {
+            /// Compute flat memory offset for C-PML strain memory (node, gradient, component).
             size_t mem_off = strain_memory_offset(elem_off + n, grad, conv_dir);
             int beta_off = (elem_off + n) * BETA_COEFS_PER_NODE + conv_dir * BETA_COEFS_PER_DIR;
             d_rmemory_strain[mem_off] =
@@ -631,6 +646,7 @@ void cuda_cpml_update_displ_fields(CudaDeviceState& state, double solver_dt, int
     GF_CUDA_CHECK(cudaGetLastError());
 }
 
+/// GPU-native: update C-PML displacement memory variables (A₁–A₅).
 void cuda_cpml_update_displ_memory(CudaDeviceState& state, int n_node) {
     if (!state.has_cpml)
         return;
@@ -642,6 +658,7 @@ void cuda_cpml_update_displ_memory(CudaDeviceState& state, int n_node) {
     GF_CUDA_CHECK(cudaGetLastError());
 }
 
+/// GPU-native: update C-PML strain memory variables (A₆–A₂₃).
 void cuda_cpml_update_strain_memory(CudaDeviceState& state, int ngll, int n_node) {
     if (!state.has_cpml)
         return;
@@ -654,6 +671,7 @@ void cuda_cpml_update_strain_memory(CudaDeviceState& state, int ngll, int n_node
     GF_CUDA_CHECK(cudaGetLastError());
 }
 
+/// GPU-native: add C-PML acceleration correction to element residual.
 void cuda_cpml_accel_contribution(CudaDeviceState& state, int ngll, int n_node) {
     if (!state.has_cpml)
         return;
@@ -772,6 +790,7 @@ CudaDeviceState cuda_allocate_state(
     return state;
 }
 
+/// Upload C-PML coefficient arrays from RankData to device buffers.
 void cuda_upload_cpml_data(CudaDeviceState& state, const RankData& part, int n_node) {
     if (!part.has_cpml || !state.allocated)
         return;
@@ -801,6 +820,7 @@ void cuda_upload_cpml_data(CudaDeviceState& state, const RankData& part, int n_n
     state.has_cpml = true;
 }
 
+/// Free C-PML device buffers allocated by cuda_allocate_state.
 void cuda_free_cpml_data(CudaDeviceState& state) {
     if (!state.has_cpml)
         return;
@@ -848,6 +868,7 @@ void cuda_upload_sls_data(CudaDeviceState& state, const RankData& part, int n_no
     state.has_attenuation = true;
 }
 
+/// Free SLS attenuation device buffers.
 void cuda_free_sls_data(CudaDeviceState& state) {
     if (!state.has_attenuation)
         return;
@@ -864,6 +885,7 @@ void cuda_free_sls_data(CudaDeviceState& state) {
     state.has_attenuation = false;
 }
 
+/// Free all GPU buffers and reset CudaDeviceState.
 void cuda_free_state(CudaDeviceState& state) {
     if (!state.allocated)
         return;

@@ -32,6 +32,7 @@ static hid_t open_or_fail(const char* path, unsigned flags) {
     return fid;
 }
 
+/// Read a double attribute from an HDF5 location.
 static void read_attr_double(hid_t loc, const char* name, double& val) {
     hid_t attr = H5Aopen(loc, name, H5P_DEFAULT);
     if (attr < 0) {
@@ -42,6 +43,7 @@ static void read_attr_double(hid_t loc, const char* name, double& val) {
     H5Aclose(attr);
 }
 
+/// Read an int64 attribute from an HDF5 location.
 static void read_attr_int64(hid_t loc, const char* name, int64_t& val) {
     hid_t attr = H5Aopen(loc, name, H5P_DEFAULT);
     if (attr < 0) {
@@ -251,6 +253,7 @@ struct ConfigParams {
     std::vector<int64_t> tiley_elements;
 };
 
+/// Read simulation configuration from config.h5.
 inline ConfigParams read_config(const char* config_path) {
     ConfigParams cfg;
     hid_t fid = open_or_fail(config_path, H5F_ACC_RDONLY);
@@ -320,6 +323,7 @@ struct ModelData {
     double zmin = 0, zmax = 0;
 };
 
+/// Read mesh-dependent model data from model.h5.
 inline ModelData read_model(const char* model_path) {
     ModelData md;
     hid_t fid = open_or_fail(model_path, H5F_ACC_RDONLY);
@@ -403,6 +407,7 @@ inline bool parse_record_filename(const std::string& basename, int& rank, int& s
 // Discover record files via system glob (POSIX)
 #include <glob.h>
 
+/// Discover all record files in a directory matching the naming pattern.
 inline std::vector<RecordFileInfo> discover_records(const char* dir_path) {
     std::string pattern = std::string(dir_path) + "/record_*.h5";
     glob_t gl;
@@ -432,6 +437,7 @@ struct StepGroup {
     std::vector<RecordFileInfo> files;
 };
 
+/// Group record files by timestep for multi-rank merge.
 inline std::vector<StepGroup> group_by_step(const std::vector<RecordFileInfo>& files) {
     // Find unique steps
     std::vector<int> steps;

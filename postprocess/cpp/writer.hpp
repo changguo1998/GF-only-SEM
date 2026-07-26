@@ -61,6 +61,7 @@ struct TileBins {
 
 // Forward declarations for attr helpers (defined after write_tile)
 inline void write_double_attr_into(hid_t loc, const char* name, double val);
+/// Write an integer attribute into an HDF5 group or dataset.
 inline void write_int_attr_into(hid_t loc, const char* name, int val);
 // -----------------------------------------------------------------------
 // Write a tensor dataset with configurable precision. dims=[nt, n_local, ...].

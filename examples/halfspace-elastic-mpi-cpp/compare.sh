@@ -11,7 +11,7 @@ PROJECT_ROOT="$(cd "$CASE_DIR/../.." && pwd)"
 BIN="${PROJECT_ROOT}/bin"
 
 # ── Environment (recursive import) ──────────────────────────
-source "${PROJECT_ROOT}/scripts/env.sh" 2>&1 | grep '\[OK\]' || true
+source "${PROJECT_ROOT}/scripts/env.sh" > /dev/null 2>&1 || true
 
 
 echo "=============================================================="
@@ -33,7 +33,7 @@ echo ""
 echo "=== Stage 2: Preprocess (cpp) ==="
 cd "${CASE_DIR}"
 # Build C++ preprocessor with correct user config
-cmake -B "${PROJECT_ROOT}/build" \
+cmake -S "${PROJECT_ROOT}" -B "${PROJECT_ROOT}/build" \
     -DGF_DEVICE_BACKEND=CPU \
     -DGF_USER_CONFIG="${PROJECT_ROOT}/preprocess/cpp/config_user_halfspace.cpp" \
     > /dev/null 2>&1

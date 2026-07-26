@@ -38,3 +38,4 @@ _greenfun_index.h5
 
 # Accidental in-source CMake artifacts
 CMakeFiles/
+.pi-glla/

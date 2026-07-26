@@ -49,6 +49,7 @@ static hid_t open_or_fail(const char* path, unsigned flags) {
     return fid;
 }
 
+/// Read a double attribute from an HDF5 location.
 static void read_attr_double(hid_t loc, const char* name, double& val) {
     hid_t attr = H5Aopen(loc, name, H5P_DEFAULT);
     if (attr < 0) {
@@ -59,6 +60,7 @@ static void read_attr_double(hid_t loc, const char* name, double& val) {
     H5Aclose(attr);
 }
 
+/// Read an int64 attribute from an HDF5 location.
 static void read_attr_int64(hid_t loc, const char* name, int64_t& val) {
     hid_t attr = H5Aopen(loc, name, H5P_DEFAULT);
     if (attr < 0) {
@@ -69,6 +71,7 @@ static void read_attr_int64(hid_t loc, const char* name, int64_t& val) {
     H5Aclose(attr);
 }
 
+/// Read a string attribute from an HDF5 location.
 static void read_attr_str(hid_t loc, const char* name, char* buf, size_t bufsz) {
     buf[0] = 0;
     hid_t attr = H5Aopen(loc, name, H5P_DEFAULT);

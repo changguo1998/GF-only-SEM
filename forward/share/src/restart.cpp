@@ -89,6 +89,7 @@ RestartWriter::RestartWriter(const std::string& output_dir, const std::string& s
       ngll_(ngll),
       source_direction_(source_direction),
       use_global_dof_(use_global_dof),
+      /// Construct with known number of rank-local nodes.
       n_rank_node_(n_rank_node) {
     std::string restart_dir = output_dir + "/" + source_direction;
     filepath_ = restart_dir + "/restart_" + std::to_string(rank) + ".h5";
@@ -174,6 +175,7 @@ void RestartWriter::write(int step, double time_s, const std::vector<double>& di
     }
 }
 
+/// Close the restart resource.
 void RestartWriter::close() {
     if (file_id_ >= 0) {
         H5Fclose(file_id_);
