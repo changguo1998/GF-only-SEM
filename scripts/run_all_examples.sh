@@ -36,6 +36,7 @@ PHASE_A_CASES=(
 	"examples/layer-elastic-mpi-python"
 	"examples/layer-elastic-gpu-cpp"
 	"examples/layer-elastic-gpu-python"
+	"examples/fullspace-cubic-elastic-mpi-cpp"
 )
 
 # Phase B: Viscoelastic (SLS elastic-limit regression)
