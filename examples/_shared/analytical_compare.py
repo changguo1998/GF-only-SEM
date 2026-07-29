@@ -104,15 +104,18 @@ def run(greenfun_dir, source_xyz=None, fullspace=False):
         source_xyz = np.array([5278.0, 5278.0, 278.0], dtype=np.float64)  # halfspace default
     print(f"  source: {source_xyz}, mode: {'fullspace' if fullspace else 'halfspace'}")
 
-    _, stf = make_ricker_stf(2.0, 1.0, 1.0e20, dt_s, total_s)
+    _, stf = make_ricker_stf(1.0, 2.0, 1.0e20, dt_s, total_s)
     stf = np.asarray(stf, dtype=np.float64)
 
     # Subsample receivers from interior (exclude PML region)
     if fullspace:
         interior_mask = (
-            (coords[:, 0] >= 3000.0) & (coords[:, 0] <= 15000.0) &
-            (coords[:, 1] >= 3000.0) & (coords[:, 1] <= 15000.0) &
-            (coords[:, 2] >= 3000.0) & (coords[:, 2] <= 15000.0)
+            (coords[:, 0] >= 3000.0)
+            & (coords[:, 0] <= 15000.0)
+            & (coords[:, 1] >= 3000.0)
+            & (coords[:, 1] <= 15000.0)
+            & (coords[:, 2] >= 3000.0)
+            & (coords[:, 2] <= 15000.0)
         )
         interior_indices = list(map(int, np.where(interior_mask)[0]))
         n_interior = len(interior_indices)
@@ -147,7 +150,7 @@ def run(greenfun_dir, source_xyz=None, fullspace=False):
 
             try:
                 analytical = stokes_displacement_green_tensor(
-                    receiver, source_xyz, force_dir, vp, vs, rho, stf, dt_s,
+                    receiver, source_xyz, force_dir, vp, vs, rho, stf, dt_s
                 )
             except Exception:
                 continue
@@ -164,7 +167,9 @@ def run(greenfun_dir, source_xyz=None, fullspace=False):
                 all_l2.append(e)
 
         if f_corrs:
-            print(f"  Force {f_label}: n={len(f_corrs)}, mean_corr={np.mean(f_corrs):.4f}, mean_l2={np.mean(f_l2):.4f}")
+            print(
+                f"  Force {f_label}: n={len(f_corrs)}, mean_corr={np.mean(f_corrs):.4f}, mean_l2={np.mean(f_l2):.4f}"
+            )
         else:
             print(f"  Force {f_label}: no valid comparisons")
 

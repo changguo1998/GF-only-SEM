@@ -20,34 +20,34 @@ Config get_config() {
     c.lz_m = 18000.0;
     c.polynomial_order = 4;
     c.output_dt_s = 0.01;
-    c.total_duration_s = 5.0;
+    c.total_duration_s = 8.0;
     c.cfl_safety = 0.5;
     c.log_stride = 100;
     c.restart_dt_s = 0.5;
     c.snapshot_precision_bytes = 4;
-    c.storage_limit_gb = 10.0;
+    c.storage_limit_gb = 20.0;
     c.record_depth_max_m = 18000.0;
-    c.tilex_elements = {4, 4, 4};
-    c.tiley_elements = {4, 4, 4};
+    c.tilex_elements = {2, 2, 2, 2};
+    c.tiley_elements = {2, 2, 2, 2};
     c.n_ranks = 16;
-    c.pml_xmin = 3;
-    c.pml_xmax = 3;
-    c.pml_ymin = 3;
-    c.pml_ymax = 3;
-    c.pml_zmin = 3;   // PML on bottom — no free surface
-    c.pml_zmax = 3;   // PML on top
-    c.source_x_m = 9000.0;
-    c.source_y_m = 9000.0;
-    c.source_z_m = 9000.0;
+    c.pml_xmin = 5;
+    c.pml_xmax = 5;
+    c.pml_ymin = 5;
+    c.pml_ymax = 5;
+    c.pml_zmin = 5;  // PML on bottom — no free surface
+    c.pml_zmax = 5;  // PML on top
+    c.source_x_m = 9500.0;
+    c.source_y_m = 9500.0;
+    c.source_z_m = 9500.0;
     c.source_force_amplitude_n = 1.0e20;
-    c.f0_for_pml_hz = 2.0;
+    c.f0_for_pml_hz = 1.0;
     return c;
 }
 
 /// Source time function: evaluate force amplitude at time t.
 double stf_func(double t_s) {
-    double f0_hz = 2.0;
-    double t0_s = 1.0;
+    double f0_hz = 1.0;
+    double t0_s = 2.0;
     double a = M_PI * f0_hz * (t_s - t0_s);
     return 1.0e20 * (1.0 - 2.0 * a * a) * std::exp(-(a * a));
 }
