@@ -155,6 +155,33 @@ This is a tile-format limitation, not a solver bug.
 1. Element residual: isotropic elastic stress correct ✓
 1. E-W axisymmetry: centered source gives identical E/W displacement ✓
 
+______________________________________________________________________
+
+## 7. Postprocess MPI Tile-Parallel Refactoring
+
+**Status: WIP.** MPI tile-parallel variant implemented (`postprocess/cpp/main_mpi.cpp`,
+CMake target `gf_postprocess_mpi`). One-tile-per-rank; single-rank runs correctly,
+multi-rank mode incomplete (requires `n_ranks == n_tiles`; see
+[`design/postprocess-tile-parallel.md`](design/postprocess-tile-parallel.md)).
+
+### Code cleanup completed (2026-07-28)
+
+- `preprocess/cpp/source_locator.cpp`: removed residual DEBUG code — dead loop,
+  duplicate AABB recomputation, 3 `fprintf(stderr,"DEBUG:...")` calls, dead
+  variable. (-31 lines)
+- `postprocess/cpp/writer.hpp`: removed duplicate `#include <unordered_map>`.
+  (-2 lines)
+- `postprocess/cpp/main.cpp` + `main_mpi.cpp`: removed orphan `// Debug: check merged strain` comments. (-1 line each)
+
+### Remaining
+
+- `main.cpp` and `main_mpi.cpp` share ~950 lines of duplicated code. Refactor into
+  a shared library once multi-rank MPI is verified.
+- Multi-rank tile distribution: replace `ti = mpi_rank` with round-robin/block
+  distribution so each tile is owned by exactly one rank regardless of `n_ranks`.
+- Byte-identical verification of `gf_postprocess_mpi` output against serial
+  `gf_postprocess` across all tiles.
+
 ## Summary
 
 | Item | Module | Priority | Effort |
@@ -164,3 +191,4 @@ This is a tile-format limitation, not a solver bug.
 | Compress module | - | - | Placeholder (removed, see §2 above) |
 | HIP/SYCL backends | forward/elastic/ | Low | Medium |
 | ~~Cartesian mesh anisotropy~~ | forward + preprocess | - | RESOLVED (misdiagnosis, see §6 above) |
+| Postprocess MPI tile-parallel | postprocess/ | Medium | Medium | **WIP** (single-rank OK, see §7 above) |

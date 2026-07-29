@@ -15,6 +15,9 @@
  * Output matches Python gf_post.writer.GFWriter byte-for-byte equivalent.
  */
 
+#include <mpi.h>
+#include <unistd.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -25,10 +28,6 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-
-#ifdef GF_POST_MPI
-#include <mpi.h>
-#endif
 
 #include "reader.hpp"
 #include "writer.hpp"
@@ -504,6 +503,17 @@ static MergedDirection merge_direction(const char* dir_path, const std::vector<d
 // -----------------------------------------------------------------------
 
 int main(int argc, char** argv) {
+    // ---- MPI init ----
+    MPI_Init(&argc, &argv);
+    int mpi_rank = 0, mpi_nranks = 1;
+    MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &mpi_nranks);
+    fprintf(stderr, "[postprocess] MPI rank %d/%d\n", mpi_rank, mpi_nranks);
+    // Stagger file access to avoid HDF5 metadata contention
+    MPI_Barrier(MPI_COMM_WORLD);
+    usleep((unsigned int)(mpi_rank * 200000));  // 200ms stagger
+    MPI_Barrier(MPI_COMM_WORLD);
+
     double start = 0.0;
     {
         struct timespec ts;
@@ -798,6 +808,12 @@ int main(int argc, char** argv) {
 
     double zmin = model.zmin, zmax = model.zmax;
     int64_t n_tiles = (int64_t)bins.keys.size();
+    if (mpi_rank >= (int)n_tiles) {
+        fprintf(stderr, "[postprocess] Rank %d: no tile assigned (n_tiles=%lld), exiting\n",
+                mpi_rank, (long long)n_tiles);
+        MPI_Finalize();
+        return 0;
+    }
 
     auto compute_tile_bounds = [&](const TileKey& key, double& tx_min, double& tx_max,
                                    double& ty_min, double& ty_max) {
@@ -820,7 +836,8 @@ int main(int argc, char** argv) {
 
     // Write tiles (could be OpenMP parallel, but HDF5 C library is not thread-safe
     // for file creation — serialize writes)
-    for (int64_t ti = 0; ti < n_tiles; ++ti) {
+    int64_t ti = (int64_t)mpi_rank;
+    {
         const TileKey& key = bins.keys[(size_t)ti];
         // vert_indices removed: cell-based tiling uses cell_indices below
         const auto& cell_indices = cell_bins.at(key);
@@ -942,6 +959,8 @@ int main(int argc, char** argv) {
                    has_acceleration ? tile_acceleration.data() : nullptr, stf_t_ds, stf_values_ds,
                    use_float32);
     }
+
+    MPI_Finalize();
 
     // ---- Print machine-parseable stats ----
     {

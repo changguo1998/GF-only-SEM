@@ -34,14 +34,18 @@ wavefields/{x,y,z}/record_{r}_{step}.h5
 
 ## Architecture
 
-C++17 header-only design. Single binary `gf_postprocess` (built via CMake, target `gf_postprocess`,
-lands in `bin/gf_postprocess`). No compiled library — all logic in `main.cpp`, `reader.hpp`, `writer.hpp`.
+C++17 header-only design. Primary binary `gf_postprocess` (serial, built via CMake
+target `gf_postprocess`, lands in `bin/gf_postprocess`). An MPI tile-parallel
+variant `gf_postprocess_mpi` (target `gf_postprocess_mpi`) is in development —
+see [`postprocess-tile-parallel.md`](postprocess-tile-parallel.md). No compiled
+library — all logic in `main.cpp`/`main_mpi.cpp`, `reader.hpp`, `writer.hpp`.
 
 | File | Role |
 |------|------|
-| `cpp/main.cpp` | CLI, pipeline orchestration, merge, assembly, subset, binning |
+| `cpp/main.cpp` | Serial CLI, pipeline orchestration, merge, assembly, subset, binning |
 | `cpp/reader.hpp` | HDF5 readers: config, model, record discovery and per-file scatter |
 | `cpp/writer.hpp` | HDF5 tile writer with element-count and spatial binning |
+| `cpp/main_mpi.cpp` | MPI tile-parallel variant — one tile per rank (WIP, see [tile-parallel design](postprocess-tile-parallel.md)) |
 
 ## CLI
 
@@ -141,10 +145,11 @@ Tiles include `vertex_ids` only. Coordinates stay in `model.h5` (not duplicated)
 ```bash
 cd build
 cmake ..
-cmake --build . --target gf_postprocess
+cmake --build . --target gf_postprocess      # serial
+cmake --build . --target gf_postprocess_mpi   # MPI variant (WIP)
 ```
 
-Dependencies: HDF5 C library (system). No MPI, no OpenMP required.
+Dependencies: HDF5 C library (system). The serial `gf_postprocess` needs no MPI; the MPI variant `gf_postprocess_mpi` additionally requires an MPI implementation.
 
 ## Performance
 
@@ -187,8 +192,9 @@ STAT_ELAPSED_S=0.4
 postprocess/
 ├── CMakeLists.txt              (builds cpp/)
 ├── cpp/
-│   ├── CMakeLists.txt          (builds gf_postprocess)
-│   ├── main.cpp                (CLI, pipeline)
+│   ├── CMakeLists.txt          (builds gf_postprocess + gf_postprocess_mpi)
+│   ├── main.cpp                (serial CLI, pipeline)
+│   ├── main_mpi.cpp            (MPI tile-parallel variant, WIP)
 │   ├── reader.hpp               (config, model, record readers)
 │   └── writer.hpp               (tile writer + binning)
 └── _archive/                   (archived Python reference)
