@@ -125,6 +125,19 @@ is 0.991 (halfspace) / 0.745 (layer). A residual ~3× scale factor (2.95 halfspa
 | CUDA single (elastic) | N/A | Global (ibool) | ✅ Verified — rel_l2=0.644 matches CPU 16-rank |
 | CUDA single (viscoelastic) | N/A | Global (ibool) | ✅ Builds, awaiting GPU hardware test |
 
+**Postprocess MPI tile-parallel** (`gf_postprocess_mpi`, WIP): one-tile-per-rank
+variant of `gf_postprocess`. Single-rank runs correctly; multi-rank mode requires
+`n_ranks == n_tiles` for complete output — round-robin distribution and
+byte-identical verification against serial output are pending. See
+[`docs/design/postprocess-tile-parallel.md`](docs/design/postprocess-tile-parallel.md)
+and [`docs/deferred.md`](docs/deferred.md) §7.
+
+**Code cleanup (2026-07-28):** removed residual debug code from
+`preprocess/cpp/source_locator.cpp` (-31 lines), duplicate `#include` in
+`postprocess/cpp/writer.hpp`, and orphan debug comments in `postprocess/cpp/main.cpp`
+and `main_mpi.cpp`. `main.cpp`/`main_mpi.cpp` still share ~950 duplicated lines —
+refactor deferred until multi-rank MPI is verified.
+
 ## Cross-Cutting Conventions
 
 - **Naming**: X2Y for topology relations, 1-based with signed direction

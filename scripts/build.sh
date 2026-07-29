@@ -65,7 +65,26 @@ EOF
 configure() {
 	local backend="${1:-CPU}"
 	echo -e "${YELLOW}Configuring CMake (GF_DEVICE_BACKEND=${backend})...${NC}"
-	cmake -B "$BUILD_DIR" -DGF_DEVICE_BACKEND="$backend"
+
+	# Resolve Spack package prefixes for cmake (spack load sets env
+	# but cmake find_package needs explicit hints).
+	local spack_prefixes=""
+	if command -v spack &>/dev/null; then
+		local hdf5_root mpix_root eigen_root
+		hdf5_root=$(spack location -i hdf5 2>/dev/null || echo "")
+		mpix_root=$(spack location -i openmpi 2>/dev/null || echo "")
+		eigen_root=$(spack location -i eigen 2>/dev/null || echo "")
+		[ -n "$hdf5_root" ] && spack_prefixes="${hdf5_root};${spack_prefixes}"
+		[ -n "$mpix_root" ] && spack_prefixes="${mpix_root};${spack_prefixes}"
+		[ -n "$eigen_root" ] && spack_prefixes="${eigen_root};${spack_prefixes}"
+	fi
+
+	local cmake_args=(-B "$BUILD_DIR" -DGF_DEVICE_BACKEND="$backend")
+	if [ -n "$spack_prefixes" ]; then
+		cmake_args+=(-DCMAKE_PREFIX_PATH="$spack_prefixes")
+	fi
+
+	cmake "${cmake_args[@]}" -S "$PROJECT_ROOT"
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────
