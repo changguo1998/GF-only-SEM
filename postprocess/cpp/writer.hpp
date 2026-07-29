@@ -50,8 +50,6 @@ struct TileKeyHash {
     size_t operator()(const TileKey& k) const { return ((size_t)k.tx << 16) ^ (size_t)k.ty; }
 };
 
-#include <unordered_map>
-
 struct TileBins {
     // For each tile key, the list of vertex indices (0-based global)
     std::unordered_map<TileKey, std::vector<int64_t>, TileKeyHash> bins;

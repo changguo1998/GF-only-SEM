@@ -203,11 +203,10 @@ SourceResult locate_source(const Config& cfg, const double* gll_coords_flat, int
             }
         }
     }
-    for (int _i = 0; _i < (int)candidates.size() && _i < 5; ++_i)
-        if (candidates.empty()) {
-            fprintf(stderr, "ERROR: source not found in any candidate element\n");
-            std::exit(1);
-        }
+    if (candidates.empty()) {
+        fprintf(stderr, "ERROR: source not found in any candidate element\n");
+        std::exit(1);
+    }
 
     // GLL points
     auto gll_pts = gll_points(ngll - 1);
@@ -215,23 +214,6 @@ SourceResult locate_source(const Config& cfg, const double* gll_coords_flat, int
     // Newton iteration for each candidate
     int stride = ngll * ngll * ngll * 3;
     for (int e : candidates) {
-        {
-            // Debug: check AABB for this candidate
-            double xmin = 1e30, xmax = -1e30, ymin = 1e30, ymax = -1e30, zmin = 1e30, zmax = -1e30;
-            int s = ngll * ngll * ngll * 3;
-            const double* ec = gll_coords_flat + e * s;
-            for (int i = 0; i < ngll * ngll * ngll; ++i) {
-                xmin = std::min(xmin, ec[i * 3 + 0]);
-                xmax = std::max(xmax, ec[i * 3 + 0]);
-                ymin = std::min(ymin, ec[i * 3 + 1]);
-                ymax = std::max(ymax, ec[i * 3 + 1]);
-                zmin = std::min(zmin, ec[i * 3 + 2]);
-                zmax = std::max(zmax, ec[i * 3 + 2]);
-            }
-            fprintf(stderr,
-                    "  DEBUG: candidate e=%d AABB: x=[%.1f,%.1f] y=[%.1f,%.1f] z=[%.1f,%.1f]\n", e,
-                    xmin, xmax, ymin, ymax, zmin, zmax);
-        }
         // Extract corners from GLL coords
         Arr8x3 corners;
         int idx = ngll - 1;
@@ -250,8 +232,6 @@ SourceResult locate_source(const Config& cfg, const double* gll_coords_flat, int
         corners.row(7) = get_node(0, idx, idx);
 
         Vec3 xi = newton_find_xi(source_pt, corners);
-        fprintf(stderr, "  DEBUG: element %d -> xi=(%g,%g,%g) inside=%d\n", e, xi[0], xi[1], xi[2],
-                inside_element(xi));
         if (!inside_element(xi))
             continue;
 
@@ -259,13 +239,6 @@ SourceResult locate_source(const Config& cfg, const double* gll_coords_flat, int
         std::vector<double> w;
         compute_source_weights_3d(xi, gll_pts, w, w_ngll);
 
-        fprintf(stderr, "  DEBUG: w_ngll=%d, w.size()=%zu, first 5 w=%.6f %.6f %.6f %.6f %.6f\n",
-                w_ngll, w.size(), w[0], w[1], w[2], w[3], w[4]);
-        {
-            double s = 0;
-            for (double v : w)
-                s += v;
-        }
         double w_sum = 0.0;
         for (double v : w)
             w_sum += v;
