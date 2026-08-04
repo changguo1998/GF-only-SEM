@@ -13,7 +13,8 @@ No receivers. Output is the configured shallow mesh-vertex field.
 | `reader.hpp` | HDF5 readers: config, model, record discovery and per-file scatter |
 | `writer.hpp` | HDF5 tile writer with element-count and spatial binning |
 | `main.cpp` | CLI entry point, pipeline orchestration, machine-parseable stats |
-| `CMakeLists.txt` | CMake build (HDF5 + OpenMP) |
+| `main_mpi.cpp` | MPI tile-parallel variant (one tile per rank) |
+| `CMakeLists.txt` | CMake build (HDF5; `gf_postprocess` serial, `gf_postprocess_mpi` MPI) |
 | `_archive/` | Archived Python implementation (reference only) |
 
 ## Data Flow
@@ -41,7 +42,6 @@ Tile sizes come from `config.h5` (`/simulation/tilex_elements`, `tiley_elements`
 Binary `gf_postprocess` is the primary postprocessor. Built via CMake, lands in `bin/gf_postprocess`.
 
 Output is byte-identical to the Python reference (vertex IDs + Green's tensor values match exactly).
-Output is byte-identical to the Python reference (vertex IDs + Green's tensor values match exactly).
 
 ## Pipeline
 
@@ -66,6 +66,14 @@ cd build
 cmake ..
 cmake --build . --target gf_postprocess
 ```
+
+MPI tile-parallel variant:
+
+```bash
+cmake --build . --target gf_postprocess_mpi
+```
+
+See [`../docs/design/postprocess-tile-parallel.md`](../docs/design/postprocess-tile-parallel.md) for the MPI design.
 
 ## Performance
 

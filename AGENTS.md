@@ -126,9 +126,9 @@ is 0.991 (halfspace) / 0.745 (layer). A residual ~3× scale factor (2.95 halfspa
 | CUDA single (viscoelastic) | N/A | Global (ibool) | ✅ Builds, awaiting GPU hardware test |
 
 **Postprocess MPI tile-parallel** (`gf_postprocess_mpi`, WIP): one-tile-per-rank
-variant of `gf_postprocess`. Single-rank runs correctly; multi-rank mode requires
-`n_ranks == n_tiles` for complete output — round-robin distribution and
-byte-identical verification against serial output are pending. See
+variant of `gf_postprocess`. OOM bug fixed — memory redesigned from
+full-replication (~331 GB for 16 ranks) to tile-local extraction (~17 GB).
+Build passes; multi-rank runtime verification pending. See
 [`docs/design/postprocess-tile-parallel.md`](docs/design/postprocess-tile-parallel.md)
 and [`docs/deferred.md`](docs/deferred.md) §7.
 

@@ -1,18 +1,18 @@
-/* postprocess/cpp/main.cpp — C++ accelerated Green's function postprocessor
+/* postprocess/cpp/main_mpi.cpp - MPI tile-parallel Green's function postprocessor
  *
  * CLI:
- *   gf_postprocess <model.h5> <config.h5> \
+ *   gf_postprocess_mpi <model.h5> <config.h5> \
  *       --fx <dir> --fy <dir> --fz <dir> -o <output_dir>
  *
- * Pipeline:
- *   1. Read config.h5 + model.h5
- *   2. Discover per-step record files in each direction dir
- *   3. Per-step: merge strain by vertex_id across ranks
- *   4. Assemble Green's tensor [nt, n_vertex, 6, 3]
- *   5. Bin recorded vertices into tiles (element-count or spatial)
- *   6. Write tile_x{i}_y{j}.h5 files
+ * Tile-parallel variant of main.cpp: one tile per MPI rank.
  *
- * Output matches Python gf_post.writer.GFWriter byte-for-byte equivalent.
+ * Memory design (prevents OOM on multi-rank runs):
+ *   Phase 1 - merge_metadata(): every rank builds GLL-node union + cell
+ *             metadata only (~2 MB). No per-step field arrays.
+ *   Phase 2 - binning: ranks >= n_tiles exit before any field allocation.
+ *   Phase 3 - extract_tile_fields(): each rank reads records but accumulates
+ *             field data only for its tile's nodes (~1 GB/rank). All sharing
+ *             cells are still iterated so averaging stays correct.
  */
 
 #include <mpi.h>
@@ -50,10 +50,11 @@ static void print_usage(const char* prog) {
     fprintf(stderr,
             "Usage: %s <model.h5> <config.h5> --fx <dir> --fy <dir> --fz <dir> [-o <dir>]\n"
             "\n"
-            "Extract strain Green's functions from SEM record files.\n"
+            "Extract strain Green's functions from SEM record files (MPI tile-parallel).\n"
             "Reads per-step record_{r}_{step}.h5 files from three force-direction\n"
             "forward runs, merges per-rank records, assembles the full 3x6 Green's\n"
             "tensor at every recorded mesh vertex, and writes tiled HDF5 output.\n"
+            "One MPI rank writes one tile; ranks beyond n_tiles exit early.\n"
             "\n"
             "Arguments:\n"
             "  model.h5   Mesh file with /topology/vertex_to_coord + /domain/ bounds\n"
@@ -98,20 +99,30 @@ static Args parse_args(int argc, char** argv) {
 }
 
 // -----------------------------------------------------------------------
-// Merge records for one direction: returns [n_steps, n_vertex, 6] double
+// Per-file mapping (local GLL node id -> global merged index)
 // -----------------------------------------------------------------------
 
-// GLL-node merged data for one force direction
-struct MergedDirection {
-    std::vector<double> strain;           // [n_steps, n_unique_gll, 6]
-    std::vector<double> displacement;     // [n_steps, n_unique_gll, 3]
-    std::vector<double> velocity;         // [n_steps, n_unique_gll, 3]
-    std::vector<double> acceleration;     // [n_steps, n_unique_gll, 3]
+struct FileMapping {
+    RecordFileInfo info;
+    std::vector<int32_t> local_to_global;
+    hsize_t n_rec_cell = 0;
+    hsize_t nnodes = 0;
+    std::vector<int32_t> cell_gll_idx;        // [n_rec_cell * n_node]
+    std::vector<int64_t> rec_cell_model_idx;  // [n_rec_cell]
+};
+
+// -----------------------------------------------------------------------
+// Merged metadata for one force direction (NO per-step field arrays)
+// -----------------------------------------------------------------------
+
+struct MergedMetadata {
     std::vector<double> gll_node_coords;  // [n_unique_gll, 3]
     std::vector<int64_t> gll_node_ids;    // [n_unique_gll] 1-based global DOF
     // Cell-level data (for whole-cell tiling + mass-weighted L2 projection)
     std::vector<int32_t> cell_gll_node_index;         // [n_rec_cell_merged * n_node]
     std::vector<int64_t> recording_cell_model_index;  // [n_rec_cell_merged]
+    std::vector<FileMapping> file_maps;
+    std::vector<StepGroup> groups;  // per-step file groups
     int64_t n_unique_gll = 0;
     int64_t n_steps = 0;
     int64_t n_node_per_cell = 0;
@@ -121,12 +132,13 @@ struct MergedDirection {
     bool has_acceleration = false;
 };
 
-// GLL-aware merge: reads 4D records, deduplicates GLL nodes across ranks,
-// and produces simple-averaged strain (L2 projection deferred).
-static MergedDirection merge_direction(const char* dir_path, const std::vector<double>& cell_mass,
-                                       int64_t n_model_cell, int ngll) {
-    MergedDirection result;
-    fprintf(stderr, "[postprocess] Merging GLL records from %s...\n", dir_path);
+// -----------------------------------------------------------------------
+// Phase 1: merge metadata (first pass + cell accumulation, no per-step fields).
+// -----------------------------------------------------------------------
+
+static MergedMetadata merge_metadata(const char* dir_path) {
+    MergedMetadata result;
+    fprintf(stderr, "[postprocess] Scanning metadata from %s...\n", dir_path);
 
     auto files = discover_records(dir_path);
     if (files.empty()) {
@@ -140,14 +152,6 @@ static MergedDirection merge_direction(const char* dir_path, const std::vector<d
     std::vector<double> merged_gll_node_coords;
     int64_t n_node_per_cell = 0;
 
-    struct FileMapping {
-        RecordFileInfo info;
-        std::vector<int32_t> local_to_global;
-        hsize_t n_rec_cell = 0;
-        hsize_t nnodes = 0;
-        std::vector<int32_t> cell_gll_idx;        // [n_rec_cell * n_node]
-        std::vector<int64_t> rec_cell_model_idx;  // [n_rec_cell]
-    };
     std::vector<FileMapping> file_maps;
 
     for (auto& fi : files) {
@@ -164,7 +168,6 @@ static MergedDirection merge_direction(const char* dir_path, const std::vector<d
             continue;
         }
 
-        // Read gll_node_coords
         hid_t cds = H5Dopen2(fid, "gll_node_coords", H5P_DEFAULT);
         hsize_t cdims[2];
         std::vector<double> local_coords;
@@ -187,16 +190,13 @@ static MergedDirection merge_direction(const char* dir_path, const std::vector<d
             H5Sget_simple_extent_dims(ispace, idxdims, nullptr);
             n_node_per_cell = (int64_t)idxdims[1];
             ncell = idxdims[0];
-            // Read full cell_gll_node_index data
             hsize_t idx_total = idxdims[0] * idxdims[1];
             cell_gll_idx_local.resize((size_t)idx_total);
             H5Dread(idxds, H5T_NATIVE_INT32, H5S_ALL, H5S_ALL, H5P_DEFAULT,
                     cell_gll_idx_local.data());
             H5Sclose(ispace);
             H5Dclose(idxds);
-            H5Dclose(idxds);
         } else {
-            // Fallback: read n_rec_cell from root attribute
             int64_t attr_val = 0;
             read_attr_int64(fid, "n_rec_cell", attr_val);
             ncell = (hsize_t)attr_val;
@@ -208,7 +208,6 @@ static MergedDirection merge_direction(const char* dir_path, const std::vector<d
         fm.local_to_global.resize((size_t)nids, -1);
         fm.cell_gll_idx = std::move(cell_gll_idx_local);
 
-        // Read recording_cell_model_index
         {
             hid_t rcm_ds = H5Dopen2(fid, "recording_cell_model_index", H5P_DEFAULT);
             if (rcm_ds >= 0) {
@@ -271,20 +270,13 @@ static MergedDirection merge_direction(const char* dir_path, const std::vector<d
     }
     fprintf(stderr, "[postprocess]   %lld merged recording cells\n",
             (long long)result.n_rec_cell_merged);
-
     fprintf(stderr, "[postprocess]   %lld unique GLL nodes from %zu rank files\n",
             (long long)result.n_unique_gll, file_maps.size());
 
-    auto groups = group_by_step(files);
-    result.n_steps = (int64_t)groups.size();
+    result.groups = group_by_step(files);
+    result.n_steps = (int64_t)result.groups.size();
+    result.file_maps = std::move(file_maps);
     fprintf(stderr, "[postprocess]   %lld steps\n", (long long)result.n_steps);
-
-    // Allocate merged arrays
-    size_t ng = (size_t)result.n_unique_gll;
-    result.strain.resize((size_t)result.n_steps * ng * 6, 0.0);
-    result.displacement.resize((size_t)result.n_steps * ng * 3, 0.0);
-    result.velocity.resize((size_t)result.n_steps * ng * 3, 0.0);
-    result.acceleration.resize((size_t)result.n_steps * ng * 3, 0.0);
 
     // Detect optional field presence from first file
     if (!files.empty()) {
@@ -307,26 +299,64 @@ static MergedDirection merge_direction(const char* dir_path, const std::vector<d
         }
     }
 
-    // --- Second pass: per-step GLL-node simple averaging ---
-    for (int64_t snap_idx = 0; snap_idx < result.n_steps; ++snap_idx) {
-        auto& group = groups[(size_t)snap_idx];
-        double* step_data = result.strain.data() + snap_idx * ng * 6;
-        double* step_disp = result.displacement.data() + snap_idx * ng * 3;
-        double* step_vel = result.velocity.data() + snap_idx * ng * 3;
-        double* step_acc = result.acceleration.data() + snap_idx * ng * 3;
+    return result;
+}
 
-        // Accumulate GLL mass for mass-weighted strain averaging.
-        std::vector<double> node_weight_sum(ng, 0.0);
-        // Count sharing elements for count-based displacement averaging.
-        std::vector<int> node_count(ng, 0);
-        bool any_mass_weight = false;
-        bool use_mass_weighted = !cell_mass.empty() && ngll > 0 && n_model_cell > 0;
-        int ngll2 = ngll * ngll;
-        int n_node_mass = ngll * ngll2;
+// -----------------------------------------------------------------------
+// Per-direction tile-local field arrays (second pass, tile-local only)
+// -----------------------------------------------------------------------
 
-        for (auto& fm : file_maps) {
+struct DirFields {
+    std::vector<double> strain;        // [n_steps, n_local, 6]
+    std::vector<double> displacement;  // [n_steps, n_local, 3]
+    std::vector<double> velocity;      // [n_steps, n_local, 3]
+    std::vector<double> acceleration;  // [n_steps, n_local, 3]
+};
+
+// Phase 3: extract per-step fields for ONE direction, tile-local nodes only.
+// All recording cells are iterated (shared-node averaging correctness), but
+// only tile-local nodes are accumulated. Memory: n_steps * n_local, not n_unique_gll.
+// tile_local_index: [n_unique_gll] -> [0, n_local) or -1
+static DirFields extract_tile_fields(const MergedMetadata& meta,
+                                     const std::vector<int32_t>& tile_local_index, int64_t n_local,
+                                     const std::vector<double>& cell_mass, int64_t n_model_cell,
+                                     int ngll) {
+    DirFields result;
+    int64_t n_steps = meta.n_steps;
+    int64_t ng = meta.n_unique_gll;
+    int64_t n_node_per_cell = meta.n_node_per_cell;
+
+    result.strain.resize((size_t)n_steps * (size_t)n_local * 6, 0.0);
+    if (meta.has_displacement)
+        result.displacement.resize((size_t)n_steps * (size_t)n_local * 3, 0.0);
+    if (meta.has_velocity)
+        result.velocity.resize((size_t)n_steps * (size_t)n_local * 3, 0.0);
+    if (meta.has_acceleration)
+        result.acceleration.resize((size_t)n_steps * (size_t)n_local * 3, 0.0);
+
+    bool use_mass_weighted = !cell_mass.empty() && ngll > 0 && n_model_cell > 0;
+    int ngll2 = ngll * ngll;
+    int n_node_mass = ngll * ngll2;
+
+    // --- Per-step GLL-node averaging (tile-local only) ---
+    for (int64_t snap_idx = 0; snap_idx < n_steps; ++snap_idx) {
+        const auto& group = meta.groups[(size_t)snap_idx];
+        double* step_data = result.strain.data() + snap_idx * n_local * 6;
+        double* step_disp =
+            meta.has_displacement ? result.displacement.data() + snap_idx * n_local * 3 : nullptr;
+        double* step_vel =
+            meta.has_velocity ? result.velocity.data() + snap_idx * n_local * 3 : nullptr;
+        double* step_acc =
+            meta.has_acceleration ? result.acceleration.data() + snap_idx * n_local * 3 : nullptr;
+
+        // Accumulate GLL mass for mass-weighted strain averaging (tile-local).
+        std::vector<double> node_weight_sum((size_t)n_local, 0.0);
+        // Count sharing elements for count-based disp/vel/acc averaging (tile-local).
+        std::vector<int> node_count((size_t)n_local, 0);
+
+        for (const auto& fm : meta.file_maps) {
             const RecordFileInfo* gfi = nullptr;
-            for (auto& fi : group.files) {
+            for (const auto& fi : group.files) {
                 if (fi.path == fm.info.path) {
                     gfi = &fi;
                     break;
@@ -344,7 +374,6 @@ static MergedDirection merge_direction(const char* dir_path, const std::vector<d
             std::vector<double> strain_buf;
             read_strain_4d(fid, "strain", nrc, nnp, strain_buf);
 
-            // Read cell_gll_node_index
             std::vector<int32_t> cell_gll_idx;
             hid_t idxds = H5Dopen2(fid, "cell_gll_node_index", H5P_DEFAULT);
             if (idxds >= 0) {
@@ -366,6 +395,9 @@ static MergedDirection merge_direction(const char* dir_path, const std::vector<d
                     int32_t global_idx = fm.local_to_global[(size_t)local_gll_idx];
                     if (global_idx < 0 || global_idx >= (int32_t)ng)
                         continue;
+                    int32_t li = tile_local_index[(size_t)global_idx];
+                    if (li < 0)
+                        continue;  // not tile-local
 
                     // Mass weight lookup
                     double weight = 1.0;
@@ -379,24 +411,24 @@ static MergedDirection merge_direction(const char* dir_path, const std::vector<d
                                               (size_t)mi * (size_t)ngll2 +
                                               (size_t)mj * (size_t)ngll + (size_t)mk;
                             weight = cell_mass[mass_off];
-                            any_mass_weight = true;
                         }
                     }
                     double* src = strain_buf.data() + (c * nnp + p) * 6;
-                    double* dst = step_data + (size_t)global_idx * 6;
+                    double* dst = step_data + (size_t)li * 6;
                     for (int comp = 0; comp < 6; ++comp)
                         dst[comp] += src[comp] * weight;
-                    node_weight_sum[(size_t)global_idx] += weight;
+                    node_weight_sum[(size_t)li] += weight;
                 }
             }
 
-            // Read displacement [1, n_rec_cell, n_node_per_cell, 3]
-            if (result.has_displacement) {
-                hsize_t drc = 0, dnp = 0;
-                std::vector<double> disp_buf;
-                read_field_4d(fid, "displacement", drc, dnp, disp_buf);
-                for (hsize_t c = 0; c < drc && c < nrc; ++c) {
-                    for (hsize_t p = 0; p < dnp && p < n_node_per_cell; ++p) {
+            // Read and accumulate displacement/velocity/acceleration (identical
+            // logic - only the dataset name and step buffer differ).
+            auto accumulate_vector_field = [&](const char* ds_name, double* step_dst) {
+                hsize_t frc = 0, fnp = 0;
+                std::vector<double> fbuf;
+                read_field_4d(fid, ds_name, frc, fnp, fbuf);
+                for (hsize_t c = 0; c < frc && c < nrc; ++c) {
+                    for (hsize_t p = 0; p < fnp && p < n_node_per_cell; ++p) {
                         int32_t local_gll_idx = cell_gll_idx[c * (hsize_t)n_node_per_cell + p];
                         if (local_gll_idx < 0 ||
                             local_gll_idx >= (int32_t)fm.local_to_global.size())
@@ -404,89 +436,49 @@ static MergedDirection merge_direction(const char* dir_path, const std::vector<d
                         int32_t global_idx = fm.local_to_global[(size_t)local_gll_idx];
                         if (global_idx < 0 || global_idx >= (int32_t)ng)
                             continue;
-                        double* dsrc = disp_buf.data() + (c * dnp + p) * 3;
-                        double* ddst = step_disp + (size_t)global_idx * 3;
+                        int32_t li = tile_local_index[(size_t)global_idx];
+                        if (li < 0)
+                            continue;
+                        const double* fsrc = fbuf.data() + (c * fnp + p) * 3;
+                        double* fdst = step_dst + (size_t)li * 3;
                         for (int comp = 0; comp < 3; ++comp)
-                            ddst[comp] += dsrc[comp];
-                        node_count[(size_t)global_idx]++;
+                            fdst[comp] += fsrc[comp];
+                        node_count[(size_t)li]++;
                     }
                 }
-            }
-
-            // Read velocity [1, n_rec_cell, n_node_per_cell, 3]
-            if (result.has_velocity) {
-                hsize_t vrc = 0, vnp = 0;
-                std::vector<double> vel_buf;
-                read_field_4d(fid, "velocity", vrc, vnp, vel_buf);
-                for (hsize_t c = 0; c < vrc && c < nrc; ++c) {
-                    for (hsize_t p = 0; p < vnp && p < n_node_per_cell; ++p) {
-                        int32_t local_gll_idx = cell_gll_idx[c * (hsize_t)n_node_per_cell + p];
-                        if (local_gll_idx < 0 ||
-                            local_gll_idx >= (int32_t)fm.local_to_global.size())
-                            continue;
-                        int32_t global_idx = fm.local_to_global[(size_t)local_gll_idx];
-                        if (global_idx < 0 || global_idx >= (int32_t)ng)
-                            continue;
-                        double* vsrc = vel_buf.data() + (c * vnp + p) * 3;
-                        double* vdst = step_vel + (size_t)global_idx * 3;
-                        for (int comp = 0; comp < 3; ++comp)
-                            vdst[comp] += vsrc[comp];
-                        node_count[(size_t)global_idx]++;
-                    }
-                }
-            }
-
-            // Read acceleration [1, n_rec_cell, n_node_per_cell, 3]
-            if (result.has_acceleration) {
-                hsize_t arc = 0, anp = 0;
-                std::vector<double> acc_buf;
-                read_field_4d(fid, "acceleration", arc, anp, acc_buf);
-                for (hsize_t c = 0; c < arc && c < nrc; ++c) {
-                    for (hsize_t p = 0; p < anp && p < n_node_per_cell; ++p) {
-                        int32_t local_gll_idx = cell_gll_idx[c * (hsize_t)n_node_per_cell + p];
-                        if (local_gll_idx < 0 ||
-                            local_gll_idx >= (int32_t)fm.local_to_global.size())
-                            continue;
-                        int32_t global_idx = fm.local_to_global[(size_t)local_gll_idx];
-                        if (global_idx < 0 || global_idx >= (int32_t)ng)
-                            continue;
-                        double* asrc = acc_buf.data() + (c * anp + p) * 3;
-                        double* adst = step_acc + (size_t)global_idx * 3;
-                        for (int comp = 0; comp < 3; ++comp)
-                            adst[comp] += asrc[comp];
-                        node_count[(size_t)global_idx]++;
-                    }
-                }
-            }
+            };
+            if (meta.has_displacement)
+                accumulate_vector_field("displacement", step_disp);
+            if (meta.has_velocity)
+                accumulate_vector_field("velocity", step_vel);
+            if (meta.has_acceleration)
+                accumulate_vector_field("acceleration", step_acc);
 
             H5Fclose(fid);
         }
 
-        // Mass-weighted average for strain (element contributions weighted by GLL mass);
-        // count-based average for displacement/velocity/acceleration (CG-SEM enforces
-        // continuity at shared nodes — they should be identical, so count averaging
-        // is correct and avoids spurious mass scaling).
-        for (size_t gi = 0; gi < ng; ++gi) {
-            if (node_weight_sum[gi] > 0.0) {
-                double* dst = step_data + gi * 6;
-                double inv_mass = 1.0 / node_weight_sum[gi];
+        // Normalize: mass-weighted average for strain, count-based for disp/vel/acc.
+        for (int64_t li = 0; li < n_local; ++li) {
+            if (node_weight_sum[(size_t)li] > 0.0) {
+                double* dst = step_data + li * 6;
+                double inv_mass = 1.0 / node_weight_sum[(size_t)li];
                 for (int c = 0; c < 6; ++c)
                     dst[c] *= inv_mass;
             }
-            if (node_count[gi] > 0) {
-                double inv_cnt = 1.0 / (double)node_count[gi];
-                if (result.has_displacement) {
-                    double* ddst = step_disp + gi * 3;
+            if (node_count[(size_t)li] > 0) {
+                double inv_cnt = 1.0 / (double)node_count[(size_t)li];
+                if (meta.has_displacement) {
+                    double* ddst = step_disp + li * 3;
                     for (int c = 0; c < 3; ++c)
                         ddst[c] *= inv_cnt;
                 }
-                if (result.has_velocity) {
-                    double* vdst = step_vel + gi * 3;
+                if (meta.has_velocity) {
+                    double* vdst = step_vel + li * 3;
                     for (int c = 0; c < 3; ++c)
                         vdst[c] *= inv_cnt;
                 }
-                if (result.has_acceleration) {
-                    double* adst = step_acc + gi * 3;
+                if (meta.has_acceleration) {
+                    double* adst = step_acc + li * 3;
                     for (int c = 0; c < 3; ++c)
                         adst[c] *= inv_cnt;
                 }
@@ -497,7 +489,6 @@ static MergedDirection merge_direction(const char* dir_path, const std::vector<d
     return result;
 }
 
-// (assembly done inline in main to subset to recorded vertices)
 // -----------------------------------------------------------------------
 // main
 // -----------------------------------------------------------------------
@@ -562,29 +553,27 @@ int main(int argc, char** argv) {
         }
     }
 
-    // ---- Merge records for each direction (GLL format) ----
-    MergedDirection fx = merge_direction(args.fx_dir.c_str(), cell_mass, n_model_cell, ngll_model);
-    MergedDirection fy = merge_direction(args.fy_dir.c_str(), cell_mass, n_model_cell, ngll_model);
-    MergedDirection fz = merge_direction(args.fz_dir.c_str(), cell_mass, n_model_cell, ngll_model);
+    // ---- Phase 1: merge metadata for each direction (cheap, replicated) ----
+    MergedMetadata mfx = merge_metadata(args.fx_dir.c_str());
+    MergedMetadata mfy = merge_metadata(args.fy_dir.c_str());
+    MergedMetadata mfz = merge_metadata(args.fz_dir.c_str());
 
-    // Consistency: same number of steps
-    if (fx.n_steps != fy.n_steps || fx.n_steps != fz.n_steps) {
+    if (mfx.n_steps != mfy.n_steps || mfx.n_steps != mfz.n_steps) {
         fprintf(stderr,
                 "ERROR: mismatched number of steps across directions "
                 "(%lld, %lld, %lld)\n",
-                (long long)fx.n_steps, (long long)fy.n_steps, (long long)fz.n_steps);
+                (long long)mfx.n_steps, (long long)mfy.n_steps, (long long)mfz.n_steps);
         exit(1);
     }
-    int64_t n_steps = fx.n_steps;
+    int64_t n_steps = mfx.n_steps;
 
-    // Consistency: same GLL node set across directions
-    if (fx.gll_node_ids != fy.gll_node_ids || fx.gll_node_ids != fz.gll_node_ids) {
+    if (mfx.gll_node_ids != mfy.gll_node_ids || mfx.gll_node_ids != mfz.gll_node_ids) {
         fprintf(stderr, "[postprocess] WARNING: GLL node sets differ across directions\n");
     }
 
     // GLL node IDs (1-based, shared across directions)
-    const auto& recorded_ids = fx.gll_node_ids;
-    int64_t n_recorded = fx.n_unique_gll;
+    const auto& recorded_ids = mfx.gll_node_ids;
+    int64_t n_recorded = mfx.n_unique_gll;
     fprintf(stderr, "[postprocess] %lld unique GLL nodes recorded\n", (long long)n_recorded);
 
     if (n_recorded == 0) {
@@ -599,10 +588,6 @@ int main(int argc, char** argv) {
     }
 
     // ---- Downsample STF to tile time axis ----
-    // config.h5 stores stf_t/stf_values at solver_dt [nsteps_solver]. Tile
-    // time_arr is at output_dt_s [nt]. Resample STF to match tile time axis
-    // so users can deconvolve with a STF sampled at the same rate as the
-    // Green's function tensors.
     std::vector<double> stf_t_ds, stf_values_ds;
     if (!cfg.stf_t.empty() && n_steps > 0) {
         int64_t nstf = (int64_t)cfg.stf_t.size();
@@ -620,135 +605,15 @@ int main(int argc, char** argv) {
         }
     }
 
-    // Detect optional field availability
-    bool has_displacement = fx.has_displacement && fy.has_displacement && fz.has_displacement;
-    bool has_velocity = fx.has_velocity && fy.has_velocity && fz.has_velocity;
-    bool has_acceleration = fx.has_acceleration && fy.has_acceleration && fz.has_acceleration;
+    bool has_displacement = mfx.has_displacement && mfy.has_displacement && mfz.has_displacement;
+    bool has_velocity = mfx.has_velocity && mfy.has_velocity && mfz.has_velocity;
+    bool has_acceleration = mfx.has_acceleration && mfy.has_acceleration && mfz.has_acceleration;
     fprintf(stderr, "[postprocess]   displacement=%s velocity=%s acceleration=%s\n",
             has_displacement ? "yes" : "no", has_velocity ? "yes" : "no",
             has_acceleration ? "yes" : "no");
-    // ---- Assemble Green's tensor directly from GLL-merged data ----
-    // fx.strain is already [n_steps, n_unique_gll, 6] — no subsetting needed
-    fprintf(stderr, "[postprocess] Assembling Green's tensor...\n");
-    // greens_subset: [n_steps, n_unique_gll, 6, 3]
-    std::vector<double> greens_subset((size_t)n_steps * (size_t)n_recorded * 6 * 3, 0.0);
 
-    for (int64_t s = 0; s < n_steps; ++s) {
-        for (int64_t gi = 0; gi < n_recorded; ++gi) {
-            size_t base = ((size_t)s * (size_t)n_recorded + (size_t)gi) * 6;
-            size_t g_base = ((size_t)s * (size_t)n_recorded + (size_t)gi) * 6 * 3;
-
-            // fx → dir 0
-            double* src_fx = fx.strain.data() + base;
-            double* d0 = greens_subset.data() + g_base + 0 * 6;
-            for (int c = 0; c < 6; ++c)
-                d0[c] = src_fx[c];
-
-            // fy → dir 1
-            double* src_fy = fy.strain.data() + base;
-            double* d1 = greens_subset.data() + g_base + 1 * 6;
-            for (int c = 0; c < 6; ++c)
-                d1[c] = src_fy[c];
-
-            // fz → dir 2
-            double* src_fz = fz.strain.data() + base;
-            double* d2 = greens_subset.data() + g_base + 2 * 6;
-            for (int c = 0; c < 6; ++c)
-                d2[c] = src_fz[c];
-        }
-    }
-    // ---- Assemble displacement tensor ----
-    // disp_subset: [n_steps, n_unique_gll, 3, 3]
-    std::vector<double> disp_subset;
-    if (has_displacement) {
-        disp_subset.resize((size_t)n_steps * (size_t)n_recorded * 3 * 3, 0.0);
-        for (int64_t s = 0; s < n_steps; ++s) {
-            for (int64_t gi = 0; gi < n_recorded; ++gi) {
-                size_t base = ((size_t)s * (size_t)n_recorded + (size_t)gi) * 3;
-                size_t d_base = ((size_t)s * (size_t)n_recorded + (size_t)gi) * 3 * 3;
-                const double* src_fx = fx.displacement.data() + base;
-                const double* src_fy = fy.displacement.data() + base;
-                const double* src_fz = fz.displacement.data() + base;
-                for (int c = 0; c < 3; ++c) {
-                    double* d = disp_subset.data() + d_base + c * 3;
-                    d[0] = src_fx[c];
-                    d[1] = src_fy[c];
-                    d[2] = src_fz[c];
-                }
-            }
-        }
-    }
-
-    // ---- Assemble velocity tensor ----
-    std::vector<double> vel_subset;
-    if (has_velocity) {
-        vel_subset.resize((size_t)n_steps * (size_t)n_recorded * 3 * 3, 0.0);
-        for (int64_t s = 0; s < n_steps; ++s) {
-            for (int64_t gi = 0; gi < n_recorded; ++gi) {
-                size_t base = ((size_t)s * (size_t)n_recorded + (size_t)gi) * 3;
-                size_t d_base = ((size_t)s * (size_t)n_recorded + (size_t)gi) * 3 * 3;
-                const double* src_fx = fx.velocity.data() + base;
-                const double* src_fy = fy.velocity.data() + base;
-                const double* src_fz = fz.velocity.data() + base;
-                for (int c = 0; c < 3; ++c) {
-                    double* d = vel_subset.data() + d_base + c * 3;
-                    d[0] = src_fx[c];
-                    d[1] = src_fy[c];
-                    d[2] = src_fz[c];
-                }
-            }
-        }
-    }
-
-    // ---- Assemble acceleration tensor ----
-    std::vector<double> acc_subset;
-    if (has_acceleration) {
-        acc_subset.resize((size_t)n_steps * (size_t)n_recorded * 3 * 3, 0.0);
-        for (int64_t s = 0; s < n_steps; ++s) {
-            for (int64_t gi = 0; gi < n_recorded; ++gi) {
-                size_t base = ((size_t)s * (size_t)n_recorded + (size_t)gi) * 3;
-                size_t d_base = ((size_t)s * (size_t)n_recorded + (size_t)gi) * 3 * 3;
-                const double* src_fx = fx.acceleration.data() + base;
-                const double* src_fy = fy.acceleration.data() + base;
-                const double* src_fz = fz.acceleration.data() + base;
-                for (int c = 0; c < 3; ++c) {
-                    double* d = acc_subset.data() + d_base + c * 3;
-                    d[0] = src_fx[c];
-                    d[1] = src_fy[c];
-                    d[2] = src_fz[c];
-                }
-            }
-        }
-    }
-
-    // Free per-direction arrays to save memory
-    fx.strain.clear();
-    fx.strain.shrink_to_fit();
-    fy.strain.clear();
-    fy.strain.shrink_to_fit();
-    fz.strain.clear();
-    fz.strain.shrink_to_fit();
-    fx.displacement.clear();
-    fx.displacement.shrink_to_fit();
-    fy.displacement.clear();
-    fy.displacement.shrink_to_fit();
-    fz.displacement.clear();
-    fz.displacement.shrink_to_fit();
-    fx.velocity.clear();
-    fx.velocity.shrink_to_fit();
-    fy.velocity.clear();
-    fy.velocity.shrink_to_fit();
-    fz.velocity.clear();
-    fz.velocity.shrink_to_fit();
-    fx.acceleration.clear();
-    fx.acceleration.shrink_to_fit();
-    fy.acceleration.clear();
-    fy.acceleration.shrink_to_fit();
-    fz.acceleration.clear();
-    fz.acceleration.shrink_to_fit();
-    // ---- Bin recording cells into tiles (whole-cell tiling) ----
+    // ---- Phase 2: bin recording cells into tiles (whole-cell tiling) ----
     fprintf(stderr, "[postprocess] Binning recording cells into tiles...\n");
-    TileBins bins;
     std::unordered_map<TileKey, std::vector<int64_t>, TileKeyHash> cell_bins;
     double xmin = model.xmin, ymin = model.ymin, xmax = model.xmax, ymax = model.ymax;
     double dx = (xmax - xmin) / cfg.nx_elements;
@@ -759,15 +624,15 @@ int main(int argc, char** argv) {
     for (auto sz : cfg.tiley_elements)
         total_interior_y += sz;
 
-    for (int64_t ci = 0; ci < fx.n_rec_cell_merged; ++ci) {
-        int64_t idx0 = fx.cell_gll_node_index[(size_t)ci * (size_t)fx.n_node_per_cell + 0];
-        int64_t idx124 = fx.cell_gll_node_index[(size_t)ci * (size_t)fx.n_node_per_cell + 124];
+    for (int64_t ci = 0; ci < mfx.n_rec_cell_merged; ++ci) {
+        int64_t idx0 = mfx.cell_gll_node_index[(size_t)ci * (size_t)mfx.n_node_per_cell + 0];
+        int64_t idx124 = mfx.cell_gll_node_index[(size_t)ci * (size_t)mfx.n_node_per_cell + 124];
         if (idx0 < 0 || idx0 >= n_recorded || idx124 < 0 || idx124 >= n_recorded)
             continue;
-        double cx = 0.5 * (fx.gll_node_coords[(size_t)idx0 * 3 + 0] +
-                           fx.gll_node_coords[(size_t)idx124 * 3 + 0]);
-        double cy = 0.5 * (fx.gll_node_coords[(size_t)idx0 * 3 + 1] +
-                           fx.gll_node_coords[(size_t)idx124 * 3 + 1]);
+        double cx = 0.5 * (mfx.gll_node_coords[(size_t)idx0 * 3 + 0] +
+                           mfx.gll_node_coords[(size_t)idx124 * 3 + 0]);
+        double cy = 0.5 * (mfx.gll_node_coords[(size_t)idx0 * 3 + 1] +
+                           mfx.gll_node_coords[(size_t)idx124 * 3 + 1]);
         int64_t ei = (dx > 0) ? (int64_t)std::floor((cx - xmin) / dx) : 0;
         int64_t ej = (dy > 0) ? (int64_t)std::floor((cy - ymin) / dy) : 0;
         if (ei < 0)
@@ -789,17 +654,22 @@ int main(int argc, char** argv) {
         key.ty = find_tile_index(interior_j, cfg.tiley_elements);
         cell_bins[key].push_back(ci);
     }
-    bins.keys.clear();
+    std::vector<TileKey> tile_keys;
     for (auto& kv : cell_bins)
-        bins.keys.push_back(kv.first);
-    std::sort(bins.keys.begin(), bins.keys.end());
-    fprintf(stderr, "[postprocess]   %zu tiles\n", bins.keys.size());
+        tile_keys.push_back(kv.first);
+    std::sort(tile_keys.begin(), tile_keys.end());
+    fprintf(stderr, "[postprocess]   %zu tiles\n", tile_keys.size());
 
-    // ---- Write tiles ----
-    fprintf(stderr, "[postprocess] Writing Green's function tiles to %s...\n",
-            args.output_dir.c_str());
+    int64_t n_tiles = (int64_t)tile_keys.size();
 
-    // Create output directory
+    // ---- Rank exit check: ranks beyond n_tiles exit BEFORE any field alloc ----
+    if (mpi_rank >= (int)n_tiles) {
+        fprintf(stderr, "[postprocess] Rank %d: no tile assigned (n_tiles=%lld), exiting\n",
+                mpi_rank, (long long)n_tiles);
+        MPI_Finalize();
+        return 0;
+    }
+
     std::string mkdir_cmd = "mkdir -p " + args.output_dir;
     if (system(mkdir_cmd.c_str()) != 0) {
         fprintf(stderr, "WARNING: could not create output directory %s\n",
@@ -807,13 +677,6 @@ int main(int argc, char** argv) {
     }
 
     double zmin = model.zmin, zmax = model.zmax;
-    int64_t n_tiles = (int64_t)bins.keys.size();
-    if (mpi_rank >= (int)n_tiles) {
-        fprintf(stderr, "[postprocess] Rank %d: no tile assigned (n_tiles=%lld), exiting\n",
-                mpi_rank, (long long)n_tiles);
-        MPI_Finalize();
-        return 0;
-    }
 
     auto compute_tile_bounds = [&](const TileKey& key, double& tx_min, double& tx_max,
                                    double& ty_min, double& ty_max) {
@@ -834,19 +697,17 @@ int main(int argc, char** argv) {
         ty_max = ymin + j_end * dy;
     };
 
-    // Write tiles (could be OpenMP parallel, but HDF5 C library is not thread-safe
-    // for file creation — serialize writes)
-    int64_t ti = (int64_t)mpi_rank;
+    // ---- Write this rank's tile ----
     {
-        const TileKey& key = bins.keys[(size_t)ti];
-        // vert_indices removed: cell-based tiling uses cell_indices below
+        const TileKey& key = tile_keys[(size_t)mpi_rank];
         const auto& cell_indices = cell_bins.at(key);
+
         // Build tile-local GLL node set from cells
         std::unordered_map<int64_t, int64_t> gll_to_tile_local;
         std::vector<int64_t> tile_gll_indices;
         for (auto ci : cell_indices) {
-            for (int64_t p = 0; p < fx.n_node_per_cell; ++p) {
-                int32_t gi = fx.cell_gll_node_index[(size_t)ci * (size_t)fx.n_node_per_cell + p];
+            for (int64_t p = 0; p < mfx.n_node_per_cell; ++p) {
+                int32_t gi = mfx.cell_gll_node_index[(size_t)ci * (size_t)mfx.n_node_per_cell + p];
                 if (gi >= 0 && gll_to_tile_local.find(gi) == gll_to_tile_local.end()) {
                     gll_to_tile_local[gi] = (int64_t)tile_gll_indices.size();
                     tile_gll_indices.push_back(gi);
@@ -855,14 +716,20 @@ int main(int argc, char** argv) {
         }
         int64_t n_local = (int64_t)tile_gll_indices.size();
 
+        // tile_local_index: [n_recorded] -> tile-local index or -1
+        std::vector<int32_t> tile_local_index((size_t)n_recorded, -1);
+        for (int64_t li = 0; li < n_local; ++li)
+            tile_local_index[(size_t)tile_gll_indices[(size_t)li]] = (int32_t)li;
+
         // Build tile-local cell_gll_node_index
-        std::vector<int32_t> tile_cell_gll_index(cell_indices.size() * (size_t)fx.n_node_per_cell);
+        std::vector<int32_t> tile_cell_gll_index(cell_indices.size() *
+                                                 (size_t)mfx.n_node_per_cell);
         for (size_t ci = 0; ci < cell_indices.size(); ++ci) {
-            for (int64_t p = 0; p < fx.n_node_per_cell; ++p) {
-                int32_t gi =
-                    fx.cell_gll_node_index[(size_t)cell_indices[ci] * (size_t)fx.n_node_per_cell +
-                                           p];
-                tile_cell_gll_index[ci * (size_t)fx.n_node_per_cell + (size_t)p] =
+            for (int64_t p = 0; p < mfx.n_node_per_cell; ++p) {
+                int32_t gi = mfx.cell_gll_node_index[(size_t)cell_indices[ci] *
+                                                         (size_t)mfx.n_node_per_cell +
+                                                     p];
+                tile_cell_gll_index[ci * (size_t)mfx.n_node_per_cell + (size_t)p] =
                     (gi >= 0) ? (int32_t)gll_to_tile_local[gi] : -1;
             }
         }
@@ -873,79 +740,73 @@ int main(int argc, char** argv) {
         for (int64_t i = 0; i < n_local; ++i) {
             int64_t gi = tile_gll_indices[(size_t)i];
             tile_vertex_ids[(size_t)i] = recorded_ids[(size_t)gi];
-            tile_vertex_coords[(size_t)i * 3 + 0] = fx.gll_node_coords[(size_t)gi * 3 + 0];
-            tile_vertex_coords[(size_t)i * 3 + 1] = fx.gll_node_coords[(size_t)gi * 3 + 1];
-            tile_vertex_coords[(size_t)i * 3 + 2] = fx.gll_node_coords[(size_t)gi * 3 + 2];
+            tile_vertex_coords[(size_t)i * 3 + 0] = mfx.gll_node_coords[(size_t)gi * 3 + 0];
+            tile_vertex_coords[(size_t)i * 3 + 1] = mfx.gll_node_coords[(size_t)gi * 3 + 1];
+            tile_vertex_coords[(size_t)i * 3 + 2] = mfx.gll_node_coords[(size_t)gi * 3 + 2];
         }
 
-        // Build tile greens: [n_steps, n_local, 6, 3]
-        std::vector<double> tile_greens((size_t)n_steps * (size_t)n_local * 6 * 3);
-        for (int64_t s = 0; s < n_steps; ++s) {
-            for (int64_t li = 0; li < n_local; ++li) {
-                int64_t gi = tile_gll_indices[(size_t)li];
-                size_t src_base = ((size_t)s * (size_t)n_recorded + (size_t)gi) * 6 * 3;
-                size_t dst_base = ((size_t)s * (size_t)n_local + (size_t)li) * 6 * 3;
-                for (size_t k = 0; k < (size_t)(6 * 3); ++k)
-                    tile_greens[dst_base + k] = greens_subset[src_base + k];
-            }
-        }
-
-        // Build tile displacement: [n_steps, n_local, 3, 3]
+        // ---- Phase 3: assemble tile Green's tensor directly from per-direction
+        //      tile-local fields. One direction at a time to bound peak memory.
+        // tile_greens: [n_steps, n_local, dir(3), comp(6)] = 18 per (s,li)
+        std::vector<double> tile_greens((size_t)n_steps * (size_t)n_local * 6 * 3, 0.0);
         std::vector<double> tile_displacement;
-        if (has_displacement) {
-            tile_displacement.resize((size_t)n_steps * (size_t)n_local * 3 * 3);
-            for (int64_t s = 0; s < n_steps; ++s) {
-                for (int64_t li = 0; li < n_local; ++li) {
-                    int64_t gi = tile_gll_indices[(size_t)li];
-                    size_t src_base = ((size_t)s * (size_t)n_recorded + (size_t)gi) * 3 * 3;
-                    size_t dst_base = ((size_t)s * (size_t)n_local + (size_t)li) * 3 * 3;
-                    for (size_t k = 0; k < (size_t)(3 * 3); ++k)
-                        tile_displacement[dst_base + k] = disp_subset[src_base + k];
-                }
-            }
-        }
-
-        // Build tile velocity
         std::vector<double> tile_velocity;
-        if (has_velocity) {
-            tile_velocity.resize((size_t)n_steps * (size_t)n_local * 3 * 3);
-            for (int64_t s = 0; s < n_steps; ++s) {
-                for (int64_t li = 0; li < n_local; ++li) {
-                    int64_t gi = tile_gll_indices[(size_t)li];
-                    size_t src_base = ((size_t)s * (size_t)n_recorded + (size_t)gi) * 3 * 3;
-                    size_t dst_base = ((size_t)s * (size_t)n_local + (size_t)li) * 3 * 3;
-                    for (size_t k = 0; k < (size_t)(3 * 3); ++k)
-                        tile_velocity[dst_base + k] = vel_subset[src_base + k];
-                }
-            }
-        }
-
-        // Build tile acceleration
         std::vector<double> tile_acceleration;
-        if (has_acceleration) {
-            tile_acceleration.resize((size_t)n_steps * (size_t)n_local * 3 * 3);
+        if (has_displacement)
+            tile_displacement.resize((size_t)n_steps * (size_t)n_local * 3 * 3, 0.0);
+        if (has_velocity)
+            tile_velocity.resize((size_t)n_steps * (size_t)n_local * 3 * 3, 0.0);
+        if (has_acceleration)
+            tile_acceleration.resize((size_t)n_steps * (size_t)n_local * 3 * 3, 0.0);
+
+        // Direction 0 = fx, 1 = fy, 2 = fz
+        const MergedMetadata* metas[3] = {&mfx, &mfy, &mfz};
+        for (int dir = 0; dir < 3; ++dir) {
+            DirFields fields = extract_tile_fields(*metas[dir], tile_local_index, n_local,
+                                                   cell_mass, n_model_cell, ngll_model);
+
+            // Assemble strain -> tile_greens [s, li, dir, comp(6)]
             for (int64_t s = 0; s < n_steps; ++s) {
                 for (int64_t li = 0; li < n_local; ++li) {
-                    int64_t gi = tile_gll_indices[(size_t)li];
-                    size_t src_base = ((size_t)s * (size_t)n_recorded + (size_t)gi) * 3 * 3;
-                    size_t dst_base = ((size_t)s * (size_t)n_local + (size_t)li) * 3 * 3;
-                    for (size_t k = 0; k < (size_t)(3 * 3); ++k)
-                        tile_acceleration[dst_base + k] = acc_subset[src_base + k];
+                    size_t tg = ((size_t)s * (size_t)n_local + (size_t)li) * 18;
+                    const double* src =
+                        fields.strain.data() + ((size_t)s * (size_t)n_local + (size_t)li) * 6;
+                    for (int c = 0; c < 6; ++c)
+                        tile_greens[tg + (size_t)dir * 6 + c] = src[c];
                 }
             }
+            // Assemble disp/vel/acc -> tile_* [s, li, comp(3), dir(3)]
+            auto assemble_vector_field = [&](const std::vector<double>& src,
+                                             std::vector<double>& dst) {
+                if (src.empty())
+                    return;
+                for (int64_t s = 0; s < n_steps; ++s) {
+                    for (int64_t li = 0; li < n_local; ++li) {
+                        size_t td = ((size_t)s * (size_t)n_local + (size_t)li) * 9;
+                        const double* sp =
+                            src.data() + ((size_t)s * (size_t)n_local + (size_t)li) * 3;
+                        for (int c = 0; c < 3; ++c)
+                            dst[td + (size_t)c * 3 + (size_t)dir] = sp[c];
+                    }
+                }
+            };
+            if (has_displacement)
+                assemble_vector_field(fields.displacement, tile_displacement);
+            if (has_velocity)
+                assemble_vector_field(fields.velocity, tile_velocity);
+            if (has_acceleration)
+                assemble_vector_field(fields.acceleration, tile_acceleration);
+            // fields freed at end of iteration (one direction at a time)
         }
 
-        // Source position
         double source_xyz_m[3] = {cfg.source_x_m, cfg.source_y_m, cfg.source_z_m};
 
-        // Compute tile bounds
         double tx_min, tx_max, ty_min, ty_max;
         compute_tile_bounds(key, tx_min, tx_max, ty_min, ty_max);
 
         // Output precision follows config snapshot_precision
         bool use_float32 = (cfg.snapshot_precision == "float32");
 
-        // Build filename
         char fname[256];
         std::snprintf(fname, sizeof(fname), "%s/tile_x%03d_y%03d.h5", args.output_dir.c_str(),
                       key.tx, key.ty);
@@ -953,7 +814,7 @@ int main(int argc, char** argv) {
         write_tile(fname, key.tx, key.ty, tx_min, tx_max, ty_min, ty_max, zmin, zmax,
                    cfg.record_depth_max_m, cfg.record_depth_actual_m, tile_vertex_ids, time_arr,
                    cfg.solver_dt, tile_greens, source_xyz_m, tile_vertex_coords,
-                   tile_cell_gll_index, (int)fx.n_node_per_cell,
+                   tile_cell_gll_index, (int)mfx.n_node_per_cell,
                    has_displacement ? tile_displacement.data() : nullptr,
                    has_velocity ? tile_velocity.data() : nullptr,
                    has_acceleration ? tile_acceleration.data() : nullptr, stf_t_ds, stf_values_ds,
@@ -975,7 +836,7 @@ int main(int argc, char** argv) {
         printf("STAT_ELAPSED_S=%.1f\n", elapsed);
         fflush(stdout);
 
-        fprintf(stderr, "[postprocess] Done in %.1fs — %lld tile(s), %lld recorded vertex(ices)\n",
+        fprintf(stderr, "[postprocess] Done in %.1fs - %lld tile(s), %lld recorded vertex(ices)\n",
                 elapsed, (long long)n_tiles, (long long)n_recorded);
     }
 
