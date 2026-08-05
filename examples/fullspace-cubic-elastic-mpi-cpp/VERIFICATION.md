@@ -130,3 +130,78 @@ represents the practical limit for N=4 SEM with 3 elements/S-wavelength.
 
 1. **The known ~3× SEM amplitude factor is confirmed** (2.7× measured) — this
    is a systematic GLL integration effect, not a code bug.
+
+## CUDA vs MPI-CPU Solver Consistency Verification (2026-08-05)
+
+Cross-verification of the two elastic solver backends on this case
+(direction=x, 800 steps, 57717 common recording GLL nodes):
+
+| step | rel_l2 | Pearson corr | threshold | result |
+|------|--------|--------------|-----------|--------|
+| 400 | 1.737e-04 | 0.99999998 | rel_l2\<0.01, corr>0.999 | PASS |
+| 700 | 5.113e-04 | 0.99999987 | rel_l2\<0.01, corr>0.999 | PASS |
+
+**Verdict: CONSISTENT.** Reproduce with:
+
+```bash
+# MPI run (16 ranks)
+cd tmp/mpi_run && mpirun -n 16 ../../../../bin/gf_solver_elastic_mpi --direction x
+# comparison (expects CUDA records in wavefields/x, MPI in tmp/mpi_run/wavefields/x)
+cd .. && ../../.venv/bin/python compare_solvers.py
+```
+
+### Method
+
+`compare_solvers.py` aligns CUDA (`wavefields/x/record_0_*.h5`) and MPI
+(`tmp/mpi_run/wavefields/x/record_{r}_*.h5`) strain snapshots by rounded GLL
+node **coordinates** (the two backends use different global node numberings —
+`field/cell/global_cell2global_node` vs `partition/global_cell2global_node`),
+then computes rel_l2 = ||mpi-cuda||/||cuda|| and Pearson correlation over the
+aligned 6-component strain vectors. Only 9 of 16 ranks own recording cells
+(interior non-PML elements), so `record_*_<step>.h5` has 9 files — ranks with
+only PML elements record nothing (RecordWriter returns early for n_rec_cell=0).
+
+### Root causes found and fixed (3 solver/preprocess bugs)
+
+1. **Missing multi-rank shared nodes in exchange patterns**
+   (`preprocess/partition.py`). Exchange DOF lists were built from
+   face-adjacent cell pairs only, so nodes at partition edges/corners shared
+   by 3+ ranks were never exchanged. The source element sits at a 7-rank METIS
+   corner; each rank integrated its copy of those nodes independently and the
+   copies diverged. Fixed by building exchange patterns from node ownership
+   (all co-owner rank pairs), ordered by global node id.
+
+1. **Per-rank PML damping inconsistency** (`forward/share/src/solver.cpp`
+   init). `rank_node_damping[node] = pml_damping[e*n]` assigns last-local-cell
+   wins per rank. At PML-interface nodes, an interior cell (d=0) and a PML
+   cell (d>0) share the node; different ranks picked different winners, so
+   each rank damped its own copy of a shared node differently and the copies
+   diverged exponentially. Fixed by (a) tracking the winning global cell id
+   per node locally, and (b) a new `exchange_halo_max` reduction
+   (`forward/share/src/exchange.cpp`, no-op variant in `exchange_noop.cpp`)
+   on a packed value `cell_id + damping/2`, implementing exactly the
+   single-rank/CUDA rule "highest global cell id wins" on every rank.
+
+1. **Strain recording double-offset bug (the apparent "explosion")**
+   (`forward/share/src/solver.cpp` `compute_full_strain`, used by BOTH
+   backends' snapshot paths). The element base pointer was computed as
+   `&strain_disp[elem*n_node*3 + node_idx*3]` and the GLL stencil then added
+   `3*node_sjk` etc. — the `node_idx*3` term double-offsets every stencil
+   read. Nodes whose summed index stayed < 125 read a wrong in-element node
+   (bounded error, invisible for smooth fields); sums >= 125 read into the
+   next element; at each rank's LAST element they read past the vector into
+   heap memory holding growing simulation state — producing the exponential
+   "strain explosion" (max 2.6e9 at step 700) while velocity/displacement
+   stayed correct (rel_l2 vs CUDA < 1e-2 even pre-fix). Fixed by removing the
+   `+ node_idx*3` offset.
+
+### Side notes
+
+- The C++ preprocessor hardcodes `n_ranks=16` (`config_user_fullspace.cpp`),
+  and `preprocess/cli.py` reuses the C++ `partition/element_to_rank` from
+  model.h5 regardless of `config.py:n_ranks`. A 1-rank control run therefore
+  requires rebuilding the partition explicitly (see
+  `tmp/cpu1_run/build_1rank.py` for the recipe).
+- CPU single-rank vs CUDA strain agreement after the fix: the MPI=CPU result
+  above implies the CPU kernel matches CUDA; the earlier apparent CPU/CUDA
+  strain mismatch (rel_l2=0.23) was fully explained by bug 3.

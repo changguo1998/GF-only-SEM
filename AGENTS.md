@@ -122,15 +122,42 @@ is 0.991 (halfspace) / 0.745 (layer). A residual ~3× scale factor (2.95 halfspa
 |---------------|------------|---------------|--------|
 | CPU + MPI (elastic) | ✅ (16 ranks) | Global (ibool) | ✅ Verified — diagonals 1.01-1.03× ref |
 | CPU + MPI (viscoelastic) | ✅ (16 ranks) | Global (ibool) | ✅ Verified — elastic limit rel_l2=0.0 |
-| CUDA single (elastic) | N/A | Global (ibool) | ✅ Verified — rel_l2=0.644 matches CPU 16-rank |
+| CUDA single (elastic) | N/A | Global (ibool) | ✅ Verified — rel_l2=5.1e-4 vs CPU 16-rank (fullspace, steps 400/700) |
 | CUDA single (viscoelastic) | N/A | Global (ibool) | ✅ Builds, awaiting GPU hardware test |
 
-**Postprocess MPI tile-parallel** (`gf_postprocess_mpi`, WIP): one-tile-per-rank
-variant of `gf_postprocess`. OOM bug fixed — memory redesigned from
-full-replication (~331 GB for 16 ranks) to tile-local extraction (~17 GB).
-Build passes; multi-rank runtime verification pending. See
-[`docs/design/postprocess-tile-parallel.md`](docs/design/postprocess-tile-parallel.md)
-and [`docs/deferred.md`](docs/deferred.md) §7.
+**CUDA vs MPI-CPU fullspace consistency (2026-08-05):** verified on
+`examples/fullspace-cubic-elastic-mpi-cpp` (direction=x, 800 steps, all-face
+PML): strain rel_l2=1.7e-4 (step 400) / 5.1e-4 (step 700), Pearson corr
+
+> 0.9999998 — PASS. Three real bugs fixed along the way:
+
+1. `preprocess/partition.py`: exchange DOF patterns built from face-adjacent
+   pairs only — nodes shared by 3+ ranks (edges/corners) were never
+   exchanged. Rebuilt from node ownership (all co-owner rank pairs, sorted by
+   global node id).
+1. PML damping assembly: each rank assigned `last-local-cell-wins` damping at
+   shared nodes, so ranks damped their own copies differently and diverged.
+   Now "highest global cell id wins" via a packed `cell_id + damping/2`
+   `exchange_halo_max` reduction (`forward/share/src/exchange.{cpp,hpp}`,
+   `exchange_noop.cpp`) — identical to the single-rank/CUDA rule.
+1. `compute_full_strain` (solver.cpp) double-offset bug: element base pointer
+   included `+ node_idx*3` while stencil reads added their own offsets —
+   wrong-node reads everywhere plus out-of-bounds heap reads at each rank's
+   last element (the apparent exponential "strain explosion"; velocity/
+   displacement were correct all along). Fixed by removing the offset.
+   Also noted: the C++ preprocessor hardcodes `n_ranks=16`
+   (`preprocess/cpp/config_user_fullspace.cpp`) and `preprocess/cli.py` reuses
+   its `partition/element_to_rank` regardless of `config.py:n_ranks` — a 1-rank
+   control run needs an explicit partition rebuild (recipe:
+   `tmp/cpu1_run/build_1rank.py`; dir removed after use). Comparison tool:
+   `examples/fullspace-cubic-elastic-mpi-cpp/compare_solvers.py` (coordinate-
+   aligned, rerunnable).
+   **Postprocess MPI tile-parallel** (`gf_postprocess_mpi`, WIP): one-tile-per-rank
+   variant of `gf_postprocess`. OOM bug fixed — memory redesigned from
+   full-replication (~331 GB for 16 ranks) to tile-local extraction (~17 GB).
+   Build passes; multi-rank runtime verification pending. See
+   [`docs/design/postprocess-tile-parallel.md`](docs/design/postprocess-tile-parallel.md)
+   and [`docs/deferred.md`](docs/deferred.md) §7.
 
 **Code cleanup (2026-07-28):** removed residual debug code from
 `preprocess/cpp/source_locator.cpp` (-31 lines), duplicate `#include` in

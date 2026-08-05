@@ -190,16 +190,25 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         // === Assemble global mass and damping (one-time, at startup) ===
         // When local_cell2rank_node is available, element-local mass/damping values are
         // scattered to global-sized arrays.  Mass accumulates (shared node
-        // masses sum); damping assigns (all sharing elements have the same
-        // damping profile on shared faces).
+        // masses sum).  Damping follows "highest global cell id wins" — the
+        // exact rule the single-rank/CUDA assembly produces by iterating all
+        // elements in order; a cross-rank packed MAX reduction below makes
+        // every rank use that same value at shared nodes (without it, each
+        // rank damps its own copy of a shared node differently and the
+        // copies diverge).
         std::vector<double> rank_node_mass(n_rank_dof / 3, 0.0);     // [n_rank_node] — node-sized
         std::vector<double> rank_node_damping(n_rank_dof / 3, 0.0);  // [n_rank_node]
+        std::vector<int64_t> rank_node_damping_cell(n_rank_dof / 3, -1);  // winning cell id
         if (use_global_dof) {
             for (int e = 0; e < n_local_cell; ++e) {
+                int64_t cell_id = part.local_cell_ids.empty() ? e : part.local_cell_ids[e];
                 for (int n = 0; n < n_node; ++n) {
                     int node_id = part.local_cell2rank_node[e * n_node + n];
                     rank_node_mass[node_id] += part.mass[e * n_node + n];
-                    rank_node_damping[node_id] = part.pml_damping[e * n_node + n];
+                    if (cell_id >= rank_node_damping_cell[node_id]) {
+                        rank_node_damping_cell[node_id] = cell_id;
+                        rank_node_damping[node_id] = part.pml_damping[e * n_node + n];
+                    }
                 }
             }
 
@@ -214,6 +223,25 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 exchange_halo(exchange_patterns, mass_exchange, 3);
                 for (int node_id = 0; node_id < part.n_rank_node; ++node_id) {
                     rank_node_mass[node_id] = mass_exchange[node_id * 3 + 0];
+                }
+
+                // Damping: pack (cell_id + damping/2) into one double and
+                // MAX-reduce — the packed value orders by cell id first, so
+                // the reduction implements "highest global cell id wins"
+                // across ranks (identical to the single-rank/CUDA rule).
+                std::vector<double> damping_exchange(n_rank_dof, 0.0);
+                for (int node_id = 0; node_id < part.n_rank_node; ++node_id) {
+                    double packed = static_cast<double>(rank_node_damping_cell[node_id]) +
+                                    0.5 * rank_node_damping[node_id];
+                    damping_exchange[node_id * 3 + 0] = packed;
+                    damping_exchange[node_id * 3 + 1] = packed;
+                    damping_exchange[node_id * 3 + 2] = packed;
+                }
+                exchange_halo_max(exchange_patterns, damping_exchange, 3);
+                for (int node_id = 0; node_id < part.n_rank_node; ++node_id) {
+                    double packed = damping_exchange[node_id * 3 + 0];
+                    double cell = std::floor(packed);
+                    rank_node_damping[node_id] = packed > 0.0 ? 2.0 * (packed - cell) : 0.0;
                 }
             }
         }
@@ -308,9 +336,13 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                             const double* dxi_dx_ptr =
                                 &part.dxi_dx[static_cast<size_t>(elem) * n_node * 9 +
                                              node_idx * 9];
+                            // Element base pointer: stencil reads below add
+                            // 3*node_sjk / 3*node_isk / 3*node_ijs themselves.
+                            // (Previously "+ node_idx * 3" double-offset the
+                            // reads — wrong nodes everywhere and out-of-bounds
+                            // heap reads at the last element.)
                             const double* disp_ptr =
-                                &strain_disp[static_cast<size_t>(elem) * n_node * 3 +
-                                             node_idx * 3];
+                                &strain_disp[static_cast<size_t>(elem) * n_node * 3];
                             double dudxi[3] = {0.0, 0.0, 0.0};
                             double dudeta[3] = {0.0, 0.0, 0.0};
                             double dudzeta[3] = {0.0, 0.0, 0.0};

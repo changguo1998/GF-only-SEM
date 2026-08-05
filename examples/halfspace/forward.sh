@@ -18,6 +18,7 @@ source "${SCRIPT_DIR}/preprocess.sh"
 # so mixing different solvers per-direction is not supported.
 #
 PROJECT_BIN="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}/bin"
+MEMLIMIT="$(cd "${SCRIPT_DIR}/../.." && pwd)/scripts/with_mem_limit.sh"  # host RAM cap (GF_MEM_LIMIT_GB, 0=off)
 
 # (A) CPU + MPI (default)
 SOLVER="${PROJECT_BIN}/gf_solver_elastic_mpi"
@@ -49,7 +50,7 @@ for DIR in x y z; do
 		"${SOLVER}" --direction "${DIR}"
 	else
 		echo "  solver: $(basename "${SOLVER}") (${N_RANKS} ranks)"
-		${MPIRUN:-mpirun} -n ${N_RANKS:-1} "${SOLVER}" --direction "${DIR}"
+		"${MEMLIMIT}" -- ${MPIRUN:-mpirun} -n ${N_RANKS:-1} "${SOLVER}" --direction "${DIR}"
 	fi
 
 	cd "${SCRIPT_DIR}"

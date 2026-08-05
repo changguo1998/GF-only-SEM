@@ -12,4 +12,9 @@ void exchange_halo(const std::vector<RankData::ExchangePattern>& /*patterns*/,
     // No-op: single process has no neighbors to exchange with.
 }
 
+void exchange_halo_max(const std::vector<RankData::ExchangePattern>& /*patterns*/,
+                       std::vector<double>& /*field*/, int /*n_dof_per_node*/) {
+    // No-op: single process has no neighbors to exchange with.
+}
+
 }  // namespace gf

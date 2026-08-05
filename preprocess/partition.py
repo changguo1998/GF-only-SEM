@@ -280,15 +280,7 @@ def compute_per_rank(
     n_cell = topology.n_cell
     n_surface = topology.n_surface
     c2s = topology.cell_to_surface
-    n_node = ngll * ngll * ngll
     n_ranks = int(element_to_rank.max()) + 1 if n_cell > 0 else 1
-
-    # elem_surf_to_face
-    elem_surf_to_face: list[dict[int, int]] = [{} for _ in range(n_cell)]
-    for e in range(n_cell):
-        for face_idx, signed_sid in enumerate(c2s[e]):
-            abs_sid = abs(int(signed_sid)) - 1
-            elem_surf_to_face[e][abs_sid] = face_idx
 
     # Init per_rank
     per_rank: dict[int, dict] = {}
@@ -328,40 +320,17 @@ def compute_per_rank(
                         rd["ghost_cell_ids"].append(ghost_cell)
                         rd["ghost_owners"].append(int(element_to_rank[ghost_cell]))
 
-    # Second pass: exchange DOF indices
-    for rank in range(n_ranks):
-        rd = per_rank[rank]
-        local_idx_map: dict[int, int] = {
-            e_global: idx for idx, e_global in enumerate(rd["local_cell_ids"])
-        }
-        exchange_dof: dict[int, dict] = {}
-
-        for surf_idx in range(n_surface):
-            cells = surf_to_cells.get(surf_idx, [])
-            for i in range(len(cells)):
-                for j in range(i + 1, len(cells)):
-                    ci, cj = cells[i], cells[j]
-                    ri, rj = int(element_to_rank[ci]), int(element_to_rank[cj])
-                    if ri == rj:
-                        continue
-
-                    for local_cell, local_rank, neighbor_rank in [(ci, ri, rj), (cj, rj, ri)]:
-                        if local_rank != rank:
-                            continue
-                        if neighbor_rank not in exchange_dof:
-                            exchange_dof[neighbor_rank] = {"send_dof": [], "recv_dof": []}
-
-                        ex = exchange_dof[neighbor_rank]
-                        face = elem_surf_to_face[local_cell].get(surf_idx)
-                        local_idx = local_idx_map.get(local_cell)
-                        if face is not None and local_idx is not None:
-                            for n in _face_gll_nodes(face, ngll):
-                                base = local_idx * n_node * 3 + n * 3
-                                for d in [base, base + 1, base + 2]:
-                                    ex["send_dof"].append(d)
-                                    ex["recv_dof"].append(d)
-
-        rd["exchange"] = exchange_dof
+    # ── Global node → owning ranks (via LOCAL cell ownership) ──
+    # A GLL node shared by elements on multiple ranks must exchange its
+    # residual/mass contributions with EVERY co-owning rank.  Face adjacency
+    # alone misses edge/corner nodes shared by 3+ ranks (e.g. 8 ranks meeting
+    # at one interior corner), so exchange patterns are built from global node
+    # ownership in the compaction loop below.
+    node_owner_ranks: dict[int, set[int]] = {}
+    for cell_id in range(n_cell):
+        owner_rank = int(element_to_rank[cell_id])
+        for global_node in np.unique(global_cell2global_node[cell_id]):
+            node_owner_ranks.setdefault(int(global_node), set()).add(owner_rank)
 
     # Per-rank compaction
     n_global_node = (
@@ -384,34 +353,42 @@ def compute_per_rank(
         rd["local_cell2global_node"] = ibool_global_4d
         rd["n_rank_node"] = n_rank_node
 
-        # Convert exchange DOF indices: element-local → compact
-        for neighbor_rank, ex in rd["exchange"].items():
-            for key in ("send_dof", "recv_dof"):
-                old_dofs = ex[key]
-                new_dofs: list[int] = []
-                for old_dof in old_dofs:
-                    local_idx = old_dof // (n_node * 3)
-                    remainder = old_dof % (n_node * 3)
-                    node = remainder // 3
-                    direction = remainder % 3
-                    k_idx = node % ngll
-                    j_idx = (node // ngll) % ngll
-                    i_idx = node // (ngll * ngll)
-                    node_id = int(ibool_compact_4d[local_idx, i_idx, j_idx, k_idx])
-                    new_dofs.append(node_id * 3 + direction)
-                ex[key] = new_dofs
+        # ── Exchange DOF patterns (node-ownership based, compact indices) ──
+        # A GLL node shared by elements on multiple ranks must exchange its
+        # residual/mass contributions with EVERY co-owning rank.  Face
+        # adjacency alone misses edge/corner nodes shared by 3+ ranks, so
+        # patterns are built from global node ownership.
+        #
+        # ORDERING CONTRACT: for each neighbor pair (rank, other_rank), both
+        # sides must list shared nodes in the SAME order, because the solver
+        # packs send buffers positionally.  Local compact indices differ
+        # between ranks, so nodes are ordered by GLOBAL node id (identical
+        # on both sides) before mapping to local compact DOFs.
+        neighbor_shared_nodes: dict[int, dict[int, int]] = {}
+        n_local = len(locals_list)
+        for cell_row in range(n_local):
+            for global_node, compact_node in zip(
+                ibool_global_4d[cell_row].ravel(), ibool_compact_4d[cell_row].ravel()
+            ):
+                owners = node_owner_ranks[int(global_node)]
+                if len(owners) < 2:
+                    continue
+                g = int(global_node)
+                c = int(compact_node)
+                for other_rank in owners:
+                    if other_rank == rank:
+                        continue
+                    shared = neighbor_shared_nodes.setdefault(other_rank, {})
+                    shared[g] = c  # dedup: same mapping for every shared cell
 
-            # Deduplicate exchange DOFs
-            seen: set[int] = set()
-            uniq_send: list[int] = []
-            uniq_recv: list[int] = []
-            for s, r in zip(ex["send_dof"], ex["recv_dof"]):
-                if s not in seen:
-                    seen.add(s)
-                    uniq_send.append(s)
-                    uniq_recv.append(r)
-            ex["send_dof"] = uniq_send
-            ex["recv_dof"] = uniq_recv
+        exchange_dof: dict[int, dict] = {}
+        for other_rank, shared in neighbor_shared_nodes.items():
+            dofs: list[int] = []
+            for g in sorted(shared):  # global-id order: matches the remote side
+                base = shared[g] * 3
+                dofs.extend((base, base + 1, base + 2))
+            exchange_dof[other_rank] = {"send_dof": dofs, "recv_dof": list(dofs)}
+        rd["exchange"] = exchange_dof
 
     return per_rank
 

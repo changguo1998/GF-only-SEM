@@ -9,6 +9,7 @@ CASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODEL_DIR="$(cd "$CASE_DIR/../halfspace" && pwd)"
 PROJECT_ROOT="$(cd "$CASE_DIR/../.." && pwd)"
 BIN="${PROJECT_ROOT}/bin"
+MEMLIMIT="${PROJECT_ROOT}/scripts/with_mem_limit.sh"  # host RAM cap (GF_MEM_LIMIT_GB, 0=off)
 
 # ── Environment (recursive import) ──────────────────────────
 source "${PROJECT_ROOT}/scripts/env.sh" > /dev/null 2>&1 || true
@@ -63,14 +64,14 @@ SOLVER="${BIN}/gf_solver_viscoelastic_mpi"
 for DIR in x y z; do
     echo "  direction=$DIR"
     mkdir -p wavefields/$DIR
-    mpirun -n 16 "${SOLVER}" --direction "$DIR" 2>&1 | grep "complete" || { echo "FAIL: solver failed $DIR"; exit 1; }
+    "${MEMLIMIT}" -- mpirun -n 16 "${SOLVER}" --direction "$DIR" 2>&1 | grep "complete" || { echo "FAIL: solver failed $DIR"; exit 1; }
 done
 
 # ── Stage 4: Postprocess ───────────────────────────────────
 echo ""
 echo "=== Stage 4: Postprocess ==="
 cd "${CASE_DIR}"
-"${BIN}/gf_postprocess" model.h5 config.h5 \
+"${MEMLIMIT}" -- "${BIN}/gf_postprocess" model.h5 config.h5 \
     --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ \
     -o greenfun/ 2>/dev/null || { echo "FAIL: postprocess failed"; exit 1; }
 

@@ -8,6 +8,7 @@ set -euo pipefail
 CASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$CASE_DIR/../.." && pwd)"
 BIN="${PROJECT_ROOT}/bin"
+MEMLIMIT="${PROJECT_ROOT}/scripts/with_mem_limit.sh"  # host RAM cap (GF_MEM_LIMIT_GB, 0=off)
 
 # ── Environment ──────────────────────────────────────────
 source "${PROJECT_ROOT}/scripts/env.sh" >/dev/null 2>&1 || true
@@ -62,7 +63,7 @@ GFSOLVER="${BIN}/gf_solver_elastic_cuda"
 for DIR in x y z; do
 	mkdir -p wavefields/$DIR
 	echo "  direction=$DIR"
-	"${GFSOLVER}" --direction "$DIR" 2>&1 | grep "complete" || {
+	"${MEMLIMIT}" -- "${GFSOLVER}" --direction "$DIR" 2>&1 | grep "complete" || {
 		echo "FAIL: solver failed $DIR"
 		exit 1
 	}
@@ -71,7 +72,7 @@ done
 echo ""
 echo "=== Stage 4: Postprocess ==="
 cd "${CASE_DIR}"
-"${BIN}/gf_postprocess" model.h5 config.h5 \
+"${MEMLIMIT}" -- "${BIN}/gf_postprocess" model.h5 config.h5 \
 	--fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ \
 	-o greenfun/ 2>/dev/null || {
 	echo "FAIL: postprocess failed"

@@ -25,4 +25,17 @@ namespace gf {
 void exchange_halo(const std::vector<RankData::ExchangePattern>& patterns,
                    std::vector<double>& field, int n_dof_per_node = 3);
 
+/// MPI halo exchange with MAX reduction instead of summation.
+///
+/// Used for per-node properties that must be IDENTICAL on every rank at
+/// shared GLL nodes (e.g. PML damping): interior elements assign 0 at
+/// PML-interface nodes while the adjacent PML element assigns the profile
+/// value; MAX makes the largest value win consistently on all ranks.
+///
+/// \param patterns  Precomputed exchange patterns from RankData
+/// \param field     Current field values [n_dof], modified in place (max-reduce)
+/// \param n_dof_per_node  DOF per GLL node (3 for displacement/velocity)
+void exchange_halo_max(const std::vector<RankData::ExchangePattern>& patterns,
+                       std::vector<double>& field, int n_dof_per_node = 3);
+
 }  // namespace gf

@@ -24,6 +24,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BIN_DIR="${PROJECT_ROOT}/bin"
+MEMLIMIT="${SCRIPT_DIR}/with_mem_limit.sh" # host RAM cap (GF_MEM_LIMIT_GB, default 60, 0=off)
 
 # ── Colors ────────────────────────────────────────────────────────────────
 
@@ -270,10 +271,10 @@ main() {
 			fi
 		fi
 		echo -e "  MPI ranks: ${GREEN}${n}${NC}"
-		exec ${MPIRUN:-mpirun} -n "$n" "$SOLVER_BIN" "${solver_args[@]}"
+		exec "$MEMLIMIT" -- ${MPIRUN:-mpirun} -n "$n" "$SOLVER_BIN" "${solver_args[@]}"
 	else
 		echo -e "  Mode: ${CYAN}CUDA single-GPU (no MPI)${NC}"
-		exec "$SOLVER_BIN" "${solver_args[@]}"
+		exec "$MEMLIMIT" -- "$SOLVER_BIN" "${solver_args[@]}"
 	fi
 }
 

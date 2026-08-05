@@ -9,10 +9,12 @@
 
 namespace gf {
 
-void exchange_halo(const std::vector<RankData::ExchangePattern>& patterns,
-                   std::vector<double>& field, int n_dof_per_node) {
-    (void)n_dof_per_node;  // reserved for validation if needed
+namespace {
 
+enum class HaloReduce { kSum, kMax };
+
+void exchange_halo_impl(const std::vector<RankData::ExchangePattern>& patterns,
+                        std::vector<double>& field, HaloReduce reduce_op) {
     if (patterns.empty())
         return;
 
@@ -70,17 +72,39 @@ void exchange_halo(const std::vector<RankData::ExchangePattern>& patterns,
         MPI_Waitall(static_cast<int>(n_patterns * 2), requests.data(), MPI_STATUSES_IGNORE);
     }
 
-    // --- Accumulate received data into field (add, not overwrite) ---
-    // This is the key CG-SEM assembly step: contributions from neighbor
-    // ranks at shared GLL nodes are summed into the local residual.
+    // --- Reduce received data into field ---
+    // kSum: the key CG-SEM assembly step — shared GLL node contributions
+    //       from neighbor ranks are summed into the local residual.
+    // kMax: per-node properties (PML damping) take the largest value so all
+    //       ranks agree on a single value at shared nodes.
     recv_offset = 0;
     for (const auto& pat : patterns) {
         int n_recv = static_cast<int>(pat.recv_dof_indices.size());
         for (int j = 0; j < n_recv; ++j) {
-            field[pat.recv_dof_indices[j]] += recv_buf[recv_offset + j];
+            double& dst = field[pat.recv_dof_indices[j]];
+            const double src = recv_buf[recv_offset + j];
+            if (reduce_op == HaloReduce::kSum) {
+                dst += src;
+            } else if (src > dst) {
+                dst = src;
+            }
         }
         recv_offset += n_recv;
     }
+}
+
+}  // namespace
+
+void exchange_halo(const std::vector<RankData::ExchangePattern>& patterns,
+                   std::vector<double>& field, int n_dof_per_node) {
+    (void)n_dof_per_node;  // reserved for validation if needed
+    exchange_halo_impl(patterns, field, HaloReduce::kSum);
+}
+
+void exchange_halo_max(const std::vector<RankData::ExchangePattern>& patterns,
+                       std::vector<double>& field, int n_dof_per_node) {
+    (void)n_dof_per_node;  // reserved for validation if needed
+    exchange_halo_impl(patterns, field, HaloReduce::kMax);
 }
 
 }  // namespace gf
