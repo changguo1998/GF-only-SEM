@@ -413,6 +413,8 @@ def _try_cpp_run(model_path, config, domain_bounds):
         str(int(getattr(config, "nx_elements", 0))),
         "--ny",
         str(int(getattr(config, "ny_elements", 0))),
+        "--n-ranks",
+        str(int(getattr(config, "n_ranks", 1))),
     ]
     for face in ["xmin", "xmax", "ymin", "ymax", "zmin", "zmax"]:
         thick = int(pml.get(face, 0))
@@ -423,6 +425,56 @@ def _try_cpp_run(model_path, config, domain_bounds):
     if proc is None:
         logger.info("C++ run failed — falling back to Python steps")
         return False
+    return True
+
+
+def write_attenuation_if_configured(model_path, config, n_cell, n_gll, logger=None) -> bool:
+    """Step 10b (config-driven): SLS attenuation auto-injection.
+
+    When ``config`` exposes ``q_mu``/``q_kappa`` (the canonical visco parameter
+    settings), compute tau_sigma/tau_epsilon and write them to model.h5 so the
+    forward solver auto-detects attenuation
+    (forward/share/src/io.cpp: has_attenuation = !tau_sigma.empty()).
+    Q -> infinity (elastic limit) => tau_epsilon == tau_sigma => solver output is
+    bit-identical to elastic. ``n_sls`` is clamped to the solver-fixed N_SLS=3.
+
+    Returns True when attenuation was written, False when the config carries no
+    q_mu/q_kappa (skipped). ``logger`` is optional (None => silent).
+    """
+    q_mu_val = getattr(config, "q_mu", None)
+    q_kappa_val = getattr(config, "q_kappa", None)
+    if q_mu_val is None or q_kappa_val is None:
+        if logger:
+            logger.info("  SLS attenuation skipped (q_mu/q_kappa not set in config)")
+        return False
+
+    n_sls = int(getattr(config, "n_sls", 3))
+    if n_sls != 3:
+        if logger:
+            logger.warning(
+                "  n_sls=%d != solver fixed N_SLS=3 "
+                "(forward/share/include/gf/attenuation.hpp) - clamping to 3",
+                n_sls,
+            )
+        n_sls = 3
+    f0_attenuation = float(getattr(config, "f0_for_pml_hz", 2.0))
+    q_mu_f = float(q_mu_val)
+    q_kappa_f = float(q_kappa_val)
+    if logger:
+        logger.info(
+            f"Writing SLS attenuation (q_mu={q_mu_f:.3g}, q_kappa={q_kappa_f:.3g}, "
+            f"n_sls={n_sls}, f0={f0_attenuation} Hz)..."
+        )
+
+    import numpy as np
+
+    from preprocess.attenuation import write_attenuation_to_model
+
+    q_mu_arr = np.full((n_cell, n_gll, n_gll, n_gll), q_mu_f, dtype=np.float64)
+    q_kappa_arr = np.full((n_cell, n_gll, n_gll, n_gll), q_kappa_f, dtype=np.float64)
+    write_attenuation_to_model(model_path, q_kappa_arr, q_mu_arr, n_gll, n_sls, f0_attenuation)
+    if logger:
+        logger.info("  attenuation write done")
     return True
 
 
@@ -770,6 +822,11 @@ def main() -> None:
         tile_config=tile_config,
     )
     logger.info(f"  model write: {time.time() - t0:.2f}s")
+
+    # ── Step 10b: SLS attenuation (config-driven, visco parameter settings) ──
+    # When config exposes q_mu/q_kappa, compute tau_sigma/tau_epsilon and write them
+    # to model.h5 so the solver auto-detects attenuation (n_sls clamped to 3).
+    write_attenuation_if_configured(model_path, config, n_cell, n_gll, logger)
 
     config_h5 = os.path.join(os.path.dirname(model_path), "config.h5")
     logger.info(f"Writing config to: {config_h5}")

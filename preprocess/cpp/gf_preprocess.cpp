@@ -46,17 +46,31 @@ static int run_main(int argc, char** argv) {
     if (argc < 1) {
         fprintf(stderr,
                 "Usage: gf_preprocess run <model.h5> [--N N] [--cfl-safety val] "
-                "[--nx N] [--ny N] [--pml-* THICK]\n");
+                "[--nx N] [--ny N] [--n-ranks N] [--pml-* THICK]\n");
         return 1;
     }
 
     // ── Collect stage1 arguments (model.h5 + --option pairs) ──
+    // `--n-ranks N` is consumed here (NOT forwarded to stage1, which rejects
+    // unknown options); it overrides cfg.n_ranks for the METIS partition so the
+    // CLI (config.py:n_ranks) is the single source of truth for rank count.
 
+    int n_ranks_override = -1;
+    const char* model_path = nullptr;
     std::vector<char*> stage1_args;
     stage1_args.push_back(argv[0]);  // program name placeholder
     for (int i = 0; i < argc; ++i) {
-        if (std::strcmp(argv[i], "run") == 0)
+        const char* arg = argv[i];
+        if (std::strcmp(arg, "run") == 0)
             continue;
+        if (std::strcmp(arg, "--n-ranks") == 0) {
+            if (i + 1 < argc) {
+                n_ranks_override = std::atoi(argv[++i]);
+                continue;
+            }
+        }
+        if (model_path == nullptr && arg[0] != '-')
+            model_path = arg;
         stage1_args.push_back(argv[i]);
     }
 
@@ -68,17 +82,6 @@ static int run_main(int argc, char** argv) {
         return rc;
     }
 
-    // Locate model.h5 path (first non-option argument after "run")
-
-    const char* model_path = nullptr;
-    for (int i = 0; i < argc; ++i) {
-        if (argv[i][0] == '-')
-            continue;
-        if (std::strcmp(argv[i], "run") == 0)
-            continue;
-        model_path = argv[i];
-        break;
-    }
     if (!model_path) {
         fprintf(stderr, "ERROR: model.h5 path required\n");
         return 1;
@@ -201,6 +204,8 @@ static int run_main(int argc, char** argv) {
     hid_t model_fid = gf::h5::open_or_fail(model_path, H5F_ACC_RDWR);
 
     gf::Config cfg = gf::get_config();
+    if (n_ranks_override > 0)
+        cfg.n_ranks = n_ranks_override;
 
     // Read coords for element/NGLL counts
     std::vector<double> gll_coords = gf::h5::read_double(model_fid, "field/element/coords");

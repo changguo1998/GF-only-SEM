@@ -29,7 +29,8 @@ Config get_config() {
     c.record_depth_max_m = 18000.0;
     c.tilex_elements = {2, 2, 2, 2};
     c.tiley_elements = {2, 2, 2, 2};
-    c.n_ranks = 16;
+    c.n_ranks = 16;  // default only — the CLI (`gf_preprocess run --n-ranks`)
+                     // overrides this from config.py:n_ranks, the single source of truth
     c.pml_xmin = 5;
     c.pml_xmax = 5;
     c.pml_ymin = 5;
