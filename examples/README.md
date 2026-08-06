@@ -5,8 +5,13 @@ End-to-end computation examples for gf-calculation.
 Each example is self-contained and demonstrates the computational pipeline:
 
 ```
-mesh generation → preprocess → forward solver → postprocess (Green's ftn extraction)
+mesh generation → preprocess (GLL + material + PML + SLS attenuation) →
+forward solver → postprocess (Green's ftn extraction)
 ```
+
+The preprocessor auto-injects the config's viscoelastic (SLS) parameters
+(`q_mu`, `q_kappa`, `n_sls`) into `model.h5`. The solver to run is chosen by
+the user inside each example's `forward.sh` (commented-out, switchable).
 
 Green's function extraction uses configured shallow mesh vertices. No receivers.
 
@@ -24,7 +29,7 @@ Homogeneous elastic half-space with a buried point force at 278 m depth.
 | `halfspace/setenv.sh` | Environment init (Spack MPI/Eigen/HDF5) |
 | `halfspace/mesh.sh` | Stage 1: mesh generation |
 | `halfspace/preprocess.sh` | Stage 2: GLL geometry, materials, PML, partition |
-| `halfspace/forward.sh` | Stage 3: CUDA/MPI forward solver (3 force directions) |
+| `halfspace/forward.sh` | Stage 3: forward solver (3 force directions) — **solver switchable inside** (uncomment one) |
 | `halfspace/postprocess.sh` | Stage 4: Green's function tile extraction |
 
 **Quick start — full validation:**
@@ -139,41 +144,56 @@ uv venv .venv --python 3.9
 .venv/bin/python -m pip install pyfk obspy h5py
 ```
 
-## Model × Solver × Language End-to-End Test Cases
+## Canonical Examples & Solver Selection
 
-Each `{model}-{physics}-{runtime}-{language}/` directory contains `compare.sh`
-that runs the full pipeline in-place via recursive sourcing of `scripts/env.sh`.
-Naming: `model` = halfspace/layer, `physics` = elastic/viscoelastic,
-`runtime` = mpi/gpu, `language` = python/cpp.
+Three canonical, self-contained examples replace the earlier
+`{model}-{physics}-{runtime}-{language}` test-case matrix (GPU/CPU and solver
+are no longer encoded in directory names):
 
-### Quick Matrix
+| Case | Purpose |
+|------|---------|
+| `halfspace/` | Homogeneous half-space — vs analytic Lamb (Johnson 1974) reference |
+| `layer/` | Two-layer half-space — vs PyFK reference |
+| `fullspace-cubic/` | Full-space (all-PML) — **solver / backend (GPU vs CPU) comparison** |
 
-| Language | Runtime | halfspace-elastic | halfspace-visco | layer-elastic | layer-visco |
-|----------|---------|-------------------|-----------------|---------------|-------------|
-| python | mpi | ✅ | ✅ | ✅ | ✅ |
-| python | gpu | ✅ (CUDA) | ✅ (CUDA) | ✅ (CUDA) | ✅ (CUDA) |
-| cpp | mpi | ✅ | ✅ | ✅ | ✅ |
-| cpp | gpu | ✅ (CUDA) | ✅ (CUDA) | ✅ (CUDA) | ✅ (CUDA) |
+All configs use **viscoelastic (SLS) parameters**: `q_mu`, `q_kappa`, `n_sls`
+(and `f0_for_pml_hz`). The preprocessor auto-injects them into `model.h5`
+(`field/cell/tau_*`), so the solver exercises the SLS code path. With the
+default Q→∞ (elastic limit) visco output is bit-identical to elastic; set
+`q_mu`/`q_kappa` to a finite value (e.g. `100.0`) for real attenuation.
+
+**Solver selection** is done by the user, not by test-case naming. Edit
+`examples/<case>/forward.sh` and uncomment ONE solver entry — options cover:
+
+| Option | Solver | Backend |
+|--------|--------|---------|
+| (A) `gf_solver_viscoelastic_mpi` | viscoelastic (SLS) | CPU + MPI (default) |
+| (B) `gf_solver_viscoelastic_cuda` | viscoelastic (SLS) | CUDA single-GPU |
+| (C) `gf_solver_viscoelastic_mpi_cuda` | viscoelastic (SLS) | CUDA + MPI |
+| (D) `gf_solver_elastic_mpi` | elastic | CPU + MPI |
+| (E) `gf_solver_elastic_cuda` | elastic | CUDA single-GPU |
+| (F) `gf_solver_elastic_mpi_cuda` | elastic | CUDA + MPI |
+| (G) custom ranks | any `*_mpi` | override `config.py:n_ranks` |
+| (H) custom path | any | build variant |
+
+The chosen solver runs all 3 force directions. MPI rank count comes from
+`config.py:n_ranks` by default.
 
 **Usage:**
 
 ```bash
 source scripts/env.sh && scripts/build.sh cpu
-bash examples/halfspace-elastic-mpi-python/compare.sh    # single case
+bash examples/halfspace/compare.sh                # single case
 
-# All MPI cases (8 total):
-for d in examples/*-mpi-*/; do bash "$d/compare.sh"; done
-
-# GPU cases auto-skip if no GPU present
+bash scripts/run_all_examples.sh --dry-run        # list the 3 cases
+bash scripts/run_all_examples.sh --case halfspace # run one case
+bash scripts/run_all_examples.sh                  # run all cases
 ```
 
-**Language variants:**
-
-- `python` — Python config (`config.py`) + Python preprocess
-- `cpp` — C++ config (`config_user_*.cpp`) + C++ preprocess (`gf_preprocess run`)
-
-**Note:** viscoelastic cases run without SLS attenuation, output = elastic.
-GPU cases check `nvidia-smi` and skip gracefully if no GPU is available.
+`fullspace-cubic` is the GPU vs CPU comparison case: its `compare.sh` runs the
+CUDA solver (skips gracefully with "SKIP: no GPU available" when no GPU is
+present), and `compare_solvers.py` aligns the CUDA and MPI-CPU strain fields
+(rel_l2, Pearson correlation). See `fullspace-cubic/VERIFICATION.md`.
 
 ## Adding a New Example
 

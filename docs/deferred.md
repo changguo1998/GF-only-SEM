@@ -159,21 +159,31 @@ ______________________________________________________________________
 
 ## 7. Postprocess MPI Tile-Parallel Refactoring
 
-**Status: WIP (OOM fixed).** MPI tile-parallel variant
+**Status: verified (2026-08-05).** MPI tile-parallel variant
 (`postprocess/cpp/main_mpi.cpp`, target `gf_postprocess_mpi`). Memory redesigned:
 `merge_direction()` (full replication, ~331 GB for 16 ranks -> OOM/reboot) split
 into `merge_metadata()` (cheap, ~6 MB) + `extract_tile_fields()` (tile-local,
-~1 GB/rank). 16-rank total: ~17 GB. Build passes; multi-rank runtime verification
-pending (see [`design/postprocess-tile-parallel.md`](design/postprocess-tile-parallel.md)).
+~1 GB/rank). 16-rank total: ~17 GB. Tile distribution is round-robin across ranks
+(`tile_pos = rank, rank+nranks, ...`), so any `n_ranks` writes every tile exactly
+once; ranks beyond `n_tiles` exit before any field allocation.
+Multi-rank verification (halfspace, 9 tiles): `mpirun -n 1` and `mpirun -n 4`
+outputs are numerically bit-identical to serial `gf_postprocess` across all
+datasets of all 9 tiles (HDF5 file bytes differ only by serialization, not data).
 
 ### Remaining
 
-- `main.cpp` and `main_mpi.cpp` share ~950 lines of duplicated code. Refactor into
-  a shared library once multi-rank MPI is verified.
-- Multi-rank tile distribution: replace `ti = mpi_rank` with round-robin/block
-  distribution so each tile is owned by exactly one rank regardless of `n_ranks`.
-- Byte-identical verification of `gf_postprocess_mpi` output against serial
-  `gf_postprocess` across all tiles.
+- Deduplication (2026-08-05): the binary-independent helpers shared verbatim by
+  both mains (`Args`/`parse_args`, `read_cell_mass`, STF downsampling, `print_stats`)
+  are now in `postprocess/cpp/common.hpp` (header-only, no MPI) — reused by
+  `main.cpp` and `main_mpi.cpp`. The per-direction merge pipelines stay separate
+  by design: serial `merge_direction()` (full replication) vs tile-local
+  `merge_metadata()` + `extract_tile_fields()` are different data flows; unifying
+  them would add complexity/risk without changing behavior. The two mains still
+  share some structurally-similar merge/binning code (~500 equal lines) that a
+  future shared-library pass could fold in if a third backend ever appears.
+- (optional, non-algorithmic) HDF5 byte-level serialization parity between the two
+  binaries is not guaranteed; data + attrs are bit-identical, so consumers treating
+  tiles as data files are unaffected.
 
 ## Summary
 

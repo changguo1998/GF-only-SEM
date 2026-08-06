@@ -101,8 +101,10 @@ postprocess mass-weighting) are fixed and verified. See
 [`docs/design/known-limitations.md`](docs/design/known-limitations.md) (~3× SEM factor).
 
 Elastic + viscoelastic (SLS) forward solvers complete and verified. SLS elastic-limit
-regression (Q→∞) confirmed: max_rel_l2=0.0 (bit-identical to elastic) across all
-4 MPI C++/Python variants (halfspace + layer). See `scripts/solver.sh` to select.
+regression (Q→∞) confirmed: max_rel_l2=0.0 (bit-identical to elastic). Examples are
+unified on viscoelastic (SLS) config — the solver is chosen by the user via commented-out
+entries in `examples/*/forward.sh` (or interactively via `scripts/solver.sh`); no more
+test-case naming for GPU/CPU or solver.
 
 CG-SEM global-DOF assembly fix complete — waves correctly propagate across element
 interfaces (both within-rank and cross-rank). All 207 Python tests pass. C++ Catch2
@@ -110,8 +112,12 @@ tests (17) require MPI-enabled build configuration.
 
 Buried source support implemented (`source_z_m = None`→free surface, `float`→buried). Preprocessor auto-detects surface vs buried mode and excludes PML elements for buried sources.
 
-**Full example validation suite** (`scripts/run_all_examples.sh`) runs all 18 examples
-end-to-end. Last run (2026-07-26): 10 PASSED, 0 FAILED, 8 SKIP (no GPU).
+**Full example validation suite** (`scripts/run_all_examples.sh`) runs the 3 canonical
+examples end-to-end: `halfspace` (vs Lamb), `layer` (vs PyFK), `fullspace-cubic`
+(solver/backend comparison; auto-skips without a GPU). All three selected to the CUDA
+solver; last run (2026-08-05, RTX 5060 Ti): 3 PASSED via `elastic_cuda` — halfspace
+scale=2.91/rel_l2=0.185, layer scale=2.60, fullspace Stokes corr=0.781 (non-fatal WARNING < 0.80). `viscoelastic_cuda` fails the hardware test (see table below);
+`run_all_examples.sh` only gates on exit codes, so verify S3 metrics in the log.
 
 After fixing the postprocess mass-weighting bug (commit `6f90c12`) and Green tensor
 index convention mismatch (transpose bug, 2026-07-19), scaled waveform correlation
@@ -123,10 +129,10 @@ is 0.991 (halfspace) / 0.745 (layer). A residual ~3× scale factor (2.95 halfspa
 | CPU + MPI (elastic) | ✅ (16 ranks) | Global (ibool) | ✅ Verified — diagonals 1.01-1.03× ref |
 | CPU + MPI (viscoelastic) | ✅ (16 ranks) | Global (ibool) | ✅ Verified — elastic limit rel_l2=0.0 |
 | CUDA single (elastic) | N/A | Global (ibool) | ✅ Verified — rel_l2=5.1e-4 vs CPU 16-rank (fullspace, steps 400/700) |
-| CUDA single (viscoelastic) | N/A | Global (ibool) | ✅ Builds, awaiting GPU hardware test |
+| CUDA single (viscoelastic) | N/A | Global (ibool) | ❌ Builds but WRONG on GPU (2026-08-05: halfspace scaled rel_l2=1.0, best-fit scale ≈0 vs elastic_cuda 0.185/+2.91) — needs the post-`compute_full_strain` fix port; use `elastic_cuda` on the Q→∞ config |
 
 **CUDA vs MPI-CPU fullspace consistency (2026-08-05):** verified on
-`examples/fullspace-cubic-elastic-mpi-cpp` (direction=x, 800 steps, all-face
+`examples/fullspace-cubic` (direction=x, 800 steps, all-face
 PML): strain rel_l2=1.7e-4 (step 400) / 5.1e-4 (step 700), Pearson corr
 
 > 0.9999998 — PASS. Three real bugs fixed along the way:
@@ -145,17 +151,19 @@ PML): strain rel_l2=1.7e-4 (step 400) / 5.1e-4 (step 700), Pearson corr
    wrong-node reads everywhere plus out-of-bounds heap reads at each rank's
    last element (the apparent exponential "strain explosion"; velocity/
    displacement were correct all along). Fixed by removing the offset.
-   Also noted: the C++ preprocessor hardcodes `n_ranks=16`
-   (`preprocess/cpp/config_user_fullspace.cpp`) and `preprocess/cli.py` reuses
-   its `partition/element_to_rank` regardless of `config.py:n_ranks` — a 1-rank
-   control run needs an explicit partition rebuild (recipe:
-   `tmp/cpu1_run/build_1rank.py`; dir removed after use). Comparison tool:
-   `examples/fullspace-cubic-elastic-mpi-cpp/compare_solvers.py` (coordinate-
+   FIXED (2026-08-05): `gf_preprocess run` now accepts `--n-ranks N`
+   (consumed in `run_main`, not forwarded to stage1) and `cli.py` always passes
+   `config.py:n_ranks` — so `config.py` is the single source of truth and a
+   1-rank (or any) control run needs no manual partition rebuild. The hardcoded
+   `n_ranks=16` in `preprocess/cpp/config_user_fullspace.cpp` is now only the
+   bare-invocation default. Comparison tool:
+   `examples/fullspace-cubic/compare_solvers.py` (coordinate-
    aligned, rerunnable).
-   **Postprocess MPI tile-parallel** (`gf_postprocess_mpi`, WIP): one-tile-per-rank
-   variant of `gf_postprocess`. OOM bug fixed — memory redesigned from
-   full-replication (~331 GB for 16 ranks) to tile-local extraction (~17 GB).
-   Build passes; multi-rank runtime verification pending. See
+   **Postprocess MPI tile-parallel** (`gf_postprocess_mpi`): OOM fixed (memory
+   redesigned from full-replication ~331 GB/16 ranks to tile-local ~17 GB).
+   VERIFIED (2026-08-05, halfspace, 9 tiles): tiles round-robin across ranks
+   (each written exactly once, any n_ranks); `mpirun -n 4` output numerically
+   identical (bitwise) to serial `gf_postprocess` across all 9 tiles. See
    [`docs/design/postprocess-tile-parallel.md`](docs/design/postprocess-tile-parallel.md)
    and [`docs/deferred.md`](docs/deferred.md) §7.
 
