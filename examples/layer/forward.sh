@@ -13,26 +13,48 @@ WORK_DIR="${SCRIPT_DIR}"
 source "${SCRIPT_DIR}/preprocess.sh"
 
 # ── Solver selection ──────────────────────────────────
-# Pick ONE by uncommenting. The same solver runs all 3 directions.
-# wavefield2vtk requires matching solver output format across directions,
-# so mixing different solvers per-direction is not supported.
+# Uncomment ONE solver. The same solver runs all 3 directions
+# (wavefield2vtk requires matching solver output across directions, so
+# mixing different solvers per-direction is not supported).
+#
+# The config drives viscoelastic SLS parameters (q_mu/q_kappa/n_sls/
+# f0_for_pml_hz are auto-injected into model.h5 by the preprocessor).
+# With Q→∞ (elastic limit — the config default) the visco solver output
+# is bit-identical to elastic, so any solver below is valid.
+#
+#   gf_solver_viscoelastic_*   SLS viscoelastic solver (recommended)
+#   gf_solver_elastic_*        elastic solver (tolerates Q→∞ tau fields)
+#   *_mpi           CPU OpenMPI (ranks from config.py:n_ranks)
+#   *_cuda          CUDA single-GPU, no MPI
+#   *_mpi_cuda      CUDA + MPI (multi-GPU cluster)
 #
 PROJECT_BIN="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}/bin"
 MEMLIMIT="$(cd "${SCRIPT_DIR}/../.." && pwd)/scripts/with_mem_limit.sh"  # host RAM cap (GF_MEM_LIMIT_GB, 0=off)
 
-# (A) CPU + MPI (default)
-SOLVER="${PROJECT_BIN}/gf_solver_elastic_mpi"
+# (A) VISCOELASTIC — CPU + MPI (default, Q→∞ elastic limit)
+# SOLVER="${PROJECT_BIN}/gf_solver_viscoelastic_mpi"
 
-# (C) CUDA + MPI (multi-GPU cluster)
+# (B) VISCOELASTIC — CUDA single GPU (no MPI)
+# SOLVER="${PROJECT_BIN}/gf_solver_viscoelastic_cuda"
+
+# (C) VISCOELASTIC — CUDA + MPI (multi-GPU cluster)
+# SOLVER="${PROJECT_BIN}/gf_solver_viscoelastic_mpi_cuda"
+
+# (D) ELASTIC — CPU + MPI
+# SOLVER="${PROJECT_BIN}/gf_solver_elastic_mpi"
+
+# (E) ELASTIC — CUDA single GPU (no MPI)
+SOLVER="${PROJECT_BIN}/gf_solver_elastic_cuda"
+
+# (F) ELASTIC — CUDA + MPI (multi-GPU cluster)
 # SOLVER="${PROJECT_BIN}/gf_solver_elastic_mpi_cuda"
 
-# (D) MPI + CUDA with explicit rank/GPU control (override n_ranks)
-# N_RANKS_CUSTOM=4
-# SOLVER="${PROJECT_BIN}/gf_solver_elastic_mpi_cuda"
-# MPIRUN="mpirun -n ${N_RANKS_CUSTOM}"
+# (G) Custom rank count (overrides config.py:n_ranks)
+# SOLVER="${PROJECT_BIN}/gf_solver_viscoelastic_mpi"
+# MPIRUN="mpirun -n 4"
 
-# (E) Custom path / build variant
-# SOLVER="${PROJECT_DIR}/build/forward/elastic/gf_solver_elastic_mpi"
+# (H) Custom path / build variant
+# SOLVER="${PROJECT_DIR}/build/forward/viscoelastic/gf_solver_viscoelastic_mpi"
 # ──────────────────────────────────────────────────────
 
 # ── Forward solver (3 directions) ───
@@ -44,9 +66,9 @@ for DIR in x y z; do
 	mkdir -p "${WORK_DIR}/wavefields/${DIR}"
 	cd "${WORK_DIR}"
 
-	# gf_solver_elastic_cuda runs standalone (no MPI)
-	if [[ ${SOLVER} == *gf_solver_elastic_cuda && ${SOLVER} != *mpi_cuda ]]; then
-		echo "  solver: gf_solver_elastic_cuda (CUDA, no MPI)"
+	# Single-GPU CUDA solvers (*_cuda, not *_mpi_cuda) run standalone (no MPI)
+	if [[ ${SOLVER} == *_cuda && ${SOLVER} != *_mpi_cuda ]]; then
+		echo "  solver: $(basename "${SOLVER}") (CUDA, no MPI)"
 		"${SOLVER}" --direction "${DIR}"
 	else
 		echo "  solver: $(basename "${SOLVER}") (${N_RANKS} ranks)"

@@ -172,6 +172,12 @@ PMIN = 0.0
 PMAX = 1.0
 KMAX = 15.0
 
-# ── SLS attenuation (elastic-limit regression) ───
+# ── SLS attenuation (viscoelastic parameters) ───
+# The preprocessor auto-injects these into model.h5 (field/cell/tau_*), so the
+# solver detects attenuation and exercises the SLS code path. Solver N_SLS is
+# fixed at 3 (forward/share/include/gf/attenuation.hpp). With Q→∞ (elastic
+# limit, the default below) visco output is bit-identical to elastic; set a
+# finite Q (e.g. 100.0) for real physical attenuation.
 q_mu = 1.0e9  # Shear quality factor (→∞ → elastic limit)
 q_kappa = 1.0e9  # Bulk quality factor (→∞ → elastic limit)
+n_sls = 3  # Number of SLS mechanisms (must match solver N_SLS=3)

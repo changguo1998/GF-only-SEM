@@ -19,11 +19,20 @@ source "${PROJECT_DIR}/env_setup.sh"
 N_RANKS=$(python -c "import sys; sys.path.insert(0, '${EXAMPLE_DIR}'); import config; print(config.n_ranks)")
 MPIRUN="${MPIRUN:-mpirun}"
 
-# Check solver binary (default: MPI+CPU). Override SOLVER for GPU variants.
-SOLVER="${SOLVER:-${PROJECT_DIR}/bin/gf_solver_elastic_mpi}"
+# SOLVER here is only the *manual-invocation default* (env var) — the actual
+# solver used by compare.sh / forward.sh comes from forward.sh's commented
+# switchable block. Keep the two in sync when running stages by hand.
+#
+# Default below = viscoelastic CPU+MPI (Q→∞ elastic limit). Override for any
+# other solver, e.g.:
+#   SOLVER="${PROJECT_DIR}/bin/gf_solver_elastic_cuda"      # CUDA single GPU
+#   SOLVER="${PROJECT_DIR}/bin/gf_solver_viscoelastic_cuda" # visco CUDA (GPU buggy, see AGENTS.md)
+#   SOLVER="${PROJECT_DIR}/bin/gf_solver_viscoelastic_mpi"  # visco CPU+MPI (default)
+# Current GPU runs select gf_solver_elastic_cuda in forward.sh (valid on Q→∞).
+SOLVER="${SOLVER:-${PROJECT_DIR}/bin/gf_solver_viscoelastic_mpi}"
 if [ ! -x "${SOLVER}" ]; then
     echo "ERROR: solver not found at ${SOLVER}"
-    echo "       Build with: cd ${PROJECT_DIR}/build && cmake --build . --target gf_solver_elastic_mpi"
+    echo "       Build with: cd ${PROJECT_DIR}/build && cmake --build . --target gf_solver_viscoelastic_mpi"
     return 1 2>/dev/null || exit 1
 fi
 
