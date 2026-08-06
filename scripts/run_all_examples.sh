@@ -2,18 +2,26 @@
 # ===========================================================================
 # scripts/run_all_examples.sh
 # ===========================================================================
-# Master orchestration: run all 18 example compare.sh in order.
+# Master orchestration: run the canonical examples end-to-end.
 #
-# Phase A: Elastic + Base (10) — elastic reference for regression
-# Phase B: Viscoelastic (8)  — SLS elastic-limit regression vs elastic ref
+#   examples/halfspace/        homogeneous half-space vs analytic Lamb reference
+#   examples/layer/            two-layer half-space vs PyFK reference
+#   examples/fullspace-cubic/  full-space — solver / backend (GPU vs CPU) comparison
 #
-# GPU cases auto-skip if no GPU (compare.sh checks nvidia-smi).
+# Each compare.sh runs:
+#   mesh → preprocess (GLL+material+PML+SLS attenuation) → forward →
+#   postprocess (Green's function extraction) → verify vs reference
+#
+# The solver is chosen by the user inside examples/*/forward.sh (commented-out,
+# switchable) — no test-case naming for GPU/CPU or solver anymore.
+#
+# GPU cases (fullspace-cubic) auto-skip if no GPU (compare.sh checks nvidia-smi).
 #
 # Usage:
 #   source scripts/env.sh && bash scripts/run_all_examples.sh
-#   bash scripts/run_all_examples.sh --dry-run    # list cases only
-#   bash scripts/run_all_examples.sh --phase A    # elastic only
-#   bash scripts/run_all_examples.sh --phase B    # viscoelastic only
+#   bash scripts/run_all_examples.sh --dry-run               # list cases only
+#   bash scripts/run_all_examples.sh --case halfspace        # run one case
+#   bash scripts/run_all_examples.sh --case layer,fullspace  # run several
 # ===========================================================================
 set -euo pipefail
 
@@ -24,63 +32,66 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 SUMMARY_FILE="${LOG_DIR}/summary_${TIMESTAMP}.txt"
 
 # ── Case list ──────────────────────────────────────────────
-# Phase A: Elastic + Base (run first to generate greenfun reference)
-PHASE_A_CASES=(
-	"examples/halfspace" # base
-	"examples/layer"     # base
-	"examples/halfspace-elastic-mpi-cpp"
-	"examples/halfspace-elastic-mpi-python"
-	"examples/halfspace-elastic-gpu-cpp"
-	"examples/halfspace-elastic-gpu-python"
-	"examples/layer-elastic-mpi-cpp"
-	"examples/layer-elastic-mpi-python"
-	"examples/layer-elastic-gpu-cpp"
-	"examples/layer-elastic-gpu-python"
-	"examples/fullspace-cubic-elastic-mpi-cpp"
-)
-
-# Phase B: Viscoelastic (SLS elastic-limit regression)
-PHASE_B_CASES=(
-	"examples/halfspace-viscoelastic-mpi-cpp"
-	"examples/halfspace-viscoelastic-mpi-python"
-	"examples/halfspace-viscoelastic-gpu-cpp"
-	"examples/halfspace-viscoelastic-gpu-python"
-	"examples/layer-viscoelastic-mpi-cpp"
-	"examples/layer-viscoelastic-mpi-python"
-	"examples/layer-viscoelastic-gpu-cpp"
-	"examples/layer-viscoelastic-gpu-python"
+ALL_CASES=(
+	"examples/halfspace"
+	"examples/layer"
+	"examples/fullspace-cubic"
 )
 
 # ── Parse args ─────────────────────────────────────────────
 DRY_RUN=false
-PHASE_FILTER=""
+CASE_FILTER=""
 
-for arg in "$@"; do
-	case "$arg" in
-	--dry-run) DRY_RUN=true ;;
-	--phase)
-		PHASE_FILTER="${2:-}"
+while [ $# -gt 0 ]; do
+	case "$1" in
+	--dry-run)
+		DRY_RUN=true
 		shift
 		;;
-	--phase=*) PHASE_FILTER="${arg#*=}" ;;
+	--case)
+		CASE_FILTER="${2:-}"
+		shift 2
+		;;
+	--case=*)
+		CASE_FILTER="${1#*=}"
+		shift
+		;;
 	-h | --help)
-		echo "Usage: bash scripts/run_all_examples.sh [--dry-run] [--phase A|B]"
+		echo "Usage: bash scripts/run_all_examples.sh [--dry-run] [--case NAME[,NAME...]]"
 		echo ""
-		echo "  --dry-run   List cases without executing"
-		echo "  --phase A   Run elastic+base only (10 cases)"
-		echo "  --phase B   Run viscoelastic only (8 cases)"
+		echo "  --dry-run        List cases without executing"
+		echo "  --case NAME      Run only the named case(s): halfspace, layer, fullspace"
 		exit 0
+		;;
+	*)
+		echo "ERROR: unknown argument '$1'"
+		exit 1
 		;;
 	esac
 done
 
+# Resolve --case filter to a list of case directories.
+CASES=()
+if [ -n "$CASE_FILTER" ]; then
+	for name in $(echo "$CASE_FILTER" | tr ',' ' '); do
+		case "$name" in
+		halfspace) CASES+=("examples/halfspace") ;;
+		layer) CASES+=("examples/layer") ;;
+		fullspace | fullspace-cubic) CASES+=("examples/fullspace-cubic") ;;
+		*)
+			echo "ERROR: unknown case '$name' (valid: halfspace, layer, fullspace)"
+			exit 1
+			;;
+		esac
+	done
+else
+	CASES=("${ALL_CASES[@]}")
+fi
+
 # ── Dry run ────────────────────────────────────────────────
 if $DRY_RUN; then
-	echo "=== Elastic + Base (Phase A) ==="
-	for d in "${PHASE_A_CASES[@]}"; do echo "  $d"; done
-	echo ""
-	echo "=== Viscoelastic (Phase B) ==="
-	for d in "${PHASE_B_CASES[@]}"; do echo "  $d"; done
+	echo "=== Examples ==="
+	for d in "${CASES[@]}"; do echo "  $d"; done
 	exit 0
 fi
 
@@ -159,30 +170,12 @@ run_case() {
 }
 
 # ── Run ─────────────────────────────────────────────────────
-if [ -z "$PHASE_FILTER" ] || [ "$PHASE_FILTER" = "A" ]; then
-	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	echo " PHASE A: Elastic + Base (10 cases)"
-	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	echo "" | tee -a "${SUMMARY_FILE}"
-	echo "=== Phase A: Elastic + Base ===" | tee -a "${SUMMARY_FILE}"
+echo "" | tee -a "${SUMMARY_FILE}"
+echo "=== Examples ($((${#CASES[@]})) cases) ===" | tee -a "${SUMMARY_FILE}"
 
-	for case_dir in "${PHASE_A_CASES[@]}"; do
-		run_case "$case_dir"
-	done
-fi
-
-if [ -z "$PHASE_FILTER" ] || [ "$PHASE_FILTER" = "B" ]; then
-	echo "" | tee -a "${SUMMARY_FILE}"
-	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	echo " PHASE B: Viscoelastic (8 cases) — SLS elastic-limit regression"
-	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	echo "" | tee -a "${SUMMARY_FILE}"
-	echo "=== Phase B: Viscoelastic ===" | tee -a "${SUMMARY_FILE}"
-
-	for case_dir in "${PHASE_B_CASES[@]}"; do
-		run_case "$case_dir"
-	done
-fi
+for case_dir in "${CASES[@]}"; do
+	run_case "$case_dir"
+done
 
 # ── Summary ─────────────────────────────────────────────────
 echo "" | tee -a "${SUMMARY_FILE}"
