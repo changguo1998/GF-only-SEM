@@ -1,8 +1,8 @@
 #!/bin/bash
-# examples/fullspace-cubic-elastic-mpi-cpp/compare.sh
-# fullspace-cubic × elastic × mpi × cpp
+# examples/fullspace-cubic/compare.sh
+# fullspace-cubic — solver / backend (GPU vs CPU) comparison case
 #
-# Usage:  bash examples/fullspace-cubic-elastic-mpi-cpp/compare.sh
+# Usage:  bash examples/fullspace-cubic/compare.sh
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,7 +14,7 @@ MEMLIMIT="${PROJECT_ROOT}/scripts/with_mem_limit.sh"  # host RAM cap (GF_MEM_LIM
 source "${PROJECT_ROOT}/scripts/env.sh" >/dev/null 2>&1 || true
 
 echo "=============================================================="
-echo " CASE: fullspace-cubic-elastic-mpi-cpp"
+echo " CASE: fullspace-cubic"
 echo "=============================================================="
 
 # ── Stage 1: Mesh ──────────────────────────────────────────
@@ -53,6 +53,9 @@ export PYTHONPATH="${PROJECT_ROOT}"
 echo ""
 echo "=== Stage 3: Forward (elastic, cuda) ==="
 cd "${CASE_DIR}"
+
+# fullspace is the GPU vs CPU comparison case — requires a GPU.
+nvidia-smi > /dev/null 2>&1 || { echo "SKIP: no GPU available"; exit 0; }
 
 GFSOLVER="${BIN}/gf_solver_elastic_cuda"
 [ -x "${GFSOLVER}" ] || {
@@ -119,5 +122,5 @@ python3 "${PROJECT_ROOT}/examples/_shared/analytical_compare.py" greenfun/ --sou
 
 echo ""
 echo "=============================================================="
-echo " CASE fullspace-cubic-elastic-mpi-cpp: COMPLETE"
+echo " CASE fullspace-cubic: COMPLETE"
 echo "=============================================================="

@@ -1,9 +1,0 @@
-model.h5
-config.h5
-log/
-vtk/
-wavefields/
-greenfun/
-partitions/
-__pycache__/
-*.npz

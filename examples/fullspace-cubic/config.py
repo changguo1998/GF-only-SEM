@@ -94,6 +94,9 @@ def density_kg_m3(x_m, y_m, z_m):
     return 2700.0
 
 
-# ── SLS attenuation (elastic only) ───
+# ── SLS attenuation (viscoelastic parameters) ───
+# The preprocessor auto-injects these into model.h5 (field/cell/tau_*).
+# Q→∞ (elastic limit): visco output is bit-identical to elastic.
 q_mu = 1.0e9
 q_kappa = 1.0e9
+n_sls = 3
