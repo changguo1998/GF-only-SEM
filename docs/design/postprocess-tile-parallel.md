@@ -164,8 +164,16 @@ different tile. This guarantees byte-identical results vs. the serial version.
 - **One tile per rank**: `tile_keys[mpi_rank]`. Ranks >= n_tiles exit after Phase 2.
 - **200ms per-rank stagger** (`usleep`) avoids HDF5 metadata contention when
   multiple ranks open the same record files concurrently.
-- **MPI over OpenMP**: HDF5 C library is not thread-safe; per-process file handles
-  sidestep this entirely.
+- **MPI over OpenMP**: with a non-threadsafe HDF5, per-process file handles sidestep
+  HDF5's lack of thread safety entirely.
+- **Serial version is thread-parallel too (2026-08-07)**: `gf_postprocess` links the
+  Spack `hdf5 +threadsafe` build, so its tile write loop now runs on a small thread
+  pool — each thread writes its own distinct tile file (no shared HDF5 handles).
+  `GF_POST_WRITE_THREADS` caps the pool (1 = serial fallback). Verified bit-identical
+  to the serial output on all 9 halfspace tiles (datasets + attrs). Caveat: the
+  threadsafe build's global internal lock serializes concurrent deflate/H5Dwrite, so
+  the gain saturates around 4 threads (~1.4× on the write phase) — MPI process
+  parallelism remains the scaling path for large models.
 - No shared mutable state between ranks — each rank builds its tile arrays from
   scratch in its own address space.
 
