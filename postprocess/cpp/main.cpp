@@ -16,6 +16,7 @@
  */
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -23,6 +24,7 @@
 #include <cstring>
 #include <ctime>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -741,9 +743,13 @@ int main(int argc, char** argv) {
         ty_max = ymin + j_end * dy;
     };
 
-    // Write tiles (could be OpenMP parallel, but HDF5 C library is not thread-safe
-    // for file creation — serialize writes)
-    for (int64_t ti = 0; ti < n_tiles; ++ti) {
+    // Write tiles. Multi-threaded: each thread writes its own distinct tile file, so
+    // concurrent HDF5 writes are safe — requires a THREADSAFE HDF5 build (we link the
+    // Spack hdf5@1.14.6 +threadsafe configuration; verified via H5TS_* symbols).
+    // Set GF_POST_WRITE_THREADS=1 for the serial path (e.g. non-threadsafe HDF5).
+    // Per-tile intermediate buffers coexist across in-flight tiles; on huge models cap
+    // threads via GF_POST_WRITE_THREADS to bound transient tile memory.
+    auto write_one_tile = [&](int64_t ti) {
         const TileKey& key = bins.keys[(size_t)ti];
         // vert_indices removed: cell-based tiling uses cell_indices below
         const auto& cell_indices = cell_bins.at(key);
@@ -864,6 +870,57 @@ int main(int argc, char** argv) {
                    has_velocity ? tile_velocity.data() : nullptr,
                    has_acceleration ? tile_acceleration.data() : nullptr, stf_t_ds, stf_values_ds,
                    use_float32);
+    };
+
+    // Number of writer threads: GF_POST_WRITE_THREADS overrides (positive), else
+    // min(hardware_concurrency, n_tiles). 1 = serial path (identical to old behavior).
+    unsigned n_write_threads = 1;
+    if (const char* env_threads = getenv("GF_POST_WRITE_THREADS")) {
+        int parsed = atoi(env_threads);
+        n_write_threads = (parsed > 0) ? (unsigned)parsed : 1u;
+    } else {
+        unsigned hardware_threads = std::thread::hardware_concurrency();
+        n_write_threads = std::min(hardware_threads, (unsigned)n_tiles);
+        if (n_write_threads == 0)
+            n_write_threads = 1;
+    }
+
+    std::atomic<int> write_failures{0};
+    if (n_write_threads <= 1) {
+        // Serial fallback
+        for (int64_t ti = 0; ti < n_tiles; ++ti) {
+            try {
+                write_one_tile(ti);
+            } catch (...) {
+                write_failures++;
+            }
+        }
+    } else {
+        // Dynamic tile dispatch across a fixed thread pool; each thread owns only its
+        // own tile(s) — distinct tile files → no shared HDF5 handles across threads.
+        std::atomic<size_t> next_tile{0};
+        std::vector<std::thread> pool;
+        pool.reserve(n_write_threads);
+        for (unsigned t = 0; t < n_write_threads; ++t) {
+            pool.emplace_back([&] {
+                while (true) {
+                    size_t tile_index = next_tile.fetch_add(1);
+                    if (tile_index >= (size_t)n_tiles)
+                        break;
+                    try {
+                        write_one_tile((int64_t)tile_index);
+                    } catch (...) {
+                        write_failures++;
+                    }
+                }
+            });
+        }
+        for (auto& thread : pool)
+            thread.join();
+    }
+    if (write_failures.load()) {
+        fprintf(stderr, "ERROR: %d tile write(s) failed\n", write_failures.load());
+        return 1;
     }
 
     // ---- Print machine-parseable stats ----
