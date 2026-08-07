@@ -116,7 +116,7 @@ Buried source support implemented (`source_z_m = None`→free surface, `float`�
 examples end-to-end: `halfspace` (vs Lamb), `layer` (vs PyFK), `fullspace-cubic`
 (solver/backend comparison; auto-skips without a GPU). All three selected to the CUDA
 solver; last run (2026-08-05, RTX 5060 Ti): 3 PASSED via `elastic_cuda` — halfspace
-scale=2.91/rel_l2=0.185, layer scale=2.60, fullspace Stokes corr=0.781 (non-fatal WARNING < 0.80). `viscoelastic_cuda` fails the hardware test (see table below);
+scale=2.91/rel_l2=0.185, layer scale=2.60, fullspace Stokes corr=0.781 (non-fatal WARNING < 0.80). `viscoelastic_cuda` is now fixed and verified (2026-08-07) — see status table;
 `run_all_examples.sh` only gates on exit codes, so verify S3 metrics in the log.
 
 After fixing the postprocess mass-weighting bug (commit `6f90c12`) and Green tensor
@@ -129,7 +129,7 @@ is 0.991 (halfspace) / 0.745 (layer). A residual ~3× scale factor (2.95 halfspa
 | CPU + MPI (elastic) | ✅ (16 ranks) | Global (ibool) | ✅ Verified — diagonals 1.01-1.03× ref |
 | CPU + MPI (viscoelastic) | ✅ (16 ranks) | Global (ibool) | ✅ Verified — elastic limit rel_l2=0.0 |
 | CUDA single (elastic) | N/A | Global (ibool) | ✅ Verified — rel_l2=5.1e-4 vs CPU 16-rank (fullspace, steps 400/700) |
-| CUDA single (viscoelastic) | N/A | Global (ibool) | ❌ Builds but WRONG on GPU (2026-08-05: halfspace scaled rel_l2=1.0, best-fit scale ≈0 vs elastic_cuda 0.185/+2.91) — needs the post-`compute_full_strain` fix port; use `elastic_cuda` on the Q→∞ config |
+| CUDA single (viscoelastic) | N/A | Global (ibool) | ✅ Verified (2026-08-07) — FIXED kernel shadowing bug: `element_cuda.cu` non-PML branch redeclared `double sigma[3][3]` (shadowing the outer array; Step A filled the inner copy that was discarded, scatter read uninitialized stack garbage → Q→∞ divergence, scaled rel_l2≈1.0/scale≈0). Removed the duplicate declaration (1-line fix). halfspace scale=2.91/rel_l2=0.185 vs Lamb (identical to elastic_cuda); GPU elastic-vs-visco bitwise-equal at step 500 (both halfspace & layer) |
 
 **CUDA vs MPI-CPU fullspace consistency (2026-08-05):** verified on
 `examples/fullspace-cubic` (direction=x, 800 steps, all-face
