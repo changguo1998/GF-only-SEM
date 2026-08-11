@@ -8,7 +8,7 @@ set -euo pipefail
 CASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$CASE_DIR/../.." && pwd)"
 BIN="${PROJECT_ROOT}/bin"
-MEMLIMIT="${PROJECT_ROOT}/scripts/with_mem_limit.sh"  # host RAM cap (GF_MEM_LIMIT_GB, 0=off)
+MEMLIMIT="${PROJECT_ROOT}/scripts/with_mem_limit.sh" # host RAM cap (GF_MEM_LIMIT_GB, 0=off)
 
 # ── Environment ──────────────────────────────────────────
 source "${PROJECT_ROOT}/scripts/env.sh" >/dev/null 2>&1 || true
@@ -24,11 +24,12 @@ cd "${CASE_DIR}"
 PYTHONPATH="${PROJECT_ROOT}" python3 mesh_gen.py
 
 n_cell=$(python3 -c "import h5py; f=h5py.File('${CASE_DIR}/model.h5','r'); print(f['topology/cell_to_surface'].shape[0])")
-[ "$n_cell" = "5832" ] || {
-	echo "FAIL: n_elements=$n_cell, expected 5832"
+n_expected=$(python3 -c "import sys; sys.path.insert(0, '${CASE_DIR}'); import config; print(config.nx_elements * config.ny_elements * config.nz_elements)")
+[ "$n_cell" = "$n_expected" ] || {
+	echo "FAIL: n_elements=$n_cell, expected $n_expected"
 	exit 1
 }
-echo "  elements: $n_cell (expected 5832)"
+echo "  elements: $n_cell (expected $n_expected)"
 
 # ── Stage 2: Preprocess ────────────────────────────────────
 echo ""
@@ -49,13 +50,29 @@ export PYTHONPATH="${PROJECT_ROOT}"
 	exit 1
 }
 
+# ── Stage 2.5: SEM-internal parameter consistency (config.py vs artifacts) ──
+echo ""
+echo "=== Stage 2.5: SEM parameter consistency check ==="
+python3 "${PROJECT_ROOT}/examples/_shared/check_sem_consistency.py" "${CASE_DIR}" || {
+	echo "FAIL: config.py / config.h5 / model.h5 mismatch"
+	exit 1
+}
+
 # ── Stage 3: Forward solver (elastic, cuda) ────────────────
 echo ""
 echo "=== Stage 3: Forward (elastic, cuda) ==="
+echo ""
+# Hermetic run: discard stale per-step records from any previous run
+# (record_0_<step>.h5 — a shorter duration must not merge with longer ones).
+rm -rf wavefields/x wavefields/y wavefields/z
+mkdir -p wavefields/x wavefields/y wavefields/z
 cd "${CASE_DIR}"
 
 # fullspace is the GPU vs CPU comparison case — requires a GPU.
-nvidia-smi > /dev/null 2>&1 || { echo "SKIP: no GPU available"; exit 0; }
+nvidia-smi >/dev/null 2>&1 || {
+	echo "SKIP: no GPU available"
+	exit 0
+}
 
 GFSOLVER="${BIN}/gf_solver_elastic_cuda"
 [ -x "${GFSOLVER}" ] || {
@@ -74,10 +91,13 @@ done
 # ── Stage 4: Postprocess ───────────────────────────────────
 echo ""
 echo "=== Stage 4: Postprocess ==="
+echo ""
 cd "${CASE_DIR}"
-"${MEMLIMIT}" -- "${BIN}/gf_postprocess" model.h5 config.h5 \
+rm -rf greenfun # stale tiles from a previous duration must not leak through
+cd "${CASE_DIR}"
+"${MEMLIMIT}" -- mpirun -n "${POSTPROCESS_RANKS:-4}" "${BIN}/gf_postprocess_mpi" model.h5 config.h5 \
 	--fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ \
-	-o greenfun/ 2>/dev/null || {
+	-o greenfun/ >/dev/null 2>&1 || {
 	echo "FAIL: postprocess failed"
 	exit 1
 }
@@ -115,7 +135,7 @@ echo ""
 echo "=== Stage 6: Analytical comparison (Stokes full-space) ==="
 cd "${CASE_DIR}"
 
-python3 "${PROJECT_ROOT}/examples/_shared/analytical_compare.py" greenfun/ --source 9500.0 9500.0 9500.0 --fullspace 2>&1 || {
+python3 "${PROJECT_ROOT}/examples/_shared/analytical_compare.py" greenfun/ --fullspace 2>&1 || {
 	echo "WARNING: analytical comparison returned non-zero"
 	echo "  (see VERIFICATION.md for detailed error analysis)"
 }
