@@ -13,8 +13,8 @@ namespace gf {
 Config get_config() {
     Config c;
     c.title = "fullspace_cubic_example";
-    c.nx_elements = 18;
-    c.ny_elements = 18;
+    c.nx_elements = 24;
+    c.ny_elements = 24;
     c.lx_m = 18000.0;
     c.ly_m = 18000.0;
     c.lz_m = 18000.0;
@@ -27,19 +27,19 @@ Config get_config() {
     c.snapshot_precision_bytes = 4;
     c.storage_limit_gb = 20.0;
     c.record_depth_max_m = 18000.0;
-    c.tilex_elements = {2, 2, 2, 2};
-    c.tiley_elements = {2, 2, 2, 2};
+    c.tilex_elements = {2, 2, 3, 3};
+    c.tiley_elements = {2, 2, 3, 3};
     c.n_ranks = 16;  // default only — the CLI (`gf_preprocess run --n-ranks`)
                      // overrides this from config.py:n_ranks, the single source of truth
-    c.pml_xmin = 5;
-    c.pml_xmax = 5;
-    c.pml_ymin = 5;
-    c.pml_ymax = 5;
-    c.pml_zmin = 5;  // PML on bottom — no free surface
-    c.pml_zmax = 5;  // PML on top
-    c.source_x_m = 9500.0;
-    c.source_y_m = 9500.0;
-    c.source_z_m = 9500.0;
+    c.pml_xmin = 7;
+    c.pml_xmax = 7;
+    c.pml_ymin = 7;
+    c.pml_ymax = 7;
+    c.pml_zmin = 7;  // PML on bottom — no free surface
+    c.pml_zmax = 7;  // PML on top
+    c.source_x_m = 9375.0;
+    c.source_y_m = 9375.0;
+    c.source_z_m = 9375.0;
     c.source_force_amplitude_n = 1.0e20;
     c.f0_for_pml_hz = 1.0;
     return c;
