@@ -1,0 +1,57 @@
+==============================================================
+ CASE: meshsize/fullspace24
+==============================================================
+
+=== Stage 1: Mesh ===
+[mesh_gen] Wrote model.h5
+            Elements: 13824 (24×24×24)
+            Vertices: 15625
+            Domain:   18000.0×18000.0×18000.0 m
+  elements: 13824 (expected 13824)
+
+=== Stage 2: Preprocess (cpp) ===
+  C++ preprocessor built
+[preprocess] Running C++ run (stage1→CPML→STF): /home/guochang/Projects/gf-calculation/bin/gf_preprocess run /home/guochang/Projects/gf-calculation/examples/meshsize/fullspace24/model.h5 --N 4 --cfl-safety 0.5 --nx 24 --ny 24 --n-ranks 16 --pml-xmin 7 --pml-xmax 7 --pml-ymin 7 --pml-ymax 7 --pml-zmin 7 --pml-zmax 7
+[preprocess] Building partition data from C++ results (16 ranks)...
+[preprocess]   16 ranks, 912673 global nodes
+[preprocess] Done in 6.6s
+
+=== Stage 2.5: SEM parameter consistency check ===
+Checking SEM-internal consistency in /home/guochang/Projects/gf-calculation/examples/meshsize/fullspace24 ...
+  [PASS] source.x_m: config=9375, artifact=9375
+  [PASS] source.y_m: config=9375, artifact=9375
+  [PASS] source.z_m: config=9375, artifact=9375
+  [PASS] output_dt_s: config=0.01, artifact=0.01
+  [PASS] nsteps: config-duration=801, artifact=801
+  [PASS] stf_func vs /source/stf_values: max_abs_diff=1.638e+04 (tol=1e+11)
+  [PASS] stf_peak == force_amplitude: config=1e+20, artifact=1e+20
+  [PASS] stride divisibility: solver_dt=1.000000e-02 x 1 == output_dt=0.01
+  [PASS] vp_m_s: config=5000, artifact=5000
+  [PASS] vs_m_s: config=3000, artifact=3000
+  [PASS] density_kg_m3: config=2700, artifact=2700
+
+SEM consistency: PASS
+
+=== Stage 3: Forward (elastic, cuda) ===
+
+  direction=x
+gf_solver: simulation complete, 800 steps in 151.729709s
+  direction=y
+gf_solver: simulation complete, 800 steps in 148.280994s
+  direction=z
+gf_solver: simulation complete, 800 steps in 147.476351s
+
+=== Stage 4: Postprocess ===
+
+
+=== Stage 5: Basic verification ===
+  tiles: 16 (expected >=4)
+max_displacement: 781955
+  displacement OK — PASSED
+
+=== Stage 6: Analytical comparison (Stokes full-space) ===
+  (skipped — GF_SKIP_STAGE6=1)
+
+==============================================================
+ CASE meshsize/fullspace24: COMPLETE
+==============================================================
