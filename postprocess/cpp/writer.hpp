@@ -68,7 +68,6 @@ inline void write_tensor_ds(hid_t gid, const char* name, const double* data, con
                             int ndims, bool use_float32) {
     hid_t space = H5Screate_simple(ndims, dims, nullptr);
     hid_t plist = H5Pcreate(H5P_DATASET_CREATE);
-    H5Pset_shuffle(plist);
     hsize_t chunk[4];
     chunk[0] = 1;
     for (int d = 1; d < ndims; ++d)
@@ -76,7 +75,6 @@ inline void write_tensor_ds(hid_t gid, const char* name, const double* data, con
     if (ndims > 1 && dims[1] == 0)
         chunk[1] = 1;
     H5Pset_chunk(plist, ndims, chunk);
-    H5Pset_deflate(plist, 4);
 
     if (use_float32) {
         size_t total = 1;

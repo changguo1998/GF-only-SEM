@@ -68,8 +68,8 @@ tile_xNNN_yNNN.h5
 │   ├── stf_t             : float64[nt]                   # time points [s] at output_dt_s (downsampled)
 │   └── stf_values        : float64[nt]                   # force amplitude [N] (downsampled to match /time/t)
 └── /field/
-    ├── greens_tensor       : <prec>[nt, n_local, 6, 3]   (strain, gzip 4 + shuffle)
-    └── displacement_tensor : <prec>[nt, n_local, 3, 3]   # NEW (displacement, gzip 4 + shuffle)
+    ├── greens_tensor       : <prec>[nt, n_local, 6, 3]   (strain, uncompressed)
+    └── displacement_tensor : <prec>[nt, n_local, 3, 3]   # NEW (displacement, uncompressed)
         # <prec> = float32 or float64, following config snapshot_precision
 ```
 
@@ -189,7 +189,7 @@ Three files in `postprocess/cpp/`:
      `greens_quantities` ("strain,displacement")
    - `/mesh/vertex_coords` (float64[n_local, 3], from model
      `vertex_to_coord` indexed by vertex_id)
-   - `/field/displacement_tensor` (<prec>[nt, n_local, 3, 3], gzip 4 + shuffle; prec follows config snapshot_precision)
+   - `/field/displacement_tensor` (<prec>[nt, n_local, 3, 3], uncompressed; prec follows config snapshot_precision)
 
 ### Backward compatibility
 

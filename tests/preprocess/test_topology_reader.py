@@ -98,10 +98,10 @@ def _make_mock_mesh(path, n_cell=2):
             dtype=np.int64,
         )
 
-        topo.create_dataset("vertex_to_coord", data=verts, dtype="float64")
-        topo.create_dataset("edge_to_vertex", data=edges, dtype="int64")
-        topo.create_dataset("surface_to_edge", data=s2e, dtype="int64")
-        topo.create_dataset("cell_to_surface", data=c2s, dtype="int64")
+        topo.create_dataset("vertex_to_coord", data=verts, dtype="float64", compression=None)
+        topo.create_dataset("edge_to_vertex", data=edges, dtype="int64", compression=None)
+        topo.create_dataset("surface_to_edge", data=s2e, dtype="int64", compression=None)
+        topo.create_dataset("cell_to_surface", data=c2s, dtype="int64", compression=None)
 
         topo.attrs.create("n_vertex", verts.shape[0], dtype="int64")
         topo.attrs.create("n_edge", edges.shape[0], dtype="int64")

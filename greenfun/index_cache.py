@@ -235,14 +235,14 @@ def _write_cache(cache_path: Path, index: LibraryIndex) -> None:
             src_dir_paths.append(s.dir_path)
 
         grp_src = h5.create_group("sources")
-        grp_src.create_dataset("source_id", data=src_data["source_id"])
-        grp_src.create_dataset("source_xyz_m", data=src_data["source_xyz_m"])
-        grp_src.create_dataset("n_tiles", data=src_data["n_tiles"])
+        grp_src.create_dataset("source_id", data=src_data["source_id"], compression=None)
+        grp_src.create_dataset("source_xyz_m", data=src_data["source_xyz_m"], compression=None)
+        grp_src.create_dataset("n_tiles", data=src_data["n_tiles"], compression=None)
 
         # Variable-length string dataset for dir_path.
         dt_str = h5py.string_dtype()
         grp_src.create_dataset(
-            "dir_path", data=np.array(src_dir_paths, dtype=object), dtype=dt_str
+            "dir_path", data=np.array(src_dir_paths, dtype=object), dtype=dt_str, compression=None
         )
 
         # Tiles group.
@@ -260,12 +260,12 @@ def _write_cache(cache_path: Path, index: LibraryIndex) -> None:
             tile_bounds[i, :] = t.bounds_m
 
         grp_tile = h5.create_group("tiles")
-        grp_tile.create_dataset("source_id", data=tile_source_ids)
+        grp_tile.create_dataset("source_id", data=tile_source_ids, compression=None)
         grp_tile.create_dataset(
-            "rel_path", data=np.array(tile_rel_paths, dtype=object), dtype=dt_str
+            "rel_path", data=np.array(tile_rel_paths, dtype=object), dtype=dt_str, compression=None
         )
-        grp_tile.create_dataset("tile_ij", data=tile_ij)
-        grp_tile.create_dataset("bounds_m", data=tile_bounds)
+        grp_tile.create_dataset("tile_ij", data=tile_ij, compression=None)
+        grp_tile.create_dataset("bounds_m", data=tile_bounds, compression=None)
 
 
 def _load_cache(cache_path: Path, library_hash: str) -> LibraryIndex | None:

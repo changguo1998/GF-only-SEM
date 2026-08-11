@@ -171,7 +171,7 @@ different tile. This guarantees byte-identical results vs. the serial version.
   pool — each thread writes its own distinct tile file (no shared HDF5 handles).
   `GF_POST_WRITE_THREADS` caps the pool (1 = serial fallback). Verified bit-identical
   to the serial output on all 9 halfspace tiles (datasets + attrs). Caveat: the
-  threadsafe build's global internal lock serializes concurrent deflate/H5Dwrite, so
+  threadsafe build's global internal lock serializes concurrent chunked H5Dwrite, so
   the gain saturates around 4 threads (~1.4× on the write phase) — MPI process
   parallelism remains the scaling path for large models.
 - No shared mutable state between ranks — each rank builds its tile arrays from

@@ -135,7 +135,7 @@ greenfun/tile_x000_y000.h5
 │   └── vertex_ids        : int64[n_local]     (1-based global IDs)
 └── /field/
     └── greens_tensor     : float32[nt, n_local, 6, 3]
-        compressed with gzip level 4 + shuffle
+        uncompressed (compression disabled 2026-08-09); chunked (1, n, comp, comp)
 ```
 
 Tiles include `vertex_ids` only. Coordinates stay in `model.h5` (not duplicated).

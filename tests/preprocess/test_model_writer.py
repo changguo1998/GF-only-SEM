@@ -57,10 +57,10 @@ def _make_model_h5(path):
         grp.attrs["n_edge"] = topo.n_edge
         grp.attrs["n_surface"] = topo.n_surface
         grp.attrs["n_cell"] = topo.n_cell
-        grp.create_dataset("vertex_to_coord", data=topo.vertex_to_coord)
-        grp.create_dataset("edge_to_vertex", data=topo.edge_to_vertex)
-        grp.create_dataset("surface_to_edge", data=topo.surface_to_edge)
-        grp.create_dataset("cell_to_surface", data=topo.cell_to_surface)
+        grp.create_dataset("vertex_to_coord", data=topo.vertex_to_coord, compression=None)
+        grp.create_dataset("edge_to_vertex", data=topo.edge_to_vertex, compression=None)
+        grp.create_dataset("surface_to_edge", data=topo.surface_to_edge, compression=None)
+        grp.create_dataset("cell_to_surface", data=topo.cell_to_surface, compression=None)
     return topo
 
 

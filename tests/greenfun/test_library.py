@@ -53,25 +53,19 @@ def _write_tile(
         for key, value in attrs.items():
             h5.attrs[key] = value
 
-        h5.create_dataset("/time/t", data=time)
-        h5.create_dataset("/mesh/vertex_ids", data=vertex_ids)
-        h5.create_dataset("/mesh/vertex_coords", data=vertex_coords, dtype=np.float64)
+        h5.create_dataset("/time/t", data=time, compression=None)
+        h5.create_dataset("/mesh/vertex_ids", data=vertex_ids, compression=None)
+        h5.create_dataset("/mesh/vertex_coords", data=vertex_coords, dtype=np.float64, compression=None)
         h5.create_dataset(
             "/field/greens_tensor",
             data=strain,
-            dtype=np.float32,
-            compression="gzip",
-            compression_opts=4,
-            shuffle=True,
+            dtype=np.float32, compression=None
         )
         if displacement is not None:
             h5.create_dataset(
                 "/field/displacement_tensor",
                 data=displacement,
-                dtype=np.float32,
-                compression="gzip",
-                compression_opts=4,
-                shuffle=True,
+                dtype=np.float32, compression=None
             )
 
 

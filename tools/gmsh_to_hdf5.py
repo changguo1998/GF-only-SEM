@@ -156,10 +156,10 @@ def write_topology(path, topology):
         n_surface = s2e.shape[0]
         n_cell = c2s.shape[0]
 
-        topo.create_dataset("vertex_to_coord", data=v2c, dtype="float64")
-        topo.create_dataset("edge_to_vertex", data=e2v, dtype="int64")
-        topo.create_dataset("surface_to_edge", data=s2e, dtype="int64")
-        topo.create_dataset("cell_to_surface", data=c2s, dtype="int64")
+        topo.create_dataset("vertex_to_coord", data=v2c, dtype="float64", compression=None)
+        topo.create_dataset("edge_to_vertex", data=e2v, dtype="int64", compression=None)
+        topo.create_dataset("surface_to_edge", data=s2e, dtype="int64", compression=None)
+        topo.create_dataset("cell_to_surface", data=c2s, dtype="int64", compression=None)
 
         for name, count in [
             ("n_vertex", n_vertex),
@@ -253,7 +253,9 @@ def write_auxiliary(path, topology):
 
     with h5py.File(path, "w") as f:
         aux = f.create_group("auxiliary")
-        aux.create_dataset("surface_to_cell", data=surface_to_cell, dtype="int64")
+        aux.create_dataset(
+            "surface_to_cell", data=surface_to_cell, dtype="int64", compression=None
+        )
 
         for name, pairs, n_rows in [
             ("vertex_to_edge", ve_pairs, n_vertex),
@@ -264,8 +266,8 @@ def write_auxiliary(path, topology):
         ]:
             csr = _build_csr(pairs, n_rows)
             g = aux.create_group(name)
-            g.create_dataset("indptr", data=csr["indptr"], dtype="int64")
-            g.create_dataset("indices", data=csr["indices"], dtype="int64")
+            g.create_dataset("indptr", data=csr["indptr"], dtype="int64", compression=None)
+            g.create_dataset("indices", data=csr["indices"], dtype="int64", compression=None)
 
 
 def main():

@@ -320,11 +320,18 @@ Each tile stores recorded vertices in its x/y bounds for all saved depths. Green
   - **Benchmark (Manual)**: Analytical benchmarks (homogeneous half-space, layered medium)
   - **Profile (Manual)**: Performance profiling, scalability check
 
-## 10. Compression
+## 10. Compression (DISABLED 2026-08-09 — mandatory rule)
 
-- **Compression timing**: Inline (C++ writes compressed HDF5 during forward run)
-- **Algorithm**: HDF5 built-in filters (zlib/gzip, lzf) + float32 storage
-- **Chunking**: Element-first, chunk_size=64 along element dim, time dim chunk=1
+- **Status**: Compression removed from all writers — gzip/shuffle filters no
+  longer set on any dataset (postprocess tiles, preprocess model.h5). Only
+  HDF5 chunking remains (element-first, time dim chunk=1).
+- **Rule**: All `.h5` writes must EXPLICITLY disable compression — Python
+  `create_dataset(..., compression=None)` on every call, C++ `H5P_DEFAULT` or
+  chunk-only property lists (no `H5Pset_deflate`). Live in AGENTS.md
+  Cross-Cutting Conventions; enforced on review.
+- **Reason**: gzip level-4 on the Green's function tiles throttled post-run
+  reads to ~15 MB/s (single-threaded zlib); uncompressed chunked I/O reads
+  ~10x faster at the cost of ~3x larger tiles.
 - **No post-hoc compression pass**
 
 ## 11. External References

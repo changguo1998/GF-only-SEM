@@ -119,21 +119,18 @@ class GreenfunTestLibrary:
                         h5.attrs["greens_quantities"] = "strain"
 
                     # Time
-                    h5.create_dataset("/time/t", data=time)
+                    h5.create_dataset("/time/t", data=time, compression=None)
 
                     # Mesh
-                    h5.create_dataset("/mesh/vertex_ids", data=vertex_ids)
-                    h5.create_dataset("/mesh/vertex_coords", data=vertex_coords, dtype=np.float64)
+                    h5.create_dataset("/mesh/vertex_ids", data=vertex_ids, compression=None)
+                    h5.create_dataset("/mesh/vertex_coords", data=vertex_coords, dtype=np.float64, compression=None)
 
                     # Strain Green tensor [nt, n_vert, 6, 3]
                     strain_data = rng.standard_normal((self.nt, n_vert, 6, 3), dtype=np.float32)
                     h5.create_dataset(
                         "/field/greens_tensor",
                         data=strain_data,
-                        dtype=np.float32,
-                        compression="gzip",
-                        compression_opts=4,
-                        shuffle=True,
+                        dtype=np.float32, compression=None
                     )
 
                     # Displacement tensor [nt, n_vert, 3, 3]
@@ -142,11 +139,8 @@ class GreenfunTestLibrary:
                         h5.create_dataset(
                             "/field/displacement_tensor",
                             data=disp_data,
-                            dtype=np.float32,
-                            compression="gzip",
-                            compression_opts=4,
-                            shuffle=True,
-                        )
+                            dtype=np.float32, compression=None
+                                    )
 
     def cleanup(self) -> None:
         """Remove the temporary library directory."""
@@ -198,23 +192,17 @@ def greens_tile_factory(tmp_path: Path):
             h5.attrs["greens_quantities"] = (
                 "strain,displacement" if include_displacement else "strain"
             )
-            h5.create_dataset("/time/t", data=time)
-            h5.create_dataset("/mesh/vertex_ids", data=np.arange(n_vertices, dtype=np.int64))
-            h5.create_dataset("/mesh/vertex_coords", data=coords)
+            h5.create_dataset("/time/t", data=time, compression=None)
+            h5.create_dataset("/mesh/vertex_ids", data=np.arange(n_vertices, dtype=np.int64), compression=None)
+            h5.create_dataset("/mesh/vertex_coords", data=coords, compression=None)
             h5.create_dataset(
                 "/field/greens_tensor",
-                data=rng.standard_normal((nt, n_vertices, 6, 3)).astype(np.float32),
-                compression="gzip",
-                compression_opts=4,
-                shuffle=True,
+                data=rng.standard_normal((nt, n_vertices, 6, 3)).astype(np.float32), compression=None
             )
             if include_displacement:
                 h5.create_dataset(
                     "/field/displacement_tensor",
-                    data=rng.standard_normal((nt, n_vertices, 3, 3)).astype(np.float32),
-                    compression="gzip",
-                    compression_opts=4,
-                    shuffle=True,
+                    data=rng.standard_normal((nt, n_vertices, 3, 3)).astype(np.float32), compression=None
                 )
         return tile
 

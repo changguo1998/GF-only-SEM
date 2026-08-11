@@ -88,11 +88,9 @@ Absorption quality benchmark not needed — the C-PML is correct by construction
 
 ## 4. Compression Benchmark Tool
 
-**Status:** Not implemented.
-
-- **Design:** [`design/compress.md`](design/compress.md)
-
-Needed: CLI that writes and reads HDF5 datasets with none, LZF, and zlib 1–9, at float32 and float64. Report size, write time, read time, and round-trip error.
+**Status:** Obsolete (2026-08-09) — compression is DISABLED project-wide
+(see `docs/design-decisions.md` §10 and AGENTS.md); the benchmark tool is only
+relevant if compression is re-introduced after a design review.
 
 ______________________________________________________________________
 

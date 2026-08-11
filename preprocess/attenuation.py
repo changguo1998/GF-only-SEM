@@ -160,7 +160,7 @@ def write_attenuation_to_model(
         ]:
             if name in field_cell:
                 del field_cell[name]
-            field_cell.create_dataset(name, data=data, dtype="float64", compression="gzip")
+            field_cell.create_dataset(name, data=data, dtype="float64", compression=None)
 
         # Store metadata as attributes
         field_cell["tau_sigma"].attrs["n_sls"] = n_sls

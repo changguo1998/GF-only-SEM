@@ -95,9 +95,13 @@ def _write_simulation(
     import numpy as np
 
     if tilex:
-        grp.create_dataset("tilex_elements", data=np.array(tilex, dtype=np.int64))
+        grp.create_dataset(
+            "tilex_elements", data=np.array(tilex, dtype=np.int64), compression=None
+        )
     if tiley:
-        grp.create_dataset("tiley_elements", data=np.array(tiley, dtype=np.int64))
+        grp.create_dataset(
+            "tiley_elements", data=np.array(tiley, dtype=np.int64), compression=None
+        )
     if recording_map is not None:
         grp.attrs["record_depth_actual_m"] = recording_map.get(
             "record_depth_actual_m", float(config_module.record_depth_max_m)
@@ -122,8 +126,8 @@ def _write_source(
 ) -> None:
     grp = f.create_group("source")
 
-    grp.create_dataset("stf_t", data=stf_t, dtype="float64")
-    grp.create_dataset("stf_values", data=stf_values, dtype="float64")
+    grp.create_dataset("stf_t", data=stf_t, dtype="float64", compression=None)
+    grp.create_dataset("stf_values", data=stf_values, dtype="float64", compression=None)
 
     if source_xyz is not None:
         grp.attrs["x"] = float(source_xyz[0])
@@ -136,8 +140,18 @@ def _write_source(
         grp.attrs["n_src_cell"] = n_src
         if n_src > 0:
             src_grp = grp.create_group("cells")
-            src_grp.create_dataset("cell_ids", data=source_loc_result["cell_ids"], dtype="int64")
-            src_grp.create_dataset("xi", data=source_loc_result["xi"], dtype="float64")
-            src_grp.create_dataset("eta", data=source_loc_result["eta"], dtype="float64")
-            src_grp.create_dataset("zeta", data=source_loc_result["zeta"], dtype="float64")
-            src_grp.create_dataset("weights", data=source_loc_result["weights"], dtype="float64")
+            src_grp.create_dataset(
+                "cell_ids", data=source_loc_result["cell_ids"], dtype="int64", compression=None
+            )
+            src_grp.create_dataset(
+                "xi", data=source_loc_result["xi"], dtype="float64", compression=None
+            )
+            src_grp.create_dataset(
+                "eta", data=source_loc_result["eta"], dtype="float64", compression=None
+            )
+            src_grp.create_dataset(
+                "zeta", data=source_loc_result["zeta"], dtype="float64", compression=None
+            )
+            src_grp.create_dataset(
+                "weights", data=source_loc_result["weights"], dtype="float64", compression=None
+            )

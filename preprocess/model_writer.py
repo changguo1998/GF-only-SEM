@@ -320,7 +320,7 @@ def _write_partition_files(
                 if arr is None:
                     continue
                 local_data = arr[local_zero] if n_local_cell > 0 else np.array([], dtype=arr.dtype)
-                _write_dataset(felem_grp, key, local_data, compression=True)
+                _write_dataset(felem_grp, key, local_data)
 
             # Write C-PML per-GLL-node fields
             for key in cpml_field_keys:
@@ -328,7 +328,7 @@ def _write_partition_files(
                 if arr is None:
                     continue
                 local_data = arr[local_zero] if n_local_cell > 0 else np.array([], dtype=arr.dtype)
-                _write_dataset(felem_grp, key, local_data, compression=True)
+                _write_dataset(felem_grp, key, local_data)
 
             # Write PML region codes (per-element int32)
             pml_region = fields.get("pml_region")
@@ -355,11 +355,7 @@ def _write_partition_files(
                     local_cell2rank_node_4d[:n_local_cell].ravel().astype(np.int32)
                 )
                 _write_dataset(
-                    felem_grp,
-                    "local_cell2rank_node",
-                    local_cell2rank_node_local,
-                    dtype="int32",
-                    compression=True,
+                    felem_grp, "local_cell2rank_node", local_cell2rank_node_local, dtype="int32"
                 )
             n_rank_node = rk.get("n_rank_node")
             if n_rank_node is not None:
@@ -376,7 +372,6 @@ def _write_partition_files(
                     "local_cell2global_node",
                     local_cell2global_node_local,
                     dtype="int32",
-                    compression=True,
                 )
 
             fsurf_grp = fld_grp.create_group("surface")
@@ -447,19 +442,10 @@ def _write_partition_files(
 
 
 def _write_dataset(
-    group: h5py.Group,
-    name: str,
-    data: npt.NDArray | None,
-    *,
-    dtype: str | None = None,
-    compression: bool = False,
+    group: h5py.Group, name: str, data: npt.NDArray | None, *, dtype: str | None = None
 ) -> None:
     if name in group:
         del group[name]
     if data is None or data.size == 0:
         return
-    kwargs = {}
-    if compression:
-        kwargs["compression"] = "gzip"
-        kwargs["compression_opts"] = 4
-    dset = group.create_dataset(name, data=data, dtype=dtype, **kwargs)
+    group.create_dataset(name, data=data, dtype=dtype, compression=None)
