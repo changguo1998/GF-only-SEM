@@ -77,18 +77,31 @@ with surviving ranks — tile-local extraction, see
 
 ## Results (2026-08-10, five grids, fixed receivers, ≤64 GB budget)
 
-| grid | elem/λs | ranks | peak GiB | mean_corr | shape L2 | best-fit scale | solver s/dir |
-|------|---------|-------|----------|-----------|----------|----------------|--------------|
-| 18³ | 3.0 | 12 | 48.4 | 0.8502 | 0.1230 | 0.339 | 63 |
-| 20³ | 3.3 | 12 | 52.0 | 0.8476 | 0.1275 | 0.346 | — |
-| 22³ | 3.7 | 4 | 32.3 | 0.8405 | 0.1235 | 0.338 | 117 |
-| 24³ | 4.0 | 4 | 34.3 | 0.8313 | 0.1267 | 0.344 | 148 |
-| 28³ | 4.7 | 3 | 40.2 | 0.8467 | 0.1255 | 0.342 | 236 |
+The table preserves the original run metrics except that `best-fit scale` is corrected by
+the exact factor of three removed from postprocess on 2026-09-17. The original stored scales
+were 0.338–0.346. The legacy fitted residual is retained only as a historical value: its
+normalization was amplitude-dependent and it must be recomputed from corrected tiles.
 
-Key findings: (1) shape error does NOT improve from 3.0→4.7 elem/λs
-(scale-fitted L2 flat at 0.123–0.127) — the residual is PML-reflection +
-near-field dominated, not resolution. (2) best-fit scale ~0.34 everywhere
-(the ~2.9× amplitude factor is mesh-independent). (3) 28³ is the ceiling.
+| grid | elem/λs | ranks | peak GiB | mean_corr | legacy fitted residual | best-fit scale | solver s/dir |
+|------|---------|-------|----------|-----------|----------|----------------|--------------|
+| 18³ | 3.0 | 12 | 48.4 | 0.8502 | 0.1230 | 1.017 | 63 |
+| 20³ | 3.3 | 12 | 52.0 | 0.8476 | 0.1275 | 1.038 | — |
+| 22³ | 3.7 | 4 | 32.3 | 0.8405 | 0.1235 | 1.014 | 117 |
+| 24³ | 4.0 | 4 | 34.3 | 0.8313 | 0.1267 | 1.032 | 148 |
+| 28³ | 4.7 | 3 | 40.2 | 0.8467 | 0.1255 | 1.026 | 236 |
+
+Key findings: (1) mean correlation is flat at about 0.83–0.85; the corrected relative-L2
+trend is pending recomputation. (2) Corrected best-fit scale is 1.014–1.038; the former ~0.34
+value was a postprocess bug. (3) 28³ is the ceiling.
+
+### Regenerated 20³ result (2026-09-17)
+
+The complete 20³ CUDA/MPI pipeline was rerun after the averaging fix. At the same 64 fixed
+receivers used above it reports mean correlation 0.8476, raw relative L2 0.4629,
+SEM/reference scale 1.038, and corrected fitted relative L2 0.3458. The three CUDA force
+directions took 85.1/85.2/85.8 s. This replaces the 20³ legacy residual 0.1275; the remaining
+grids still need regenerated tiles before their corrected fitted relative L2 can be compared.
+
 Detailed logs: `results/stage6_fixed.<n>.log`, `results/compare.<n>.log`,
 `results/peak.<n>.txt`; full analysis in
 `examples/fullspace-cubic/VERIFICATION.md`.

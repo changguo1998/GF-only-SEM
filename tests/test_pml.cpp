@@ -124,7 +124,9 @@ TEST_CASE("CpmlStrain constants are dimension-consistent", "[pml][cpml]") {
 
     // Memory strides
     REQUIRE(MEMORY_PER_GRADIENT == 3);
-    REQUIRE(MEMORY_PER_NODE == 9 * 3);  // 27
+    REQUIRE(LIJK_MEMORY_PER_NODE == 9 * 3);  // 27
+    REQUIRE(LX_LY_LZ_MEMORY_PER_NODE == 12);
+    REQUIRE(MEMORY_PER_NODE == 27 + 12);  // 39
 
     // β coefficient strides
     REQUIRE(BETA_COEFS_PER_DIR == 3);
@@ -177,9 +179,9 @@ TEST_CASE("strain_memory_offset produces unique offset per node", "[pml][cpml]")
     size_t offset_0_8_2 = strain_memory_offset(0, DUZ_DZ, CONV_Z);
     REQUIRE(offset_0_8_2 == 8 * 3 + 2);  // 24 + 2 = 26
 
-    // Next node starts at 27
+    // Next node starts after the 27 lijk and 12 lx/ly/lz memory values.
     size_t offset_1_0_0 = strain_memory_offset(1, DUX_DX, CONV_X);
-    REQUIRE(offset_1_0_0 == 27);
+    REQUIRE(offset_1_0_0 == 39);
 }
 
 TEST_CASE("load_strain_coefficients loads all 6 correction groups", "[pml][cpml]") {
@@ -229,6 +231,8 @@ TEST_CASE("cpml_update_strain_memory updates PML element memory", "[pml][cpml]")
             part.pml_coef_beta[n * 9 + d * 3 + 2] = 0.2;
         }
     }
+    // LX/LY/LZ memory uses the alpha convolution coefficients.
+    part.pml_coef_alpha = part.pml_coef_beta;
 
     // Identity Jacobian (physical gradient = reference gradient)
     part.dxi_dx.assign(n_node * 9, 0.0);
@@ -241,7 +245,7 @@ TEST_CASE("cpml_update_strain_memory updates PML element memory", "[pml][cpml]")
     // Non-zero PML displacement fields
     part.pml_displ_old.assign(n_node * 3, 0.1);
     part.pml_displ_new.assign(n_node * 3, 0.2);
-    part.rmemory_strain.assign(n_node * 27, 0.0);
+    part.rmemory_strain.assign(n_node * MEMORY_PER_NODE, 0.0);
 
     // Simple non-zero GLL derivative matrix for NGLL=2
     // D = [[0.5, 0.5], [0.5, 0.5]] — constant derivative approximation
@@ -280,7 +284,7 @@ TEST_CASE("cpml_update_strain_memory skips interior elements", "[pml][cpml]") {
     }
     part.pml_displ_old.assign(n_node * 3, 0.1);
     part.pml_displ_new.assign(n_node * 3, 0.2);
-    part.rmemory_strain.assign(n_node * 27, 0.0);
+    part.rmemory_strain.assign(n_node * MEMORY_PER_NODE, 0.0);
 
     std::vector<double> D(ngll * ngll, 0.5);
     std::vector<double> weights(ngll, 1.0);
@@ -305,7 +309,7 @@ TEST_CASE("cpml_update_strain_memory no-op when has_cpml is false", "[pml][cpml]
     part.pml_coef_beta.assign(n_node * 9, 0.5);
     part.pml_displ_old.assign(n_node * 3, 0.1);
     part.pml_displ_new.assign(n_node * 3, 0.2);
-    part.rmemory_strain.assign(n_node * 27, 0.0);
+    part.rmemory_strain.assign(n_node * MEMORY_PER_NODE, 0.0);
 
     std::vector<double> D(ngll * ngll, 0.5);
     std::vector<double> weights(ngll, 1.0);

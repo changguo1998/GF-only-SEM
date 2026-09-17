@@ -66,8 +66,8 @@ Six solver binaries, selected via `scripts/solver.sh` or directly:
 
 ```bash
 scripts/build.sh              # all targets (auto-detect CPU/CUDA)
-scripts/build.sh cpu          # CPU only
-scripts/build.sh cuda         # CPU + CUDA
+scripts/build.sh --backend cpu          # CPU only
+scripts/build.sh --backend cuda         # CPU + CUDA
 scripts/build.sh -t gf_postprocess  # single target
 ````
 

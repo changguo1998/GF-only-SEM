@@ -1,44 +1,38 @@
 # Known Limitations
 
-## 1. Systematic ~3× Amplitude Factor (SEM vs Continuous Green's Function)
+## 1. Full-Space Waveform Shape Error
 
-**Status:** DOCUMENTED (2026-07-23). Not a bug — inherent to SEM discretization.
+The five-grid full-space study reports mean component-wise correlation of about 0.83–0.85.
+The residual is likely dominated by the finite-domain C-PML tail, near-field source
+representation, and the analytical reference's time/integral discretization. The old
+"scale-fitted shape L2" values are invalid: they were normalized by the unscaled analytical
+norm and therefore inherited the amplitude error. The corrected 20³ fixed-receiver value is
+0.3458 (mean correlation 0.8476); the other grids must be regenerated before drawing a new
+resolution-convergence conclusion.
 
-### Observation
+## Resolved: Systematic ~3× Amplitude Factor
 
-SEM displacement Green's function amplitudes are systematically ~3× larger than
-continuous analytical references (Lamb, Boussinesq):
+**Status:** Fixed in postprocess (2026-09-17).
 
-| Model | Best-fit scale factor | Waveform correlation |
-|----------------|----------------------|----------------------|
-| Halfspace (Lamb) | 2.95 | 0.991 (aligned) |
-| Layer (PyFK) | 2.60 | 0.745 (multi-point) |
+This was not an inherent SEM/GLL discretization effect. The serial and MPI postprocessors
+used one shared `node_count` while independently accumulating displacement, velocity, and
+acceleration. With all three quantities present, the count was incremented three times per
+cell contribution, so each vector field was divided by three.
 
-### Investigation (2026-07-23)
+Each field now owns its accumulator and sample count. A regression test verifies that
+enabling all three fields cannot change any field's average. The full-space analytical
+comparison also rejects best-fit SEM/analytical amplitude scales outside [0.8, 1.2]; the old
+correlation-only gate could not detect uniform amplitude errors.
 
-Eight hypotheses were tested and ruled out:
+Historical scales map exactly as follows because the faulty division was exactly three:
 
-| Hypothesis | Test Result |
-|------------------------------------------------|---------------------|
-| Interpolation error from query points | Ruled out — exact vertex query gives same factor |
-| STF sub-sampling (output_dt vs solver_dt) | Ruled out — fine STF gives same factor |
-| Convolution numerical method | Ruled out — 3 methods all agree |
-| Source weight normalization | Verified — Σwᵢ = 1.0000000000 |
-| Mass matrix scaling | Verified — total mass ratio 1.0008× |
-| Reference solution correctness | Verified — matches Boussinesq static (ratio 1.02) |
-| Factor dependence on distance | None — ratio 2.90–3.47 across 200–1600m |
-| Factor dependence on component | None — ratio 2.92–3.21 across all 9 G_ij |
+| Case | Historical scale | Corrected scale |
+|------|------------------|-----------------|
+| Full-space grids | 0.338–0.346 (SEM/reference) | 1.014–1.038 |
+| Half-space | 2.95 (reference/SEM) | 0.983 |
+| Layer | 2.60 (reference/SEM) | 0.867 |
 
-### Conclusion
-
-The ~3× factor is a systematic SEM discretization effect (GLL spectral element
-integration vs continuous Green's function). Waveform shape is near-perfect
-(correlation 0.98–0.999). Comparing against SPECFEM3D for the same mesh would
-confirm whether this factor is inherent to the spectral element method or
-specific to this implementation.
-
-### Source
-
-Archived from `docs/bugs.md` (Issue 3, 2026-07-26 clean-up). All three
-previously tracked bugs (C-PML divergence, postprocess velocity/acceleration
-zeros, postprocess mass-weighting) are fixed and verified.
+The historical correlations are unchanged because they are invariant under uniform scaling.
+The historical "scale-fitted shape L2" was not actually scale-invariant and is invalid. A
+20³ production GPU/MPI rerun gives SEM/reference scale 1.038 and corrected fitted relative
+L2 0.3458 at the 64 fixed receivers.

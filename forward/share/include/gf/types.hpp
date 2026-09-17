@@ -53,7 +53,7 @@ struct RankData {
     std::vector<double> pml_displ_old;   // [n_local_cell * n_node * 3]  prev step
     std::vector<double> pml_displ_new;   // [n_local_cell * n_node * 3]  curr step
     std::vector<double> rmemory_displ;   // [n_local_cell * n_node * 9]  3comp×3dir
-    std::vector<double> rmemory_strain;  // [n_local_cell * n_node * 27] 9grad×3dir
+    std::vector<double> rmemory_strain;  // [n_local_cell * n_node * 39] 27 lijk + 12 lx/ly/lz
     bool has_cpml = false;               // true if C-PML data loaded
 
     // --- SLS viscoelastic attenuation ---

@@ -1,6 +1,7 @@
 # C-PML Design (Recursive Convolution Perfectly Matched Layer)
 
-**Status:** COMPLETE (2026-07-22) — verified against SPECFEM3D, 99.1% scaled waveform correlation with Lamb reference (residual ~3× systematic SEM discretization factor)
+**Status:** COMPLETE (2026-07-22) — verified against SPECFEM3D, 99.1% scaled waveform
+correlation with Lamb reference. The former ~3× factor was a postprocess count bug and is fixed.
 **Reference:** Wang et al. (2006), Xie et al. (2014), SPECFEM3D implementation
 
 ## 1. Overview

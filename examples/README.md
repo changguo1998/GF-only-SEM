@@ -182,7 +182,7 @@ The chosen solver runs all 3 force directions. MPI rank count comes from
 **Usage:**
 
 ```bash
-source scripts/env.sh && scripts/build.sh cpu
+source scripts/env.sh && scripts/build.sh --backend cpu
 bash examples/halfspace/compare.sh                # single case
 
 bash scripts/run_all_examples.sh --dry-run        # list the 3 cases

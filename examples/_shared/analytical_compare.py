@@ -32,24 +32,26 @@ Usage:
         [--config-h5 PATH] [--model-h5 PATH] [--fullspace]
 """
 
-import sys
-import os
 import glob
+import os
+import sys
 
-import numpy as np
 import h5py
+import numpy as np
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 
 from analytical_green import (  # noqa: E402
+    first_surface_reflected_arrival_time_s,
+    relative_l2_error,
     stokes_displacement_green_tensor,
     wavelet_correlation,
-    relative_l2_error,
-    first_surface_reflected_arrival_time_s,
 )
 
 FORCE_LABELS = ["x", "y", "z"]
+MIN_ACCEPTABLE_SCALE = 0.8
+MAX_ACCEPTABLE_SCALE = 1.2
 
 
 def _to_float(value, name: str) -> float:
@@ -188,47 +190,10 @@ def interior_bounds_from_config(config_h5: str, model_h5: str) -> np.ndarray:
             ]
         )
     with h5py.File(model_h5, "r") as f:
-        cell_coords = np.asarray(f["/field/cell/coords"])
         # /field/cell/coords is (n_cell, NGLL, NGLL, NGLL, 3) — per-cell GLL
         # nodes, so reduce over the node axes to get per-axis domain extent.
         cell_coords = np.asarray(f["/field/cell/coords"])
         extent = cell_coords.max(axis=(0, 1, 2, 3)) - cell_coords.min(axis=(0, 1, 2, 3))
-    element_size = extent / n_elem
-    bounds = np.stack([pml_min * element_size, extent - pml_max * element_size], axis=1)
-    if np.any(bounds[:, 0] >= bounds[:, 1]):
-        raise ValueError(f"config.h5 PML covers the whole domain ({bounds}) — bad interior box")
-    return bounds
-    """Per-axis [lo, hi] bounds of the non-PML interior, derived from config.h5.
-
-    PML thicknesses are stored in /simulation attrs as element counts
-    (pml_xmin, ...); element size = domain extent / n_elements. Deriving the
-    interior from the CURRENT run's geometry (instead of a hardcoded box)
-    keeps the receiver sample inside the true physical interior — a stale box
-    silently mixes PML-region vertices into the comparison and drags the
-    correlation down.
-    """
-    extent = coords.max(axis=0) - coords.min(axis=0)
-    with h5py.File(config_h5, "r") as f:
-        sim = f["/simulation"]
-        n_elem = np.array(
-            [
-                _to_int(np.asarray(sim.attrs["nx_elements"]), "nx_elements"),
-                _to_int(np.asarray(sim.attrs["ny_elements"]), "ny_elements"),
-                _to_int(np.asarray(sim.attrs["nz_elements"]), "nz_elements"),
-            ]
-        )
-        pml_min = np.array(
-            [
-                _to_int(np.asarray(sim.attrs[f"pml_{axis}min"]), f"pml_{axis}min")
-                for axis in ("x", "y", "z")
-            ]
-        )
-        pml_max = np.array(
-            [
-                _to_int(np.asarray(sim.attrs[f"pml_{axis}max"]), f"pml_{axis}max")
-                for axis in ("x", "y", "z")
-            ]
-        )
     element_size = extent / n_elem
     bounds = np.stack([pml_min * element_size, extent - pml_max * element_size], axis=1)
     if np.any(bounds[:, 0] >= bounds[:, 1]):
@@ -329,7 +294,6 @@ def parse_args() -> dict:
         elif sys.argv[i] == "--fixed-receivers" and i + 1 < len(sys.argv):
             args["fixed_receivers"] = sys.argv[i + 1]
             i += 2
-            i += 2
         elif not args["greenfun_dir"]:
             args["greenfun_dir"] = sys.argv[i]
             i += 1
@@ -348,6 +312,19 @@ def best_fit_scale(sem_samps: np.ndarray, ana_samps: np.ndarray) -> float:
     if denom < 1e-300:
         return 1.0
     return _to_float(np.dot(sem_samps, ana_samps) / denom, "scale")
+
+
+def amplitude_scale_is_acceptable(scale: float) -> bool:
+    """Return whether the absolute SEM amplitude agrees with the reference."""
+    return MIN_ACCEPTABLE_SCALE <= scale <= MAX_ACCEPTABLE_SCALE
+
+
+def scale_fitted_relative_l2(
+    sem_samples: np.ndarray, analytical_samples: np.ndarray
+) -> tuple[float, float]:
+    """Fit analytical amplitude to SEM and return a scale-invariant relative L2."""
+    scale = best_fit_scale(sem_samples, analytical_samples)
+    return scale, relative_l2_error(sem_samples, scale * analytical_samples)
 
 
 def run(
@@ -530,10 +507,7 @@ def run(
     mean_l2 = _to_float(np.mean(all_l2), "overall l2")
     sem_flat = np.concatenate([w.reshape(-1) for w in all_sem])
     ana_flat = np.concatenate([w.reshape(-1) for w in all_ana])
-    scale = best_fit_scale(sem_flat, ana_flat)
-    fitted_l2 = _to_float(
-        np.linalg.norm(sem_flat - scale * ana_flat) / np.linalg.norm(ana_flat), "fitted l2"
-    )
+    scale, fitted_l2 = scale_fitted_relative_l2(sem_flat, ana_flat)
 
     print(f"\n{'=' * 60}")
     print(f" OVERALL: mean_corr={mean_corr:.4f}, mean_l2={mean_l2:.4f}")
@@ -545,6 +519,13 @@ def run(
         if cs:
             tag = "inf" if hi == np.inf else f"{hi:.1f}"
             print(f"    r/lambda_s in [{lo:.1f}, {tag}): n={len(cs)}, mean_corr={np.mean(cs):.4f}")
+
+    if not amplitude_scale_is_acceptable(scale):
+        print(
+            f"\nFAILED: best-fit scale={scale:.3f} outside "
+            f"[{MIN_ACCEPTABLE_SCALE:.1f}, {MAX_ACCEPTABLE_SCALE:.1f}]"
+        )
+        return 1
 
     if mean_corr >= 0.95:
         print(f"\nPASSED: mean_corr={mean_corr:.4f} >= 0.95")

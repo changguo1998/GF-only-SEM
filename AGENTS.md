@@ -49,8 +49,8 @@ Build all solvers and tools:
 
 ```bash
 scripts/build.sh                       # auto-detect CPU / CUDA
-scripts/build.sh cpu                   # CPU only
-scripts/build.sh cuda                  # CPU + CUDA
+scripts/build.sh --backend cpu         # CPU only
+scripts/build.sh --backend cuda        # CPU + CUDA
 scripts/build.sh -t gf_postprocess     # single target
 ```
 
@@ -96,9 +96,9 @@ and spack-installed `llvm` for clang-format.
 ## Project State
 
 All previously tracked bugs (C-PML divergence, postprocess velocity/acceleration zeros,
-postprocess mass-weighting) are fixed and verified. See
+postprocess mass-weighting, shared vector-field averaging count) are fixed and verified. See
 [`docs/bugs.md`](docs/bugs.md) (archived) and
-[`docs/design/known-limitations.md`](docs/design/known-limitations.md) (~3× SEM factor).
+[`docs/design/known-limitations.md`](docs/design/known-limitations.md) (remaining shape error).
 
 Elastic + viscoelastic (SLS) forward solvers complete and verified. SLS elastic-limit
 regression (Q→∞) confirmed: max_rel_l2=0.0 (bit-identical to elastic). Examples are
@@ -117,13 +117,25 @@ examples end-to-end: `halfspace` (vs Lamb), `layer` (vs PyFK), `fullspace-cubic`
 (solver/backend comparison; auto-skips without a GPU). All three selected to the CUDA
 solver; last run (2026-08-05, RTX 5060 Ti): 3 PASSED via `elastic_cuda` — halfspace
 scale=2.91/rel_l2=0.185, layer scale=2.60, fullspace Stokes corr=0.781 (non-fatal WARNING < 0.80). `viscoelastic_cuda` is now fixed and verified (2026-08-07) — see status table;
+
+**Historical results below (amplitude and fitted-L2 interpretation superseded):**
+
 Fullspace re-verified and refined 2026-08-07: mesh 18³ (1 km) → **24³ (750 m)** — recorded nodes 57.7 k → ~116 k, elements/λs 3.0 → 4.0, overall Stokes corr **0.781 → 0.843** (mean_l2 0.706; best-fit SEM/ana scale 0.34 ≈ 2.9×; shape L2 0.131) — NOTE the 0.79-era numbers were deflated by a stale hardcoded interior mask: analytical_compare.py used an 18³-era [3000,15000] m box that included ~2.25 km of real PML on each side at 24³/PML-7 (and on 18³ too). Fixed: interior box is now DERIVED from config.h5 pml\_\* attrs × true element size from model.h5 cell coords (not tile coords, which are cropped to the recording region); guard rejects whole-domain PML. Same-day correction: 0.7916 → 0.8430, far bin \[2,4)λs 0.496→0.613 (n=3). Residual gap to ~0.99: PML reflections (not window-isolatable in this box) + ~2.9× amplitude (uniform in distance; source injection verified: partition-of-unity Lagrange weights, same stf_values both sides). Mesh: PML 5→7 elements, source (9500)→(9375)³, tiles [2,2,3,3]; `compare.sh` runs `gf_postprocess_mpi` (peak 20.6 GB @18³ / 34.3 GB @24³, cap 56) + consistency guard (Stage 2.5) + hermetic cleanup; a conflicting `--source` is now a hard error. See `examples/fullspace-cubic/VERIFICATION.md`.
 Grid-convergence study (2026-08-08, 18³/20³/24³, common receiver box [5500,12500] m via `--interior-box`): shape L2 (scale-invariant) converges monotonically 0.1225→0.1207→0.1061 (3.0→4.0 elem/λs, ~13% gain); raw mean_corr is noisy/non-monotonic (0.847/0.849/0.828 — PML-tail flooring + 50-receiver sampling noise drown the gain); best-fit scale is FLAT 0.340/0.340/0.336 → the ~2.9× amplitude factor does NOT converge with h (effective-source/convention offset, not a mesh error). Solver ~64/86/148 s/dir, postprocess peak 16.2/17.4/34.3 GB. Study finalized 2026-08-10: five fixed-receiver grids (18/20/22/24/28) via `examples/meshsize/gen_grids.py`, uncompressed HDF5, postprocess ≤64 GB budget (per-grid MPI ranks 12/12/4/4/3) — shape L2 flat 0.123-0.127 across 3.0-4.7 elem/λs (residual is PML/near-field, NOT resolution); ~3× scale flat 0.34; 28³ is the agreed ceiling. cgroup counts page cache: RSS sampling understates peak (22³@6ranks OOM at 64 GB) — a 16-tile guard now gates the comparison.
 
-After fixing the postprocess mass-weighting bug (commit `6f90c12`) and Green tensor
-index convention mismatch (transpose bug, 2026-07-19), scaled waveform correlation
-is 0.991 (halfspace) / 0.745 (layer). A residual ~3× scale factor (2.95 halfspace,
-2.60 layer) is documented as a known SEM discretization limitation.
+**Amplitude correction (2026-09-17):** the historical ~0.34 SEM/analytical scale was
+caused by postprocess sharing one `node_count` across displacement, velocity, and
+acceleration, dividing each by exactly three. Serial and MPI paths now use independent
+per-field counts; corrected historical full-space scales are 1.014–1.038. Correlation is
+unchanged. The historical fitted-L2 values are invalid because their denominator was not
+scale-invariant; the formula and amplitude gate [0.8, 1.2] are now fixed. A fresh 20³ CUDA/MPI
+run passed: default interior sample mean_corr=0.8573, raw rel_l2=0.4496, scale=1.019,
+fitted rel_l2=0.3454; 64 fixed receivers mean_corr=0.8476, raw rel_l2=0.4629, scale=1.038,
+fitted rel_l2=0.3458.
+
+After fixing the postprocess mass-weighting and per-field count bugs and the Green tensor
+index convention mismatch, scaled waveform correlation is 0.991 (halfspace) / 0.745
+(layer). The former scales 2.95/2.60 become 0.983/0.867 after the exact ×3 correction.
 
 | Solver variant | Multi-rank | DOF numbering | Status |
 |---------------|------------|---------------|--------|

@@ -136,8 +136,9 @@ echo "=== Stage 6: Analytical comparison (Stokes full-space) ==="
 cd "${CASE_DIR}"
 
 python3 "${PROJECT_ROOT}/examples/_shared/analytical_compare.py" greenfun/ --fullspace 2>&1 || {
-	echo "WARNING: analytical comparison returned non-zero"
+	echo "FAIL: analytical comparison returned non-zero"
 	echo "  (see VERIFICATION.md for detailed error analysis)"
+	exit 1
 }
 
 echo ""

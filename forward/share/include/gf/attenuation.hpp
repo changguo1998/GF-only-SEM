@@ -32,7 +32,13 @@ constexpr int TAU_PER_NODE = N_SLS * 2;                    // τ_σ + τ_ε × 3
 //   (0,0)=0  (1,1)=1  (2,2)=2  (0,1)=3  (0,2)=4  (1,2)=5
 // Valid only for l,m in {0,1,2}.
 inline constexpr int voigt_index(int l, int m) noexcept {
-    return (l == m) ? l : 3 + l + m;
+    if (l == m)
+        return l;
+    if ((l == 0 && m == 1) || (l == 1 && m == 0))
+        return 3;
+    if ((l == 0 && m == 2) || (l == 2 && m == 0))
+        return 4;
+    return 5;
 }
 
 // --- Flat-array offset helpers ---

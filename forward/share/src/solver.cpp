@@ -596,8 +596,6 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 // 3. Gather predicted displacement → element-local for kernel
                 gather_from_rank(displacement_tilde, part.local_cell2rank_node, n_local_cell,
                                  n_node, local_cell_displacement);
-                gather_from_rank(displacement_tilde, part.local_cell2rank_node, n_local_cell,
-                                 n_node, local_cell_displacement);
 
                 // 3a. C-PML: Save PML_displ_new AFTER predictor (uses predicted fields)
                 if (part.has_cpml) {

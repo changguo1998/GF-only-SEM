@@ -315,8 +315,10 @@ static DirFields extract_tile_fields(const MergedMetadata& meta,
 
         // Accumulate GLL mass for mass-weighted strain averaging (tile-local).
         std::vector<double> node_weight_sum((size_t)n_local, 0.0);
-        // Count sharing elements for count-based disp/vel/acc averaging (tile-local).
-        std::vector<int> node_count((size_t)n_local, 0);
+        gf_postprocess_common::VectorFieldAverager displacement_average(step_disp,
+                                                                        (size_t)n_local);
+        gf_postprocess_common::VectorFieldAverager velocity_average(step_vel, (size_t)n_local);
+        gf_postprocess_common::VectorFieldAverager acceleration_average(step_acc, (size_t)n_local);
 
         for (const auto& fm : meta.file_maps) {
             const RecordFileInfo* gfi = nullptr;
@@ -387,36 +389,34 @@ static DirFields extract_tile_fields(const MergedMetadata& meta,
 
             // Read and accumulate displacement/velocity/acceleration (identical
             // logic - only the dataset name and step buffer differ).
-            auto accumulate_vector_field = [&](const char* ds_name, double* step_dst) {
-                hsize_t frc = 0, fnp = 0;
-                std::vector<double> fbuf;
-                read_field_4d(fid, ds_name, frc, fnp, fbuf);
-                for (hsize_t c = 0; c < frc && c < nrc; ++c) {
-                    for (hsize_t p = 0; p < fnp && p < n_node_per_cell; ++p) {
-                        int32_t local_gll_idx = cell_gll_idx[c * (hsize_t)n_node_per_cell + p];
-                        if (local_gll_idx < 0 ||
-                            local_gll_idx >= (int32_t)fm.local_to_global.size())
-                            continue;
-                        int32_t global_idx = fm.local_to_global[(size_t)local_gll_idx];
-                        if (global_idx < 0 || global_idx >= (int32_t)ng)
-                            continue;
-                        int32_t li = tile_local_index[(size_t)global_idx];
-                        if (li < 0)
-                            continue;
-                        const double* fsrc = fbuf.data() + (c * fnp + p) * 3;
-                        double* fdst = step_dst + (size_t)li * 3;
-                        for (int comp = 0; comp < 3; ++comp)
-                            fdst[comp] += fsrc[comp];
-                        node_count[(size_t)li]++;
+            auto accumulate_vector_field =
+                [&](const char* ds_name, gf_postprocess_common::VectorFieldAverager& average) {
+                    hsize_t frc = 0, fnp = 0;
+                    std::vector<double> fbuf;
+                    read_field_4d(fid, ds_name, frc, fnp, fbuf);
+                    for (hsize_t c = 0; c < frc && c < nrc; ++c) {
+                        for (hsize_t p = 0; p < fnp && p < n_node_per_cell; ++p) {
+                            int32_t local_gll_idx = cell_gll_idx[c * (hsize_t)n_node_per_cell + p];
+                            if (local_gll_idx < 0 ||
+                                local_gll_idx >= (int32_t)fm.local_to_global.size())
+                                continue;
+                            int32_t global_idx = fm.local_to_global[(size_t)local_gll_idx];
+                            if (global_idx < 0 || global_idx >= (int32_t)ng)
+                                continue;
+                            int32_t li = tile_local_index[(size_t)global_idx];
+                            if (li < 0)
+                                continue;
+                            const double* fsrc = fbuf.data() + (c * fnp + p) * 3;
+                            average.add((size_t)li, fsrc);
+                        }
                     }
-                }
-            };
+                };
             if (meta.has_displacement)
-                accumulate_vector_field("displacement", step_disp);
+                accumulate_vector_field("displacement", displacement_average);
             if (meta.has_velocity)
-                accumulate_vector_field("velocity", step_vel);
+                accumulate_vector_field("velocity", velocity_average);
             if (meta.has_acceleration)
-                accumulate_vector_field("acceleration", step_acc);
+                accumulate_vector_field("acceleration", acceleration_average);
 
             H5Fclose(fid);
         }
@@ -429,25 +429,13 @@ static DirFields extract_tile_fields(const MergedMetadata& meta,
                 for (int c = 0; c < 6; ++c)
                     dst[c] *= inv_mass;
             }
-            if (node_count[(size_t)li] > 0) {
-                double inv_cnt = 1.0 / (double)node_count[(size_t)li];
-                if (meta.has_displacement) {
-                    double* ddst = step_disp + li * 3;
-                    for (int c = 0; c < 3; ++c)
-                        ddst[c] *= inv_cnt;
-                }
-                if (meta.has_velocity) {
-                    double* vdst = step_vel + li * 3;
-                    for (int c = 0; c < 3; ++c)
-                        vdst[c] *= inv_cnt;
-                }
-                if (meta.has_acceleration) {
-                    double* adst = step_acc + li * 3;
-                    for (int c = 0; c < 3; ++c)
-                        adst[c] *= inv_cnt;
-                }
-            }
         }
+        if (meta.has_displacement)
+            displacement_average.normalize();
+        if (meta.has_velocity)
+            velocity_average.normalize();
+        if (meta.has_acceleration)
+            acceleration_average.normalize();
     }  // snap_idx loop
 
     return result;

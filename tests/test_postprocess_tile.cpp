@@ -17,6 +17,8 @@
 #include <string>
 #include <vector>
 
+#include "common.hpp"
+
 // -----------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------
@@ -74,6 +76,34 @@ static std::vector<hsize_t> get_dataset_dims(hid_t loc, const char* path) {
 // -----------------------------------------------------------------------
 // Test cases
 // -----------------------------------------------------------------------
+
+TEST_CASE("postprocess vector fields use independent averaging counts", "[tile]") {
+    std::vector<double> displacement(3, 0.0);
+    std::vector<double> velocity(3, 0.0);
+    std::vector<double> acceleration(3, 0.0);
+    const double displacement_first[] = {2.0, 4.0, 6.0};
+    const double displacement_second[] = {4.0, 8.0, 12.0};
+    const double velocity_sample[] = {10.0, 20.0, 30.0};
+    const double acceleration_sample[] = {100.0, 200.0, 300.0};
+
+    gf_postprocess_common::VectorFieldAverager displacement_average(displacement.data(), 1);
+    gf_postprocess_common::VectorFieldAverager velocity_average(velocity.data(), 1);
+    gf_postprocess_common::VectorFieldAverager acceleration_average(acceleration.data(), 1);
+
+    displacement_average.add(0, displacement_first);
+    displacement_average.add(0, displacement_second);
+    velocity_average.add(0, velocity_sample);
+    acceleration_average.add(0, acceleration_sample);
+    displacement_average.normalize();
+    velocity_average.normalize();
+    acceleration_average.normalize();
+
+    CHECK(displacement[0] == 3.0);
+    CHECK(displacement[1] == 6.0);
+    CHECK(displacement[2] == 9.0);
+    CHECK(velocity[0] == 10.0);
+    CHECK(acceleration[0] == 100.0);
+}
 
 TEST_CASE("postprocess tile schema: source_xyz_m attribute", "[tile]") {
     auto path = get_tile_path();

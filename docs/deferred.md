@@ -79,7 +79,8 @@ C-PML implementation verified correct (2026-07-22):
 
 - Non-symmetric stress, parameter separation, alpha-convolved lx/ly/lz memory
   all match SPECFEM3D exactly
-- Solver physics validated: 99.1% scaled waveform correlation with Lamb reference (residual ~3× systematic SEM discretization factor — see [`bugs.md`](../bugs.md))
+- Solver physics validated: 99.1% scaled waveform correlation with Lamb reference. The former
+  ~3× factor was a postprocess count bug and is fixed; see [`bugs.md`](bugs.md).
 - Halfspace 1000-step test stable, max|u|≈2.4e5 (no inf/nan)
 - All 4 bugs (1a-1d) fixed and verified
 

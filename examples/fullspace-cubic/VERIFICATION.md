@@ -1,5 +1,29 @@
 # Full-Space Cubic Test Model — Verification Report
 
+> **2026-09-17 correction:** All amplitude scales in the historical runs below were affected
+> by a postprocess averaging bug. A shared count was incremented once for each of displacement,
+> velocity, and acceleration, then used to normalize every field; displacement was therefore
+> divided by exactly three. The reported SEM/reference scales 0.338–0.346 correspond to corrected
+> scales 1.014–1.038. Correlations are unchanged. The historical "scale-fitted shape L2" is
+> invalid because its denominator used the unscaled analytical norm; that metric is now a true
+> relative L2. This was a code bug, not an inherent GLL/SEM amplitude factor. The comparison now
+> enforces scale ∈ [0.8, 1.2]. The 20³ case has been regenerated and verified below; the other
+> historical grids still require regeneration for corrected L2 values.
+
+## 20³ Amplitude-Corrected Rerun (2026-09-17)
+
+The complete CUDA/MPI pipeline used 800 steps per force direction, 12 postprocess ranks,
+and the 64 GiB memory guard. All three CUDA directions completed without OOM in
+85.1/85.2/85.8 s and MPI postprocess produced all 16 tiles.
+
+| Receiver selection | Mean correlation | Raw relative L2 | SEM/reference scale | Fitted relative L2 |
+|--------------------|------------------|-----------------|---------------------|--------------------|
+| Derived non-PML interior, 50 nodes | 0.8573 | 0.4496 | 1.019 | 0.3454 |
+| 64 fixed physical receivers | 0.8476 | 0.4629 | 1.038 | 0.3458 |
+
+The scale is within the enforced [0.8, 1.2] interval. This directly verifies that the former
+~3× deficit came from postprocess averaging rather than the SEM solver.
+
 ## Model Configuration (Iteration 2 — Parameter Optimized)
 
 | Parameter | Original (v1) | Optimized (v2) |
@@ -75,12 +99,12 @@ diverge.
 
 ## Residual Error Analysis
 
-### Known ~3× SEM Amplitude Factor
+### Resolved ~3× Amplitude Factor
 
-The SEM displacement amplitude is ~2.7× smaller than the Stokes analytical solution.
-This is documented in [`docs/design/known-limitations.md`](../../docs/design/known-limitations.md)
-as a systematic GLL spectral element integration effect. The Pearson correlation
-is amplitude-invariant, so this factor does NOT reduce the reported correlation.
+The apparent ~2.7–3× deficit came from sharing one normalization count among three vector
+fields in postprocess. It is fixed in both serial and MPI implementations. Pearson
+correlation did not expose the error because it is amplitude-invariant. The old fitted-L2
+formula was also wrong and has been replaced with a scale-invariant relative L2.
 
 ### Remaining Shape Errors (~22% unexplained variance)
 
@@ -128,8 +152,8 @@ represents the practical limit for N=4 SEM with 3 elements/S-wavelength.
    GLL quadrature). Achieving 0.95 correlation requires algorithmic improvements
    beyond parameter tuning.
 
-1. **The known ~3× SEM amplitude factor is confirmed** (2.7× measured) — this
-   is a systematic GLL integration effect, not a code bug.
+1. **The former ~3× amplitude factor was a postprocess bug**, now fixed with independent
+   displacement, velocity, and acceleration averaging counts.
 
 ## CUDA vs MPI-CPU Solver Consistency Verification (2026-08-05)
 

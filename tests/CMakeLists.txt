@@ -130,7 +130,8 @@ endif()
 # Postprocess tile schema tests (no MPI, needs HDF5)
 # ---------------------------------------------------------------
 add_executable(test_postprocess_tile test_postprocess_tile.cpp)
-target_include_directories(test_postprocess_tile PRIVATE ${HDF5_INCLUDE_DIRS})
+target_include_directories(test_postprocess_tile PRIVATE ${HDF5_INCLUDE_DIRS}
+                                                         ${CMAKE_SOURCE_DIR}/postprocess/cpp)
 target_link_libraries(test_postprocess_tile PRIVATE Catch2::Catch2WithMain ${HDF5_C_LIBRARIES})
 target_compile_features(test_postprocess_tile PRIVATE cxx_std_17)
 

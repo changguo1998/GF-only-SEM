@@ -21,6 +21,40 @@
 
 namespace gf_postprocess_common {
 
+/// Accumulate and count one three-component nodal vector field.
+///
+/// Displacement, velocity, and acceleration must each own an instance. Sharing
+/// their sample counts would divide every field by the number of enabled
+/// quantities instead of by the number of contributing cells.
+class VectorFieldAverager {
+public:
+    VectorFieldAverager(double* values, size_t n_nodes)
+        : values_(values), sample_counts_(n_nodes, 0) {}
+
+    void add(size_t node_index, const double* sample) {
+        double* destination = values_ + node_index * 3;
+        for (int component = 0; component < 3; ++component)
+            destination[component] += sample[component];
+        sample_counts_[node_index]++;
+    }
+
+    void normalize() {
+        for (size_t node_index = 0; node_index < sample_counts_.size(); ++node_index) {
+            int count = sample_counts_[node_index];
+            if (count == 0)
+                continue;
+            double* destination = values_ + node_index * 3;
+            double inverse_count = 1.0 / static_cast<double>(count);
+            for (int component = 0; component < 3; ++component)
+                destination[component] *= inverse_count;
+        }
+    }
+
+private:
+    double* values_;
+    std::vector<int> sample_counts_;
+};
+
 struct Args {
     std::string model_path;
     std::string config_path;
