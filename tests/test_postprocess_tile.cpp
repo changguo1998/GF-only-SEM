@@ -77,6 +77,23 @@ static std::vector<hsize_t> get_dataset_dims(hid_t loc, const char* path) {
 // Test cases
 // -----------------------------------------------------------------------
 
+TEST_CASE("postprocess strain tensor is component-major and direction-minor", "[tile]") {
+    std::vector<double> greens_tensor(18, 0.0);
+    const double strain_fx[] = {10.0, 11.0, 12.0, 13.0, 14.0, 15.0};
+    const double strain_fy[] = {20.0, 21.0, 22.0, 23.0, 24.0, 25.0};
+    const double strain_fz[] = {30.0, 31.0, 32.0, 33.0, 34.0, 35.0};
+
+    gf_postprocess_common::assign_strain_direction(strain_fx, greens_tensor.data(), 0);
+    gf_postprocess_common::assign_strain_direction(strain_fy, greens_tensor.data(), 1);
+    gf_postprocess_common::assign_strain_direction(strain_fz, greens_tensor.data(), 2);
+
+    for (int component = 0; component < 6; ++component) {
+        CHECK(greens_tensor[component * 3 + 0] == strain_fx[component]);
+        CHECK(greens_tensor[component * 3 + 1] == strain_fy[component]);
+        CHECK(greens_tensor[component * 3 + 2] == strain_fz[component]);
+    }
+}
+
 TEST_CASE("postprocess vector fields use independent averaging counts", "[tile]") {
     std::vector<double> displacement(3, 0.0);
     std::vector<double> velocity(3, 0.0);

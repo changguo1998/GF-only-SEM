@@ -666,7 +666,7 @@ int main(int argc, char** argv) {
 
         // ---- Phase 3: assemble tile Green's tensor directly from per-direction
         //      tile-local fields. One direction at a time to bound peak memory.
-        // tile_greens: [n_steps, n_local, dir(3), comp(6)] = 18 per (s,li)
+        // tile_greens: [n_steps, n_local, comp(6), dir(3)] = 18 per (s,li)
         std::vector<double> tile_greens((size_t)n_steps * (size_t)n_local * 6 * 3, 0.0);
         std::vector<double> tile_displacement;
         std::vector<double> tile_velocity;
@@ -684,14 +684,14 @@ int main(int argc, char** argv) {
             DirFields fields = extract_tile_fields(*metas[dir], tile_local_index, n_local,
                                                    cell_mass, n_model_cell, ngll_model);
 
-            // Assemble strain -> tile_greens [s, li, dir, comp(6)]
+            // Assemble strain -> tile_greens [s, li, comp(6), dir]
             for (int64_t s = 0; s < n_steps; ++s) {
                 for (int64_t li = 0; li < n_local; ++li) {
                     size_t tg = ((size_t)s * (size_t)n_local + (size_t)li) * 18;
                     const double* src =
                         fields.strain.data() + ((size_t)s * (size_t)n_local + (size_t)li) * 6;
-                    for (int c = 0; c < 6; ++c)
-                        tile_greens[tg + (size_t)dir * 6 + c] = src[c];
+                    gf_postprocess_common::assign_strain_direction(src, tile_greens.data() + tg,
+                                                                   dir);
                 }
             }
             // Assemble disp/vel/acc -> tile_* [s, li, comp(3), dir(3)]

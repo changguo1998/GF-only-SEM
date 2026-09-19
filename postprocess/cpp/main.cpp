@@ -534,21 +534,18 @@ int main(int argc, char** argv) {
 
             // fx → dir 0
             double* src_fx = fx.strain.data() + base;
-            double* d0 = greens_subset.data() + g_base + 0 * 6;
-            for (int c = 0; c < 6; ++c)
-                d0[c] = src_fx[c];
+            gf_postprocess_common::assign_strain_direction(src_fx, greens_subset.data() + g_base,
+                                                           0);
 
             // fy → dir 1
             double* src_fy = fy.strain.data() + base;
-            double* d1 = greens_subset.data() + g_base + 1 * 6;
-            for (int c = 0; c < 6; ++c)
-                d1[c] = src_fy[c];
+            gf_postprocess_common::assign_strain_direction(src_fy, greens_subset.data() + g_base,
+                                                           1);
 
             // fz → dir 2
             double* src_fz = fz.strain.data() + base;
-            double* d2 = greens_subset.data() + g_base + 2 * 6;
-            for (int c = 0; c < 6; ++c)
-                d2[c] = src_fz[c];
+            gf_postprocess_common::assign_strain_direction(src_fz, greens_subset.data() + g_base,
+                                                           2);
         }
     }
     // ---- Assemble displacement tensor ----

@@ -21,6 +21,13 @@
 
 namespace gf_postprocess_common {
 
+/// Store one force-direction strain vector in a [component(6), direction(3)] tensor.
+inline void assign_strain_direction(const double* strain_components, double* greens_tensor,
+                                    int force_direction) {
+    for (int component = 0; component < 6; ++component)
+        greens_tensor[component * 3 + force_direction] = strain_components[component];
+}
+
 /// Accumulate and count one three-component nodal vector field.
 ///
 /// Displacement, velocity, and acceleration must each own an instance. Sharing
