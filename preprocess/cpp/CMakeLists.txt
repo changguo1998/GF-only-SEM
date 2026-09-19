@@ -3,10 +3,16 @@
 cmake_minimum_required(VERSION 3.16)
 project(gf_preprocess_cpp LANGUAGES CXX)
 
+get_filename_component(GF_PROJECT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+set(GF_PREPROCESS_RUNTIME_DIR
+    "${GF_PROJECT_ROOT}/bin"
+    CACHE PATH "Output directory for gf_preprocess")
+
 find_package(Eigen3 REQUIRED)
 find_package(HDF5 REQUIRED COMPONENTS C)
 find_package(OpenMP QUIET)
 include(GNUInstallDirs)
+find_path(GF_EIGEN_INCLUDE_DIR Eigen/Dense PATH_SUFFIXES eigen3 REQUIRED)
 
 add_executable(
     gf_preprocess
@@ -16,6 +22,7 @@ add_executable(
     source_locator.cpp
     cpml.cpp
     metis_partition.cpp
+    partition_writer.cpp
     config_writer.cpp)
 
 # ── METIS (spack-installed) ───────────────────────────────────────────────── METIS is a required
@@ -94,9 +101,11 @@ endif()
 # ── Include paths, libraries ────────────────────────────────────────────────
 
 target_include_directories(
-    gf_preprocess PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/preprocess/include
-                          ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS} ${METIS_INCLUDE_DIR})
+    gf_preprocess PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${GF_PROJECT_ROOT}/preprocess/include
+                          ${GF_EIGEN_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS} ${METIS_INCLUDE_DIR})
 target_link_libraries(gf_preprocess PRIVATE Eigen3::Eigen ${HDF5_C_LIBRARIES} ${METIS_LIBRARY})
+# Some Spack Eigen packages expose an imported target without propagating its include path.
+target_compile_options(gf_preprocess PRIVATE "-I${GF_EIGEN_INCLUDE_DIR}")
 
 if(OpenMP_CXX_FOUND)
     target_link_libraries(gf_preprocess PRIVATE OpenMP::OpenMP_CXX)
@@ -107,5 +116,6 @@ else()
 endif()
 
 target_compile_features(gf_preprocess PRIVATE cxx_std_17)
-set_target_properties(gf_preprocess PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
+set_target_properties(gf_preprocess PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                               "${GF_PREPROCESS_RUNTIME_DIR}")
 install(TARGETS gf_preprocess RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT gf_tools)

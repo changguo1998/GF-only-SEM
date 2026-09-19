@@ -53,16 +53,25 @@ void compute_cpml_profiles(const double* gll_coords_flat, int n_cell, int ngll, 
                            const double* pml_widths, const double* vp_flat, double f0_hz,
                            std::vector<double>& K_store, std::vector<double>& d_store,
                            std::vector<double>& alpha_store);
+void compute_cpml_coefficients(int n_cell, int ngll, const int* pml_regions, double solver_dt,
+                               const std::vector<double>& K_store,
+                               const std::vector<double>& d_store,
+                               const std::vector<double>& alpha_store,
+                               std::vector<double>& coefficient_alpha,
+                               std::vector<double>& coefficient_beta,
+                               std::vector<double>& coefficient_acceleration,
+                               std::vector<double>& coefficient_strain);
 
 // ── METIS partition + global node numbering ──
 void partition_metis(const char* model_path, int n_ranks);
 void compute_global_node_ids(const char* model_path, int ngll);
+double write_partition_files(const char* model_path, const Config& cfg,
+                             const std::vector<int32_t>& element_to_rank);
 
 // ── config.h5 writer ──
 void write_config_h5(const char* config_path, const Config& cfg, double solver_dt,
                      int snapshot_stride, int nsteps, const std::vector<double>& stf_t,
-                     const std::vector<double>& stf_values, const std::vector<double>& source_xyz,
-                     const SourceResult& src_result, double record_depth_actual_m,
-                     const std::vector<int32_t>& element_to_rank, int n_ranks, double log_dt_s);
+                     const std::vector<double>& stf_values, const SourceResult& src_result,
+                     const double* domain_bounds, int nz_elements, double record_depth_actual_m);
 
 }  // namespace gf

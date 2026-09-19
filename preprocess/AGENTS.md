@@ -14,7 +14,8 @@ Read `model.h5` + `config.py`. Write extended `model.h5`, `config.h5`, and per-r
 | `cfl_validator.py` | derive `solver_dt`, `snapshot_stride`, `restart_stride` |
 | `stf_evaluator.py` | sample user STF at solver steps |
 | `source_locator.py` | find source elements and weights |
-| `pml.py` | C-PML profiles and element tags |
+| `pml.py` | legacy damping profiles and element tags |
+| `pml_cpml.py` | complete C-PML profiles and convolution coefficients (Python path) |
 | `preflight.py` | validate mesh, material, CFL, source, storage, recording map |
 | `partition.py` | METIS partition, GLL numbering, MPI exchange |
 | `config_loader.py` | import and validate `config.py` |
@@ -22,7 +23,7 @@ Read `model.h5` + `config.py`. Write extended `model.h5`, `config.h5`, and per-r
 | `model_writer.py` | write mesh fields and partition files, including `/recording/`; precomputes λ, μ from Vp, Vs, density |
 | `stage2_runner.py` | wrap `gf_preprocess stage2` for λ/μ, solver_dt, nsteps (fallback) |
 | `topology_reader.py` | read `/topology/` group from model.h5 |
-| `recording_map.py` | build shallow mesh-vertex recording map |
+| `recording_map.py` | build shallow GLL recording map (Python path) |
 | `accelerator.py` | optional C++ subprocess for GLL geometry, CFL, PML damping |
 | `cli.py` | run full pipeline from CWD |
 
@@ -31,11 +32,12 @@ Read `model.h5` + `config.py`. Write extended `model.h5`, `config.h5`, and per-r
 ```
 model.h5 + config.py
 → load config
-→ C++ run? → unified gf_preprocess run (stage1 + C-PML + STF + METIS + config)
-→ else → Python gll_geometry + boundary_detector + PML + ...
+→ C++ stage1? → GLL geometry + boundary tags + PML damping
+→ else → Python gll_geometry + boundary_detector + PML
 → material at GLL nodes (Python model_loader.py)
 → C++ stage2? → λ/μ + CFL solver_dt + nsteps
 → else → Python numpy + cfl_validator
+→ Python C-PML + source + STF (from config.py)
 → PML masking        (1-layer from boundary detection + layer expansion via i,j,k grid)
 → validation
 → METIS partition
@@ -53,7 +55,7 @@ model.h5 + config.py
 
 ## Recording Map
 
-Preprocess selects non-PML mesh vertices in the shallow output volume:
+Preprocess selects non-PML GLL nodes in the shallow output volume:
 
 - requested bottom: `record_depth_max_m`
 - actual bottom: `record_depth_actual_m`, snapped to element face
@@ -63,12 +65,13 @@ Each rank writes:
 
 ```
 /recording/
-  attrs: basis="mesh_vertices", record_depth_max_m,
+  attrs: basis="gll", record_depth_max_m,
          record_depth_actual_m, excludes_pml=true
-  save_element_mask
-  vertex_ids
-  source_element_local_index
-  source_corner_index
+  gll_node_ids
+  gll_node_coords
+  rec_cell_local
+  rec_cell_global_ids
+  cell_gll_node_index
 ```
 
 ## Tests
@@ -95,6 +98,13 @@ Single binary with subcommands:
   - Prints `STAT_*` lines parsed by `stage2_runner.py`
 
 Integration: `cli.py` discovers `gf_preprocess` at startup, dispatches via subprocess with
-`stage1`/`stage2` subcommand. Falls back to pure Python per step independently.
+`stage1`/`stage2` subcommand. Falls back to pure Python per step independently. The Python
+entry point does not call `gf_preprocess run`, because that command uses a compile-time C++
+configuration and cannot represent arbitrary `config.py` material/STF callables.
+
+`gf_preprocess run` is the Python-free preprocessing path after topology-only `model.h5` exists.
+It writes `config.h5` and all `partitions/partition_{r}.h5` files, including rank node maps,
+MPI exchange patterns, `/recording/`, and complete C-PML coefficients from the compiled
+`GF_USER_CONFIG`.
 
 Built from `preprocess/cpp/CMakeLists.txt`. CPU only (no MPI, no CUDA).

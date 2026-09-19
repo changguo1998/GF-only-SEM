@@ -238,6 +238,7 @@ All phases complete (Jul 2026, 8+ commits). Key files:
 | Layer | File | Status |
 |-------|------|--------|
 | Preprocess | `preprocess/pml_cpml.py` | COMPLETE — profiles, coefficients, SPECFEM3D parameter separation |
+| Preprocess C++ | `preprocess/cpp/cpml.cpp` | COMPLETE — matched profiles, separation, and coefficients |
 | Preprocess | `preprocess/model_writer.py` | COMPLETE — C-PML datasets in partition files |
 | Forward types | `forward/share/include/gf/types.hpp` | COMPLETE — `CpmlData` struct, memory arrays |
 | Forward I/O | `forward/share/src/io.cpp` | COMPLETE — read from partition, backward compat |

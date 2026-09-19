@@ -19,6 +19,16 @@ inline hid_t lcpl_with_groups() {
     return lcpl;
 }
 
+/// Check a link without emitting diagnostics when an intermediate group is absent.
+inline bool link_exists(hid_t location, const char* path) {
+    htri_t exists = 0;
+    H5E_BEGIN_TRY {
+        exists = H5Lexists(location, path, H5P_DEFAULT);
+    }
+    H5E_END_TRY;
+    return exists > 0;
+}
+
 /// Open HDF5 file, exit on failure.
 inline hid_t open_or_fail(const char* path, unsigned flags) {
     hid_t fid = H5Fopen(path, flags, H5P_DEFAULT);
@@ -74,10 +84,13 @@ inline std::vector<int64_t> read_int64(hid_t fid, const char* name) {
 /// Write std::vector<double> as an N-D dataset, overwriting if present.
 inline void write_double(hid_t fid, const char* name, const std::vector<double>& data,
                          const std::vector<hsize_t>& dims) {
-    H5Ldelete(fid, name, H5P_DEFAULT);
+    if (link_exists(fid, name))
+        H5Ldelete(fid, name, H5P_DEFAULT);
     hid_t space = H5Screate_simple(static_cast<int>(dims.size()), dims.data(), nullptr);
-    hid_t ds = H5Dcreate2(fid, name, H5T_NATIVE_DOUBLE, space, lcpl_with_groups(), H5P_DEFAULT,
-                          H5P_DEFAULT);
+    hid_t link_properties = lcpl_with_groups();
+    hid_t ds =
+        H5Dcreate2(fid, name, H5T_NATIVE_DOUBLE, space, link_properties, H5P_DEFAULT, H5P_DEFAULT);
+    H5Pclose(link_properties);
     H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, data.data());
     H5Dclose(ds);
     H5Sclose(space);
@@ -86,10 +99,13 @@ inline void write_double(hid_t fid, const char* name, const std::vector<double>&
 /// Write std::vector<int32_t> as an N-D dataset.
 inline void write_int32(hid_t fid, const char* name, const std::vector<int32_t>& data,
                         const std::vector<hsize_t>& dims) {
-    H5Ldelete(fid, name, H5P_DEFAULT);
+    if (link_exists(fid, name))
+        H5Ldelete(fid, name, H5P_DEFAULT);
     hid_t space = H5Screate_simple(static_cast<int>(dims.size()), dims.data(), nullptr);
-    hid_t ds = H5Dcreate2(fid, name, H5T_NATIVE_INT32, space, lcpl_with_groups(), H5P_DEFAULT,
-                          H5P_DEFAULT);
+    hid_t link_properties = lcpl_with_groups();
+    hid_t ds =
+        H5Dcreate2(fid, name, H5T_NATIVE_INT32, space, link_properties, H5P_DEFAULT, H5P_DEFAULT);
+    H5Pclose(link_properties);
     H5Dwrite(ds, H5T_NATIVE_INT32, H5S_ALL, H5S_ALL, H5P_DEFAULT, data.data());
     H5Dclose(ds);
     H5Sclose(space);
@@ -98,10 +114,13 @@ inline void write_int32(hid_t fid, const char* name, const std::vector<int32_t>&
 /// Write std::vector<int64_t> as an N-D dataset.
 inline void write_int64(hid_t fid, const char* name, const std::vector<int64_t>& data,
                         const std::vector<hsize_t>& dims) {
-    H5Ldelete(fid, name, H5P_DEFAULT);
+    if (link_exists(fid, name))
+        H5Ldelete(fid, name, H5P_DEFAULT);
     hid_t space = H5Screate_simple(static_cast<int>(dims.size()), dims.data(), nullptr);
-    hid_t ds = H5Dcreate2(fid, name, H5T_NATIVE_INT64, space, lcpl_with_groups(), H5P_DEFAULT,
-                          H5P_DEFAULT);
+    hid_t link_properties = lcpl_with_groups();
+    hid_t ds =
+        H5Dcreate2(fid, name, H5T_NATIVE_INT64, space, link_properties, H5P_DEFAULT, H5P_DEFAULT);
+    H5Pclose(link_properties);
     H5Dwrite(ds, H5T_NATIVE_INT64, H5S_ALL, H5S_ALL, H5P_DEFAULT, data.data());
     H5Dclose(ds);
     H5Sclose(space);

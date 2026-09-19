@@ -964,7 +964,9 @@ int stage1_main(int argc, char** argv) {
     double domain_bounds[6] = {0, 0, 0, 0, 0, 0};
     {
         hid_t fid = open_or_fail(mesh_path, H5F_ACC_RDONLY);
-        hid_t dom_gid = H5Gopen2(fid, "domain", H5P_DEFAULT);
+        hid_t dom_gid = -1;
+        if (H5Lexists(fid, "domain", H5P_DEFAULT) > 0)
+            dom_gid = H5Gopen2(fid, "domain", H5P_DEFAULT);
         if (dom_gid >= 0) {
             read_attr_double(dom_gid, "xmin", domain_bounds[0]);
             read_attr_double(dom_gid, "xmax", domain_bounds[1]);

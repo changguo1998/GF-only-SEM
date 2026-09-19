@@ -262,6 +262,15 @@ SourceResult locate_source(const Config& cfg, const double* gll_coords_flat, int
         std::exit(1);
     }
 
+    // Normalize across all containing elements so face/edge sources do not multiply amplitude.
+    double total_weight = 0.0;
+    for (const auto& element_weights : result.weights)
+        for (double weight : element_weights)
+            total_weight += weight;
+    for (auto& element_weights : result.weights)
+        for (double& weight : element_weights)
+            weight /= total_weight;
+
     result.n_src_cell = static_cast<int>(result.cell_ids.size());
     return result;
 }

@@ -4,21 +4,20 @@
 
 ## Goal
 
-Python module. Reads mesh topology and `config.py`. Computes derived model data and the shallow recording map. Writes `model.h5`, `partition_{r}.h5`, and `config.h5`.
+Reads mesh topology plus either runtime `config.py` or a compiled C++ `Config`. Computes derived
+model data and the shallow recording map. Writes `model.h5`, `partition_{r}.h5`, and `config.h5`.
 
 ## Data Flow
 
 ```
 model.h5 (/topology/) ─────────┐
-config.py  ─────────────────────┤
+config.py / config_user.cpp ────┤
                                 ↓
-                          preprocessor (C++ unified + Python fallback)
-                          ├── [C++ run: GLL geometry → material → λ/μ → C-PML
-                          │           → STF → source → METIS partition
-                          │           → global node IDs → config.h5]
-                          │   └── fallback: per-step Python pipeline
-                          ├── build shallow recording map (Python only)
-                          ├── write model.h5, partition_{r}.h5 (Python)
+                          preprocessor (two complete entry paths)
+                          ├── C++ run: GLL geometry → material → λ/μ → complete C-PML
+                          │           → STF → source → METIS → rank/GLL maps
+                          │           → recording map → all HDF5 outputs
+                          └── config.py: Python orchestration with C++ stage acceleration
                           ↓
                      model.h5 (extended) + partition_{r}.h5 + config.h5
                           │
@@ -34,10 +33,10 @@ Single Python CLI. Reads `model.h5` and `config.py` from CWD. No CLI args. No YA
 
 Outputs: extend `model.h5` and write one `partition_{r}.h5` per rank. No monolithic `model.h5`.
 
-````
+```text
 preprocess/
 ├── __init__.py
-├── cli.py              — adaptive pipeline entry point (C++ unified run or per-step Python)
+├── cli.py              — config.py orchestration with per-stage C++ acceleration
 ├── accelerator.py      — legacy; `_ensure_domain_attrs()` only; `run_accelerator` superseded
 ├── stage2_runner.py    — wrap `gf_preprocess stage2` for λ/μ, solver_dt, nsteps (fallback)
 ├── config_loader.py    — importlib load config.py, validate
@@ -53,26 +52,35 @@ preprocess/
 ├── source_locator.py   — locate source elements, compute natural coords (Python fallback)
 ├── cfl_validator.py    — compute cfl_dt, derive solver_dt and snapshot_stride (Python fallback)
 ├── preflight.py        — comprehensive pre-flight validation
-├── recording_map.py    — build shallow mesh-vertex recording map (Python only)
+├── recording_map.py    — build shallow GLL recording map for the Python path
 ├── cpp/
 │   ├── CMakeLists.txt    — builds gf_preprocess (METIS, HDF5, Eigen3)
 │   ├── gf_preprocess.cpp — unified entry: stage1 / stage2 / run subcommands
 │   ├── main.cpp          — stage1: GLL geom, CFL h_min, PML damping, boundary tag
 │   ├── stage2_main.cpp   — stage2: λ/μ, solver_dt, nsteps, pre-flight stats
-│   ├── cpml.cpp          — C-PML κ/d/α profiles
+│   ├── cpml.cpp          — C-PML profiles, parameter separation, all coefficients
 │   ├── source_locator.cpp — Newton iteration + Lagrange weights
 │   ├── config_default.cpp — default config + STF + material model
 │   ├── metis_partition.cpp — METIS C API wrapper + global node numbering
+│   ├── partition_writer.cpp — rank compaction, MPI exchange, recording + partition writer
 │   ├── config_writer.cpp — config.h5 writer
+```
 
-Single `gf_preprocess` binary with `stage1`/`stage2`/`run` subcommands.  `gf_preprocess run`
-executes the full pipeline (stage1 → material → stage2 → C-PML → STF → source → METIS
-→ global node IDs → config.h5), replacing the older per-step approach for all steps except
-recording map construction.
+Single `gf_preprocess` binary with `stage1`/`stage2`/`run` subcommands. `gf_preprocess run`
+executes the full pipeline (stage1 → material → stage2 → complete C-PML → STF → source → METIS
+→ global/rank node IDs → MPI exchange → recording map → partition files → config.h5). It does
+not invoke Python after a topology-only `model.h5` has been supplied.
 
-Adaptive integration: `cli.py` tries `gf_preprocess run` first.  If available and successful,
-the Python side reads results from HDF5 and only runs recording map + model write.  Falls back
-to per-step Python execution if `gf_preprocess` is missing or fails.
+Adaptive integration: `cli.py` uses `config.py` as the sole source of truth and dispatches
+compatible stages to `gf_preprocess stage1` and `gf_preprocess stage2`. Material, C-PML,
+source location, and STF evaluation remain Python-orchestrated because they may use arbitrary
+Python callables. Each accelerated stage independently falls back to Python when the binary is
+missing or fails.
+
+`gf_preprocess run` is a separate, direct C++ workflow for builds configured with
+`GF_USER_CONFIG`. It is not called by `python -m preprocess`: its material, STF, and source
+configuration is compiled into the binary and therefore cannot safely consume an arbitrary
+runtime `config.py`.
 
 ### Stage1: `gf_preprocess stage1`
 
@@ -85,8 +93,8 @@ to per-step Python execution if `gf_preprocess` is missing or fails.
 
 ### Stage2: `gf_preprocess stage2`
 
-  - **Source**: `preprocess/cpp/stage2_main.cpp`
-  - **Dependencies**: HDF5 (no Eigen3 needed)
+- **Source**: `preprocess/cpp/stage2_main.cpp`
+- **Dependencies**: HDF5 (no Eigen3 needed)
 - **Data flow**: reads `/field/element/{coords,jacobian,vp,vs,density}`; writes `/field/element/{lambda,mu}`
 - **CLI**: `gf_preprocess stage2 <model.h5>`
   - **Single-thread** (no OpenMP needed)
@@ -95,32 +103,26 @@ to per-step Python execution if `gf_preprocess` is missing or fails.
 
 - **Source**: `preprocess/cpp/gf_preprocess.cpp`
 - **Dependencies**: HDF5, Eigen3, METIS
-- **Data flow**: chains all preprocess steps.  Reads model.h5 topology; writes coords, vp/vs/density,
-  lambda/mu, C-PML profiles, STF, partition, global node IDs, and config.h5.
-- **CLI**: `gf_preprocess run <model.h5> --N N --cfl-safety VAL [--nx N] [--ny N] [--pml-* THICK]`
-- **Config**: user compiles material model via `-DGF_MATERIAL_USER_SOURCE=config.cpp`
+- **Data flow**: chains all preprocess steps. Reads model.h5 topology; writes coords, vp/vs/density,
+  lambda/mu, C-PML profiles and convolution coefficients, STF, global/rank node IDs, MPI exchange
+  patterns, recording maps, `partition_{r}.h5`, and config.h5.
+- **CLI**: `gf_preprocess run <model.h5> --N N --cfl-safety VAL [--nx N] [--ny N] [--n-ranks N] [--pml-* THICK]`
+- **Config**: user compiles the complete C++ config via `-DGF_USER_CONFIG=config.cpp`
 - **Python path**: without user material, vp/vs/density must already exist in model.h5 (Python stage)
 
 ### Build
 
 ```sh
-cd preprocess/cpp
-cmake -B build
-cmake --build build
-# binaries at: bin/gf_preprocess, bin/gf_preprocess
-````
+cmake -S preprocess/cpp -B build-preprocess \
+  -DGF_USER_CONFIG=/absolute/path/to/config_user.cpp
+cmake --build build-preprocess
+# binary: bin/gf_preprocess
 
-Or manually:
-
-```sh
-g++ -std=c++17 -O2 -march=native -fopenmp \
-    -I<eigen3>/include/eigen3 \
-    -I/usr/include/hdf5/serial -L/usr/lib/x86_64-linux-gnu/hdf5/serial \
-    -o bin/gf_preprocess preprocess/cpp/main.cpp -lhdf5 -lm
-
-g++ -std=c++17 -O2 -march=native \
-    -I/usr/include/hdf5/serial -L/usr/lib/x86_64-linux-gnu/hdf5/serial \
-    -o bin/gf_preprocess preprocess/cpp/stage2_main.cpp -lhdf5 -lm
+cd path/to/case
+gf_preprocess run model.h5 --N 4 --cfl-safety 0.5 \
+  --nx 22 --ny 22 --n-ranks 16 \
+  --pml-xmin 6 --pml-xmax 6 --pml-ymin 6 --pml-ymax 6 \
+  --pml-zmin 0 --pml-zmax 6
 ```
 
 ## Technology
@@ -353,15 +355,18 @@ layers deep. The `is_pml` flag is computed in two stages:
 
 Output: `/field/element/is_pml` (int8, 1=PML).
 
-**C-PML profiles** (`pml_cpml.py`, COMPLETE):
+**C-PML parameters** (`pml_cpml.py` and `cpp/cpml.cpp`, COMPLETE):
 
 - K, d, α per direction per GLL node
 - Region classification (1-7: X/Y/Z/XY/XZ/YZ/XYZ)
 - α and β convolution coefficients (9 each)
 - Accel correction coefficients Ā₁…Ā₅
-- Strain correction coefficients A₆…A₂₃ (23 entries)
+- Strain correction coefficients A₆…A₂₃ (18 entries)
 - SPECFEM3D parameter separation to prevent degenerate denominators
+- Parameter-separation threshold uses the minimum adjacent GLL-node distance
 - COEF_SAFETY_CLAMP=3.0 as fallback for stability with K_MAX_PML=1.0
+- Min/max faces are selected per element center; damping grows from the PML interface toward the
+  physical boundary, including when both faces of one axis are active.
 
 Legacy `pml.py` provides simplified linear-ramp damping as backward-compatible fallback.
 See [`docs/design/cpml.md`](../design/cpml.md) for full C-PML design.
@@ -395,23 +400,27 @@ Comprehensive validation before partition and writing. Runs as a checklist; with
    - `local_cell_ids`: owned element global IDs
    - `ghost_cell_ids`: elements sharing a face with owned elements but owned by other ranks
    - `ghost_owners`: which rank owns each ghost
-1. **GLL numbering**: assign 1-based global IDs; 0 = null. Build `local_cell2rank_node[...]` (`ibool`). Match shared nodes by coordinate tolerance `1e-6 × min_element_size`.
-1. For each neighbor rank, precompute face-pair exchange lists:
-   - send: (owned_local_idx, face_idx) → (ghost_idx, ghost_face)
-   - recv: ghost elements to receive into
+1. **GLL numbering**: assign 0-based global IDs using shared topology faces. Compact the IDs
+   over each rank's local + ghost cells to build `local_cell2rank_node` (`ibool`).
+1. Build global-node → owning-ranks sets from owned cells. For every co-owner pair, order shared
+   nodes by global ID and write matching `send_dof`/`recv_dof` arrays. This includes edge and
+   corner nodes shared by three or more ranks, not only face-neighbor pairs.
 
-Output: one `partition_{r}.h5` per rank with owned/ghost data, metadata (`use_global_dof` flag, `n_rank_node`), `local_cell2rank_node` (flat ibool), and `/recording/` map. The `use_global_dof` flag controls whether the forward solver uses CG-SEM global assembly (1) or legacy element-local DOF (0/absent). See [mesh.md](mesh.md).
+Output: one `partition_{r}.h5` per rank with owned fields, ghost metadata, `n_rank_node`,
+`local_cell2rank_node`, `local_cell2global_node`, MPI exchange arrays, and `/recording/`.
+The solver enables CG-SEM assembly when `local_cell2rank_node` is present.
 
 ### 10. Build Shallow Recording Map
 
-Green output is shallow mesh vertices, not full GLL. Preprocess builds the map once. Forward then writes with no topology search.
+Green output uses shallow GLL nodes. Preprocess builds the map once; forward performs no topology
+search.
 
 1. Read `record_depth_max_m` and tile sizes (`tilex_elements`, `tiley_elements`) from `config.py`.
 1. Compute `target_z = zmin + record_depth_max_m` (z positive downward).
 1. Set `record_depth_actual_m` to the first horizontal element face at or below `target_z`.
-1. Select non-PML elements fully above that depth; no clipping.
-1. Select unique mesh vertices attached to selected elements.
-1. For each vertex, choose one owned source element and corner so forward writes it once.
+1. Select non-PML elements whose centroids are above that depth; no element clipping.
+1. Select all GLL nodes in those cells and deduplicate them by global GLL ID within each rank.
+1. Store each recording cell's flattened GLL indices into the rank-unique node list.
 
 `tile_index` is computed per cell and stored in `/field/cell/tile_index`:
 
@@ -423,12 +432,12 @@ Output in each `partition_{r}.h5`:
 
 ```
 /recording/
-  attrs: basis="mesh_vertices", record_depth_max_m, record_depth_actual_m,
-         tilex_elements, tiley_elements, excludes_pml=true
-  save_cell_mask          bool[n_local_cell]
-  vertex_ids                 int64[n_record_vertices]
-  source_element_local_index int32[n_record_vertices]
-  source_corner_index        int32[n_record_vertices]
+  attrs: basis="gll", record_depth_max_m, record_depth_actual_m, excludes_pml=true
+  gll_node_ids            int64[n_unique_gll]
+  gll_node_coords         float64[n_unique_gll, 3]
+  rec_cell_local          int32[n_record_cells]
+  rec_cell_global_ids     int64[n_record_cells]
+  cell_gll_node_index     int32[n_record_cells * NGLL^3]
 ```
 
 ### 11. Evaluate STF
@@ -469,7 +478,9 @@ residual — no runtime Newton iteration or element search needed.
 
 ## HDF5 Output
 
-> **Note:** Stage 1 (C++ mesh generator) writes to `/field/element/`. Stage 2 (Python preprocessor) reads from `/field/element/` and writes GLL-refined data to `/field/cell/`. The forward solver reads from `/field/cell/`.
+> **Note:** Stage 1 writes to `/field/element/`. The Python writer materializes
+> `/field/cell/`; the unified C++ path exposes the same data through a hard link. Forward and
+> postprocess read `/field/cell/`.
 
 ### model.h5 (extended)
 
@@ -490,7 +501,8 @@ Full schema for `/field/` groups in [model.md](model.md).
 
 ### partition\_{r}.h5
 
-One per MPI rank. Contains owned/ghost GLL fields, partition metadata, and `/recording/` map. Full schema: [mesh.md](mesh.md).
+One per MPI rank. Contains owned GLL fields, ghost metadata, partition maps, and `/recording/`.
+Full field conventions are documented in [model.md](model.md).
 
 ### config.h5
 
@@ -514,9 +526,9 @@ config.h5
 │   ├── record_depth_max_m     : float64          — requested shallow recording depth
 │   ├── record_depth_actual_m  : float64          — snapped horizontal element-face depth
 │   ├── tilex_elements         : int64[n_tiles]    — horizontal x tile sizes in elements
-    │   ├── tiley_elements         : int64[n_tiles]    — horizontal y tile sizes in elements
-    │   ├── nx_elements, ny_elements, nz_elements — mesh grid dims
-    │   ├── pml_{x,y,z}{min,max}     — PML thickness in elements
+│   ├── tiley_elements         : int64[n_tiles]    — horizontal y tile sizes in elements
+│   ├── nx_elements, ny_elements, nz_elements — mesh grid dims
+│   ├── pml_{x,y,z}{min,max}   : int32            — PML thickness in elements
 │   └── storage_limit_gb       : int32            — abort if estimated storage exceeds this
 │
 ├── /domain/
@@ -526,11 +538,12 @@ config.h5
 │   └── pml_thickness          : int32[6]         — [xmin,xmax,ymin,ymax,zmin,zmax] in element layers
 │
 └── /source/
-    │   ├── x, y, z                : float64          — source position (z = z_min for surface, source_z_m for buried)
-    ├── stf                     : float64[nsteps]  — precomputed STF time series (amplitude at t = n·solver_dt)
+    ├── x, y, z             : float64 attrs — source position
+    ├── stf_t               : float64[nsteps]
+    ├── stf_values          : float64[nsteps] — amplitude at t = n·solver_dt
     ├── n_src_cell         : attr int32        — number of containing elements
-    └── /elements/
-        ├── cell_ids        : int64[n_src_cell]         — global element IDs (1-based)
+    └── /cells/
+        ├── cell_ids        : int64[n_src_cell]         — global element IDs (0-based)
         ├── xi, eta, zeta      : float64[n_src_cell]       — natural coordinates in [-1, 1]
         └── weights            : float64[n_src_cell, NGLL, NGLL, NGLL] — Lagrange w_ijk (normalized Σw = 1)
 ```
@@ -540,7 +553,8 @@ No `direction` attribute. Runtime `--direction` selects x/y/z; jobs share one `c
 
 ## No Receivers
 
-Preprocessor does not configure receivers. It builds a shallow mesh-vertex recording map from `record_depth_max_m`. Postprocess uses those vertices directly.
+Preprocessor does not configure receivers. It builds a shallow GLL recording map from
+`record_depth_max_m`. Postprocess uses those nodes directly.
 
 ## No Per-Cell Material Tags
 

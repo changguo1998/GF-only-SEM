@@ -136,7 +136,7 @@ def compute_pml_profiles(
         coords_flat = gll_coords[e].reshape(-1, 3)  # [n_node, 3]
         vp_flat = vp[e].reshape(-1)  # [n_node]
 
-        for axis, face_key, boundary_val, _sign in faces:
+        for axis, face_key, boundary_val, direction_sign in faces:
             width = pml_widths.get(face_key, 0.0)
             if width <= 0:
                 continue
@@ -144,10 +144,17 @@ def compute_pml_profiles(
             if not _is_axis_active(region, axis):
                 continue
 
-            # Distance from PML interior boundary to the physical boundary
-            # dist = |coord - boundary| / width  ∈ [0, 1]
+            center = float(np.mean(coords_flat[:, axis]))
+            tolerance = 1.0e-6 * width
+            if direction_sign < 0 and center >= boundary_val + width + tolerance:
+                continue
+            if direction_sign > 0 and center <= boundary_val - width - tolerance:
+                continue
+
+            # Normalized depth from the PML interior interface toward the boundary.
+            # dist=0 at the interior interface and dist=1 at the physical boundary.
             coord_axis = coords_flat[:, axis]
-            dist = np.abs(coord_axis - boundary_val) / width
+            dist = 1.0 - np.abs(coord_axis - boundary_val) / width
             dist = np.clip(dist, 0.0, 1.0 - DIST_EPSILON)  # clip to avoid alpha=0 at boundary
 
             K_val = K_MIN_PML + (K_MAX_PML - 1.0) * dist
@@ -195,8 +202,6 @@ def _separate_pml_parameters(
     Modifies alpha_store and d_store in-place.
     """
     n_cell, n_node, _ = K_store.shape
-    NGLL = gll_coords.shape[1]
-
     # Compute min_distance_between_CPML_parameter (lines 1378-1444)
     distance_min = np.inf
     pml_cells = np.where(
@@ -209,13 +214,13 @@ def _separate_pml_parameters(
         pml_cells = np.arange(n_cell)
     for e in pml_cells:
         coords = gll_coords[e]  # [NGLL, NGLL, NGLL, 3]
-        d2_x = np.sum((coords[1:, :, :] - coords[:-1, :, :]) ** 2)
+        d2_x = np.sum((coords[1:, :, :] - coords[:-1, :, :]) ** 2, axis=-1)
         if np.any(d2_x > 0):
             distance_min = min(distance_min, float(np.min(d2_x[d2_x > 0])))
-        d2_y = np.sum((coords[:, 1:, :] - coords[:, :-1, :]) ** 2)
+        d2_y = np.sum((coords[:, 1:, :] - coords[:, :-1, :]) ** 2, axis=-1)
         if np.any(d2_y > 0):
             distance_min = min(distance_min, float(np.min(d2_y[d2_y > 0])))
-        d2_z = np.sum((coords[:, :, 1:] - coords[:, :, :-1]) ** 2)
+        d2_z = np.sum((coords[:, :, 1:] - coords[:, :, :-1]) ** 2, axis=-1)
         if np.any(d2_z > 0):
             distance_min = min(distance_min, float(np.min(d2_z[d2_z > 0])))
     distance_min = np.sqrt(distance_min)

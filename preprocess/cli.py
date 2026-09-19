@@ -396,38 +396,6 @@ def step_lame_and_cfl(
 # ── Main pipeline ──
 
 
-def _try_cpp_run(model_path, config, domain_bounds):
-    """Try gf_preprocess run — unified C++ path covering the full pipeline."""
-    if _PREPROCESS_BINARY is None:
-        return False
-    import h5py as _h5
-
-    pml = getattr(config, "pml_thickness", {}) or {}
-    args = [
-        os.path.abspath(model_path),
-        "--N",
-        str(int(config.polynomial_order)),
-        "--cfl-safety",
-        str(float(config.cfl_safety)),
-        "--nx",
-        str(int(getattr(config, "nx_elements", 0))),
-        "--ny",
-        str(int(getattr(config, "ny_elements", 0))),
-        "--n-ranks",
-        str(int(getattr(config, "n_ranks", 1))),
-    ]
-    for face in ["xmin", "xmax", "ymin", "ymax", "zmin", "zmax"]:
-        thick = int(pml.get(face, 0))
-        if thick > 0:
-            args.extend([f"--pml-{face}", str(thick)])
-    logger.info("Trying C++ unified run: %s run %s ...", _PREPROCESS_BINARY, model_path)
-    proc = _run_binary(_PREPROCESS_BINARY, ["run"] + args, desc="C++ run (stage1→CPML→STF)")
-    if proc is None:
-        logger.info("C++ run failed — falling back to Python steps")
-        return False
-    return True
-
-
 def write_attenuation_if_configured(model_path, config, n_cell, n_gll, logger=None) -> bool:
     """Step 10b (config-driven): SLS attenuation auto-injection.
 
@@ -511,247 +479,100 @@ def main() -> None:
     if _PREPROCESS_BINARY:
         logger.info(f"C++ preprocessor found: {_PREPROCESS_BINARY}")
 
-    # ── Unified C++ path (gf_preprocess run) or per-step Python ──
-    cpp_done = _try_cpp_run(model_path, config, domain_bounds)
+    # config.py contains arbitrary Python material and STF callables, so it
+    # cannot be represented by gf_preprocess run's compile-time C++ config.
+    # Keep config.py authoritative and use C++ only for compatible stages.
 
-    if cpp_done:
-        logger.info("C++ run succeeded — reading results from HDF5")
-        with h5py.File(model_path, "r") as f:
-            fld = f["field/element"]
-            coords = np.array(fld["coords"], dtype=np.float64)
-            jacobian = np.array(fld["jacobian"], dtype=np.float64)
-            dxi_dx = np.array(fld["dxi_dx"], dtype=np.float64)
-            mass = np.array(fld["mass"], dtype=np.float64)
-            vp = np.array(fld["vp"], dtype=np.float64)
-            vs = np.array(fld["vs"], dtype=np.float64)
-            density = np.array(fld["density"], dtype=np.float64)
-            lam = np.array(fld["lambda"], dtype=np.float64)
-            mu = np.array(fld["mu"], dtype=np.float64)
-            is_pml = np.array(fld["is_pml"], dtype=np.bool_)
-            damping = np.array(fld["damping"], dtype=np.float64)
-            # C-PML
-            cpml_K = np.array(fld["cpml_K"], dtype=np.float64)
-            cpml_d = np.array(fld["cpml_d"], dtype=np.float64)
-            cpml_alpha = np.array(fld["cpml_alpha"], dtype=np.float64)
-            cpml_params = {"K": cpml_K, "d": cpml_d, "alpha": cpml_alpha}
-            # STF
-            if "config/stf_t" in f:
-                stf_t = np.array(f["config/stf_t"], dtype=np.float64)
-                stf_values = np.array(f["config/stf_values"], dtype=np.float64)
-            else:
-                stf_t = stf_values = np.array([], dtype=np.float64)
-        h_min = None
-        boundary_tag = step_boundary_detection(
-            model_path,
-            topology,
-            config,
-            domain_bounds,
-            {
-                "used_cpp": True,
-                "coords": coords,
-                "jacobian": jacobian,
-                "dxi_dx": dxi_dx,
-                "mass": mass,
-                "h_min": h_min,
-            },
-        )
-        gll = {
-            "coords": coords,
-            "jacobian": jacobian,
-            "dxi_dx": dxi_dx,
-            "mass": mass,
-            "h_min": h_min,
-            "used_cpp": True,
-        }
-        # Read solver_dt from C++ output (/info group in model.h5)
-        solver_dt = 0.0
-        snapshot_stride = 1
-        nsteps = 0
-        cfl_dt = 0.0
-        with h5py.File(model_path, "r") as _f:
-            if "info" in _f:
-                info = _f["info"]
-                if "solver_dt" in info.attrs:
-                    solver_dt = float(info.attrs["solver_dt"])
-                if "snapshot_stride" in info.attrs:
-                    snapshot_stride = int(info.attrs["snapshot_stride"])
-                if "nsteps" in info.attrs:
-                    nsteps = int(info.attrs["nsteps"])
-        if solver_dt <= 0.0:
-            solver_dt = float(config.output_dt_s)
-        if nsteps <= 0:
-            nsteps = len(stf_t) if len(stf_t) > 0 else 0
-        # source info from config.py
-        source_z = getattr(config, "source_z_m", None)
-        if source_z is None:
-            source_z = float(domain_bounds["zmin"])
-        source_xyz_arr = np.array(
-            [config.source_x_m, config.source_y_m, source_z], dtype=np.float64
-        )
-        # ── Source location (Python: C++ didn't write cells to HDF5) ──
-        try:
-            from preprocess.source_locator import locate_source
+    # ── Step 1: GLL geometry + CFL h_min ──
+    gll = step_gll_geometry(model_path, topology, config, domain_bounds)
+    coords = gll["coords"]
+    jacobian = gll["jacobian"]
+    dxi_dx = gll["dxi_dx"]
+    mass = gll["mass"]
+    h_min = gll["h_min"]
 
-            # Use already-loaded topology from main()
-            source_xyz_arr = np.array(
-                [float(config.source_x_m), float(config.source_y_m), float(source_z)],
-                dtype=np.float64,
-            )
-            with h5py.File(model_path, "r") as _f:
-                gll_coords_arr = np.array(_f["field/element/coords"], dtype=np.float64)
-                btag = np.array(_f["field/surface/boundary_tag"], dtype=np.int64)
-                if "field/element/is_pml" in _f:
-                    is_pml_arr = np.array(_f["field/element/is_pml"], dtype=np.bool_)
-                else:
-                    is_pml_arr = None
-            src_result = locate_source(
-                topology, source_xyz_arr, gll_coords_arr, btag, N, is_pml_arr
-            )
-            logger.info(f"  Source in {src_result['n_src_cell']} element(s)")
-        except (ImportError, Exception) as _e:
-            logger.warning(f"  Source location failed: {_e}")
-            import traceback
+    # ── Step 2: Boundary detection ──
+    boundary_tag = step_boundary_detection(model_path, topology, config, domain_bounds, gll)
 
-            traceback.print_exc()
-            src_result = {
-                "n_src_cell": 0,
-                "cell_ids": np.array([], dtype=np.int64),
-                "xi": np.array([], dtype=np.float64),
-                "eta": np.array([], dtype=np.float64),
-                "zeta": np.array([], dtype=np.float64),
-                "weights": np.array([], dtype=np.float64),
-                "mode": "surface",
-            }
+    # ── Step 3: PML ──
+    is_pml, damping = step_pml(model_path, topology, config, domain_bounds, coords, gll)
 
-        # ── Step 8: Partition (read C++ results, compute per_rank) ──
-        n_ranks = int(config.n_ranks)
-        logger.info(f"Building partition data from C++ results ({n_ranks} ranks)...")
-        try:
-            import h5py as _h5
+    # ── Step 4: Material interpolation ──
+    vp, vs, density = step_material_interpolation(config, coords)
+    mass = mass * density
 
-            with _h5.File(model_path, "r") as pf:
-                if "partition/element_to_rank" in pf:
-                    element_to_rank_arr = np.array(pf["partition/element_to_rank"], dtype=np.int64)
-                else:
-                    element_to_rank_arr = np.zeros(n_cell, dtype=np.int64)
-                if "partition/global_cell2global_node" in pf:
-                    gcn4d = np.array(pf["partition/global_cell2global_node"], dtype=np.int32)
-                    n_global_node = int(gcn4d.max()) + 1 if gcn4d.size > 0 else 0
-                else:
-                    gcn4d = np.zeros((n_cell, n_gll, n_gll, n_gll), dtype=np.int32)
-                    n_global_node = 0
+    # ── Step 5: λ/μ + CFL solver_dt ──
+    lame = step_lame_and_cfl(model_path, config, vp, vs, density, coords, h_min)
+    lam = lame["lam"]
+    mu = lame["mu"]
+    solver_dt = lame["solver_dt"]
+    snapshot_stride = lame["snapshot_stride"]
+    nsteps = lame["nsteps"]
+    cfl_dt = lame["cfl_dt"]
 
-            from preprocess.partition import compute_per_rank
+    # ── Step 5b: C-PML parameters ──
+    f0_for_pml = getattr(config, "f0_for_pml_hz", 2.0)
+    pml_thickness_cfg = getattr(config, "pml_thickness", {}) or {}
+    nx_el = int(getattr(config, "nx_elements", 1))
+    ny_el = int(getattr(config, "ny_elements", 1))
+    nz_el = n_cell // (nx_el * ny_el) if nx_el * ny_el > 0 else 1
+    dx_el = (domain_bounds["xmax"] - domain_bounds["xmin"]) / max(nx_el, 1)
+    dy_el = (domain_bounds["ymax"] - domain_bounds["ymin"]) / max(ny_el, 1)
+    dz_el = (domain_bounds["zmax"] - domain_bounds["zmin"]) / max(nz_el, 1)
+    pml_widths = {
+        "xmin": pml_thickness_cfg.get("xmin", 0) * dx_el,
+        "xmax": pml_thickness_cfg.get("xmax", 0) * dx_el,
+        "ymin": pml_thickness_cfg.get("ymin", 0) * dy_el,
+        "ymax": pml_thickness_cfg.get("ymax", 0) * dy_el,
+        "zmin": pml_thickness_cfg.get("zmin", 0) * dz_el,
+        "zmax": pml_thickness_cfg.get("zmax", 0) * dz_el,
+    }
+    logger.info(f"Computing C-PML parameters (f0={f0_for_pml} Hz, dt={solver_dt:.4e} s)...")
+    from preprocess.pml_cpml import compute_cpml_parameters
 
-            per_rank = compute_per_rank(topology, n_gll, element_to_rank_arr, gcn4d)
-            partition_result = {
-                "element_to_rank": element_to_rank_arr,
-                "n_ranks": n_ranks,
-                "per_rank": per_rank,
-                "global_cell2global_node": gcn4d,
-                "n_global_node": n_global_node,
-            }
-            logger.info(f"  {n_ranks} ranks, {n_global_node} global nodes")
-        except ImportError:
-            partition_result = None
-            logger.info("  partition.py not available — skipping")
+    cpml_params = compute_cpml_parameters(
+        coords, is_pml, domain_bounds, pml_widths, vp, f0_for_pml, solver_dt
+    )
+    n_pml_val = int(is_pml.sum())
+    logger.info(f"  PML elements: {n_pml_val}, regions: {np.unique(cpml_params['pml_region'])}")
+
+    # ── Step 6: Source location ──
+    source_z = getattr(config, "source_z_m", None)
+    if source_z is None:
+        source_z = float(domain_bounds["zmin"])
+        logger.info("Locating source on free surface...")
     else:
-        # ── Step 1: GLL geometry + CFL h_min ──
-        gll = step_gll_geometry(model_path, topology, config, domain_bounds)
-        coords = gll["coords"]
-        jacobian = gll["jacobian"]
-        dxi_dx = gll["dxi_dx"]
-        mass = gll["mass"]
-        h_min = gll["h_min"]
+        logger.info(f"Locating BURIED source at depth z={source_z} m...")
+    from preprocess.source_locator import locate_source
 
-        # ── Step 2: Boundary detection ──
-        boundary_tag = step_boundary_detection(model_path, topology, config, domain_bounds, gll)
+    source_xyz_arr = np.array([config.source_x_m, config.source_y_m, source_z], dtype=np.float64)
+    src_result = locate_source(topology, source_xyz_arr, coords, boundary_tag, N, is_pml=is_pml)
+    mode_label = "BURIED" if source_z != float(domain_bounds["zmin"]) else "on free surface"
+    logger.info(
+        f"  Source at ({config.source_x_m}, {config.source_y_m}, {source_z}), "
+        f"{mode_label}, in {src_result['n_src_cell']} element(s)"
+    )
 
-        # ── Step 3: PML ──
-        is_pml, damping = step_pml(model_path, topology, config, domain_bounds, coords, gll)
+    # ── Step 7: STF ──
+    logger.info("Evaluating STF...")
+    try:
+        from preprocess.stf_evaluator import evaluate_stf
 
-        # ── Step 4: Material interpolation ──
-        vp, vs, density = step_material_interpolation(config, coords)
-        mass = mass * density
+        stf_t, stf_values = evaluate_stf(config.stf_func, solver_dt, nsteps)
+    except ImportError:
+        stf_t = np.arange(nsteps) * solver_dt
+        stf_values = np.array([config.stf_func(t) for t in stf_t])
 
-        # ── Step 5: λ/μ + CFL solver_dt ──
-        lame = step_lame_and_cfl(model_path, config, vp, vs, density, coords, h_min)
-        lam = lame["lam"]
-        mu = lame["mu"]
-        solver_dt = lame["solver_dt"]
-        snapshot_stride = lame["snapshot_stride"]
-        nsteps = lame["nsteps"]
-        cfl_dt = lame["cfl_dt"]
+    # ── Step 8: Partition ──
+    n_ranks = int(config.n_ranks)
+    logger.info(f"Partitioning into {n_ranks} ranks...")
+    try:
+        from preprocess.partition import partition
 
-        # ── Step 5b: C-PML parameters ──
-        f0_for_pml = getattr(config, "f0_for_pml_hz", 2.0)
-        pml_thickness_cfg = getattr(config, "pml_thickness", {}) or {}
-        nx_el = int(getattr(config, "nx_elements", 1))
-        ny_el = int(getattr(config, "ny_elements", 1))
-        nz_el = n_cell // (nx_el * ny_el) if nx_el * ny_el > 0 else 1
-        dx_el = (domain_bounds["xmax"] - domain_bounds["xmin"]) / max(nx_el, 1)
-        dy_el = (domain_bounds["ymax"] - domain_bounds["ymin"]) / max(ny_el, 1)
-        dz_el = (domain_bounds["zmax"] - domain_bounds["zmin"]) / max(nz_el, 1)
-        pml_widths = {
-            "xmin": pml_thickness_cfg.get("xmin", 0) * dx_el,
-            "xmax": pml_thickness_cfg.get("xmax", 0) * dx_el,
-            "ymin": pml_thickness_cfg.get("ymin", 0) * dy_el,
-            "ymax": pml_thickness_cfg.get("ymax", 0) * dy_el,
-            "zmin": pml_thickness_cfg.get("zmin", 0) * dz_el,
-            "zmax": pml_thickness_cfg.get("zmax", 0) * dz_el,
-        }
-        logger.info(f"Computing C-PML parameters (f0={f0_for_pml} Hz, dt={solver_dt:.4e} s)...")
-        from preprocess.pml_cpml import compute_cpml_parameters
-
-        cpml_params = compute_cpml_parameters(
-            coords, is_pml, domain_bounds, pml_widths, vp, f0_for_pml, solver_dt
-        )
-        n_pml_val = int(is_pml.sum())
-        logger.info(
-            f"  PML elements: {n_pml_val}, regions: {np.unique(cpml_params['pml_region'])}"
-        )
-
-        # ── Step 6: Source location ──
-        source_z = getattr(config, "source_z_m", None)
-        if source_z is None:
-            source_z = float(domain_bounds["zmin"])
-            logger.info("Locating source on free surface...")
-        else:
-            logger.info(f"Locating BURIED source at depth z={source_z} m...")
-        from preprocess.source_locator import locate_source
-
-        source_xyz_arr = np.array(
-            [config.source_x_m, config.source_y_m, source_z], dtype=np.float64
-        )
-        src_result = locate_source(
-            topology, source_xyz_arr, coords, boundary_tag, N, is_pml=is_pml
-        )
-        mode_label = "BURIED" if source_z != float(domain_bounds["zmin"]) else "on free surface"
-        logger.info(
-            f"  Source at ({config.source_x_m}, {config.source_y_m}, {source_z}), "
-            f"{mode_label}, in {src_result['n_src_cell']} element(s)"
-        )
-
-        # ── Step 7: STF ──
-        logger.info("Evaluating STF...")
-        try:
-            from preprocess.stf_evaluator import evaluate_stf
-
-            stf_t, stf_values = evaluate_stf(config.stf_func, solver_dt, nsteps)
-        except ImportError:
-            stf_t = np.arange(nsteps) * solver_dt
-            stf_values = np.array([config.stf_func(t) for t in stf_t])
-
-        # ── Step 8: Partition ──
-        n_ranks = int(config.n_ranks)
-        logger.info(f"Partitioning into {n_ranks} ranks...")
-        try:
-            from preprocess.partition import partition
-
-            partition_result = partition(topology, n_gll, n_ranks)
-        except ImportError:
-            partition_result = None
-            logger.info("  partition.py not available — skipping")
+        partition_result = partition(topology, n_gll, n_ranks)
+    except ImportError:
+        partition_result = None
+        logger.info("  partition.py not available — skipping")
 
     # ── Step 9: Recording map ──
     logger.info("Building recording map...")

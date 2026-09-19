@@ -1,10 +1,10 @@
-/// config_writer.cpp — write config.h5 metadata after preprocessing
-///
-/// Writes simulation parameters, mesh dimensions, PML configuration, source
-/// location, STF arrays, and tiling info to a standalone config.h5 file.
+/// config_writer.cpp — write the config.h5 schema consumed by the forward solver
 
 #include <hdf5.h>
 
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -15,143 +15,142 @@
 namespace gf {
 namespace {
 
-// ── HDF5 helpers (config.h5 specific) ──────────────────────────────────────
-
-hid_t create_config_h5(const char* path) {
-    // Create new file (overwrite if exists)
-    hid_t config_fid = H5Fcreate(path, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
-    if (config_fid < 0) {
+hid_t create_config_file(const char* path) {
+    hid_t file = H5Fcreate(path, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+    if (file < 0) {
         fprintf(stderr, "ERROR: cannot create config.h5: %s\n", path);
         std::exit(1);
     }
-    return config_fid;
+    return file;
 }
 
-void write_double_dataset(hid_t fid, const char* name, const std::vector<double>& data,
-                          hsize_t n) {
-    hid_t space = H5Screate_simple(1, &n, nullptr);
-    hid_t ds =
-        H5Dcreate2(fid, name, H5T_NATIVE_DOUBLE, space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-    H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, data.data());
-    H5Dclose(ds);
+void write_int_attribute(hid_t location, const char* name, int value) {
+    hid_t space = H5Screate(H5S_SCALAR);
+    hid_t attribute = H5Acreate2(location, name, H5T_NATIVE_INT, space, H5P_DEFAULT, H5P_DEFAULT);
+    H5Awrite(attribute, H5T_NATIVE_INT, &value);
+    H5Aclose(attribute);
     H5Sclose(space);
 }
 
-/// Write an integer attribute to an HDF5 location.
-void write_int_attr(hid_t loc, const char* name, int value) {
-    hid_t attr_space = H5Screate(H5S_SCALAR);
-    hid_t attr = H5Acreate2(loc, name, H5T_NATIVE_INT, attr_space, H5P_DEFAULT, H5P_DEFAULT);
-    H5Awrite(attr, H5T_NATIVE_INT, &value);
-    H5Aclose(attr);
-    H5Sclose(attr_space);
+void write_double_attribute(hid_t location, const char* name, double value) {
+    hid_t space = H5Screate(H5S_SCALAR);
+    hid_t attribute =
+        H5Acreate2(location, name, H5T_NATIVE_DOUBLE, space, H5P_DEFAULT, H5P_DEFAULT);
+    H5Awrite(attribute, H5T_NATIVE_DOUBLE, &value);
+    H5Aclose(attribute);
+    H5Sclose(space);
 }
 
-/// Write a double attribute to an HDF5 location.
-void write_double_attr(hid_t loc, const char* name, double value) {
-    hid_t attr_space = H5Screate(H5S_SCALAR);
-    hid_t attr = H5Acreate2(loc, name, H5T_NATIVE_DOUBLE, attr_space, H5P_DEFAULT, H5P_DEFAULT);
-    H5Awrite(attr, H5T_NATIVE_DOUBLE, &value);
-    H5Aclose(attr);
-    H5Sclose(attr_space);
+void write_string_attribute(hid_t location, const char* name, const std::string& value) {
+    hid_t space = H5Screate(H5S_SCALAR);
+    hid_t type = H5Tcopy(H5T_C_S1);
+    H5Tset_size(type, value.size() + 1);
+    H5Tset_strpad(type, H5T_STR_NULLTERM);
+    hid_t attribute = H5Acreate2(location, name, type, space, H5P_DEFAULT, H5P_DEFAULT);
+    H5Awrite(attribute, type, value.c_str());
+    H5Aclose(attribute);
+    H5Tclose(type);
+    H5Sclose(space);
 }
 
-/// Write a string attribute to an HDF5 location.
-void write_string_attr(hid_t loc, const char* name, const std::string& value) {
-    hid_t attr_space = H5Screate(H5S_SCALAR);
-    hid_t str_type = H5Tcopy(H5T_C_S1);
-    H5Tset_size(str_type, value.size());
-    H5Tset_strpad(str_type, H5T_STR_NULLTERM);
-    hid_t attr = H5Acreate2(loc, name, str_type, attr_space, H5P_DEFAULT, H5P_DEFAULT);
-    H5Awrite(attr, str_type, value.c_str());
-    H5Aclose(attr);
-    H5Tclose(str_type);
-    H5Sclose(attr_space);
+template <typename T>
+void write_dataset(hid_t location, const char* name, const std::vector<T>& data, hid_t type,
+                   const std::vector<hsize_t>& dimensions) {
+    if (data.empty())
+        return;
+    hid_t space =
+        H5Screate_simple(static_cast<int>(dimensions.size()), dimensions.data(), nullptr);
+    hid_t dataset = H5Dcreate2(location, name, type, space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    H5Dwrite(dataset, type, H5S_ALL, H5S_ALL, H5P_DEFAULT, data.data());
+    H5Dclose(dataset);
+    H5Sclose(space);
 }
 
 }  // namespace
 
 void write_config_h5(const char* config_path, const Config& cfg, double solver_dt,
                      int snapshot_stride, int nsteps, const std::vector<double>& stf_t,
-                     const std::vector<double>& stf_values, const std::vector<double>& source_xyz,
-                     const SourceResult& src_result, double record_depth_actual_m,
-                     const std::vector<int32_t>& element_to_rank, int n_ranks, double log_dt_s) {
+                     const std::vector<double>& stf_values, const SourceResult& source_result,
+                     const double* domain_bounds, int nz_elements, double record_depth_actual_m) {
     fprintf(stderr, "=== Writing config.h5 ===\n");
+    hid_t config_file = create_config_file(config_path);
 
-    hid_t config_fid = create_config_h5(config_path);
+    // Simulation metadata uses the same schema as preprocess/config_writer.py.
+    hid_t simulation =
+        H5Gcreate2(config_file, "simulation", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    write_string_attribute(simulation, "title", cfg.title);
+    write_int_attribute(simulation, "polynomial_order", cfg.polynomial_order);
+    write_double_attribute(simulation, "solver_dt", solver_dt);
+    write_double_attribute(simulation, "output_dt_s", cfg.output_dt_s);
+    write_int_attribute(simulation, "snapshot_stride", snapshot_stride);
+    write_int_attribute(simulation, "nsteps", nsteps);
+    write_double_attribute(simulation, "cfl_safety", cfg.cfl_safety);
+    write_string_attribute(simulation, "snapshot_precision",
+                           cfg.snapshot_precision_bytes == 4 ? "float32" : "float64");
+    write_double_attribute(simulation, "storage_limit_gb", cfg.storage_limit_gb);
+    write_double_attribute(simulation, "record_depth_max_m", cfg.record_depth_max_m);
+    write_double_attribute(simulation, "record_depth_actual_m", record_depth_actual_m);
+    write_int_attribute(simulation, "nx_elements", cfg.nx_elements);
+    write_int_attribute(simulation, "ny_elements", cfg.ny_elements);
+    write_int_attribute(simulation, "nz_elements", nz_elements);
+    write_int_attribute(simulation, "pml_xmin", cfg.pml_xmin);
+    write_int_attribute(simulation, "pml_xmax", cfg.pml_xmax);
+    write_int_attribute(simulation, "pml_ymin", cfg.pml_ymin);
+    write_int_attribute(simulation, "pml_ymax", cfg.pml_ymax);
+    write_int_attribute(simulation, "pml_zmin", cfg.pml_zmin);
+    write_int_attribute(simulation, "pml_zmax", cfg.pml_zmax);
+    write_int_attribute(simulation, "n_ranks", cfg.n_ranks);
+    write_int_attribute(simulation, "log_stride", cfg.log_stride);
+    write_double_attribute(simulation, "restart_dt_s", cfg.restart_dt_s);
+    int restart_stride =
+        cfg.restart_dt_s > 0.0
+            ? std::max(1, static_cast<int>(std::llround(cfg.restart_dt_s / solver_dt)))
+            : 0;
+    write_int_attribute(simulation, "restart_stride", restart_stride);
+    std::vector<int64_t> tilex(cfg.tilex_elements.begin(), cfg.tilex_elements.end());
+    std::vector<int64_t> tiley(cfg.tiley_elements.begin(), cfg.tiley_elements.end());
+    write_dataset(simulation, "tilex_elements", tilex, H5T_NATIVE_INT64, {tilex.size()});
+    write_dataset(simulation, "tiley_elements", tiley, H5T_NATIVE_INT64, {tiley.size()});
+    H5Gclose(simulation);
 
-    // ── Simulation parameters ──
-    hid_t sim_grp = H5Gcreate2(config_fid, "simulation", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-    write_double_attr(sim_grp, "solver_dt", solver_dt);
-    write_double_attr(sim_grp, "output_dt_s", cfg.output_dt_s);
-    write_double_attr(sim_grp, "total_duration_s", cfg.total_duration_s);
-    write_int_attr(sim_grp, "nsteps", nsteps);
-    write_int_attr(sim_grp, "snapshot_stride", snapshot_stride);
-    write_int_attr(sim_grp, "log_stride", cfg.log_stride);
-    write_double_attr(sim_grp, "cfl_safety", cfg.cfl_safety);
-    write_int_attr(sim_grp, "polynomial_order", cfg.polynomial_order);
-    write_int_attr(sim_grp, "n_ranks", n_ranks);
-    write_double_attr(sim_grp, "storage_limit_gb", cfg.storage_limit_gb);
-    write_double_attr(sim_grp, "record_depth_max_m", cfg.record_depth_max_m);
-    write_double_attr(sim_grp, "record_depth_actual_m", record_depth_actual_m);
-    write_double_attr(sim_grp, "restart_dt_s", cfg.restart_dt_s);
-    write_int_attr(sim_grp, "snapshot_precision_bytes", cfg.snapshot_precision_bytes);
-    write_double_attr(sim_grp, "log_dt_s", log_dt_s);
-    H5Gclose(sim_grp);
+    // Domain bounds are required by postprocess and visualization tools.
+    hid_t domain = H5Gcreate2(config_file, "domain", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    const char* bound_names[] = {"xmin", "xmax", "ymin", "ymax", "zmin", "zmax"};
+    for (int index = 0; index < 6; ++index)
+        write_double_attribute(domain, bound_names[index], domain_bounds[index]);
+    H5Gclose(domain);
 
-    // ── Mesh parameters ──
-    hid_t mesh_grp = H5Gcreate2(config_fid, "mesh", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-    write_int_attr(mesh_grp, "nx_elements", cfg.nx_elements);
-    write_int_attr(mesh_grp, "ny_elements", cfg.ny_elements);
-    write_double_attr(mesh_grp, "lx_m", cfg.lx_m);
-    write_double_attr(mesh_grp, "ly_m", cfg.ly_m);
-    write_double_attr(mesh_grp, "lz_m", cfg.lz_m);
-    H5Gclose(mesh_grp);
-
-    // ── PML ──
-    hid_t pml_grp = H5Gcreate2(config_fid, "pml", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-    write_int_attr(pml_grp, "xmin", cfg.pml_xmin);
-    write_int_attr(pml_grp, "xmax", cfg.pml_xmax);
-    write_int_attr(pml_grp, "ymin", cfg.pml_ymin);
-    write_int_attr(pml_grp, "ymax", cfg.pml_ymax);
-    write_int_attr(pml_grp, "zmin", cfg.pml_zmin);
-    write_int_attr(pml_grp, "zmax", cfg.pml_zmax);
-    write_double_attr(pml_grp, "f0_for_pml_hz", cfg.f0_for_pml_hz);
-    H5Gclose(pml_grp);
-
-    // ── Source ──
-    hid_t src_grp = H5Gcreate2(config_fid, "source", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-    write_double_attr(src_grp, "x_m", cfg.source_x_m);
-    write_double_attr(src_grp, "y_m", cfg.source_y_m);
-    write_double_attr(src_grp, "z_m", cfg.source_z_m);
-    write_double_attr(src_grp, "force_amplitude_n", cfg.source_force_amplitude_n);
-    H5Gclose(src_grp);
-
-    // ── STF ──
-    hsize_t n = static_cast<hsize_t>(stf_t.size());
-    write_double_dataset(config_fid, "stf_time", stf_t, n);
-    write_double_dataset(config_fid, "stf_values", stf_values, n);
-
-    // ── Tiling (from config, if set) ──
-    hsize_t ntx = static_cast<hsize_t>(cfg.tilex_elements.size());
-    hsize_t nty = static_cast<hsize_t>(cfg.tiley_elements.size());
-    if (ntx > 0) {
-        std::vector<double> tilex_double(ntx);
-        for (size_t i = 0; i < ntx; ++i)
-            tilex_double[i] = static_cast<double>(cfg.tilex_elements[i]);
-        write_double_dataset(config_fid, "tilex_elements", tilex_double, ntx);
+    // Source samples and precomputed Lagrange weights are read directly by the solver.
+    hid_t source = H5Gcreate2(config_file, "source", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    write_double_attribute(source, "x", cfg.source_x_m);
+    write_double_attribute(source, "y", cfg.source_y_m);
+    write_double_attribute(source, "z", cfg.source_z_m >= 0.0 ? cfg.source_z_m : domain_bounds[4]);
+    write_double_attribute(source, "force_amplitude_n", cfg.source_force_amplitude_n);
+    write_int_attribute(source, "n_src_cell", source_result.n_src_cell);
+    write_dataset(source, "stf_t", stf_t, H5T_NATIVE_DOUBLE, {stf_t.size()});
+    write_dataset(source, "stf_values", stf_values, H5T_NATIVE_DOUBLE, {stf_values.size()});
+    if (source_result.n_src_cell > 0) {
+        hid_t cells = H5Gcreate2(source, "cells", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        std::vector<int64_t> cell_ids(source_result.cell_ids.begin(),
+                                      source_result.cell_ids.end());
+        std::vector<double> weights;
+        for (const auto& source_weights : source_result.weights)
+            weights.insert(weights.end(), source_weights.begin(), source_weights.end());
+        size_t weights_per_cell = source_result.weights.front().size();
+        write_dataset(cells, "cell_ids", cell_ids, H5T_NATIVE_INT64, {cell_ids.size()});
+        write_dataset(cells, "xi", source_result.xi, H5T_NATIVE_DOUBLE, {source_result.xi.size()});
+        write_dataset(cells, "eta", source_result.eta, H5T_NATIVE_DOUBLE,
+                      {source_result.eta.size()});
+        write_dataset(cells, "zeta", source_result.zeta, H5T_NATIVE_DOUBLE,
+                      {source_result.zeta.size()});
+        write_dataset(cells, "weights", weights, H5T_NATIVE_DOUBLE,
+                      {static_cast<hsize_t>(source_result.n_src_cell), weights_per_cell});
+        H5Gclose(cells);
     }
-    if (nty > 0) {
-        std::vector<double> tiley_double(nty);
-        for (size_t i = 0; i < nty; ++i)
-            tiley_double[i] = static_cast<double>(cfg.tiley_elements[i]);
-        write_double_dataset(config_fid, "tiley_elements", tiley_double, nty);
-    }
+    H5Gclose(source);
 
-    // ── Title ──
-    write_string_attr(config_fid, "title", cfg.title);
-
-    H5Fclose(config_fid);
-    fprintf(stderr, "  config.h5 written\n");
+    H5Fclose(config_file);
+    fprintf(stderr, "  %s written\n", config_path);
 }
 
 }  // namespace gf

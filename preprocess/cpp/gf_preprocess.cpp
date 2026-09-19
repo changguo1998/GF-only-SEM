@@ -23,6 +23,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -138,8 +139,12 @@ static int run_main(int argc, char** argv) {
     // Write /config group attributes before stage2 (stage2 reads them from HDF5)
     {
         hid_t config_fid = gf::h5::open_or_fail(model_path, H5F_ACC_RDWR);
+        if (H5Lexists(config_fid, "config", H5P_DEFAULT) > 0)
+            H5Ldelete(config_fid, "config", H5P_DEFAULT);
         hid_t cfg_grp = H5Gcreate2(config_fid, "config", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         gf::Config stage2_cfg = gf::get_config();
+        if (n_ranks_override > 0)
+            stage2_cfg.n_ranks = n_ranks_override;
 
         auto write_dbl = [&](const char* name, double v) {
             hid_t sp = H5Screate(H5S_SCALAR);
@@ -213,23 +218,44 @@ static int run_main(int argc, char** argv) {
     int n_cell = static_cast<int>(coord_dims[0]);
     int ngll = static_cast<int>(coord_dims[1]);
 
-    // Read vp and identify PML elements
-    std::vector<double> vp_flat = gf::h5::read_double(model_fid, "field/element/vp");
-    std::vector<double> damping = gf::h5::read_double(model_fid, "field/element/damping");
-
-    std::vector<int> is_pml(n_cell, 0);
-    for (int e = 0; e < n_cell; ++e) {
-        for (int i = 0; i < ngll * ngll * ngll; ++i) {
-            if (damping[e * ngll * ngll * ngll + i] > 0.0) {
-                is_pml[e] = 1;
-                break;
-            }
+    // Stage2 is authoritative for the solver timestep and total step count.
+    double solver_dt = 0.0;
+    int snapshot_stride = 0;
+    int64_t nsteps64 = 0;
+    {
+        hid_t info_group = H5Gopen2(model_fid, "info", H5P_DEFAULT);
+        if (info_group < 0) {
+            fprintf(stderr, "ERROR: stage2 did not create /info\n");
+            return 1;
         }
+        hid_t attribute = H5Aopen(info_group, "solver_dt", H5P_DEFAULT);
+        H5Aread(attribute, H5T_NATIVE_DOUBLE, &solver_dt);
+        H5Aclose(attribute);
+        attribute = H5Aopen(info_group, "snapshot_stride", H5P_DEFAULT);
+        H5Aread(attribute, H5T_NATIVE_INT, &snapshot_stride);
+        H5Aclose(attribute);
+        attribute = H5Aopen(info_group, "nsteps", H5P_DEFAULT);
+        H5Aread(attribute, H5T_NATIVE_INT64, &nsteps64);
+        H5Aclose(attribute);
+        H5Gclose(info_group);
     }
+    if (solver_dt <= 0.0 || snapshot_stride <= 0 || nsteps64 <= 0) {
+        fprintf(stderr, "ERROR: invalid stage2 timing metadata\n");
+        H5Fclose(model_fid);
+        return 1;
+    }
+    int nsteps = static_cast<int>(nsteps64);
 
-    // Read domain bounds from attributes
+    // Read material and the authoritative PML element mask from stage1.
+    std::vector<double> vp_flat = gf::h5::read_double(model_fid, "field/element/vp");
+    std::vector<int64_t> is_pml_i64 = gf::h5::read_int64(model_fid, "field/element/is_pml");
+    std::vector<int> is_pml(is_pml_i64.begin(), is_pml_i64.end());
+
+    // Read domain bounds, or derive and persist them for topology-only input files.
     double domain_bounds[6] = {};
-    hid_t dom_grp = H5Gopen2(model_fid, "domain", H5P_DEFAULT);
+    hid_t dom_grp = -1;
+    if (H5Lexists(model_fid, "domain", H5P_DEFAULT) > 0)
+        dom_grp = H5Gopen2(model_fid, "domain", H5P_DEFAULT);
     if (dom_grp >= 0) {
         auto read_attr = [&](const char* name, double& v) {
             if (H5Aexists(dom_grp, name)) {
@@ -244,6 +270,28 @@ static int run_main(int argc, char** argv) {
         read_attr("ymax", domain_bounds[3]);
         read_attr("zmin", domain_bounds[4]);
         read_attr("zmax", domain_bounds[5]);
+        H5Gclose(dom_grp);
+    } else {
+        domain_bounds[0] = domain_bounds[2] = domain_bounds[4] = 1.0e300;
+        domain_bounds[1] = domain_bounds[3] = domain_bounds[5] = -1.0e300;
+        for (size_t node = 0; node < gll_coords.size() / 3; ++node) {
+            for (int axis = 0; axis < 3; ++axis) {
+                domain_bounds[axis * 2] =
+                    std::min(domain_bounds[axis * 2], gll_coords[node * 3 + axis]);
+                domain_bounds[axis * 2 + 1] =
+                    std::max(domain_bounds[axis * 2 + 1], gll_coords[node * 3 + axis]);
+            }
+        }
+        dom_grp = H5Gcreate2(model_fid, "domain", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        const char* bound_names[] = {"xmin", "xmax", "ymin", "ymax", "zmin", "zmax"};
+        for (int bound = 0; bound < 6; ++bound) {
+            hid_t space = H5Screate(H5S_SCALAR);
+            hid_t attribute = H5Acreate2(dom_grp, bound_names[bound], H5T_NATIVE_DOUBLE, space,
+                                         H5P_DEFAULT, H5P_DEFAULT);
+            H5Awrite(attribute, H5T_NATIVE_DOUBLE, &domain_bounds[bound]);
+            H5Aclose(attribute);
+            H5Sclose(space);
+        }
         H5Gclose(dom_grp);
     }
 
@@ -264,57 +312,95 @@ static int run_main(int argc, char** argv) {
         if (!is_pml[e])
             continue;
         const double* elem_coords = gll_coords.data() + e * ngll * ngll * ngll * 3;
-        double xmin = 1e30, xmax = -1e30, ymin = 1e30, ymax = -1e30, zmin = 1e30, zmax = -1e30;
+        double center_x = 0.0, center_y = 0.0, center_z = 0.0;
         for (int i = 0; i < ngll * ngll * ngll; ++i) {
-            xmin = std::min(xmin, elem_coords[i * 3]);
-            xmax = std::max(xmax, elem_coords[i * 3]);
-            ymin = std::min(ymin, elem_coords[i * 3 + 1]);
-            ymax = std::max(ymax, elem_coords[i * 3 + 1]);
-            zmin = std::min(zmin, elem_coords[i * 3 + 2]);
-            zmax = std::max(zmax, elem_coords[i * 3 + 2]);
+            center_x += elem_coords[i * 3];
+            center_y += elem_coords[i * 3 + 1];
+            center_z += elem_coords[i * 3 + 2];
         }
-        int rx = (pml_widths_m[0] > 0 && xmin <= domain_bounds[0] + pml_widths_m[0])   ? 1
-                 : (pml_widths_m[1] > 0 && xmax >= domain_bounds[1] - pml_widths_m[1]) ? 1
-                                                                                       : 0;
-        int ry = (pml_widths_m[2] > 0 && ymin <= domain_bounds[2] + pml_widths_m[2])   ? 2
-                 : (pml_widths_m[3] > 0 && ymax >= domain_bounds[3] - pml_widths_m[3]) ? 2
-                                                                                       : 0;
-        int rz = (pml_widths_m[4] > 0 && zmin <= domain_bounds[4] + pml_widths_m[4])   ? 3
-                 : (pml_widths_m[5] > 0 && zmax >= domain_bounds[5] - pml_widths_m[5]) ? 3
-                                                                                       : 0;
-        pml_regions[e] = rx + ry + rz;
+        double inverse_node_count = 1.0 / (ngll * ngll * ngll);
+        center_x *= inverse_node_count;
+        center_y *= inverse_node_count;
+        center_z *= inverse_node_count;
+        constexpr double relative_tolerance = 1.0e-6;
+        bool active_x =
+            (pml_widths_m[0] > 0 && center_x < domain_bounds[0] + pml_widths_m[0] +
+                                                   relative_tolerance * pml_widths_m[0]) ||
+            (pml_widths_m[1] > 0 &&
+             center_x > domain_bounds[1] - pml_widths_m[1] - relative_tolerance * pml_widths_m[1]);
+        bool active_y =
+            (pml_widths_m[2] > 0 && center_y < domain_bounds[2] + pml_widths_m[2] +
+                                                   relative_tolerance * pml_widths_m[2]) ||
+            (pml_widths_m[3] > 0 &&
+             center_y > domain_bounds[3] - pml_widths_m[3] - relative_tolerance * pml_widths_m[3]);
+        bool active_z =
+            (pml_widths_m[4] > 0 && center_z < domain_bounds[4] + pml_widths_m[4] +
+                                                   relative_tolerance * pml_widths_m[4]) ||
+            (pml_widths_m[5] > 0 &&
+             center_z > domain_bounds[5] - pml_widths_m[5] - relative_tolerance * pml_widths_m[5]);
+        if (active_x && active_y && active_z)
+            pml_regions[e] = 7;
+        else if (active_y && active_z)
+            pml_regions[e] = 6;
+        else if (active_x && active_z)
+            pml_regions[e] = 5;
+        else if (active_x && active_y)
+            pml_regions[e] = 4;
+        else if (active_z)
+            pml_regions[e] = 3;
+        else if (active_y)
+            pml_regions[e] = 2;
+        else if (active_x)
+            pml_regions[e] = 1;
     }
 
-    // Compute C-PML κ/d/α profiles
+    // Compute the complete C-PML profiles and recursive-convolution coefficients.
     std::vector<double> cpml_K, cpml_d, cpml_alpha;
     gf::compute_cpml_profiles(gll_coords.data(), n_cell, ngll, is_pml.data(), pml_regions.data(),
                               domain_bounds, pml_widths_m, vp_flat.data(), cfg.f0_for_pml_hz,
                               cpml_K, cpml_d, cpml_alpha);
+    std::vector<double> pml_coefficient_alpha, pml_coefficient_beta, pml_coefficient_acceleration,
+        pml_coefficient_strain;
+    gf::compute_cpml_coefficients(n_cell, ngll, pml_regions.data(), solver_dt, cpml_K, cpml_d,
+                                  cpml_alpha, pml_coefficient_alpha, pml_coefficient_beta,
+                                  pml_coefficient_acceleration, pml_coefficient_strain);
 
     std::vector<hsize_t> pml_dims = {static_cast<hsize_t>(n_cell),
                                      static_cast<hsize_t>(ngll * ngll * ngll), 3};
     gf::h5::write_double(model_fid, "field/element/cpml_K", cpml_K, pml_dims);
     gf::h5::write_double(model_fid, "field/element/cpml_d", cpml_d, pml_dims);
     gf::h5::write_double(model_fid, "field/element/cpml_alpha", cpml_alpha, pml_dims);
-    fprintf(stderr, "  C-PML: %zu K/d/alpha values written\n", cpml_K.size() / 3);
+    std::vector<hsize_t> convolution_dimensions = {static_cast<hsize_t>(n_cell),
+                                                   static_cast<hsize_t>(ngll * ngll * ngll), 9};
+    gf::h5::write_double(model_fid, "field/element/pml_coef_alpha", pml_coefficient_alpha,
+                         convolution_dimensions);
+    gf::h5::write_double(model_fid, "field/element/pml_coef_beta", pml_coefficient_beta,
+                         convolution_dimensions);
+    gf::h5::write_double(
+        model_fid, "field/element/pml_coef_abar", pml_coefficient_acceleration,
+        {static_cast<hsize_t>(n_cell), static_cast<hsize_t>(ngll * ngll * ngll), 5});
+    gf::h5::write_double(
+        model_fid, "field/element/pml_coef_strain", pml_coefficient_strain,
+        {static_cast<hsize_t>(n_cell), static_cast<hsize_t>(ngll * ngll * ngll), 18});
+    std::vector<int32_t> pml_regions_i32(pml_regions.begin(), pml_regions.end());
+    gf::h5::write_int32(model_fid, "field/element/pml_region", pml_regions_i32,
+                        {static_cast<hsize_t>(n_cell)});
+    fprintf(stderr, "  C-PML: %zu nodes with complete convolution coefficients written\n",
+            cpml_K.size() / 3);
 
     // STF
-    int nsteps = static_cast<int>(cfg.total_duration_s / cfg.output_dt_s) + 1;
-    double output_dt_s = cfg.output_dt_s;
     std::vector<double> stf_times, stf_values;
-    gf::evaluate_stf_array(output_dt_s, nsteps, stf_times, stf_values);
+    gf::evaluate_stf_array(solver_dt, nsteps, stf_times, stf_values);
 
     {
         std::vector<hsize_t> stf_shape = {static_cast<hsize_t>(nsteps)};
         gf::h5::write_double(model_fid, "config/stf_t", stf_times, stf_shape);
         gf::h5::write_double(model_fid, "config/stf_values", stf_values, stf_shape);
     }
-    fprintf(stderr, "  STF: %d steps, dt=%g\n", nsteps, output_dt_s);
+    fprintf(stderr, "  STF: %d steps, dt=%g\n", nsteps, solver_dt);
 
     // Source location
     fprintf(stderr, "=== Source location ===\n");
-
-    double source_point_m[3] = {cfg.source_x_m, cfg.source_y_m, cfg.source_z_m};
 
     std::vector<int64_t> cell_to_surface =
         gf::h5::read_int64(model_fid, "topology/cell_to_surface");
@@ -336,7 +422,9 @@ static int run_main(int argc, char** argv) {
                 source_result.xi[0], source_result.eta[0], source_result.zeta[0]);
         // Write source cell count to source attrs
         if (!source_result.cell_ids.empty()) {
-            hid_t src_grp = H5Gopen2(model_fid, "source", H5P_DEFAULT);
+            hid_t src_grp = -1;
+            if (H5Lexists(model_fid, "source", H5P_DEFAULT) > 0)
+                src_grp = H5Gopen2(model_fid, "source", H5P_DEFAULT);
             if (src_grp >= 0) {
                 hsize_t one = 1;
                 hid_t spc = H5Screate(H5S_SCALAR);
@@ -360,30 +448,8 @@ static int run_main(int argc, char** argv) {
     gf::partition_metis(model_path, cfg.n_ranks);
     gf::compute_global_node_ids(model_path, ngll);
 
-    // Read solver_dt from stage2 output (/info group)
+    // Read element-to-rank and write complete solver partition files.
     model_fid = gf::h5::open_or_fail(model_path, H5F_ACC_RDWR);
-    double solver_dt = 0.0;
-    {
-        hid_t info_gid = H5Gopen2(model_fid, "info", H5P_DEFAULT);
-        if (info_gid >= 0) {
-            if (H5Aexists(info_gid, "solver_dt")) {
-                hid_t attr = H5Aopen(info_gid, "solver_dt", H5P_DEFAULT);
-                H5Aread(attr, H5T_NATIVE_DOUBLE, &solver_dt);
-                H5Aclose(attr);
-            }
-            H5Gclose(info_gid);
-        }
-    }
-    if (solver_dt <= 0.0)
-        solver_dt = cfg.output_dt_s / 10.0;
-
-    int snapshot_stride = static_cast<int>(cfg.output_dt_s / solver_dt);
-    double log_dt_s = cfg.log_stride * cfg.output_dt_s;
-
-    std::vector<double> source_point_vec = {source_point_m[0], source_point_m[1],
-                                            source_point_m[2]};
-
-    // Read element-to-rank from partition group written by partition_metis
     std::vector<int32_t> element_to_rank;
     if (H5Lexists(model_fid, "partition", H5P_DEFAULT)) {
         hid_t part_grp = H5Gopen2(model_fid, "partition", H5P_DEFAULT);
@@ -401,9 +467,13 @@ static int run_main(int argc, char** argv) {
 
     H5Fclose(model_fid);
 
-    gf::write_config_h5("config.h5", cfg, solver_dt, snapshot_stride, nsteps, stf_times,
-                        stf_values, source_point_vec, source_result, cfg.record_depth_max_m,
-                        element_to_rank, cfg.n_ranks, log_dt_s);
+    double record_depth_actual_m = gf::write_partition_files(model_path, cfg, element_to_rank);
+    int nz_elements = n_cell / std::max(cfg.nx_elements * cfg.ny_elements, 1);
+    std::filesystem::path config_path =
+        std::filesystem::path(model_path).parent_path() / "config.h5";
+    gf::write_config_h5(config_path.c_str(), cfg, solver_dt, snapshot_stride, nsteps, stf_times,
+                        stf_values, source_result, domain_bounds, nz_elements,
+                        record_depth_actual_m);
 
     fprintf(stderr, "=== Preprocess complete ===\n");
     return 0;
@@ -422,11 +492,11 @@ static void usage() {
             "  stage2  Compute λ/μ, solver_dt, pre-flight statistics.\n"
             "          gf_preprocess stage2 <model.h5>\n"
             "  run     Full pipeline: stage1 → material → stage2 → C-PML → source\n"
-            "          → STF → METIS → global IDs → config.h5\n"
+            "          → STF → METIS → partitions + recording map → config.h5\n"
             "          gf_preprocess run <model.h5> --N N --cfl-safety val ...\n"
             "\n"
-            "Material model:\n"
-            "  Compiled-in (static link):  cmake -DGF_MATERIAL_USER_SOURCE=my_model.cpp\n"
+            "C++ configuration:\n"
+            "  Compiled-in:  cmake -DGF_USER_CONFIG=/absolute/path/to/config_user.cpp\n"
             "  Python fallback:            python -m preprocess\n");
 }
 
