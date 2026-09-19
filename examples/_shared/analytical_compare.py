@@ -227,30 +227,63 @@ def _nearest_node_indices(coords, points) -> list:
 
 
 def load_sem_tiles(greenfun_dir: str) -> dict:
-    """Load and merge all Green's function tiles."""
+    """Load tile metadata and merge coordinates without loading field tensors."""
     tiles = sorted(glob.glob(os.path.join(greenfun_dir, "tile_*.h5")))
     if not tiles:
         raise FileNotFoundError(f"No tile_*.h5 in {greenfun_dir}")
 
-    all_disp = []
     all_coords = []
+    tile_ranges = []
     dt_s = None
+    n_steps = None
+    displacement_dtype = None
+    vertex_offset = 0
     for tp in tiles:
         with h5py.File(tp, "r") as f:
-            d = np.asarray(f["/field/displacement_tensor"])
             c = np.asarray(f["/mesh/gll_node_coords"])
+            displacement = f["/field/displacement_tensor"]
+            if n_steps is None:
+                n_steps = displacement.shape[0]
+                displacement_dtype = displacement.dtype
             if dt_s is None:
                 times = np.asarray(f["/time/t"])
                 dt_s = _to_float(times[1] - times[0], "time/t.dt") if len(times) > 1 else 0.01
-            all_disp.append(d)
             all_coords.append(c)
+            tile_ranges.append((tp, vertex_offset, vertex_offset + len(c)))
+            vertex_offset += len(c)
 
     return {
-        "displacement": np.concatenate(all_disp, axis=1),
         "coords": np.concatenate(all_coords, axis=0),
         "dt_s": dt_s or 0.01,
-        "n_steps": all_disp[0].shape[0],
+        "n_steps": n_steps,
+        "displacement_dtype": displacement_dtype,
+        "tile_ranges": tile_ranges,
     }
+
+
+def load_sampled_displacement(sem: dict, sample_indices: list[int]) -> np.ndarray:
+    """Load displacement traces only for selected global vertex indices."""
+    indices = np.asarray(sample_indices, dtype=np.int64)
+    if len(indices) == 0:
+        return np.empty((sem["n_steps"], 0, 3, 3), dtype=sem["displacement_dtype"])
+    if indices.min() < 0 or indices.max() >= len(sem["coords"]):
+        raise IndexError("sample vertex index outside merged tile coordinates")
+
+    sampled = np.empty((sem["n_steps"], len(indices), 3, 3), dtype=sem["displacement_dtype"])
+    for tile_path, vertex_start, vertex_stop in sem["tile_ranges"]:
+        sample_positions = np.flatnonzero((indices >= vertex_start) & (indices < vertex_stop))
+        if len(sample_positions) == 0:
+            continue
+
+        local_indices = indices[sample_positions] - vertex_start
+        order = np.argsort(local_indices)
+        local_indices = local_indices[order]
+        sample_positions = sample_positions[order]
+        with h5py.File(tile_path, "r") as f:
+            sampled[:, sample_positions, :, :] = f["/field/displacement_tensor"][
+                :, local_indices, :, :
+            ]
+    return sampled
 
 
 def parse_args() -> dict:
@@ -432,6 +465,7 @@ def run(
         print(f"  sampling {len(sample_indices)} receivers (stride={stride})")
     else:
         print(f"  sampling {len(sample_indices)} receivers (fixed physical points)")
+    sampled_displacement = load_sampled_displacement(sem, sample_indices)
 
     all_corrs = []
     all_l2 = []
@@ -446,7 +480,7 @@ def run(
         f_corrs = []
         f_l2 = []
 
-        for pt_idx in sample_indices:
+        for sample_position, pt_idx in enumerate(sample_indices):
             receiver = np.asarray(coords[pt_idx], dtype=np.float64)
 
             if fullspace:
@@ -471,7 +505,7 @@ def run(
             recv_corrs = []
 
             for disp_comp in range(3):
-                sem_wave = sem["displacement"][:cutoff, pt_idx, disp_comp, force_dir]
+                sem_wave = sampled_displacement[:cutoff, sample_position, disp_comp, force_dir]
                 ana_wave = analytical[:cutoff, disp_comp]
 
                 c = wavelet_correlation(sem_wave, ana_wave)
