@@ -38,6 +38,19 @@ python "${SCRIPT_DIR}/compare.py" \
 	--output "${WORK_DIR}/lamb_comparison.npz" \
 	--fit-scale
 
+# ── Stage S4: Multi-point comparison ───
+echo ""
+echo "=== Stage S4: Multi-point Lamb comparison ==="
+cd "${WORK_DIR}"
+"${MEMLIMIT}" -- python "${SCRIPT_DIR}/multi_compare.py" \
+	--library "${WORK_DIR}/greenfun" \
+	--n-points 10 \
+	--early-end-s 2.0 \
+	--output "${WORK_DIR}/multi_comparison.npz"
+
 echo ""
 echo "=== All stages complete ==="
-ls -lh "${WORK_DIR}/lamb_reference.npz" "${WORK_DIR}/lamb_comparison.npz"
+ls -lh \
+	"${WORK_DIR}/lamb_reference.npz" \
+	"${WORK_DIR}/lamb_comparison.npz" \
+	"${WORK_DIR}/multi_comparison.npz"

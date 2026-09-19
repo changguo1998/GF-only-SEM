@@ -1,26 +1,32 @@
-"""Half-space simulation configuration.
+"""Layered half-space simulation configuration.
 
-This config defines a homogeneous elastic half-space:
+This config defines a two-layer elastic half-space:
+  - Soft surface layer (500 m) over a stiffer half-space
   - Free surface at z=0
   - Absorbing boundaries on the 5 other sides (perfectly matched layers)
-  - A Ricker wavelet (second derivative of Gaussian) point force buried at 278 m
+  - A Ricker wavelet point force buried at 100 m depth
+
+Material properties are depth-dependent piecewise functions matching
+the PyFK LAYER_MODEL for consistent comparison.
 
 Domain: 10 km × 10 km × 5 km (x, y, z)
-Material: Vp=5000 m/s, Vs=3000 m/s, density=2700 kg/m³ (granite-like)
-Mesh: regular hexahedral, 22×22×11 = 5324 elements (read by mesh_gen.py via import)
+Layer 1 (z < 500 m):  Vp=2500 m/s, Vs=1500 m/s, density=2200 kg/m³
+Layer 2 (z >= 500 m): Vp=5000 m/s, Vs=3000 m/s, density=2700 kg/m³
+Mesh: layer-aligned hexahedral, 22×22×11 = 5324 elements
+      (the first z element is 500 m thick; the remaining 10 are 450 m)
 
 Run with:
     cp this_file /path/to/workdir/config.py
     cd /path/to/workdir
     python -m preprocess
-
-(Preprocess reads model.h5 + config.py from the current working directory.)
 """
+
+from __future__ import annotations
 
 import numpy as np
 
 # ── Simulation identity ───────
-title = "halfspace_example"
+title = "layer_shallow_source_example"
 
 # ── Mesh dimensions ───────
 nx_elements = 22  # Elements in x
@@ -36,8 +42,8 @@ polynomial_order = 4  # GLL quadrature order (N=4 → 5 GLL nodes/axis)
 # ── Time stepping ───────
 output_dt_s = 0.01  # Desired snapshot interval [s]
 total_duration_s = 5.0  # Total simulation duration [s]
-cfl_safety = 0.5  # CFL safety factor, scaled by 1/sqrt(K_MAX_PML=14) for CPML stability
-log_stride = 100  # Progress-report interval in solver steps (1 = every step)
+cfl_safety = 0.5  # CFL safety factor (0 < cfl_safety < 1)
+log_stride = 100  # Progress-report interval in solver steps
 restart_dt_s = 0.5  # Restart checkpoint interval [s] (0 = disable)
 
 # ── I/O ───
@@ -56,7 +62,6 @@ tiley_elements = [
     4,
     4,
 ]  # Horizontal y tile sizes in elements (ny = sum(tiley) + pml_ymin + pml_ymax)
-
 # ── Parallelism ───
 n_ranks = 16  # Number of MPI ranks (METIS partition)
 
@@ -72,13 +77,11 @@ pml_thickness = {
 }
 
 # ── Source ───
-# Point force at center of domain
-# source_z_m=None -> free surface (zmin); float -> buried source
-# The original physical source position is retained for grid comparison. It
-# remains inside an element rather than on a shared face, edge, or corner.
+# Retain the off-grid horizontal coordinates used by the other half-space
+# benchmarks, but place the source at 100 m depth inside the soft layer.
 source_x_m = 5278.0
 source_y_m = 5278.0
-source_z_m = 278.0  # Buried at 278 m depth
+source_z_m = 100.0  # Shallow buried source in layer 1 (0-500 m)
 
 # Source force amplitude [N]. STF returns force in Newtons; multiply the
 # dimensionless Ricker wavelet by this amplitude. Larger amplitude lifts
@@ -88,37 +91,88 @@ source_force_amplitude_n = 1.0e20
 
 # Dominant source frequency for C-PML damping profile computation (Hz).
 # Should match the Ricker peak frequency in stf_func.
-f0_for_pml_hz = 2.0
+f0_for_pml_hz = 1.0
 
 
 # ── Source time function (callable) ───
 def stf_func(t_s):
     """Ricker wavelet (second derivative of Gaussian) scaled to source force [N].
 
-    Peak frequency f0=2 Hz, peak time t0=1.0 s.
+    Peak frequency f0=1 Hz, peak time t0=1.0 s.
     Returns force amplitude in Newtons (dimensionless Ricker × source_force_amplitude_n).
     """
-    f0_hz = 2.0
+    f0_hz = 1.0
     t0_s = 1.0
     a = np.pi * f0_hz * (t_s - t0_s)
     return source_force_amplitude_n * (1.0 - 2.0 * a**2) * np.exp(-(a**2))
 
 
-# ── Material model (callables) ───
+# ── Material model — depth-dependent piecewise functions ───
+
+LAYER_INTERFACE_DEPTH_M = 500.0
+_INTERFACE_TOLERANCE_M = 1.0e-6
+
+# Layer 1 (soft surface layer)
+_VP1 = 2500.0
+_VS1 = 1500.0
+_RHO1 = 2200.0
+
+# Layer 2 (stiff half-space)
+_VP2 = 5000.0
+_VS2 = 3000.0
+_RHO2 = 2700.0
+
+
 def vp_m_s(x_m, y_m, z_m):
-    """P-wave velocity [m/s]."""
-    return 5000.0
+    """P-wave velocity [m/s] — piecewise by depth."""
+    if np.ndim(z_m) == 0:
+        return _VP1 if float(z_m) <= LAYER_INTERFACE_DEPTH_M + _INTERFACE_TOLERANCE_M else _VP2
+    return np.where(z_m <= LAYER_INTERFACE_DEPTH_M + _INTERFACE_TOLERANCE_M, _VP1, _VP2)
 
 
 def vs_m_s(x_m, y_m, z_m):
-    """S-wave velocity [m/s]."""
-    return 3000.0
+    """S-wave velocity [m/s] — piecewise by depth."""
+    if np.ndim(z_m) == 0:
+        return _VS1 if float(z_m) <= LAYER_INTERFACE_DEPTH_M + _INTERFACE_TOLERANCE_M else _VS2
+    return np.where(z_m <= LAYER_INTERFACE_DEPTH_M + _INTERFACE_TOLERANCE_M, _VS1, _VS2)
 
 
 def density_kg_m3(x_m, y_m, z_m):
-    """Density [kg/m³]."""
-    return 2700.0
+    """Density [kg/m³] — piecewise by depth."""
+    if np.ndim(z_m) == 0:
+        return _RHO1 if float(z_m) <= LAYER_INTERFACE_DEPTH_M + _INTERFACE_TOLERANCE_M else _RHO2
+    return np.where(z_m <= LAYER_INTERFACE_DEPTH_M + _INTERFACE_TOLERANCE_M, _RHO1, _RHO2)
 
+
+# ===================================================================
+# PyFK reference parameters (kept for backward compatibility)
+# ===================================================================
+# Column format: [thickness_km, vs_km_s, vp_km_s, density_g_cm3, Qs, Qp]
+# Last row must have thickness = 0 (bottom half-space).
+# PyFK units: km, km/s, g/cm³.
+LAYER_MODEL = np.array(
+    [
+        [0.5, 1.5, 2.5, 2.2, 1.0e9, 1.0e9],  # Surface layer
+        [0.0, 3.0, 5.0, 2.7, 1.0e9, 1.0e9],  # Bottom half-space
+    ],
+    dtype=np.float64,
+)
+
+SOURCE_XYZ_M = (0.0, 0.0, 100.0)  # (x, y, z) in m
+RECEIVER_XYZ_M = (5000.0, 0.0, 0.0)  # (x, y, z) in m
+DT_S = 0.01
+N_TIME = 1000  # 10 s total
+
+# PyFK solver parameters
+SAMPLES_BEFORE_FIRST_ARRIVAL = 100
+FORCE_AMPLITUDE = 1e5  # 1 N = 1e5 dyne (PyFK uses CGS internally; sf source m0 = amp * 1e-15)
+QS_DEFAULT = 100.0
+QP_DEFAULT = 200.0
+DK = 0.3
+SMTH = 1.0
+PMIN = 0.0
+PMAX = 1.0
+KMAX = 15.0
 
 # ── SLS attenuation (viscoelastic parameters) ───
 # The preprocessor auto-injects these into model.h5 (field/cell/tau_*), so the

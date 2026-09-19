@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============
-# layer/compare.sh
+# layer-shallow-source/compare.sh
 # ==============
 # Orchestration: SEM Green's functions → PyFK layered reference → compare.
 # Usage: bash compare.sh
@@ -31,7 +31,7 @@ cd "${WORK_DIR}"
 "${PYFK_PYTHON}" "${WORK_DIR}/reference.py" \
 	"${WORK_DIR}/greenfun" \
 	--source 5778 5278 0 \
-	--receiver 5278 5278 278 \
+	--receiver 5278 5278 100 \
 	--output "${WORK_DIR}/layer_reference.npz"
 
 # ── Stage L3: Compare ───
@@ -41,7 +41,7 @@ cd "${WORK_DIR}"
 "${MEMLIMIT}" 60 -- python "${SCRIPT_DIR}/compare.py" \
 	"${WORK_DIR}/greenfun" \
 	--source 5778 5278 0 \
-	--receiver 5278 5278 278 \
+	--receiver 5278 5278 100 \
 	--reference "${WORK_DIR}/layer_reference.npz" \
 	--output "${WORK_DIR}/layer_comparison.npz" \
 	--fit-scale

@@ -5,7 +5,7 @@ Mesh dimensions are read from config.py. The first z element ends at the
 material interface; the remaining z elements evenly cover the lower layer.
 
 Usage:
-    python examples/layer/mesh_gen.py
+    python examples/layer-shallow-source/mesh_gen.py
 """
 
 from __future__ import annotations

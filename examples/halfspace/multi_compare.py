@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Multi-point SEM vs analytic reference comparison.
 
-Selects multiple source positions (mix of mesh vertices and off-grid points),
+Selects deterministic surface positions at several offsets and azimuths,
 queries SEM Green's function and analytic Lamb reference for each, and reports
-per-point + aggregate statistics.
+per-point + aggregate statistics for both the full trace and the main-wave
+window.
 
 Usage (from halfspace example dir):
     python multi_compare.py [--n-points N] [--output multi_comparison.npz]
@@ -30,79 +31,87 @@ from reference import compute_reference_result  # noqa: E402
 
 
 def select_source_positions(
-    vertex_coords: np.ndarray, sem_source: np.ndarray, n_points: int = 20
+    vertex_coords: np.ndarray, sem_source: np.ndarray, n_points: int = 10
 ) -> tuple[np.ndarray, list[bool]]:
-    """Select source positions: half at mesh vertices, half off-grid.
+    """Select fixed surface positions at several offsets from the SEM source.
 
     Returns (positions, is_vertex_flags).
     """
     from scipy.spatial import KDTree
 
     tree = KDTree(vertex_coords)
-    n_vertex = n_points // 2
-    n_offgrid = n_points - n_vertex
+    diagonal_offset_m = 1000.0 / np.sqrt(2.0)
+    horizontal_offsets_m = np.array(
+        [
+            [500.0, 0.0],
+            [1000.0, 0.0],
+            [1500.0, 0.0],
+            [-500.0, 0.0],
+            [-1000.0, 0.0],
+            [-1500.0, 0.0],
+            [0.0, 1000.0],
+            [0.0, -1000.0],
+            [diagonal_offset_m, diagonal_offset_m],
+            [-diagonal_offset_m, -diagonal_offset_m],
+        ],
+        dtype=np.float64,
+    )
+    if not 1 <= n_points <= len(horizontal_offsets_m):
+        raise ValueError(f"n_points must be between 1 and {len(horizontal_offsets_m)}")
 
-    # Vertex points: spread across the domain, exclude points too close to SEM source
-    dist_to_source = np.linalg.norm(vertex_coords - sem_source, axis=1)
-    # Sort by distance from source, pick spread-out points
-    valid_mask = dist_to_source > 200.0  # at least 200m from SEM source
-    valid_indices = np.where(valid_mask)[0]
-    # Subsample evenly
-    step = max(1, len(valid_indices) // n_vertex)
-    vertex_indices = valid_indices[::step][:n_vertex]
-
-    vertex_positions = vertex_coords[vertex_indices]
-
-    # Off-grid points: random positions within the domain, not at vertices
+    positions = np.column_stack(
+        [
+            sem_source[0] + horizontal_offsets_m[:n_points, 0],
+            sem_source[1] + horizontal_offsets_m[:n_points, 1],
+            np.zeros(n_points, dtype=np.float64),
+        ]
+    )
     coords_min = vertex_coords.min(axis=0)
     coords_max = vertex_coords.max(axis=0)
-    rng = np.random.default_rng(42)
-    offgrid_positions = []
-    for _ in range(n_offgrid):
-        for _attempt in range(100):
-            pt = rng.uniform(coords_min, coords_max)
-            # Ensure not too close to any vertex (at least 10m away)
-            nn_dist, _ = tree.query(pt)
-            if nn_dist > 10.0:
-                # Also ensure within recording cell bounds
-                offgrid_positions.append(pt)
-                break
+    if np.any(positions < coords_min) or np.any(positions > coords_max):
+        raise ValueError("selected surface comparison point lies outside recorded bounds")
 
-    positions = np.vstack([vertex_positions, np.array(offgrid_positions)])
-    is_vertex = [True] * len(vertex_positions) + [False] * len(offgrid_positions)
+    nearest_distances, _ = tree.query(positions)
+    is_vertex = list(nearest_distances < 1.0e-6)
     return positions, is_vertex
 
 
 def compute_rel_l2(sem: np.ndarray, ref: np.ndarray) -> float:
-    """Compute relative L2 error for diagonal displacement components."""
-    errors = []
-    for i in range(3):
-        s = sem[:, i, i]
-        r = ref[:, i, i]
-        norm_r = np.linalg.norm(r)
-        if norm_r > 1e-30:
-            errors.append(np.linalg.norm(s - r) / norm_r)
-    return float(np.mean(errors)) if errors else float("nan")
+    """Compute full-tensor relative L2 error."""
+    norm_ref = float(np.linalg.norm(ref.ravel()))
+    if norm_ref <= 1.0e-30:
+        return float("nan")
+    return float(np.linalg.norm((sem - ref).ravel()) / norm_ref)
 
 
 def compute_correlation(sem: np.ndarray, ref: np.ndarray) -> float:
-    """Compute mean correlation for diagonal displacement components."""
-    corrs = []
-    for i in range(3):
-        s = sem[:, i, i]
-        r = ref[:, i, i]
-        if np.std(s) > 1e-30 and np.std(r) > 1e-30:
-            corrs.append(np.corrcoef(s, r)[0, 1])
-    return float(np.mean(corrs)) if corrs else float("nan")
+    """Compute full-tensor Pearson correlation."""
+    sem_flat = sem.ravel()
+    ref_flat = ref.ravel()
+    if np.std(sem_flat) <= 1.0e-30 or np.std(ref_flat) <= 1.0e-30:
+        return float("nan")
+    return float(np.corrcoef(sem_flat, ref_flat)[0, 1])
+
+
+def compute_best_fit(sem: np.ndarray, ref: np.ndarray) -> tuple[float, float, float]:
+    """Return SEM scale, fitted relative L2, and correlation."""
+    sem_flat = sem.ravel()
+    ref_flat = ref.ravel()
+    scale = float(np.dot(ref_flat, sem_flat) / (np.dot(sem_flat, sem_flat) + 1.0e-30))
+    scaled_sem = sem * scale
+    return scale, compute_rel_l2(scaled_sem, ref), compute_correlation(scaled_sem, ref)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Multi-point SEM vs reference comparison")
     parser.add_argument("--library", default="greenfun", help="Green's function library root")
-    parser.add_argument("--n-points", type=int, default=20, help="Number of source positions")
+    parser.add_argument("--n-points", type=int, default=10, help="Number of surface positions")
     parser.add_argument("--output", default="multi_comparison.npz", help="Output NPZ file")
     parser.add_argument(
         "--source-depth-m", type=float, default=278.0, help="Analytic source depth"
+    )
+    parser.add_argument(
+        "--early-end-s", type=float, default=2.0, help="End time of main-wave window"
     )
     args = parser.parse_args(argv)
 
@@ -164,16 +173,21 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  Reference error: {e}")
             continue
 
-        # Compute best-fit scale
-        sem_flat = sem_disp.ravel()
-        ref_flat = ref_disp.ravel()
-        scale = float(np.dot(ref_flat, sem_flat) / (np.dot(sem_flat, sem_flat) + 1e-30))
-        scaled_sem = sem_disp * scale
-
-        # Metrics
-        rel_l2 = compute_rel_l2(scaled_sem, ref_disp)
-        corr = compute_correlation(scaled_sem, ref_disp)
-        print(f"  scale={scale:.4e}, rel_l2={rel_l2:.4f}, corr={corr:.4f}")
+        # Full-trace and main-wave metrics
+        scale, rel_l2, corr = compute_best_fit(sem_disp, ref_disp)
+        early_mask = source_run.time < args.early_end_s
+        early_scale, early_rel_l2, early_corr = compute_best_fit(
+            sem_disp[early_mask], ref_disp[early_mask]
+        )
+        horizontal_distance_m = float(np.linalg.norm(pos[:2] - sem_source[:2]))
+        print(
+            f"  distance={horizontal_distance_m:.0f}m, full: scale={scale:.4f}, "
+            f"rel_l2={rel_l2:.4f}, corr={corr:.4f}"
+        )
+        print(
+            f"  0-{args.early_end_s:g}s: scale={early_scale:.4f}, "
+            f"rel_l2={early_rel_l2:.4f}, corr={early_corr:.4f}"
+        )
 
         results.append(
             {
@@ -184,9 +198,11 @@ def main(argv: list[str] | None = None) -> int:
                 "scale": scale,
                 "rel_l2": rel_l2,
                 "correlation": corr,
+                "early_scale": early_scale,
+                "early_rel_l2": early_rel_l2,
+                "early_correlation": early_corr,
                 "sem_disp": sem_disp,
                 "ref_disp": ref_disp,
-                "scaled_sem_disp": scaled_sem,
             }
         )
 
@@ -207,12 +223,22 @@ def main(argv: list[str] | None = None) -> int:
             continue
         rel_l2s = [r["rel_l2"] for r in group]
         corrs = [r["correlation"] for r in group]
+        early_rel_l2s = [r["early_rel_l2"] for r in group]
+        early_corrs = [r["early_correlation"] for r in group]
         print(f"\n  {label} ({len(group)} points):")
         print(
             f"    rel_l2:  mean={np.mean(rel_l2s):.4f}, median={np.median(rel_l2s):.4f}, min={np.min(rel_l2s):.4f}, max={np.max(rel_l2s):.4f}"
         )
         print(
             f"    corr:    mean={np.mean(corrs):.4f}, median={np.median(corrs):.4f}, min={np.min(corrs):.4f}, max={np.max(corrs):.4f}"
+        )
+        print(
+            f"    early rel_l2: mean={np.mean(early_rel_l2s):.4f}, "
+            f"min={np.min(early_rel_l2s):.4f}, max={np.max(early_rel_l2s):.4f}"
+        )
+        print(
+            f"    early corr:   mean={np.mean(early_corrs):.4f}, "
+            f"min={np.min(early_corrs):.4f}, max={np.max(early_corrs):.4f}"
         )
 
     # Save results
@@ -223,6 +249,9 @@ def main(argv: list[str] | None = None) -> int:
         "scales": np.array([r["scale"] for r in results]),
         "rel_l2": np.array([r["rel_l2"] for r in results]),
         "correlation": np.array([r["correlation"] for r in results]),
+        "early_scales": np.array([r["early_scale"] for r in results]),
+        "early_rel_l2": np.array([r["early_rel_l2"] for r in results]),
+        "early_correlation": np.array([r["early_correlation"] for r in results]),
     }
     np.savez(args.output, **save_dict)
     print(f"\nSaved to {args.output}")

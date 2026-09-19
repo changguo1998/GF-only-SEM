@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============
-# halfspace/postprocess.sh
+# layer-shallow-source/postprocess.sh
 # ==============
 # Stage 4: Green's function extraction from 3-direction strain records.
 # Usage: source postprocess.sh   (or bash postprocess.sh)
@@ -21,7 +21,7 @@ PROJECT_BIN="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}/bin"
 GF_POST="${PROJECT_BIN}/gf_postprocess_mpi"
 MEMLIMIT="$(cd "${SCRIPT_DIR}/../.." && pwd)/scripts/with_mem_limit.sh"  # host RAM cap (GF_MEM_LIMIT_GB, 0=off)
 if [ -x "${GF_POST}" ]; then
-    "${MEMLIMIT}" -- mpirun -n "${POSTPROCESS_RANKS:-4}" \
+    "${MEMLIMIT}" 60 -- mpirun -n "${POSTPROCESS_RANKS:-4}" \
         "${GF_POST}" model.h5 config.h5 \
         --fx wavefields/x/ \
         --fy wavefields/y/ \
@@ -29,7 +29,7 @@ if [ -x "${GF_POST}" ]; then
         -o greenfun/
 else
     echo "ERROR: C++ gf_postprocess_mpi not found at ${GF_POST}"
-    echo "Build with: cmake -B build && cmake --build build --target gf_postprocess_mpi"
+    echo "Build with: scripts/build.sh -t gf_postprocess_mpi"
     exit 1
 fi
 

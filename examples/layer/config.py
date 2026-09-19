@@ -4,7 +4,7 @@ This config defines a two-layer elastic half-space:
   - Soft surface layer (500 m) over a stiffer half-space
   - Free surface at z=0
   - Absorbing boundaries on the 5 other sides (perfectly matched layers)
-  - A Ricker wavelet point force buried at 250 m depth
+  - A Ricker wavelet point force buried at 278 m depth
 
 Material properties are depth-dependent piecewise functions matching
 the PyFK LAYER_MODEL for consistent comparison.
@@ -12,8 +12,8 @@ the PyFK LAYER_MODEL for consistent comparison.
 Domain: 10 km × 10 km × 5 km (x, y, z)
 Layer 1 (z < 500 m):  Vp=2500 m/s, Vs=1500 m/s, density=2200 kg/m³
 Layer 2 (z >= 500 m): Vp=5000 m/s, Vs=3000 m/s, density=2700 kg/m³
-Mesh: regular hexahedral, 18×18×10 = 3240 elements
-      (z-element boundary at 500 m aligns with layer interface)
+Mesh: layer-aligned hexahedral, 22×22×11 = 5324 elements
+      (the first z element is 500 m thick; the remaining 10 are 450 m)
 
 Run with:
     cp this_file /path/to/workdir/config.py
@@ -29,9 +29,9 @@ import numpy as np
 title = "layer_example"
 
 # ── Mesh dimensions ───────
-nx_elements = 18  # Elements in x
-ny_elements = 18  # Elements in y
-nz_elements = 10  # Elements in z (each 500 m thick)
+nx_elements = 22  # Elements in x
+ny_elements = 22  # Elements in y
+nz_elements = 11  # Elements in z
 lx = 10000.0  # Domain length x [m]
 ly = 10000.0  # Domain length y [m]
 lz = 5000.0  # Domain length z [m]
@@ -54,8 +54,10 @@ tilex_elements = [
     4,
     4,
     4,
+    4,
 ]  # Horizontal x tile sizes in elements (nx = sum(tilex) + pml_xmin + pml_xmax)
 tiley_elements = [
+    4,
     4,
     4,
     4,
@@ -75,12 +77,11 @@ pml_thickness = {
 }
 
 # ── Source ───
-# Point force at element interior (SEM standard practice: source away from
-# GLL endpoints gives best numerical accuracy). Element (9,9,0) center:
-# x=y=5278 m is 9.5*dx, safely inside element [5000,5556].
+# Retain the same off-grid physical source used by the homogeneous half-space
+# benchmark so that the two runs differ only in their material model.
 source_x_m = 5278.0
 source_y_m = 5278.0
-source_z_m = 250.0  # buried at 250m depth, middle of layer 1 (0-500m)
+source_z_m = 278.0  # Buried in layer 1 (0-500 m)
 
 # Source force amplitude [N]. STF returns force in Newtons; multiply the
 # dimensionless Ricker wavelet by this amplitude. Larger amplitude lifts
@@ -90,17 +91,17 @@ source_force_amplitude_n = 1.0e20
 
 # Dominant source frequency for C-PML damping profile computation (Hz).
 # Should match the Ricker peak frequency in stf_func.
-f0_for_pml_hz = 2.0
+f0_for_pml_hz = 1.0
 
 
 # ── Source time function (callable) ───
 def stf_func(t_s):
     """Ricker wavelet (second derivative of Gaussian) scaled to source force [N].
 
-    Peak frequency f0=2 Hz, peak time t0=1.0 s.
+    Peak frequency f0=1 Hz, peak time t0=1.0 s.
     Returns force amplitude in Newtons (dimensionless Ricker × source_force_amplitude_n).
     """
-    f0_hz = 2.0
+    f0_hz = 1.0
     t0_s = 1.0
     a = np.pi * f0_hz * (t_s - t0_s)
     return source_force_amplitude_n * (1.0 - 2.0 * a**2) * np.exp(-(a**2))
@@ -108,7 +109,8 @@ def stf_func(t_s):
 
 # ── Material model — depth-dependent piecewise functions ───
 
-_INTERFACE_Z_M = 500.0  # Layer interface depth [m]
+LAYER_INTERFACE_DEPTH_M = 500.0
+_INTERFACE_TOLERANCE_M = 1.0e-6
 
 # Layer 1 (soft surface layer)
 _VP1 = 2500.0
@@ -124,22 +126,22 @@ _RHO2 = 2700.0
 def vp_m_s(x_m, y_m, z_m):
     """P-wave velocity [m/s] — piecewise by depth."""
     if np.ndim(z_m) == 0:
-        return _VP1 if float(z_m) < _INTERFACE_Z_M else _VP2
-    return np.where(z_m < _INTERFACE_Z_M, _VP1, _VP2)
+        return _VP1 if float(z_m) <= LAYER_INTERFACE_DEPTH_M + _INTERFACE_TOLERANCE_M else _VP2
+    return np.where(z_m <= LAYER_INTERFACE_DEPTH_M + _INTERFACE_TOLERANCE_M, _VP1, _VP2)
 
 
 def vs_m_s(x_m, y_m, z_m):
     """S-wave velocity [m/s] — piecewise by depth."""
     if np.ndim(z_m) == 0:
-        return _VS1 if float(z_m) < _INTERFACE_Z_M else _VS2
-    return np.where(z_m < _INTERFACE_Z_M, _VS1, _VS2)
+        return _VS1 if float(z_m) <= LAYER_INTERFACE_DEPTH_M + _INTERFACE_TOLERANCE_M else _VS2
+    return np.where(z_m <= LAYER_INTERFACE_DEPTH_M + _INTERFACE_TOLERANCE_M, _VS1, _VS2)
 
 
 def density_kg_m3(x_m, y_m, z_m):
     """Density [kg/m³] — piecewise by depth."""
     if np.ndim(z_m) == 0:
-        return _RHO1 if float(z_m) < _INTERFACE_Z_M else _RHO2
-    return np.where(z_m < _INTERFACE_Z_M, _RHO1, _RHO2)
+        return _RHO1 if float(z_m) <= LAYER_INTERFACE_DEPTH_M + _INTERFACE_TOLERANCE_M else _RHO2
+    return np.where(z_m <= LAYER_INTERFACE_DEPTH_M + _INTERFACE_TOLERANCE_M, _RHO1, _RHO2)
 
 
 # ===================================================================
@@ -150,13 +152,13 @@ def density_kg_m3(x_m, y_m, z_m):
 # PyFK units: km, km/s, g/cm³.
 LAYER_MODEL = np.array(
     [
-        [0.5, 1.5, 2.5, 2.2, 100.0, 200.0],  # Surface layer
-        [0.0, 3.0, 5.0, 2.7, 500.0, 1000.0],  # Bottom half-space
+        [0.5, 1.5, 2.5, 2.2, 1.0e9, 1.0e9],  # Surface layer
+        [0.0, 3.0, 5.0, 2.7, 1.0e9, 1.0e9],  # Bottom half-space
     ],
     dtype=np.float64,
 )
 
-SOURCE_XYZ_M = (0.0, 0.0, 490.0)  # (x, y, z) in m — slightly above layer interface
+SOURCE_XYZ_M = (0.0, 0.0, 278.0)  # (x, y, z) in m
 RECEIVER_XYZ_M = (5000.0, 0.0, 0.0)  # (x, y, z) in m
 DT_S = 0.01
 N_TIME = 1000  # 10 s total

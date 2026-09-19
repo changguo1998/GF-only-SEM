@@ -10,8 +10,8 @@ designed to produce Love and Rayleigh waves for SEM validation.
 
 | Layer | Thickness (km) | Vs (km/s) | Vp (km/s) | ρ (g/cm³) | Qs | Qp |
 |-------|---------------|-----------|-----------|-----------|-------|-------|
-| 1 | 0.5 | 1.5 | 2.5 | 2.2 | 100 | 200 |
-| 2 (∞) | 0.0 | 3.0 | 5.0 | 2.7 | 500 | 1000 |
+| 1 | 0.5 | 1.5 | 2.5 | 2.2 | ∞ | ∞ |
+| 2 (∞) | 0.0 | 3.0 | 5.0 | 2.7 | ∞ | ∞ |
 
 ## Usage
 
@@ -20,23 +20,24 @@ designed to produce Love and Rayleigh waves for SEM validation.
 bash examples/layer/compare.sh
 
 # Or manually:
-examples/layer/.pyfk-venv/bin/python examples/layer/reference.py \
-  --source 0 0 490 --receiver 5000 0 0 \
+examples/layer/.venv/bin/python examples/layer/reference.py \
+  examples/layer/greenfun --source 5778 5278 0 --receiver 5278 5278 278 \
   --output /tmp/layer_ref.npz
 
 # With Ricker wavelet synthetic
-examples/layer/.pyfk-venv/bin/python examples/layer/reference.py \
-  --source 0 0 490 --receiver 5000 0 0 \
-  --output /tmp/layer_synth.npz --ricker-freq 5
+examples/layer/.venv/bin/python examples/layer/reference.py \
+  examples/layer/greenfun --source 5778 5278 0 --receiver 5278 5278 278 \
+  --output /tmp/layer_synth.npz --ricker-freq 2
 ```
 
 ## Prerequisites
 
-PyFK environment at `examples/layer/.pyfk-venv/` (Python 3.9):
+PyFK environment at `examples/layer/.venv/` (Python 3.9):
 
 ```bash
 cd examples/layer
-uv venv .pyfk-venv --python 3.9
-.pyfk-venv/bin/python -m ensurepip --upgrade
-.pyfk-venv/bin/python -m pip install pyfk obspy
+uv venv .venv --python 3.9
+uv pip install --python .venv/bin/python \
+  'cython<3' poetry-core setuptools wheel numpy scipy h5py obspy
+uv pip install --python .venv/bin/python --no-build-isolation pyfk
 ```

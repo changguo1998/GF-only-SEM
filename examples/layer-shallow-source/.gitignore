@@ -1,0 +1,8 @@
+*.h5
+*.vtk
+*.log
+*.npz
+*.csv
+.venv
+.pyfk-venv/
+__pycache__/*.png

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============
-# halfspace/mesh.sh
+# layer-shallow-source/mesh.sh
 # ==============
 # Stage 1: generate mesh.
 # Usage: source mesh.sh   (or bash mesh.sh)
