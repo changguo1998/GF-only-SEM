@@ -1,0 +1,10 @@
+.build/
+config.h5
+greenfun/
+log/
+layer_surface_comparison.npz
+layer_surface_reference.npz
+model.h5
+partitions/
+restart_*.h5
+wavefields/
