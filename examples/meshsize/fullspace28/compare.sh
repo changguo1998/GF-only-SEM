@@ -14,7 +14,7 @@ MEMLIMIT="${PROJECT_ROOT}/scripts/with_mem_limit.sh" # host RAM cap (GF_MEM_LIMI
 source "${PROJECT_ROOT}/scripts/env.sh" >/dev/null 2>&1 || true
 
 echo "=============================================================="
-echo " CASE: meshsize/fullspace24"
+echo " CASE: meshsize/fullspace28"
 echo "=============================================================="
 
 # ── Stage 1: Mesh ──────────────────────────────────────────

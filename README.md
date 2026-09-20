@@ -138,7 +138,7 @@ Key fields: `polynomial_order`, `output_dt_s`, `total_duration_s`, `cfl_safety`,
 ## Testing
 
 ```bash
-.venv/bin/python -m pytest tests -q                 # Python (235 pass, 1 skip)
+.venv/bin/python -m pytest tests -q                 # Python (238 pass, 1 skip)
 ctest --test-dir build --output-on-failure          # C++/CUDA (63 registered tests)
 bash scripts/run_all_examples.sh                    # Three complementary pipelines
 ```

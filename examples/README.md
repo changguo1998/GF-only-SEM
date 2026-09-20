@@ -284,6 +284,11 @@ CUDA solver (skips gracefully with "SKIP: no GPU available" when no GPU is
 present), and `compare_solvers.py` aligns the CUDA and MPI-CPU strain fields
 (rel_l2, Pearson correlation). See `fullspace-cubic/VERIFICATION.md`.
 
+`meshsize/` is the fixed-receiver resolution study for the compact 18 km
+full-space domain. Its regenerated 18³/20³/22³/24³/28³ results show fitted
+relative L2 = 0.3414–0.3468 with no refinement trend and amplitude scale
+1.013–1.038. See `meshsize/README.md`.
+
 `fullspace-expanded/` is a non-canonical PML-distance and grid-size diagnostic:
 a 28 km homogeneous full space with a 1 Hz source. Its current configuration is
 22³ elements; `fullspace-expanded/VERIFICATION.md` compares 20³, 22³, 24³, 26³,

@@ -1,25 +1,26 @@
 #!/usr/bin/env python3
-"""Generate the four meshsize fullspace case dirs (18/20/22/24) + fixed receivers.
+"""Generate the five meshsize fullspace case dirs (18/20/22/24/28) + fixed receivers.
 
-Single source of truth for examples/meshsize/fullspace{18,20,22,24}:
+Single source of truth for examples/meshsize/fullspace{18,20,22,24,28}:
 everything except the grid (element size, PML layer count, tile split) is
-IDENTICAL across the four cases:
+IDENTICAL across the five cases:
 
   * domain 18 km³, N=4 GLL order, vp=5000 / vs=3000 / rho=2700
   * Ricker f0=1 Hz, t0=2 s, 8 s duration, dt=0.01, force 1e20 N
-  * SOURCE at exactly (9375, 9375, 9375) m in all four — inside every element
+  * SOURCE at exactly (9375, 9375, 9375) m in all five — inside every element
     (never on a GLL node) of every grid: 18³ nodes at 9000/10000 m, 20³ at
-    9000/9800, 22³ at 9000/9818.2, 24³ at 9000/9750
-  * PML thickness held ~constant in METERS (5.00/5.40/4.91/5.25 km ≈ 1.0 λp):
-    18³→5, 20³→6, 22³→6, 24³→7
-  * tiles partition the interior: 18/20 → [2,2,2,2]², 22/24 → [2,2,3,3]²
+    9000/9800, 22³ at 9000/9818.2, 24³ at 9000/9750, 28³ at 9000/9642.9
+  * PML thickness held ~constant in METERS (5.00/5.40/4.91/5.25/5.14 km ≈ 1.0 λp):
+    18³→5, 20³→6, 22³→6, 24³→7, 28³→8
+  * tiles partition the interior: 18/20 → [2,2,2,2]², 22/24 → [2,2,3,3]²,
+    28 → [3,3,3,3]²
 
 Fixed receivers: 64 points, seed-0 uniform draw in [5500,12500]³, saved to
 examples/meshsize/receivers_fixed.npy. Every grid evaluates the analytical
 solution at the NEAREST recorded GLL node's true coordinates, so the
 comparison has no h-dependent position error.
 
-Usage:  python3 gen_grids.py            # writes all four case dirs + receivers
+Usage:  python3 gen_grids.py            # writes all five case dirs + receivers
 """
 
 import os
@@ -70,14 +71,14 @@ def render_config(n: int, g: dict) -> str:
     p = g["pml"]
     return f'''"""Mesh-size study case: fullspace{n} — homogeneous elastic full-space.
 
-Part of examples/meshsize: four grids (18/20/22/24 elements per axis) with
+Part of examples/meshsize: five grids (18/20/22/24/28 elements per axis) with
 IDENTICAL physics except the grid. Domain 18 km³, Ricker f0=1 Hz (t0=2 s),
 8 s at dt=0.01, N=4, vp=5000 / vs=3000 / rho=2700, point force source at
 (9375, 9375, 9375) m in every case. All 6 faces PML (~1.0 λp in meters);
 recorded interior is partitioned into 16 tiles.
 
 Mesh: regular hexahedral, {g["desc"]}
-Source: point force at (9375, 9375, 9375) m (identical in all four cases)
+Source: point force at (9375, 9375, 9375) m (identical in all five cases)
 """
 
 import numpy as np

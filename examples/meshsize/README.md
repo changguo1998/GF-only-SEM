@@ -73,34 +73,33 @@ bash examples/meshsize/run_study.sh
 Parallelism follows the 16-core host: postprocess MPI ranks per grid are
 18/20³ → 12 ranks, 22³/24³ → 4, 28³ → 3 (peak memory scales ~linearly
 with surviving ranks — tile-local extraction, see
-`docs/design/postprocess-tile-parallel.md`), with caps 64/64/96/96/72 GB.
+`docs/design/postprocess-tile-parallel.md`), all with a 64 GB cgroup cap.
 
-## Results (2026-08-10, five grids, fixed receivers, ≤64 GB budget)
+## Results (2026-09-20, regenerated five-grid study)
 
-The table preserves the original run metrics except that `best-fit scale` is corrected by
-the exact factor of three removed from postprocess on 2026-09-17. The original stored scales
-were 0.338–0.346. The legacy fitted residual is retained only as a historical value: its
-normalization was amplitude-dependent and it must be recomputed from corrected tiles.
+All five CUDA/MPI pipelines were regenerated after fixing the postprocess field counts and
+the scale-invariant fitted-L2 formula. Fixed receiver multiplicity is preserved: if two of the
+64 physical points map to one GLL node, that waveform keeps both receiver weights.
 
-| grid | elem/λs | ranks | peak GiB | mean_corr | legacy fitted residual | best-fit scale | solver s/dir |
-|------|---------|-------|----------|-----------|----------|----------------|--------------|
-| 18³ | 3.0 | 12 | 48.4 | 0.8502 | 0.1230 | 1.017 | 63 |
-| 20³ | 3.3 | 12 | 52.0 | 0.8476 | 0.1275 | 1.038 | — |
-| 22³ | 3.7 | 4 | 32.3 | 0.8405 | 0.1235 | 1.014 | 117 |
-| 24³ | 4.0 | 4 | 34.3 | 0.8313 | 0.1267 | 1.032 | 148 |
-| 28³ | 4.7 | 3 | 40.2 | 0.8467 | 0.1255 | 1.026 | 236 |
+| grid | elem/λs | ranks | previous peak GiB | mean corr | raw relative L2 | SEM/reference scale | fitted relative L2 | solver s/dir |
+|------|---------|-------|-------------------|-----------|-----------------|---------------------|--------------------|--------------|
+| 18³ | 3.0 | 12 | 48.4 | 0.8502 | 0.4599 | 1.016 | 0.3414 | 70.5 |
+| 20³ | 3.3 | 12 | 52.0 | 0.8476 | 0.4629 | 1.038 | 0.3458 | 93.6 |
+| 22³ | 3.7 | 4 | 32.3 | 0.8405 | 0.4613 | 1.013 | 0.3436 | 121.6 |
+| 24³ | 4.0 | 4 | 34.3 | 0.8321 | 0.4656 | 1.032 | 0.3468 | 154.7 |
+| 28³ | 4.7 | 3 | 40.2 | 0.8467 | 0.4625 | 1.026 | 0.3443 | 253.0 |
 
-Key findings: (1) mean correlation is flat at about 0.83–0.85; the corrected relative-L2
-trend is pending recomputation. (2) Corrected best-fit scale is 1.014–1.038; the former ~0.34
-value was a postprocess bug. (3) 28³ is the ceiling.
+Key findings:
 
-### Regenerated 20³ result (2026-09-17)
-
-The complete 20³ CUDA/MPI pipeline was rerun after the averaging fix. At the same 64 fixed
-receivers used above it reports mean correlation 0.8476, raw relative L2 0.4629,
-SEM/reference scale 1.038, and corrected fitted relative L2 0.3458. The three CUDA force
-directions took 85.1/85.2/85.8 s. This replaces the 20³ legacy residual 0.1275; the remaining
-grids still need regenerated tiles before their corrected fitted relative L2 can be compared.
+- Fitted relative L2 stays within 0.3414–0.3468 with no monotonic improvement. Increasing
+  resolution from 3.0 to 4.7 elements/λs does not reduce the compact-domain residual.
+- Mean correlation is likewise non-monotonic at 0.83–0.85.
+- The amplitude scale is stable and close to one (1.013–1.038), confirming that the former
+  ~0.34 scale was solely the fixed postprocess count bug.
+- The expanded-domain source-centred result (correlation 0.9672, fitted L2 0.0882 at only
+  3.0 elements/λs) shows that finite-boundary/C-PML returned energy, not grid resolution,
+  dominates the compact-domain error.
+- 28³ remains the agreed ceiling.
 
 Detailed logs: `results/stage6_fixed.<n>.log`, `results/compare.<n>.log`,
 `results/peak.<n>.txt`; full analysis in

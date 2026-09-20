@@ -113,7 +113,7 @@ dispersion over 1–2 wavelengths at 1.5–2.0 Hz. Both 2-rank CPU and single-GP
 12% amplitude and 0.11 rad phase-error gates.
 
 CG-SEM global-DOF assembly fix complete — waves correctly propagate across element
-interfaces (both within-rank and cross-rank). All 236 Python tests are collected (235 pass and
+interfaces (both within-rank and cross-rank). All 239 Python tests are collected (238 pass and
 the opt-in C++ preprocess smoke test skips by default). The current CTest layout registers 63
 entries and requires an MPI-enabled build configuration.
 
@@ -139,6 +139,12 @@ scale-invariant; the formula and amplitude gate [0.8, 1.2] are now fixed. A fres
 run passed: default interior sample mean_corr=0.8573, raw rel_l2=0.4496, scale=1.019,
 fitted rel_l2=0.3454; 64 fixed receivers mean_corr=0.8476, raw rel_l2=0.4629, scale=1.038,
 fitted rel_l2=0.3458.
+
+The full five-grid study was regenerated 2026-09-20 with the corrected postprocess and metric:
+18³/20³/22³/24³/28³ fitted relative L2 = 0.3414/0.3458/0.3436/0.3468/0.3443,
+with scale 1.013–1.038. The absence of convergence from 3.0 to 4.7 elements/λs, together
+with the expanded-domain source-region L2=0.0882, confirms finite-boundary/C-PML returned
+energy as the dominant compact-domain residual.
 
 After fixing the postprocess mass-weighting and per-field count bugs and the Green tensor
 index convention mismatch, scaled waveform correlation is 0.991 (halfspace) / 0.745

@@ -1,13 +1,13 @@
 """Mesh-size study case: fullspace22 — homogeneous elastic full-space.
 
-Part of examples/meshsize: four grids (18/20/22/24 elements per axis) with
+Part of examples/meshsize: five grids (18/20/22/24/28 elements per axis) with
 IDENTICAL physics except the grid. Domain 18 km³, Ricker f0=1 Hz (t0=2 s),
 8 s at dt=0.01, N=4, vp=5000 / vs=3000 / rho=2700, point force source at
 (9375, 9375, 9375) m in every case. All 6 faces PML (~1.0 λp in meters);
 recorded interior is partitioned into 16 tiles.
 
 Mesh: regular hexahedral, 22×22×22 = 10648 elements, 818 m (3.7 elem/λs, 6.1 elem/λp), PML 6 = 4.91 km
-Source: point force at (9375, 9375, 9375) m (identical in all four cases)
+Source: point force at (9375, 9375, 9375) m (identical in all five cases)
 """
 
 import numpy as np

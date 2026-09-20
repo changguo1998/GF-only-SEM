@@ -3,12 +3,17 @@
 ## 1. Full-Space Waveform Shape Error
 
 The five-grid full-space study reports mean component-wise correlation of about 0.83–0.85.
-The residual is likely dominated by the finite-domain C-PML tail, near-field source
-representation, and the analytical reference's time/integral discretization. The old
-"scale-fitted shape L2" values are invalid: they were normalized by the unscaled analytical
-norm and therefore inherited the amplitude error. The corrected 20³ fixed-receiver value is
-0.3458 (mean correlation 0.8476); the other grids must be regenerated before drawing a new
-resolution-convergence conclusion.
+All five grids were regenerated on 2026-09-20 after the postprocess averaging and fitted-L2
+fixes. From 18³ to 28³ (3.0–4.7 elements per S wavelength), the corrected fitted relative L2
+is flat at 0.3414–0.3468, while the SEM/analytical amplitude scale remains 1.013–1.038. Thus
+neither the waveform residual nor the absolute amplitude improves with compact-domain grid
+refinement.
+
+The expanded-domain source-centred comparison reaches correlation 0.9672 and fitted relative
+L2 0.0882 even at only 3.0 elements per S wavelength. This isolates finite-boundary/C-PML
+returned energy as the dominant source of the compact-domain residual. Near-field point-source
+representation and analytical time/integral discretization may contribute to the remaining
+expanded-domain error, but the five-grid compact-domain study cannot separate them further.
 
 ## Resolved: Systematic ~3× Amplitude Factor
 
@@ -33,6 +38,6 @@ Historical scales map exactly as follows because the faulty division was exactly
 | Layer | 2.60 (reference/SEM) | 0.867 |
 
 The historical correlations are unchanged because they are invariant under uniform scaling.
-The historical "scale-fitted shape L2" was not actually scale-invariant and is invalid. A
-20³ production GPU/MPI rerun gives SEM/reference scale 1.038 and corrected fitted relative
-L2 0.3458 at the 64 fixed receivers.
+The historical "scale-fitted shape L2" was not actually scale-invariant and is invalid. The
+regenerated five-grid study gives SEM/reference scale 1.013–1.038 and corrected fitted relative
+L2 0.3414–0.3468 at the 64 fixed receivers.

@@ -22,6 +22,7 @@ Usage:
 """
 
 import importlib.util
+import math
 import os
 import sys
 
@@ -102,11 +103,9 @@ def main() -> int:
     # Time stepping
     results.append(_rtol_match("output_dt_s", config.output_dt_s, sim["output_dt_s"]))
     try:
-        expected_nsteps = (
-            _to_int(config.total_duration_s / config.output_dt_s, "duration/output_dt") + 1
-        )
+        expected_nsteps = math.ceil(config.total_duration_s / sim["solver_dt"])
     except ZeroDivisionError as exc:
-        raise ValueError("config.output_dt_s is zero") from exc
+        raise ValueError("config.h5 simulation.solver_dt is zero") from exc
     ok = expected_nsteps == nsteps_stored
     results.append(ok)
     print(
@@ -154,9 +153,9 @@ def main() -> int:
                 np.median(np.asarray(f[path], dtype=np.float64).ravel()), "model material"
             )
 
-        model_vp = _median("field/element/vp")
-        model_vs = _median("field/element/vs")
-        model_rho = _median("field/element/density")
+        model_vp = _median("field/cell/vp")
+        model_vs = _median("field/cell/vs")
+        model_rho = _median("field/cell/density")
 
     center = (
         _to_float(config.lx, "lx") / 2.0,

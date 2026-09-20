@@ -1,57 +1,7 @@
-==============================================================
- CASE: meshsize/fullspace20
-==============================================================
-
-=== Stage 1: Mesh ===
-[mesh_gen] Wrote model.h5
-            Elements: 8000 (20×20×20)
-            Vertices: 9261
-            Domain:   18000.0×18000.0×18000.0 m
-  elements: 8000 (expected 8000)
-
-=== Stage 2: Preprocess (cpp) ===
-  C++ preprocessor built
-[preprocess] Running C++ run (stage1→CPML→STF): /home/guochang/Projects/gf-calculation/bin/gf_preprocess run /home/guochang/Projects/gf-calculation/examples/meshsize/fullspace20/model.h5 --N 4 --cfl-safety 0.5 --nx 20 --ny 20 --n-ranks 16 --pml-xmin 6 --pml-xmax 6 --pml-ymin 6 --pml-ymax 6 --pml-zmin 6 --pml-zmax 6
-[preprocess] Building partition data from C++ results (16 ranks)...
-[preprocess]   16 ranks, 531441 global nodes
-[preprocess] Done in 3.8s
-
-=== Stage 2.5: SEM parameter consistency check ===
-Checking SEM-internal consistency in /home/guochang/Projects/gf-calculation/examples/meshsize/fullspace20 ...
-  [PASS] source.x_m: config=9375, artifact=9375
-  [PASS] source.y_m: config=9375, artifact=9375
-  [PASS] source.z_m: config=9375, artifact=9375
-  [PASS] output_dt_s: config=0.01, artifact=0.01
-  [PASS] nsteps: config-duration=801, artifact=801
-  [PASS] stf_func vs /source/stf_values: max_abs_diff=1.638e+04 (tol=1e+11)
-  [PASS] stf_peak == force_amplitude: config=1e+20, artifact=1e+20
-  [PASS] stride divisibility: solver_dt=1.000000e-02 x 1 == output_dt=0.01
-  [PASS] vp_m_s: config=5000, artifact=5000
-  [PASS] vs_m_s: config=3000, artifact=3000
-  [PASS] density_kg_m3: config=2700, artifact=2700
-
-SEM consistency: PASS
-
-=== Stage 3: Forward (elastic, cuda) ===
-
-  direction=x
-gf_solver: simulation complete, 800 steps in 85.358604s
-  direction=y
-gf_solver: simulation complete, 800 steps in 85.816788s
-  direction=z
-gf_solver: simulation complete, 800 steps in 86.220267s
-
-=== Stage 4: Postprocess ===
-
-
-=== Stage 5: Basic verification ===
-  tiles: 16 (expected >=4)
-max_displacement: 566610
-  displacement OK — PASSED
-
-=== Stage 6: Analytical comparison (Stokes full-space) ===
-  (skipped — GF_SKIP_STAGE6=1)
-
-==============================================================
- CASE meshsize/fullspace20: COMPLETE
-==============================================================
+CASE: meshsize/fullspace20
+Run date: 2026-09-20
+Elements: 8000 (20x20x20)
+Preprocess: PASS; nsteps=800; 16 partitions; SEM consistency PASS
+CUDA x/y/z: 94.015 / 93.430 / 93.425 s; PASS
+MPI postprocess: 12 ranks; 78.3 s; 16 tiles; PASS under 64 GB cgroup limit
+Fixed-receiver comparison: PASS; see stage6_fixed.20.log

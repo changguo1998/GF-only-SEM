@@ -19,7 +19,7 @@ output files instead of being duplicated here:
                              amplitude is embedded in these values)
   * source location       -> config.h5:/source/{x,y,z}
   * time step             -> config.h5:/simulation/output_dt_s
-  * material (vp, vs, rho)-> model.h5:/field/element/{vp,vs,density}
+  * material (vp, vs, rho)-> model.h5:/field/cell/{vp,vs,density}
                              (representative value = median)
 
 The comparison is therefore consistent with the SEM run BY CONSTRUCTION,
@@ -118,9 +118,9 @@ def load_sem_parameters(config_h5: str, model_h5: str, n_steps: int) -> dict:
             data = np.asarray(f[path], dtype=np.float64)
             return _to_float(np.median(data.ravel()), "model material")
 
-        vp = _median("field/element/vp")
-        vs = _median("field/element/vs")
-        rho = _median("field/element/density")
+        vp = _median("field/cell/vp")
+        vs = _median("field/cell/vs")
+        rho = _median("field/cell/density")
 
     # Validate STF time grid against output_dt_s.
     stf_dt = (
@@ -131,8 +131,7 @@ def load_sem_parameters(config_h5: str, model_h5: str, n_steps: int) -> dict:
             f"config.h5 STF dt={stf_dt} != output_dt_s={output_dt_s} — STF/record misalignment"
         )
 
-    # STF length is int(duration/output_dt)+1; recorded frames are one shorter.
-    # recorded frames must equal the config nsteps attr (catches stale/mixed
+    # Recorded frames must equal the config nsteps attr (catches stale/mixed
     # record files from a previous run of a different duration).
     if n_steps != nsteps_artifact:
         raise ValueError(
@@ -216,7 +215,7 @@ def _nearest_node_indices(coords, points) -> list:
         from scipy.spatial import cKDTree  # scipy is present in the project venv
 
         _, idx = cKDTree(coords).query(points, k=1)
-        return list(map(int, np.unique(idx)))
+        return list(map(int, idx))
     except ImportError:
         # Fallback without scipy: chunked brute force.
         best: list[int] = []
@@ -276,13 +275,10 @@ def load_sampled_displacement(sem: dict, sample_indices: list[int]) -> np.ndarra
             continue
 
         local_indices = indices[sample_positions] - vertex_start
-        order = np.argsort(local_indices)
-        local_indices = local_indices[order]
-        sample_positions = sample_positions[order]
+        unique_local_indices, inverse = np.unique(local_indices, return_inverse=True)
         with h5py.File(tile_path, "r") as f:
-            sampled[:, sample_positions, :, :] = f["/field/displacement_tensor"][
-                :, local_indices, :, :
-            ]
+            unique_displacement = f["/field/displacement_tensor"][:, unique_local_indices, :, :]
+            sampled[:, sample_positions, :, :] = unique_displacement[:, inverse, :, :]
     return sampled
 
 
@@ -428,7 +424,7 @@ def run(
         points = np.asarray(np.load(fixed_receivers), dtype=np.float64)
         sample_indices = _nearest_node_indices(coords, points)
         print(
-            f"  {len(points)} fixed receivers -> {len(sample_indices)} unique "
+            f"  {len(points)} fixed receivers -> {len(set(sample_indices))} unique "
             "nearest recorded GLL nodes"
         )
         stride = 0

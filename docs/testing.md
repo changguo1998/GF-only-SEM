@@ -151,7 +151,7 @@ bash examples/meshsize/run_study.sh
 | SLS 有限 Q 本构正确 | SPECFEM Qμ=20 剪切、Qκ=10 体积复模量 | 时间步减半稳定 | 单元本构不替代传播验证 |
 | SLS 有限 Q 传播正确 | `finite-q-propagation` 解析复波数传递函数 | CUDA 振幅/相位最大误差 9.67%/0.020 rad；2-rank CPU 为 8.54%/0.092 rad | 当前只覆盖均匀介质横向 S 波和 Qκ→∞ |
 | 震源绝对幅值正确 | 三个解析算例的 scale 门限 | 扩大全空间源区 scale=0.999 | 不代表晚期反射波形正确 |
-| 主要剩余误差来自边界/PML | `fullspace-expanded` 与主域对照 | 固定点网格研究中幅值稳定 | 网格研究不能替代更大域验证 |
+| 主要剩余误差来自边界/PML | `fullspace-expanded` 源区 corr=0.9672、拟合 L2=0.0882 | 18³–28³紧凑域拟合 L2 稳定在 0.3414–0.3468 | 近场震源与解析离散仍未单独分离 |
 | 串行/MPI 后处理一致 | halfspace 9 tiles 历史逐位对比 | tile schema 与独立计数单元测试 | 大模型内存峰值仍需单独监控 |
 
 ## 推荐运行节奏

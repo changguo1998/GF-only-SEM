@@ -1,4 +1,4 @@
-Loading SEM tiles from fullspace18/greenfun/ ...
+Loading SEM tiles from greenfun/ ...
   n_steps=800, dt_s=0.0100s, n_vertex=68688, duration=8.00s
   SEM params from config.h5 + model.h5
   source: [9375. 9375. 9375.], mode: fullspace
@@ -6,13 +6,13 @@ Loading SEM tiles from fullspace18/greenfun/ ...
   SEM STF dominant frequency: 1.000 Hz (lambda_s=3000 m)
   64 fixed receivers -> 64 unique nearest recorded GLL nodes
   sampling 64 receivers (fixed physical points)
-  Force x: n=192, mean_corr=0.8479, mean_l2=0.7056
-  Force y: n=192, mean_corr=0.8523, mean_l2=0.7032
-  Force z: n=192, mean_corr=0.8505, mean_l2=0.7030
+  Force x: n=192, mean_corr=0.8479, mean_l2=0.4645
+  Force y: n=192, mean_corr=0.8523, mean_l2=0.4570
+  Force z: n=192, mean_corr=0.8505, mean_l2=0.4582
 
 ============================================================
- OVERALL: mean_corr=0.8502, mean_l2=0.7039
- best-fit scale (SEM/analytical)=0.339, scale-fitted L2=0.1230
+ OVERALL: mean_corr=0.8502, mean_l2=0.4599
+ best-fit scale (SEM/analytical)=1.016, scale-fitted L2=0.3414
 ============================================================
 
   correlation vs receiver distance (in S wavelengths, f0 from SEM STF):

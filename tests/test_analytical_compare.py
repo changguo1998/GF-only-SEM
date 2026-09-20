@@ -60,9 +60,44 @@ def test_load_sem_tiles_reads_only_selected_displacement_traces(tmp_path):
         expected.append(displacement)
 
     sem = ANALYTICAL_COMPARE.load_sem_tiles(str(tmp_path))
-    sampled = ANALYTICAL_COMPARE.load_sampled_displacement(sem, [0, 3])
+    sampled = ANALYTICAL_COMPARE.load_sampled_displacement(sem, [0, 0, 3])
 
     assert "displacement" not in sem
-    assert sampled.shape == (3, 2, 3, 3)
+    assert sampled.shape == (3, 3, 3, 3)
     np.testing.assert_array_equal(sampled[:, 0], expected[0][:, 0])
-    np.testing.assert_array_equal(sampled[:, 1], expected[1][:, 1])
+    np.testing.assert_array_equal(sampled[:, 1], expected[0][:, 0])
+    np.testing.assert_array_equal(sampled[:, 2], expected[1][:, 1])
+
+
+def test_nearest_node_indices_preserve_fixed_receiver_count():
+    coordinates = np.array([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]])
+    receivers = np.array([[0.1, 0.0, 0.0], [0.2, 0.0, 0.0]])
+
+    indices = ANALYTICAL_COMPARE._nearest_node_indices(coordinates, receivers)
+
+    assert indices == [0, 0]
+
+
+def test_load_sem_parameters_reads_canonical_cell_material_schema(tmp_path):
+    config_path = tmp_path / "config.h5"
+    model_path = tmp_path / "model.h5"
+    with h5py.File(config_path, "w") as config:
+        source = config.create_group("source")
+        source.attrs.update({"x": 1.0, "y": 2.0, "z": 3.0})
+        source.create_dataset("stf_t", data=[0.0, 0.1], compression=None)
+        source.create_dataset("stf_values", data=[4.0, 5.0], compression=None)
+        simulation = config.create_group("simulation")
+        simulation.attrs.update({"output_dt_s": 0.1, "nsteps": 2})
+    with h5py.File(model_path, "w") as model:
+        cell = model.create_group("field/cell")
+        cell.create_dataset("vp", data=[5000.0], compression=None)
+        cell.create_dataset("vs", data=[3000.0], compression=None)
+        cell.create_dataset("density", data=[2700.0], compression=None)
+
+    parameters = ANALYTICAL_COMPARE.load_sem_parameters(
+        str(config_path), str(model_path), n_steps=2
+    )
+
+    assert parameters["vp_m_s"] == 5000.0
+    assert parameters["vs_m_s"] == 3000.0
+    assert parameters["density_kg_m3"] == 2700.0

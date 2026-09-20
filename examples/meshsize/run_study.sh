@@ -1,7 +1,6 @@
 #!/bin/bash
-# Mesh-size study driver: run fullspace18/20/22 pipelines (skip internal
-# stage 6), copy fullspace24 artifacts from fullspace-cubic, then run the
-# FIXED-RECEIVER comparison for all four cases.
+# Mesh-size study driver: run the fullspace18/20/22/24/28 pipelines (skip
+# internal stage 6), then run the fixed-receiver comparison for all five cases.
 #
 # Everything is kept per-case: model.h5, config.h5, wavefields/, greenfun/,
 # plus logs in examples/meshsize/results/.

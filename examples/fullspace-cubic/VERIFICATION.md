@@ -7,22 +7,28 @@
 > scales 1.014–1.038. Correlations are unchanged. The historical "scale-fitted shape L2" is
 > invalid because its denominator used the unscaled analytical norm; that metric is now a true
 > relative L2. This was a code bug, not an inherent GLL/SEM amplitude factor. The comparison now
-> enforces scale ∈ [0.8, 1.2]. The 20³ case has been regenerated and verified below; the other
-> historical grids still require regeneration for corrected L2 values.
+> enforces scale ∈ [0.8, 1.2]. All five grids were regenerated on 2026-09-20; the corrected
+> results are reported below.
 
-## 20³ Amplitude-Corrected Rerun (2026-09-17)
+## Amplitude-Corrected Five-Grid Rerun (2026-09-20)
 
-The complete CUDA/MPI pipeline used 800 steps per force direction, 12 postprocess ranks,
-and the 64 GiB memory guard. All three CUDA directions completed without OOM in
-85.1/85.2/85.8 s and MPI postprocess produced all 16 tiles.
+Every grid used 800 steps per force direction, the same 64 physical receiver points, and a
+64 GiB postprocess guard. All three CUDA directions and all 16 output tiles completed for
+each grid.
 
-| Receiver selection | Mean correlation | Raw relative L2 | SEM/reference scale | Fitted relative L2 |
-|--------------------|------------------|-----------------|---------------------|--------------------|
-| Derived non-PML interior, 50 nodes | 0.8573 | 0.4496 | 1.019 | 0.3454 |
-| 64 fixed physical receivers | 0.8476 | 0.4629 | 1.038 | 0.3458 |
+| Grid | Elements/λs | Mean correlation | Raw relative L2 | SEM/reference scale | Fitted relative L2 |
+|------|-------------|------------------|-----------------|---------------------|--------------------|
+| 18³ | 3.0 | 0.8502 | 0.4599 | 1.016 | 0.3414 |
+| 20³ | 3.3 | 0.8476 | 0.4629 | 1.038 | 0.3458 |
+| 22³ | 3.7 | 0.8405 | 0.4613 | 1.013 | 0.3436 |
+| 24³ | 4.0 | 0.8321 | 0.4656 | 1.032 | 0.3468 |
+| 28³ | 4.7 | 0.8467 | 0.4625 | 1.026 | 0.3443 |
 
-The scale is within the enforced [0.8, 1.2] interval. This directly verifies that the former
-~3× deficit came from postprocess averaging rather than the SEM solver.
+Fitted relative L2 is flat within 0.0054 across the full resolution range. Correlation is also
+non-monotonic, while every scale passes [0.8, 1.2]. The compact-domain residual therefore does
+not come from insufficient resolution in this range. The expanded-domain source-centred result
+(correlation 0.9672, fitted L2 0.0882 at 3.0 elements/λs) identifies finite-boundary/C-PML
+returned energy as the dominant source.
 
 ## Model Configuration (Iteration 2 — Parameter Optimized)
 
@@ -403,7 +409,10 @@ A 32³ point (562 m, ~90 GB postprocess peak, tight on 125 GB) would confirm
 whether shape L2 keeps dropping and mean_corr finally beats ~0.85 at a
 PML-tail-dominated floor.
 
-## Mesh-size study, fixed receivers, uncompressed HDF5, 64 GB budget (2026-08-10)
+## Historical Mesh-Size Study (2026-08-10)
+
+The values in this section are retained as execution history only. Its amplitude and fitted-L2
+metrics are superseded by the corrected 2026-09-20 table at the top of this document.
 
 Protocol: five grids (18/20/22/24/28) with IDENTICAL physics — domain 18 km³,
 source (9375,9375,9375) m, Ricker f0=1 Hz t0=2 s 8 s, dt=0.01, N=4, PML ≈
