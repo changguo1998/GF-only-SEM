@@ -22,9 +22,11 @@ all 4 MPI C++/Python variants (halfspace + layer).
 
 - Independent solver binary `gf_solver_viscoelastic_mpi` reuses `libgf_shared`
   and the 5 shared `kernel_helpers`; only the stress computation differs
-- SLS memory update inline in element kernel (R = a·R + b·Δσ)
-- Space-varying Q per GLL node, n_sls = 3 (compile-time)
+- Exact piecewise-linear SLS memory update inline in the element kernel
+- Independent Qμ/Qκ per GLL node, n_sls = 3 (compile-time)
 - `has_attenuation` flag gates all SLS code paths
+- Propagation-level analytical attenuation/dispersion validation in
+  `examples/finite-q-propagation/`
 
 **Preprocess:** `preprocess/attenuation.py`
 

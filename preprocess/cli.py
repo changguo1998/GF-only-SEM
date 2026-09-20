@@ -457,6 +457,7 @@ def write_attenuation_if_configured(
                 "tau_epsilon_kappa": tau_epsilon_kappa,
                 "q_mu": q_mu_arr,
                 "q_kappa": q_kappa_arr,
+                "attenuation_reference_frequency_hz": f0_attenuation,
             }
         )
         shear_scale = compute_unrelaxed_modulus_scale(tau_sigma, tau_epsilon_mu, f0_attenuation)

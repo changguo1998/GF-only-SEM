@@ -4,6 +4,7 @@ import tempfile
 
 import h5py
 import numpy as np
+import pytest
 
 _project_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 sys.path.insert(0, _project_root)
@@ -136,6 +137,23 @@ class TestModelWriter:
                 topo_grp = f["topology"]
                 assert np.array_equal(topo_grp["vertex_to_coord"][:], topo.vertex_to_coord)
                 assert np.array_equal(topo_grp["cell_to_surface"][:], topo.cell_to_surface)
+
+    def test_attenuation_reference_frequency_attribute_is_preserved(self):
+        with tempfile.TemporaryDirectory() as td:
+            model_path = os.path.join(td, "model.h5")
+            topo = _make_model_h5(model_path)
+            fields = _make_synthetic_fields(n_cell=1, ngll=4)
+            fields["tau_sigma"] = np.ones((1, 4, 4, 4, 3), dtype=np.float64)
+            fields["attenuation_reference_frequency_hz"] = 2.5
+            boundary_tag = np.array([1, 2, 2, 2, 2, 2], dtype=np.int64)
+            domain_bounds = {"xmin": 0, "xmax": 1, "ymin": 0, "ymax": 1, "zmin": 0, "zmax": 1}
+
+            write_model(model_path, topo, fields, boundary_tag, domain_bounds)
+
+            with h5py.File(model_path, "r") as model:
+                tau_sigma = model["field/cell/tau_sigma"]
+                assert tau_sigma.attrs["n_sls"] == 3
+                assert tau_sigma.attrs["f0_Hz"] == pytest.approx(2.5)
 
     def test_partition_files_created(self):
         with tempfile.TemporaryDirectory() as td:

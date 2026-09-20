@@ -197,6 +197,11 @@ def _extend_model_h5(
             array = fields.get(key)
             if array is not None:
                 _write_dataset(felem, key, array, dtype="float64")
+        if "tau_sigma" in felem:
+            felem["tau_sigma"].attrs["n_sls"] = int(felem["tau_sigma"].shape[-1])
+            reference_frequency_hz = fields.get("attenuation_reference_frequency_hz")
+            if reference_frequency_hz is not None:
+                felem["tau_sigma"].attrs["f0_Hz"] = float(reference_frequency_hz)
 
         is_pml = fields.get("is_pml", np.array([], dtype=np.bool_))
         _write_dataset(felem, "is_pml", is_pml.astype(np.int8), dtype="int8")

@@ -548,7 +548,7 @@ config.h5
         └── weights            : float64[n_src_cell, NGLL, NGLL, NGLL] — Lagrange w_ijk (normalized Σw = 1)
 ```
 
-Note: SLS attenuation data (`tau_sigma`, `tau_epsilon_mu`, `tau_epsilon_kappa`) is stored under `/field/cell/` in model.h5, not config.h5.
+Note: SLS attenuation data (`tau_sigma`, `tau_epsilon_mu`, `tau_epsilon_kappa`) is stored under `/field/cell/` in model.h5, not config.h5. The `tau_sigma` dataset stores `n_sls` and the attenuation reference frequency `f0_Hz` as attributes.
 No `direction` attribute. Runtime `--direction` selects x/y/z; jobs share one `config.h5`.
 
 ## No Receivers

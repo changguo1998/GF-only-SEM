@@ -15,6 +15,22 @@ the user inside each example's `forward.sh` (commented-out, switchable).
 
 Green's function extraction uses configured shallow mesh vertices. No receivers.
 
+## Finite-Q Propagation
+
+`finite-q-propagation` is the small analytical attenuation/dispersion regression. It runs an
+elastic baseline and a Qμ=20 viscoelastic y-force on a 20×12×12 full-space mesh, then compares
+the finite-Q/elastic transfer between one and two S wavelengths against the exact complex SLS
+Green function at 1.5–2.0 Hz.
+
+```bash
+bash examples/finite-q-propagation/run.sh auto  # CUDA when available, else 2-rank CPU
+bash examples/finite-q-propagation/run.sh cpu
+bash examples/finite-q-propagation/run.sh cuda
+```
+
+Acceptance limits are 12% relative amplitude error and 0.11 rad phase error. Both CPU and CUDA
+were verified on 2026-09-20.
+
 ## Half-Space
 
 Homogeneous elastic half-space with a buried point force at 278 m depth.

@@ -14,7 +14,7 @@
 
 ## 自动化测试清单
 
-### Python：230 项（另有 1 项环境相关跳过）
+### Python：235 项（另有 1 项环境相关跳过）
 
 | 文件 | 数量 | 覆盖内容 |
 | --- | ---: | --- |
@@ -31,7 +31,7 @@
 | `tests/preprocess/test_cpp_preprocess_smoke.py` | 1 | C++ 预处理生成求解器可读分区；默认跳过 |
 | `tests/preprocess/test_gll_geometry.py` | 13 | GLL 点/权重、Jacobian、质量与多单元几何 |
 | `tests/preprocess/test_model_loader.py` | 5 | 材料默认值、callable 与类型 |
-| `tests/preprocess/test_model_writer.py` | 6 | `model.h5`、PML 标记与多分区写入 |
+| `tests/preprocess/test_model_writer.py` | 7 | `model.h5`、PML 标记、SLS 元数据与多分区写入 |
 | `tests/preprocess/test_partition.py` | 11 | METIS 分区、全局 DOF 与交换模式 |
 | `tests/preprocess/test_pml.py` | 6 | PML 区域和阻尼单调性 |
 | `tests/preprocess/test_pml_cpml.py` | 2 | C-PML 面剖面与参数尺度 |
@@ -41,6 +41,7 @@
 | `tests/preprocess/test_topology_reader.py` | 7 | 拓扑 schema、方向约定与错误文件 |
 | `tests/test_analytical_compare.py` | 5 | 解析比较、尺度拟合、接收点选择 |
 | `tests/test_attenuation_injection.py` | 15 | Qμ/Qκ 独立拟合、SLS 注入、模量校正与弹性极限 |
+| `tests/test_finite_q_propagation.py` | 4 | SLS 解析传递函数、门限与 record HDF5 读取 |
 | `tests/test_sls_memory.py` | 5 | 应变驱动记忆变量、稳态、体积/偏量独立性 |
 | `tests/test_waveform_validation.py` | 2 | 解析算例门限和三倍幅值错误回归 |
 | `tests/tools/test_gmsh_to_hdf5.py` | 18 | GMSH 拓扑转换、方向、CSR 与 HDF5 |
@@ -100,8 +101,8 @@ build/tests/test_sls_finite_q --reporter compact
 - 三个力方向用于生成完整 Green 张量；CPU–CUDA 数值一致性只比较 x 方向的 step 400/700，
   因为另外两个方向已经由解析解算例覆盖。
 - Q=1e9 用于严格弹性极限；有限 Q 使用 SPECFEM 参数独立验证 Qμ=20 剪切和 Qκ=10 体积响应。
-  16×10×10、2-rank CPU 与单 GPU CUDA 短传播还验证了有限 Q 相对弹性的响应范数比；两后端
-  最大差为 6.18e-4，但尚未建立有限 Q 传播的独立解析幅值门限。
+  `finite-q-propagation` 再用 Qμ=20/Qκ→∞ 验证 1–2 个 S 波长传播后的解析振幅衰减与相位
+  色散；弹性对照抵消共同的网格/PML 误差。
 - `float32` 是生产记录格式；float64 的格式与往返由单元测试覆盖，不重复整套大算例。
 
 主算例入口：
@@ -125,6 +126,7 @@ PASS 不再只表示流程运行成功。
 | `layer-shallow-source` | 修改震源定位/插值时 | 仅把层状模型震源改为 100 m | 浅部非 GLL 点埋源有效；主体波与 PyFK 一致 |
 | `layer-surface-source-cpp` | 修改 C++ 预处理或地表源时 | `source_z_m=None`，全 C++ 流程 | 地表源定位及 C++ mesh→postprocess 链路有效 |
 | `fullspace-expanded` | 修改 PML或边界时 | 28 km 域、22³、约 6.36 km PML | 源区 corr=0.9672 且 scale≈1，说明主要残差来自有限边界/PML |
+| `finite-q-propagation` | 修改 SLS、衰减预处理或 record schema 时 | 20×12×12；Qμ=20/Qκ→∞；y 力沿 x 传播 | 1.5–2.0 Hz 振幅衰减误差≤12%，相位色散误差≤0.11 rad |
 | `meshsize/fullspace*` | 修改离散或开展收敛研究时 | 18³/20³/22³/24³/28³，共用 64 固定物理点 | 分辨率变化与边界误差分离；28³ 为内存上限 |
 
 专项命令：
@@ -134,6 +136,7 @@ bash examples/layer-shallow-source/compare.sh
 bash examples/layer-surface-source-cpp/run.sh
 bash examples/layer-surface-source-cpp/compare_theory.sh
 bash examples/fullspace-expanded/compare.sh
+bash examples/finite-q-propagation/run.sh auto
 bash examples/meshsize/run_study.sh
 ```
 
@@ -145,8 +148,8 @@ bash examples/meshsize/run_study.sh
 | 层状界面实现正确 | `layer` 0–2 s PyFK 门限 | 278 m/100 m 两个源深度 corr=0.9914/0.9930 | 5 s 全时段不能用于判断主体波误差 |
 | CPU-MPI 与 CUDA 一致 | `fullspace-cubic/compare_solvers.py` | step 400/700 corr>0.9999998，rel_l2≤5.1e-4 | 当前脚本只比较弹性 x 方向 |
 | SLS 在 Q→∞ 回到弹性 | SLS 单元测试和 `halfspace` SLS 解析验证 | 历史端到端 rel_l2=0.0 | 不替代有限 Q 验证 |
-| SLS 有限 Q 本构正确 | SPECFEM Qμ=20 剪切、Qκ=10 体积复模量 | 时间步减半稳定；16×10×10 MPI 短传播无发散 | 尚无传播级解析幅值/频散门限 |
-| SLS 有限 Q CPU–CUDA 效应一致 | 16×10×10、Qμ=20/Qκ=10；有限 Q/弹性响应范数比最大差 6.18e-4 | RTX 5060 Ti CUDA 单元测试 3/3 通过 | 晚时直接场差异含 MPI–CUDA 弹性基线，不能作为 SLS 独立误差 |
+| SLS 有限 Q 本构正确 | SPECFEM Qμ=20 剪切、Qκ=10 体积复模量 | 时间步减半稳定 | 单元本构不替代传播验证 |
+| SLS 有限 Q 传播正确 | `finite-q-propagation` 解析复波数传递函数 | CUDA 振幅/相位最大误差 9.67%/0.020 rad；2-rank CPU 为 8.54%/0.092 rad | 当前只覆盖均匀介质横向 S 波和 Qκ→∞ |
 | 震源绝对幅值正确 | 三个解析算例的 scale 门限 | 扩大全空间源区 scale=0.999 | 不代表晚期反射波形正确 |
 | 主要剩余误差来自边界/PML | `fullspace-expanded` 与主域对照 | 固定点网格研究中幅值稳定 | 网格研究不能替代更大域验证 |
 | 串行/MPI 后处理一致 | halfspace 9 tiles 历史逐位对比 | tile schema 与独立计数单元测试 | 大模型内存峰值仍需单独监控 |
@@ -165,6 +168,7 @@ bash scripts/run_all_examples.sh
 bash examples/layer-shallow-source/compare.sh
 bash examples/layer-surface-source-cpp/run.sh
 bash examples/fullspace-expanded/compare.sh
+bash examples/finite-q-propagation/run.sh auto
 ```
 
 网格研究耗时和存储量最大，只在离散、PML 或误差解释发生变化时运行。普通功能改动不应重跑

@@ -56,7 +56,7 @@ Six solver binaries, selected via `scripts/solver.sh` or directly:
 |--------|----------|---------|
 | `preprocess/` | Python + C++17 | GLL geometry, material, PML, partition, config |
 | `forward/` | C++17 | Elastic CG-SEM solver (libgf_elastic) + 3 MPI/CUDA executables |
-| `forward/viscoelastic/` | C++17 | Viscoelastic SEM solver (SLS) — skeleton, implementation deferred |
+| `forward/viscoelastic/` | C++17 | Viscoelastic SEM solver with finite-Q SLS attenuation |
 | `postprocess/` | C++17 | Strain Green's function extraction (Python archived) |
 | `tools/` | Python + C++17 | GMSH->HDF5 converter (Python); VTK tools (C++ primary, Python archived) |
 
@@ -138,7 +138,7 @@ Key fields: `polynomial_order`, `output_dt_s`, `total_duration_s`, `cfl_safety`,
 ## Testing
 
 ```bash
-.venv/bin/python -m pytest tests -q                 # Python (230 pass, 1 skip)
+.venv/bin/python -m pytest tests -q                 # Python (235 pass, 1 skip)
 ctest --test-dir build --output-on-failure          # C++/CUDA (63 registered tests)
 bash scripts/run_all_examples.sh                    # Three complementary pipelines
 ```
