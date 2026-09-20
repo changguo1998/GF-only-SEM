@@ -3,9 +3,8 @@ Unit tests for the config-driven SLS attenuation auto-injection
 (preprocess Step 10b, `preprocess/cli.py:write_attenuation_if_configured`).
 
 Covers: writes when q_mu/q_kappa present, skips when absent, dataset shapes and
-attrs, n_sls clamping to the solver-fixed N_SLS=3, and the Q -> infinity
-(elastic-limit) property tau_epsilon == tau_sigma that makes the visco solver's
-output bit-identical to elastic.
+attrs, independent Q_mu/Q_kappa handling, n_sls clamping, and the Q -> infinity
+elastic limit.
 """
 
 from types import SimpleNamespace
@@ -14,7 +13,7 @@ import h5py
 import numpy as np
 import pytest
 
-from preprocess.attenuation import compute_tau_from_q
+from preprocess.attenuation import compute_tau_from_q, compute_unrelaxed_modulus_scale
 from preprocess.cli import write_attenuation_if_configured
 
 NGLL = 4
@@ -58,7 +57,7 @@ def test_writes_when_configured(model_path):
     cfg = make_config()
     assert write_attenuation_if_configured(model_path, cfg, N_CELL, NGLL) is True
 
-    for name in ("tau_sigma", "tau_epsilon", "q_mu", "q_kappa"):
+    for name in ("tau_sigma", "tau_epsilon_mu", "tau_epsilon_kappa", "q_mu", "q_kappa"):
         assert has_key(model_path, name), f"missing {name}"
     # tau_* shape [n_cell, NGLL, NGLL, NGLL, n_sls]; Q fields [n_cell, NGLL^3]
     assert read_field(model_path, "tau_sigma").shape == (N_CELL, NGLL, NGLL, NGLL, 3)
@@ -83,12 +82,14 @@ def test_skips_without_q(model_path):
 
 
 def test_q_infinity_elastic_limit(model_path):
-    """Q -> inf: tau_epsilon == tau_sigma (no relaxation) at every node."""
+    """Q -> inf: both relaxation channels approach the elastic limit."""
     cfg = make_config(q_mu=1.0e9, q_kappa=1.0e9)
     write_attenuation_if_configured(model_path, cfg, N_CELL, NGLL)
     ts = read_field(model_path, "tau_sigma")
-    te = read_field(model_path, "tau_epsilon")
-    assert np.max(np.abs(te - ts)) < 1e-6
+    te_mu = read_field(model_path, "tau_epsilon_mu")
+    te_kappa = read_field(model_path, "tau_epsilon_kappa")
+    np.testing.assert_array_equal(te_mu, ts)
+    np.testing.assert_array_equal(te_kappa, ts)
     assert np.all(ts > 0.0)
 
 
@@ -116,6 +117,29 @@ def test_scalar_q_supported(model_path):
     assert np.all(read_field(model_path, "q_mu") == 1.0e9)
 
 
+def test_q_mu_and_q_kappa_are_independent(model_path):
+    cfg = make_config(q_mu=20.0, q_kappa=1.0e9)
+    write_attenuation_if_configured(model_path, cfg, N_CELL, NGLL)
+    tau_sigma = read_field(model_path, "tau_sigma")
+    assert np.all(read_field(model_path, "tau_epsilon_mu") > tau_sigma)
+    assert np.allclose(read_field(model_path, "tau_epsilon_kappa"), tau_sigma, rtol=1e-6)
+
+
+def test_pipeline_fields_include_attenuation_and_unrelaxed_moduli(model_path):
+    shape = (N_CELL, NGLL, NGLL, NGLL)
+    fields = {"mu": np.full(shape, 2.0), "lambda": np.full(shape, 3.0)}
+    cfg = make_config(q_mu=20.0, q_kappa=10.0, f0_for_pml_hz=18.0)
+
+    assert write_attenuation_if_configured(model_path, cfg, N_CELL, NGLL, fields=fields)
+
+    assert "tau_epsilon_mu" in fields
+    assert "tau_epsilon_kappa" in fields
+    assert np.all(fields["mu"] > 2.0)
+    reference_bulk_modulus = 3.0 + 2.0 * 2.0 / 3.0
+    unrelaxed_bulk_modulus = fields["lambda"] + 2.0 * fields["mu"] / 3.0
+    assert np.all(unrelaxed_bulk_modulus > reference_bulk_modulus)
+
+
 # --------------------------------------------------------------------------
 # compute_tau_from_q (pure core)
 # --------------------------------------------------------------------------
@@ -129,9 +153,50 @@ def test_finite_q_gives_attenuation():
     """Finite Q: tau_epsilon > tau_sigma (relaxation present)."""
     ts, te = compute_tau_from_q(q_array(30.0), NGLL, 3, 2.0)
     assert np.all(te > ts + 1e-12)
-    # elastic limit: for Q = 1e9 the tau-method leaves a ~3e-8 residual
+    # Q >= 1e8 is the exact elastic sentinel used by the example configs.
     ts_inf, te_inf = compute_tau_from_q(q_array(1.0e9), NGLL, 3, 2.0)
-    assert np.allclose(te_inf, ts_inf, rtol=1e-6)
+    np.testing.assert_array_equal(te_inf, ts_inf)
+
+
+def test_fitted_parameters_reproduce_target_q_at_reference_frequency():
+    target_q = 20.0
+    reference_frequency_hz = 18.0
+    tau_sigma, tau_epsilon = compute_tau_from_q(q_array(target_q), NGLL, 3, reference_frequency_hz)
+    tau_sigma_node = tau_sigma[0, 0, 0, 0]
+    ratio = tau_epsilon[0, 0, 0, 0] / tau_sigma_node
+    weights = (ratio - 1.0) / np.sum(ratio)
+    frequency_tau = 2.0 * np.pi * reference_frequency_hz * tau_sigma_node
+    modulus_ratio = 1.0 - np.sum(weights / (1.0 + 1j * frequency_tau))
+    measured_q = modulus_ratio.real / modulus_ratio.imag
+    assert measured_q == pytest.approx(target_q, rel=0.03)
+
+
+def test_fitted_parameters_hold_q_over_configured_band():
+    target_q = 20.0
+    reference_frequency_hz = 18.0
+    tau_sigma, tau_epsilon = compute_tau_from_q(q_array(target_q), NGLL, 3, reference_frequency_hz)
+    tau_sigma_node = tau_sigma[0, 0, 0, 0]
+    ratio = tau_epsilon[0, 0, 0, 0] / tau_sigma_node
+    weights = (ratio - 1.0) / np.sum(ratio)
+
+    for frequency_hz in np.logspace(
+        np.log10(reference_frequency_hz / 20.0), np.log10(reference_frequency_hz * 3.0), 100
+    ):
+        frequency_tau = 2.0 * np.pi * frequency_hz * tau_sigma_node
+        modulus_ratio = 1.0 - np.sum(weights / (1.0 + 1j * frequency_tau))
+        measured_q = modulus_ratio.real / modulus_ratio.imag
+        assert measured_q == pytest.approx(target_q, rel=0.03)
+
+
+def test_unrelaxed_scale_preserves_reference_frequency_modulus():
+    reference_frequency_hz = 18.0
+    tau_sigma, tau_epsilon = compute_tau_from_q(q_array(20.0), NGLL, 3, reference_frequency_hz)
+    scale = compute_unrelaxed_modulus_scale(tau_sigma, tau_epsilon, reference_frequency_hz)
+    ratio = tau_epsilon[0, 0, 0, 0] / tau_sigma[0, 0, 0, 0]
+    weights = (ratio - 1.0) / np.sum(ratio)
+    frequency_tau = 2.0 * np.pi * reference_frequency_hz * tau_sigma[0, 0, 0, 0]
+    real_ratio = 1.0 - np.sum(weights / (1.0 + frequency_tau**2))
+    assert scale[0, 0, 0, 0] * real_ratio == pytest.approx(1.0)
 
 
 def test_nonpositive_q_node_no_attenuation():
@@ -152,8 +217,8 @@ def test_tau_sigma_shape_and_values():
     ts, te = compute_tau_from_q(q_array(30.0), NGLL, 3, 2.0)
     assert ts.shape == (N_CELL, NGLL, NGLL, NGLL, 3)
     assert te.shape == ts.shape
-    # tau_sigma = 1/(2 pi f_l) with f in [f0/200, 5 f0]
-    f_l = np.logspace(np.log10(2.0 / 200.0), np.log10(2.0 * 5.0), 3)
+    # tau_sigma = 1/(2 pi f_l) with f in [f0/20, 3 f0]
+    f_l = np.logspace(np.log10(2.0 / 20.0), np.log10(2.0 * 3.0), 3)
     expected = 1.0 / (2.0 * np.pi * f_l)
     assert np.allclose(ts[0, 0, 0, 0, :], expected, rtol=1e-12)
 

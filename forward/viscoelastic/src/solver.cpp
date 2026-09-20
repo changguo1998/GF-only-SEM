@@ -9,7 +9,7 @@
  * link time.
  *
  * The model.h5 file must contain /field/cell/tau_sigma and
- * /field/cell/tau_epsilon datasets (written by preprocess/attenuation.py).
+ * /field/cell/tau_epsilon_mu and tau_epsilon_kappa datasets.
  * When these are present, io.cpp sets part.has_attenuation = true and the
  * shared solver automatically enables SLS memory allocation, coefficient
  * precomputation, and passes SLS parameters to the element kernel.

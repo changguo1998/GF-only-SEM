@@ -131,17 +131,20 @@ Key fields: `polynomial_order`, `output_dt_s`, `total_duration_s`, `cfl_safety`,
 - **No receivers** — shallow mesh-vertex recording, no CSV/search/interpolation
 - **Timestep split** — `solver_dt` (CFL) + `output_dt_s` (snapshot interval)
 - **Source direction** not in config — CLI `--direction {x,y,z}` per run
-- **Elastic only** — SLS attenuation deferred
+- **Elastic + viscoelastic** — SLS attenuation complete; Q→∞ elastic-limit regression is bit-identical
 - **Full variable names** — `solver_dt`, `snapshot_stride`, `vertex_ids` (no abbreviations)
 - **VTK output with GLL sub-cells** — mesh hexahedra supplemented with GLL-derived edge, face, and sub-volume cells for proper ParaView interpolation; cell data broadcast from parent hex to child GLL cells
 
 ## Testing
 
 ```bash
-python -m pytest tests -q                          # Python (207)
-ctest --test-dir build --output-on-failure          # C++ (Catch2)
-bash examples/halfspace/compare.sh                  # Full pipeline
+.venv/bin/python -m pytest tests -q                 # Python (230 pass, 1 skip)
+ctest --test-dir build --output-on-failure          # C++/CUDA (63 registered tests)
+bash scripts/run_all_examples.sh                    # Three complementary pipelines
 ```
+
+完整清单、参数组合、判据及“结论—证据”对应关系见
+[`docs/testing.md`](docs/testing.md)。
 
 ## Documentation
 
@@ -149,6 +152,7 @@ bash examples/halfspace/compare.sh                  # Full pipeline
 |----------|----------|
 | `docs/design-decisions.md` | Architecture, schemas, rationale |
 | `docs/math.md` | Full mathematical formulation |
+| `docs/testing.md` | Test inventory, validation matrix, thresholds |
 | `preprocess/AGENTS.md` | Preprocess module |
 | `forward/AGENTS.md` | Forward solver (CPU+GPU backend) |
 | `postprocess/AGENTS.md` | Post-process module |

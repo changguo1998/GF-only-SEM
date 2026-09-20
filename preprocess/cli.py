@@ -396,15 +396,16 @@ def step_lame_and_cfl(
 # ── Main pipeline ──
 
 
-def write_attenuation_if_configured(model_path, config, n_cell, n_gll, logger=None) -> bool:
+def write_attenuation_if_configured(
+    model_path, config, n_cell, n_gll, logger=None, fields=None
+) -> bool:
     """Step 10b (config-driven): SLS attenuation auto-injection.
 
     When ``config`` exposes ``q_mu``/``q_kappa`` (the canonical visco parameter
-    settings), compute tau_sigma/tau_epsilon and write them to model.h5 so the
-    forward solver auto-detects attenuation
-    (forward/share/src/io.cpp: has_attenuation = !tau_sigma.empty()).
-    Q -> infinity (elastic limit) => tau_epsilon == tau_sigma => solver output is
-    bit-identical to elastic. ``n_sls`` is clamped to the solver-fixed N_SLS=3.
+    settings), compute independent shear and bulk relaxation times. When
+    ``fields`` is supplied, add them before model/partition writing; otherwise
+    write them directly to model.h5 for compatibility with standalone callers.
+    ``n_sls`` is clamped to the solver-fixed N_SLS=3.
 
     Returns True when attenuation was written, False when the config carries no
     q_mu/q_kappa (skipped). ``logger`` is optional (None => silent).
@@ -436,11 +437,34 @@ def write_attenuation_if_configured(model_path, config, n_cell, n_gll, logger=No
 
     import numpy as np
 
-    from preprocess.attenuation import write_attenuation_to_model
+    from preprocess.attenuation import (
+        compute_tau_from_q,
+        compute_unrelaxed_modulus_scale,
+        write_attenuation_to_model,
+    )
 
     q_mu_arr = np.full((n_cell, n_gll, n_gll, n_gll), q_mu_f, dtype=np.float64)
     q_kappa_arr = np.full((n_cell, n_gll, n_gll, n_gll), q_kappa_f, dtype=np.float64)
-    write_attenuation_to_model(model_path, q_kappa_arr, q_mu_arr, n_gll, n_sls, f0_attenuation)
+    if fields is None:
+        write_attenuation_to_model(model_path, q_kappa_arr, q_mu_arr, n_gll, n_sls, f0_attenuation)
+    else:
+        tau_sigma, tau_epsilon_mu = compute_tau_from_q(q_mu_arr, n_gll, n_sls, f0_attenuation)
+        _, tau_epsilon_kappa = compute_tau_from_q(q_kappa_arr, n_gll, n_sls, f0_attenuation)
+        fields.update(
+            {
+                "tau_sigma": tau_sigma,
+                "tau_epsilon_mu": tau_epsilon_mu,
+                "tau_epsilon_kappa": tau_epsilon_kappa,
+                "q_mu": q_mu_arr,
+                "q_kappa": q_kappa_arr,
+            }
+        )
+        shear_scale = compute_unrelaxed_modulus_scale(tau_sigma, tau_epsilon_mu, f0_attenuation)
+        bulk_scale = compute_unrelaxed_modulus_scale(tau_sigma, tau_epsilon_kappa, f0_attenuation)
+        shear_modulus_reference = fields["mu"]
+        bulk_modulus_reference = fields["lambda"] + 2.0 * shear_modulus_reference / 3.0
+        fields["mu"] = shear_modulus_reference * shear_scale
+        fields["lambda"] = bulk_modulus_reference * bulk_scale - 2.0 * fields["mu"] / 3.0
     if logger:
         logger.info("  attenuation write done")
     return True
@@ -615,6 +639,8 @@ def main() -> None:
         "damping": damping,
     }
     fields.update(cpml_params)
+    # Add attenuation before model and partition files are written.
+    write_attenuation_if_configured(model_path, config, n_cell, n_gll, logger, fields)
     tile_config = {
         "nx_elements": int(config.nx_elements),
         "ny_elements": int(config.ny_elements),
@@ -643,11 +669,6 @@ def main() -> None:
         tile_config=tile_config,
     )
     logger.info(f"  model write: {time.time() - t0:.2f}s")
-
-    # ── Step 10b: SLS attenuation (config-driven, visco parameter settings) ──
-    # When config exposes q_mu/q_kappa, compute tau_sigma/tau_epsilon and write them
-    # to model.h5 so the solver auto-detects attenuation (n_sls clamped to 3).
-    write_attenuation_if_configured(model_path, config, n_cell, n_gll, logger)
 
     config_h5 = os.path.join(os.path.dirname(model_path), "config.h5")
     logger.info(f"Writing config to: {config_h5}")

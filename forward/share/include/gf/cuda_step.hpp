@@ -44,10 +44,11 @@ struct CudaDeviceState {
     bool has_cpml = false;
 
     // --- SLS attenuation device buffers (persistent, allocated when has_attenuation) ---
-    double* d_rmemory_sls = nullptr;  // [n_total_nodes * MEMORY_PER_NODE]  R_l Voigt
-    double* d_sigma_old = nullptr;    // [n_total_nodes * VOIGT_COMPONENTS]  prev stress
-    double* d_sls_coef_a = nullptr;   // [n_total_nodes * N_SLS]  a_l = exp(-dt/tau_s)
-    double* d_sls_coef_b = nullptr;   // [n_total_nodes * N_SLS]  b_l
+    double* d_rmemory_sls = nullptr;        // [n_total_nodes * MEMORY_PER_NODE]
+    double* d_strain_old = nullptr;         // [n_total_nodes * VOIGT_COMPONENTS]
+    double* d_sls_decay = nullptr;          // [n_total_nodes * N_SLS]
+    double* d_sls_forcing_mu = nullptr;     // [n_total_nodes * N_SLS * 2]
+    double* d_sls_forcing_kappa = nullptr;  // [n_total_nodes * N_SLS * 2]
     bool has_attenuation = false;
 
     // --- Global DOF arrays (CG-SEM assembly) ---
@@ -137,6 +138,11 @@ void cuda_newmark_correct(CudaDeviceState& state, double dt, double beta, double
 void cuda_copy_state_to_host(const CudaDeviceState& state, std::vector<double>& h_displacement,
                              std::vector<double>& h_velocity, std::vector<double>& h_acceleration);
 
+/// Upload state vectors from host when resuming a run.
+void cuda_copy_state_from_host(CudaDeviceState& state, const std::vector<double>& h_displacement,
+                               const std::vector<double>& h_velocity,
+                               const std::vector<double>& h_acceleration);
+
 /// Launch element residual kernel using pre-existing device pointers (GPU-native mode).
 void cuda_launch_element_residual(const CudaDeviceState& state, int ngll, int n_elem);
 
@@ -149,6 +155,8 @@ void cuda_free_cpml_data(CudaDeviceState& state);
 
 /// Upload SLS attenuation data from RankData to device.
 void cuda_upload_sls_data(CudaDeviceState& state, const struct RankData& part, int n_node);
+/// Download SLS runtime state before writing a restart file.
+void cuda_copy_sls_to_host(const CudaDeviceState& state, struct RankData& part);
 /// Free SLS device buffers.
 void cuda_free_sls_data(CudaDeviceState& state);
 

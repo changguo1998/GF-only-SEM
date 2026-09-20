@@ -169,9 +169,9 @@ void RestartWriter::write(int step, double time_s, const std::vector<double>& di
     // --- SLS attenuation runtime state (only when present) ---
     if (cpml_part && cpml_part->has_attenuation) {
         hsize_t dims_rmem[1] = {cpml_part->rmemory_sls.size()};
-        hsize_t dims_sold[1] = {cpml_part->sigma_old.size()};
+        hsize_t dims_strain[1] = {cpml_part->strain_old.size()};
         write_dset(file_id_, "rmemory_sls", cpml_part->rmemory_sls, 1, dims_rmem);
-        write_dset(file_id_, "sigma_old", cpml_part->sigma_old, 1, dims_sold);
+        write_dset(file_id_, "sls_strain_old", cpml_part->strain_old, 1, dims_strain);
     }
 }
 
@@ -243,10 +243,15 @@ RestartState read_restart(const std::string& output_dir, const std::string& sour
     read_dset("acceleration", state.acceleration);
     read_dset("pml_damping", state.pml_damping);
 
-    // --- SLS attenuation runtime state (backward-compatible: skip if absent) ---
+    // --- SLS attenuation runtime state ---
     read_dset("rmemory_sls", state.rmemory_sls);
-    read_dset("sigma_old", state.sigma_old);
+    read_dset("sls_strain_old", state.sls_strain_old);
     state.has_attenuation = !state.rmemory_sls.empty();
+    if (state.has_attenuation && state.sls_strain_old.empty()) {
+        H5Fclose(fid);
+        throw std::runtime_error(
+            "read_restart: incompatible finite-Q restart (missing sls_strain_old)");
+    }
 
     H5Fclose(fid);
     return state;

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inject SLS attenuation fields (Q, tau_sigma, tau_epsilon) into model.h5.
+"""Inject SLS attenuation fields into model.h5.
 
 For elastic-limit regression: use very large Q values (q_mu=1e9, q_kappa=1e9)
 so the SLS solver code path is exercised but attenuation is negligible.
@@ -80,9 +80,11 @@ def main() -> None:
 
     # Verify
     with h5py.File(model_path, "r") as f:
-        for name in ["tau_sigma", "tau_epsilon", "q_mu", "q_kappa"]:
-            ds = _get_dataset(f, f"/field/cell/{name}")
-            print(f"  /field/cell/{name}: shape={ds.shape}, dtype={ds.dtype}")
+        field_group = "element" if "field/element/tau_sigma" in f else "cell"
+        for name in ["tau_sigma", "tau_epsilon_mu", "tau_epsilon_kappa", "q_mu", "q_kappa"]:
+            path = f"/field/{field_group}/{name}"
+            ds = _get_dataset(f, path)
+            print(f"  {path}: shape={ds.shape}, dtype={ds.dtype}")
 
     print("  attenuation injection — DONE")
 

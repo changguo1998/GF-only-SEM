@@ -248,8 +248,21 @@ RankData read_partition(const std::string& path, int /*rank*/) {
 
     // --- Read SLS attenuation data (optional) ---
     data.tau_sigma = try_read_dataset<double>(fid, "/field/cell/tau_sigma");
-    data.tau_epsilon = try_read_dataset<double>(fid, "/field/cell/tau_epsilon");
-    data.has_attenuation = !data.tau_sigma.empty();
+    data.tau_epsilon_mu = try_read_dataset<double>(fid, "/field/cell/tau_epsilon_mu");
+    data.tau_epsilon_kappa = try_read_dataset<double>(fid, "/field/cell/tau_epsilon_kappa");
+    const bool has_any_attenuation =
+        !data.tau_sigma.empty() || !data.tau_epsilon_mu.empty() || !data.tau_epsilon_kappa.empty();
+    data.has_attenuation =
+        !data.tau_sigma.empty() && !data.tau_epsilon_mu.empty() && !data.tau_epsilon_kappa.empty();
+    if (has_any_attenuation && !data.has_attenuation) {
+        throw std::runtime_error(
+            "Incomplete SLS fields: tau_sigma, tau_epsilon_mu, and "
+            "tau_epsilon_kappa are all required; regenerate the partition files");
+    }
+    if (data.has_attenuation && (data.tau_sigma.size() != data.tau_epsilon_mu.size() ||
+                                 data.tau_sigma.size() != data.tau_epsilon_kappa.size())) {
+        throw std::runtime_error("SLS relaxation-time fields have inconsistent sizes");
+    }
 
     // --- Read local_cell2rank_node and n_rank_node (CG-SEM rank-level node mapping) ---
     data.local_cell2rank_node = try_read_dataset<int32_t>(fid, "/field/cell/local_cell2rank_node");
@@ -410,7 +423,8 @@ RankData read_partition_all(const std::string& partition_dir) {
             concat_vec(merged.pml_coef_strain, part.pml_coef_strain);
             merged.has_cpml = merged.has_cpml || part.has_cpml;
             concat_vec(merged.tau_sigma, part.tau_sigma);
-            concat_vec(merged.tau_epsilon, part.tau_epsilon);
+            concat_vec(merged.tau_epsilon_mu, part.tau_epsilon_mu);
+            concat_vec(merged.tau_epsilon_kappa, part.tau_epsilon_kappa);
             merged.has_attenuation = merged.has_attenuation || part.has_attenuation;
 
             // Merge ibool using global node IDs (already unique across ranks)
@@ -549,7 +563,8 @@ RankData read_partition_range(const std::string& partition_dir, int effective_ra
             concat_vec(merged.pml_coef_strain, part.pml_coef_strain);
             merged.has_cpml = merged.has_cpml || part.has_cpml;
             concat_vec(merged.tau_sigma, part.tau_sigma);
-            concat_vec(merged.tau_epsilon, part.tau_epsilon);
+            concat_vec(merged.tau_epsilon_mu, part.tau_epsilon_mu);
+            concat_vec(merged.tau_epsilon_kappa, part.tau_epsilon_kappa);
             merged.has_attenuation = merged.has_attenuation || part.has_attenuation;
 
             if (part.recording.has_recording) {

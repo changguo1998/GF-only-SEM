@@ -1,0 +1,171 @@
+# 测试与验证方案
+
+本文档是项目测试的统一入口。目标不是穷举“模型 × 求解器 × 后端 × 参数”的笛卡尔积，
+而是让每个结论至少有一个独立、可重复的证据，并让同一个端到端算例承担多个相容的验证任务。
+
+## 测试分层
+
+| 层级 | 内容 | 运行时机 | 判定方式 |
+| --- | --- | --- | --- |
+| L0 | Python/C++ 单元测试 | 每次修改 | 断言全部通过 |
+| L1 | 小规模组件集成 | 每次构建或 CI | HDF5 往返、单元正演、MPI halo、CUDA 单元残差 |
+| L2 | 三个主算例 | 定期或发布前 | 解析解/半解析解门限与后端一致性 |
+| L3 | 浅源、地表源、扩域、网格研究 | 相关改动或专项研究 | 固定参数对照，不作为日常回归 |
+
+## 自动化测试清单
+
+### Python：230 项（另有 1 项环境相关跳过）
+
+| 文件 | 数量 | 覆盖内容 |
+| --- | ---: | --- |
+| `tests/greenfun/test_cli.py` | 7 | 查询 CLI、输出格式、错误参数 |
+| `tests/greenfun/test_index_cache.py` | 22 | tile 扫描、缓存命中/失效/损坏恢复 |
+| `tests/greenfun/test_interpolator.py` | 9 | 三线性插值、边界、形状校验 |
+| `tests/greenfun/test_library.py` | 24 | 单点/批量查询、源选择、异常输入 |
+| `tests/greenfun/test_source_run.py` | 16 | tile 加载、懒加载、重叠节点去重 |
+| `tests/preprocess/test_boundary_detector.py` | 3 | 外边界、自由表面、共享面 |
+| `tests/preprocess/test_cfl_validator.py` | 12 | CFL、输出步长、stride 与非法参数 |
+| `tests/preprocess/test_cli_integration.py` | 1 | Python 配置对 C++ 加速器保持权威 |
+| `tests/preprocess/test_config_loader.py` | 6 | 配置加载与字段校验 |
+| `tests/preprocess/test_config_writer.py` | 6 | `config.h5` 分组、类型与目录创建 |
+| `tests/preprocess/test_cpp_preprocess_smoke.py` | 1 | C++ 预处理生成求解器可读分区；默认跳过 |
+| `tests/preprocess/test_gll_geometry.py` | 13 | GLL 点/权重、Jacobian、质量与多单元几何 |
+| `tests/preprocess/test_model_loader.py` | 5 | 材料默认值、callable 与类型 |
+| `tests/preprocess/test_model_writer.py` | 6 | `model.h5`、PML 标记与多分区写入 |
+| `tests/preprocess/test_partition.py` | 11 | METIS 分区、全局 DOF 与交换模式 |
+| `tests/preprocess/test_pml.py` | 6 | PML 区域和阻尼单调性 |
+| `tests/preprocess/test_pml_cpml.py` | 2 | C-PML 面剖面与参数尺度 |
+| `tests/preprocess/test_recording_map.py` | 3 | 记录节点映射与 PML 排除 |
+| `tests/preprocess/test_source_locator.py` | 14 | 地表/埋藏源、插值权重与 PML 排除 |
+| `tests/preprocess/test_stf_evaluator.py` | 8 | STF 时间轴、Ricker 与步进函数 |
+| `tests/preprocess/test_topology_reader.py` | 7 | 拓扑 schema、方向约定与错误文件 |
+| `tests/test_analytical_compare.py` | 5 | 解析比较、尺度拟合、接收点选择 |
+| `tests/test_attenuation_injection.py` | 15 | Qμ/Qκ 独立拟合、SLS 注入、模量校正与弹性极限 |
+| `tests/test_sls_memory.py` | 5 | 应变驱动记忆变量、稳态、体积/偏量独立性 |
+| `tests/test_waveform_validation.py` | 2 | 解析算例门限和三倍幅值错误回归 |
+| `tests/tools/test_gmsh_to_hdf5.py` | 18 | GMSH 拓扑转换、方向、CSR 与 HDF5 |
+| `tests/tools/test_gmsh_to_hdf5_integration.py` | 4 | 四单元完整转换和文件往返 |
+
+运行命令：
+
+```bash
+.venv/bin/python -m pytest tests -q
+GF_RUN_CPP_PREPROCESS_SMOKE=1 .venv/bin/python -m pytest \
+  tests/preprocess/test_cpp_preprocess_smoke.py -q
+```
+
+### C++/CUDA：有限 Q 测试已纳入常规 CTest
+
+| 文件 | 数量 | 覆盖内容 |
+| --- | ---: | --- |
+| `tests/test_gll.cpp` | 11 | GLL 点、权重、导数与插值 |
+| `tests/test_element.cpp` | 3 | CPU 单元残差、刚体运动与均匀应变 |
+| `tests/test_element_cuda.cu` | 3 | N=3/N=5 CUDA–CPU 残差和刚体平移 |
+| `tests/test_newmark.cpp` | 3 | Newmark 预测、校正与能量守恒 |
+| `tests/test_pml.cpp` | 11 | 阻尼、C-PML 索引、记忆变量更新 |
+| `tests/test_source.cpp` | 3 | 点力定位、力守恒、多单元分配 |
+| `tests/test_sls.cpp` | 6 | SLS 常量、索引、系数与无衰减极限 |
+| `tests/test_sls_finite_q.cpp` | 3 | SPECFEM Qμ=20 剪切、Qκ=10 体积与时间步细化 |
+| `tests/test_io.cpp` | 2 | 分区与配置 HDF5 往返 |
+| `tests/test_record.cpp` | 2 | 应变记录和 float32 写入 |
+| `tests/test_assembly.cpp` | 8 | 全局装配、震源 RHS、scatter/gather |
+| `tests/test_exchange.cpp` | 3 | MPI halo、累加与空模式 |
+| `tests/test_integration.cpp` | 3 | 单单元正演、刚体残差与 PML 阻尼 |
+| `tests/test_postprocess_tile.cpp` | 8 | tensor 布局、独立计数与 tile schema |
+
+CTest 当前注册 63 项：postprocess 的 8 个 Catch2 case 由一个稳定入口运行，record 测试另有一个
+fixture 准备项，因此注册数与逻辑 case 数不同。有限 Q 的 3 个本构用例已注册。
+
+```bash
+ctest --test-dir build --output-on-failure
+cmake --build build --target test_sls_finite_q
+build/tests/test_sls_finite_q --reporter compact
+```
+
+## 代表性参数组合
+
+三个主算例固定使用 `N=4`、`output_dt_s=0.01`、三个力方向和不压缩 HDF5。其余参数按验证
+目标选择，不在每个模型上重复所有后端。
+
+| 算例 | 代表参数 | 默认求解器 | 证明内容 | 自动门限 |
+| --- | --- | --- | --- | --- |
+| `halfspace` | 22×22×11；2 Hz；278 m 埋源；Q=1e9；自由表面 | SLS CPU+MPI，16 ranks | SLS 弹性极限下的自由表面主体波、幅值、三方向张量 | 0–2 s：corr≥0.98，拟合 L2≤0.10，scale∈[0.8,1.2] |
+| `layer` | 22×22×11；1 Hz；500 m 界面对齐；278 m 埋源；Q=1e9 | elastic CPU+MPI，16 ranks | 层状材料、界面、MPI 正演与 PyFK 一致性 | 0–2 s：corr≥0.98，拟合 L2≤0.20，scale∈[0.8,1.2] |
+| `fullspace-cubic` | 24³；1 Hz；全六面 PML；8 s；Q=1e9 | elastic CUDA | 全空间传播、PML、CUDA 和 Stokes 解析解 | corr≥0.80，scale∈[0.8,1.2]；0.80–0.95 记为已知边界误差警告 |
+
+选择理由：
+
+- 物理后端不是新的物理模型。CPU–CUDA 只需在同一个 `fullspace-cubic` 输入上比较，避免在
+  半空间和层状模型上重复六种 solver 组合。
+- 三个力方向用于生成完整 Green 张量；CPU–CUDA 数值一致性只比较 x 方向的 step 400/700，
+  因为另外两个方向已经由解析解算例覆盖。
+- Q=1e9 用于严格弹性极限；有限 Q 使用 SPECFEM 参数独立验证 Qμ=20 剪切和 Qκ=10 体积响应。
+  16×10×10、2-rank CPU 与单 GPU CUDA 短传播还验证了有限 Q 相对弹性的响应范数比；两后端
+  最大差为 6.18e-4，但尚未建立有限 Q 传播的独立解析幅值门限。
+- `float32` 是生产记录格式；float64 的格式与往返由单元测试覆盖，不重复整套大算例。
+
+主算例入口：
+
+```bash
+bash scripts/run_all_examples.sh
+bash scripts/run_all_examples.sh --case halfspace
+bash scripts/run_all_examples.sh --case layer
+bash scripts/run_all_examples.sh --case fullspace
+```
+
+`halfspace`、`layer` 和 `layer-shallow-source` 的 `compare.sh` 都复用
+`examples/_shared/verify_waveform.py`。该检查读取比较结果 NPZ，并以退出码同时约束相关系数、
+尺度不变 L2 和绝对幅值；其中 `scale` 统一定义为 `SEM = scale × reference`。因此主脚本的
+PASS 不再只表示流程运行成功。
+
+## 专项算例
+
+| 算例 | 何时运行 | 与主算例的差异 | 支持的结论 |
+| --- | --- | --- | --- |
+| `layer-shallow-source` | 修改震源定位/插值时 | 仅把层状模型震源改为 100 m | 浅部非 GLL 点埋源有效；主体波与 PyFK 一致 |
+| `layer-surface-source-cpp` | 修改 C++ 预处理或地表源时 | `source_z_m=None`，全 C++ 流程 | 地表源定位及 C++ mesh→postprocess 链路有效 |
+| `fullspace-expanded` | 修改 PML或边界时 | 28 km 域、22³、约 6.36 km PML | 源区 corr=0.9672 且 scale≈1，说明主要残差来自有限边界/PML |
+| `meshsize/fullspace*` | 修改离散或开展收敛研究时 | 18³/20³/22³/24³/28³，共用 64 固定物理点 | 分辨率变化与边界误差分离；28³ 为内存上限 |
+
+专项命令：
+
+```bash
+bash examples/layer-shallow-source/compare.sh
+bash examples/layer-surface-source-cpp/run.sh
+bash examples/layer-surface-source-cpp/compare_theory.sh
+bash examples/fullspace-expanded/compare.sh
+bash examples/meshsize/run_study.sh
+```
+
+## 结论与证据
+
+| 结论 | 首要证据 | 交叉证据 | 不能外推的范围 |
+| --- | --- | --- | --- |
+| 自由表面主体波与幅值正确 | `halfspace` 0–2 s Lamb 门限 | 10 个固定地表点 mean corr=0.9995 | 2 s 后受有限边界/PML 回波影响 |
+| 层状界面实现正确 | `layer` 0–2 s PyFK 门限 | 278 m/100 m 两个源深度 corr=0.9914/0.9930 | 5 s 全时段不能用于判断主体波误差 |
+| CPU-MPI 与 CUDA 一致 | `fullspace-cubic/compare_solvers.py` | step 400/700 corr>0.9999998，rel_l2≤5.1e-4 | 当前脚本只比较弹性 x 方向 |
+| SLS 在 Q→∞ 回到弹性 | SLS 单元测试和 `halfspace` SLS 解析验证 | 历史端到端 rel_l2=0.0 | 不替代有限 Q 验证 |
+| SLS 有限 Q 本构正确 | SPECFEM Qμ=20 剪切、Qκ=10 体积复模量 | 时间步减半稳定；16×10×10 MPI 短传播无发散 | 尚无传播级解析幅值/频散门限 |
+| SLS 有限 Q CPU–CUDA 效应一致 | 16×10×10、Qμ=20/Qκ=10；有限 Q/弹性响应范数比最大差 6.18e-4 | RTX 5060 Ti CUDA 单元测试 3/3 通过 | 晚时直接场差异含 MPI–CUDA 弹性基线，不能作为 SLS 独立误差 |
+| 震源绝对幅值正确 | 三个解析算例的 scale 门限 | 扩大全空间源区 scale=0.999 | 不代表晚期反射波形正确 |
+| 主要剩余误差来自边界/PML | `fullspace-expanded` 与主域对照 | 固定点网格研究中幅值稳定 | 网格研究不能替代更大域验证 |
+| 串行/MPI 后处理一致 | halfspace 9 tiles 历史逐位对比 | tile schema 与独立计数单元测试 | 大模型内存峰值仍需单独监控 |
+
+## 推荐运行节奏
+
+```bash
+# 每次修改：约束局部逻辑
+.venv/bin/python -m pytest tests -q
+ctest --test-dir build --output-on-failure
+
+# 定期：三个互补主算例
+bash scripts/run_all_examples.sh
+
+# 发布前：按改动选择专项，不机械运行全部大模型
+bash examples/layer-shallow-source/compare.sh
+bash examples/layer-surface-source-cpp/run.sh
+bash examples/fullspace-expanded/compare.sh
+```
+
+网格研究耗时和存储量最大，只在离散、PML 或误差解释发生变化时运行。普通功能改动不应重跑
+五套网格。

@@ -15,6 +15,9 @@ from __future__ import annotations
 
 import numpy as np
 import h5py
+from scipy.optimize import nnls
+
+NO_ATTENUATION_Q = 1.0e8
 from typing import Optional, Tuple
 
 
@@ -32,12 +35,11 @@ def compute_tau_from_q(
     τ-method algorithm:
       1. Choose τ_σ^l = 1 / (2π f_l) where f_l are log-spaced in
          [f_min, f_max] centered around f0.
-      2. For each node with Q < ∞, solve the linear system:
-           1/Q(ω_l) ≈ Σ_m w_m · (ω_l τ_σ^m) / (1 + ω_l² (τ_σ^m)²)
-         for the anelastic weights w_m.
-      3. Compute τ_ε^l = τ_σ^l · (1 + w_l).
+      2. Fit non-negative normalized memory weights over 100 logarithmic
+         frequency samples so Re(M*) / Im(M*) approximates Q.
+      3. Convert normalized weights to τ_ε/τ_σ ratios used by the solver.
 
-      For nodes with Q = 0 or Q → ∞ (no attenuation):
+      For nodes with Q <= 0, Q >= 1e8, or non-finite Q (no attenuation):
          τ_ε^l = τ_σ^l  →  no relaxation.
 
     Parameters
@@ -52,7 +54,8 @@ def compute_tau_from_q(
     f0 : float
         Reference frequency (Hz) at which Q is defined.
     f_min, f_max : float or None
-        Frequency band edges.  Default: f0/200, f0*5 (covers ~2.5 decades).
+        Frequency band edges. Default: f0/20, f0*3, matching the range used
+        by the SPECFEM three-mechanism reference setup.
 
     Returns
     -------
@@ -65,58 +68,48 @@ def compute_tau_from_q(
     shape = q_mu.shape
     if len(shape) != 4:
         raise ValueError(f"q_mu must be 4D [n_cell, NGLL, NGLL, NGLL], got shape {shape}")
-    n_cell = shape[0]
-
     # --- Step 1: Choose log-spaced τ_σ ---
     if f_min is None:
-        f_min = f0 / 200.0
+        f_min = f0 / 20.0
     if f_max is None:
-        f_max = f0 * 5.0
+        f_max = f0 * 3.0
 
     f_l = np.logspace(np.log10(f_min), np.log10(f_max), n_sls)
     tau_sigma_l = 1.0 / (2.0 * np.pi * f_l)  # [n_sls]
 
-    # --- Step 2: Build the frequency-domain linear system ---
-    omega_l = 2.0 * np.pi * f_l  # [n_sls]
+    # --- Step 2: Fit the normalized memory weights over the frequency band ---
+    sample_frequency_hz = np.logspace(np.log10(f_min), np.log10(f_max), 100)
+    angular_frequency = 2.0 * np.pi * sample_frequency_hz[:, np.newaxis]
+    frequency_tau = angular_frequency * tau_sigma_l[np.newaxis, :]
 
-    # Contribution matrix A[l, m]: response of mechanism m at frequency f_l
-    A = np.zeros((n_sls, n_sls))
-    for l in range(n_sls):
-        for m in range(n_sls):
-            w_ts = omega_l[l] * tau_sigma_l[m]
-            A[l, m] = w_ts / (1.0 + w_ts * w_ts)
-
-    # Pre-invert A (same for all nodes since tau_sigma_l is global)
-    A_inv = np.linalg.inv(A)
-
-    # --- Step 3: Compute per-node τ_ε ---
-    tau_sigma = np.zeros((n_cell, ngll, ngll, ngll, n_sls))
-    tau_epsilon = np.zeros((n_cell, ngll, ngll, ngll, n_sls))
-
-    for cell in range(n_cell):
-        for i in range(ngll):
-            for j in range(ngll):
-                for k in range(ngll):
-                    q_val = q_mu[cell, i, j, k]
-
-                    # Default τ_σ values (always valid)
-                    tau_sigma[cell, i, j, k, :] = tau_sigma_l
-
-                    if q_val <= 0.0 or not np.isfinite(q_val):
-                        # No attenuation: τ_ε = τ_σ
-                        tau_epsilon[cell, i, j, k, :] = tau_sigma_l
-                        continue
-
-                    # Solve A · w = b, where b[l] = 1/Q at each frequency
-                    inv_q_target = 1.0 / q_val
-                    b = np.full(n_sls, inv_q_target)
-                    w = A_inv @ b
-
-                    # τ_ε^l = τ_σ^l * (1 + w_l)
-                    # Guard: w_l must be >= 0 (τ_ε ≥ τ_σ for stability)
-                    tau_epsilon[cell, i, j, k, :] = tau_sigma_l * (1.0 + np.maximum(w, 0.0))
+    # --- Step 3: Compute per-node τ_ε, caching each distinct Q value ---
+    output_shape = (*shape, n_sls)
+    tau_sigma = np.broadcast_to(tau_sigma_l, output_shape).copy()
+    tau_epsilon = tau_sigma.copy()
+    valid_q = np.isfinite(q_mu) & (q_mu > 0.0) & (q_mu < NO_ATTENUATION_Q)
+    for q_value in np.unique(q_mu[valid_q]):
+        inverse_q = 1.0 / float(q_value)
+        # Im(M*) - Re(M*) / Q = 0 is linear in normalized memory weights.
+        fit_matrix = (frequency_tau + inverse_q) / (1.0 + frequency_tau**2)
+        normalized_weights, _ = nnls(fit_matrix, np.full(sample_frequency_hz.size, inverse_q))
+        weight_sum = float(np.sum(normalized_weights))
+        if weight_sum >= 1.0:
+            raise ValueError(f"Q={q_value:g} produces an unstable SLS fit")
+        ratio_minus_one = n_sls * normalized_weights / (1.0 - weight_sum)
+        tau_epsilon[q_mu == q_value] = tau_sigma_l * (1.0 + ratio_minus_one)
 
     return tau_sigma, tau_epsilon
+
+
+def compute_unrelaxed_modulus_scale(
+    tau_sigma: np.ndarray, tau_epsilon: np.ndarray, reference_frequency_hz: float
+) -> np.ndarray:
+    """Return the factor converting reference-frequency modulus to unrelaxed modulus."""
+    ratio = tau_epsilon / tau_sigma
+    normalized_weights = (ratio - 1.0) / np.sum(ratio, axis=-1, keepdims=True)
+    frequency_tau = 2.0 * np.pi * reference_frequency_hz * tau_sigma
+    real_modulus_ratio = 1.0 - np.sum(normalized_weights / (1.0 + frequency_tau**2), axis=-1)
+    return 1.0 / real_modulus_ratio
 
 
 def write_attenuation_to_model(
@@ -128,7 +121,7 @@ def write_attenuation_to_model(
     f0: float = 2.0,
 ) -> None:
     """
-    Write tau_sigma, tau_epsilon, and Q fields to model.h5.
+    Write shear/bulk relaxation times and Q fields to model.h5.
 
     Creates/overwrites datasets under /field/cell/.
 
@@ -147,14 +140,24 @@ def write_attenuation_to_model(
     f0 : float
         Reference frequency (Hz).
     """
-    tau_sigma, tau_epsilon = compute_tau_from_q(q_mu, ngll, n_sls, f0)
+    tau_sigma, tau_epsilon_mu = compute_tau_from_q(q_mu, ngll, n_sls, f0)
+    tau_sigma_kappa, tau_epsilon_kappa = compute_tau_from_q(q_kappa, ngll, n_sls, f0)
+    if not np.array_equal(tau_sigma, tau_sigma_kappa):
+        raise ValueError("Q_mu and Q_kappa produced inconsistent tau_sigma values")
 
     with h5py.File(model_path, "a") as f:
-        field_cell = f.require_group("field/cell")
+        field_root = f.require_group("field")
+        if "cell" in field_root and "coords" in field_root["cell"]:
+            field_cell = field_root["cell"]
+        elif "element" in field_root and "coords" in field_root["element"]:
+            field_cell = field_root["element"]
+        else:
+            field_cell = field_root.require_group("cell")
 
         for name, data in [
             ("tau_sigma", tau_sigma),
-            ("tau_epsilon", tau_epsilon),
+            ("tau_epsilon_mu", tau_epsilon_mu),
+            ("tau_epsilon_kappa", tau_epsilon_kappa),
             ("q_kappa", q_kappa),
             ("q_mu", q_mu),
         ]:
@@ -168,6 +171,24 @@ def write_attenuation_to_model(
         field_cell["tau_sigma"].attrs["description"] = (
             "Stress relaxation times τ_σ^l per GLL node, shape [n_cell, NGLL, NGLL, NGLL, n_sls]"
         )
-        field_cell["tau_epsilon"].attrs["description"] = (
-            "Strain relaxation times τ_ε^l per GLL node, shape [n_cell, NGLL, NGLL, NGLL, n_sls]"
+        field_cell["tau_epsilon_mu"].attrs["description"] = (
+            "Shear strain relaxation times per GLL node, shape [n_cell, NGLL, NGLL, NGLL, n_sls]"
         )
+        field_cell["tau_epsilon_kappa"].attrs["description"] = (
+            "Bulk strain relaxation times per GLL node, shape [n_cell, NGLL, NGLL, NGLL, n_sls]"
+        )
+
+        # Vp/Vs describe the material at the reference frequency. Convert the
+        # stored elastic coefficients to the unrelaxed moduli used by the SLS kernel.
+        if all(name in field_cell for name in ("vp", "vs", "density", "lambda", "mu")):
+            density = np.asarray(field_cell["density"])
+            shear_modulus_reference = density * np.asarray(field_cell["vs"]) ** 2
+            bulk_modulus_reference = density * (
+                np.asarray(field_cell["vp"]) ** 2 - 4.0 * np.asarray(field_cell["vs"]) ** 2 / 3.0
+            )
+            shear_scale = compute_unrelaxed_modulus_scale(tau_sigma, tau_epsilon_mu, f0)
+            bulk_scale = compute_unrelaxed_modulus_scale(tau_sigma, tau_epsilon_kappa, f0)
+            shear_modulus = shear_modulus_reference * shear_scale
+            bulk_modulus = bulk_modulus_reference * bulk_scale
+            field_cell["mu"][...] = shear_modulus
+            field_cell["lambda"][...] = bulk_modulus - 2.0 * shear_modulus / 3.0

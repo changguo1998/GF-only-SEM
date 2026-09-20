@@ -32,7 +32,7 @@ PROJECT_BIN="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}/bin"
 MEMLIMIT="$(cd "${SCRIPT_DIR}/../.." && pwd)/scripts/with_mem_limit.sh"  # host RAM cap (GF_MEM_LIMIT_GB, 0=off)
 
 # (A) VISCOELASTIC — CPU + MPI (default, Q→∞ elastic limit)
-# SOLVER="${PROJECT_BIN}/gf_solver_viscoelastic_mpi"
+SOLVER="${PROJECT_BIN}/gf_solver_viscoelastic_mpi"
 
 # (B) VISCOELASTIC — CUDA single GPU (no MPI)
 # SOLVER="${PROJECT_BIN}/gf_solver_viscoelastic_cuda"
@@ -44,7 +44,7 @@ MEMLIMIT="$(cd "${SCRIPT_DIR}/../.." && pwd)/scripts/with_mem_limit.sh"  # host 
 # SOLVER="${PROJECT_BIN}/gf_solver_elastic_mpi"
 
 # (E) ELASTIC — CUDA single GPU (no MPI)
-SOLVER="${PROJECT_BIN}/gf_solver_elastic_cuda"
+# SOLVER="${PROJECT_BIN}/gf_solver_elastic_cuda"
 
 # (F) ELASTIC — CUDA + MPI (multi-GPU cluster)
 # SOLVER="${PROJECT_BIN}/gf_solver_elastic_mpi_cuda"

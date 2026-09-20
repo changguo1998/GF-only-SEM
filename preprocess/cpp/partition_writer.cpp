@@ -462,7 +462,10 @@ void write_one_partition(hid_t model_file, const std::filesystem::path& path,
         {"pml_coef_abar", "pml_coef_abar"},
         {"pml_coef_strain", "pml_coef_strain"},
         {"tau_sigma", "tau_sigma"},
-        {"tau_epsilon", "tau_epsilon"},
+        {"tau_epsilon_mu", "tau_epsilon_mu"},
+        {"tau_epsilon_kappa", "tau_epsilon_kappa"},
+        {"q_mu", "q_mu"},
+        {"q_kappa", "q_kappa"},
     };
     for (const auto& [source_name, destination_name] : optional_fields) {
         std::string source_path = std::string("field/element/") + source_name;

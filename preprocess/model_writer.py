@@ -193,6 +193,11 @@ def _extend_model_h5(
         _write_dataset(felem, "mu", fields.get("mu"), dtype="float64")
         _write_dataset(felem, "damping", fields.get("damping"), dtype="float64")
 
+        for key in ("tau_sigma", "tau_epsilon_mu", "tau_epsilon_kappa", "q_mu", "q_kappa"):
+            array = fields.get(key)
+            if array is not None:
+                _write_dataset(felem, key, array, dtype="float64")
+
         is_pml = fields.get("is_pml", np.array([], dtype=np.bool_))
         _write_dataset(felem, "is_pml", is_pml.astype(np.int8), dtype="int8")
 
@@ -283,6 +288,13 @@ def _write_partition_files(
         "pml_coef_abar",
         "pml_coef_strain",
     ]
+    attenuation_field_keys = [
+        "tau_sigma",
+        "tau_epsilon_mu",
+        "tau_epsilon_kappa",
+        "q_mu",
+        "q_kappa",
+    ]
 
     # Precompute global tile_index if tile config provided
     global_tile_index = None
@@ -324,6 +336,13 @@ def _write_partition_files(
 
             # Write C-PML per-GLL-node fields
             for key in cpml_field_keys:
+                arr = fields.get(key)
+                if arr is None:
+                    continue
+                local_data = arr[local_zero] if n_local_cell > 0 else np.array([], dtype=arr.dtype)
+                _write_dataset(felem_grp, key, local_data)
+
+            for key in attenuation_field_keys:
                 arr = fields.get(key)
                 if arr is None:
                     continue

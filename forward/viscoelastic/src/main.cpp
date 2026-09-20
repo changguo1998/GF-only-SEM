@@ -3,7 +3,7 @@
 // gf_solver_viscoelastic --direction {x,y,z} [--resume]
 // Viscoelastic SEM forward solver with SLS attenuation.
 // All I/O paths are frozen relative to CWD:
-//   Input:  config.h5, model.h5 (with tau_sigma/tau_epsilon)
+//   Input:  config.h5, model.h5 (with shear/bulk SLS relaxation times)
 //   Output: wavefields/{direction}/record_{r}_{step}.h5
 //   Restart: restart/{direction}/restart_{r}.h5 (with --resume)
 
@@ -27,7 +27,7 @@
 void print_usage(const char* prog) {
     std::cerr << "Usage: " << prog << " --direction {x,y,z} [--resume]\n"
               << "  All I/O paths are frozen relative to CWD:\n"
-              << "    Input:  config.h5, model.h5 (with tau_sigma/tau_epsilon)\n"
+              << "    Input:  config.h5, model.h5 (with shear/bulk SLS fields)\n"
               << "    Output: wavefields/{direction}/record_{r}_{step}.h5\n"
               << "    Restart: restart/{direction}/restart_{r}.h5\n";
 }

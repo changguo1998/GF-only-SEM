@@ -249,7 +249,7 @@ config.h5
         └── weights            : float64[n_src_cell, NGLL, NGLL, NGLL] — Lagrange w_ijk (normalized)
 ```
 
-Notes: `/field/cell/tau_sigma` + `/field/cell/tau_epsilon` written when SLS attenuation is active. No `direction`; runtime CLI sets it.
+Notes: `/field/cell/tau_sigma`, `/field/cell/tau_epsilon_mu`, and `/field/cell/tau_epsilon_kappa` are written when SLS attenuation is active. No `direction`; runtime CLI sets it.
 
 ### Green's Function Output
 

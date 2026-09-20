@@ -106,9 +106,16 @@ unified on viscoelastic (SLS) config — the solver is chosen by the user via co
 entries in `examples/*/forward.sh` (or interactively via `scripts/solver.sh`); no more
 test-case naming for GPU/CPU or solver.
 
+Finite-Q SLS was reverified 2026-09-20 against the SPECFEM constitutive formulation:
+Qμ=20 shear, Qκ=10 volumetric, and timestep-refinement tests pass. A 16×10×10,
+2-rank CPU versus single-GPU CUDA propagation check found the finite-Q/elastic response-norm
+ratio agrees within 6.18e-4. Late-time direct CPU–CUDA field differences are not specific to
+attenuation: the elastic control differs by 9.76%, versus 8.16% for finite Q.
+
 CG-SEM global-DOF assembly fix complete — waves correctly propagate across element
-interfaces (both within-rank and cross-rank). All 207 Python tests pass. C++ Catch2
-tests (17) require MPI-enabled build configuration.
+interfaces (both within-rank and cross-rank). All 231 Python tests are collected (230 pass and
+the opt-in C++ preprocess smoke test skips by default). The current CTest layout registers 63
+entries and requires an MPI-enabled build configuration.
 
 Buried source support implemented (`source_z_m = None`→free surface, `float`→buried). Preprocessor auto-detects surface vs buried mode and excludes PML elements for buried sources.
 

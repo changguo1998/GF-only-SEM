@@ -60,21 +60,22 @@ struct RankData {
     bool has_attenuation = false;  // true if SLS data loaded
 
     // Per-node relaxation times (read from model.h5, shape [n_rank_node × N_SLS])
-    std::vector<double> tau_sigma;    // τ_σ — stress relaxation times
-    std::vector<double> tau_epsilon;  // τ_ε — strain relaxation times
+    std::vector<double> tau_sigma;          // τ_σ — stress relaxation times
+    std::vector<double> tau_epsilon_mu;     // τ_ε — shear relaxation times
+    std::vector<double> tau_epsilon_kappa;  // τ_ε — bulk relaxation times
 
-    // Per-node precomputed coefficients [n_rank_node × N_SLS]
-    std::vector<double> sls_coef_a;  // a_l = exp(-solver_dt / τ_σ)
-    std::vector<double> sls_coef_b;  // b_l = (τ_ε/τ_σ − 1)·(1 − a_l)
+    // Per-node precomputed coefficients
+    std::vector<double> sls_decay;          // [node, mechanism]
+    std::vector<double> sls_forcing_mu;     // [node, mechanism, previous/current]
+    std::vector<double> sls_forcing_kappa;  // [node, mechanism, previous/current]
 
     // Per-node SLS memory stress tensors [n_rank_node × MEMORY_PER_NODE]
     // Layout: for each node, for each SLS mechanism (0..N_SLS-1):
-    //   R_xx, R_yy, R_zz, R_xy, R_xz, R_yz (Voigt components 0..5)
+    //   R_dev_xx, R_dev_yy, R_bulk_trace, R_xy, R_xz, R_yz
     std::vector<double> rmemory_sls;
 
-    // Previous-step elastic stress [n_rank_node × 6] (Voigt components)
-    // Used to compute Δσ = σ(t+Δt) − σ(t) for SLS memory update
-    std::vector<double> sigma_old;
+    // Previous-step strain [node, dev_xx, dev_yy, trace, xy, xz, yz]
+    std::vector<double> strain_old;
 
     // Rank-level node numbering (CG-SEM assembly)
     std::vector<int32_t> local_cell2rank_node;    // [n_local_cell * n_node] — compact rank-level

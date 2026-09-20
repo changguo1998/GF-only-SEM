@@ -20,8 +20,8 @@ element kernel instead of the elastic one.
 - **Infrastructure**: `libgf_shared` from `forward/share/` (solver, assembly,
   I/O, exchange, Newmark, C-PML, Newmark, restart, recording)
 - **Element kernel**: `src/element_cpu.cpp` — calls 5 shared `kernel_helpers`
-  functions, computes elastic trial stress, subtracts SLS memory stress R_l,
-  and updates R = a·R + b·Δσ inline
+  functions, computes elastic trial stress, subtracts the previous SLS memory,
+  then updates deviatoric and bulk memory from previous/current strain
 - **CUDA kernel**: `src/element_cuda.cu` — same logic as CPU, `__device__`
   helpers from `kernel_helpers.cuh`, `atomicAdd` for residual scatter
 - **Solver**: `src/solver.cpp` — thin wrapper: `run_viscoelastic_forward()`
@@ -30,11 +30,13 @@ element kernel instead of the elastic one.
 
 ## Memory Layout
 
-- `rmemory_sls`: [n_total_nodes × N_SLS × 6] doubles per rank — SLS memory
-  stress tensors R_l^v (Voigt components)
-- `sigma_old`: [n_total_nodes × 6] doubles per rank — previous-step elastic
-  stress for Δσ computation
-- `sls_coef_a/b`: [n_total_nodes × N_SLS] doubles — precomputed coefficients
+- `rmemory_sls`: [n_total_nodes × N_SLS × 6] doubles per rank — two
+  deviatoric, one bulk-trace, and three shear memory components
+- `strain_old`: [n_total_nodes × 6] doubles per rank — previous deviatoric
+  strain, volume trace, and shear strains
+- `sls_decay`: [n_total_nodes × N_SLS] doubles
+- `sls_forcing_mu/kappa`: [n_total_nodes × N_SLS × 2] doubles — exact
+  piecewise-linear previous/current strain weights
 
 ## Governing Equations
 
@@ -45,9 +47,9 @@ sigma_ij(t) = sigma_ij^elastic(t) - sum_{l=1}^{N_SLS} R_ij^l(t)
 where:
 
 ```
-R_ij^l(t+dt) = a_l * R_ij^l(t) + b_l * (sigma_ij(t+dt) - sigma_ij(t))
+R_dev^l(t+dt) = a_l R_dev^l(t) + 2 mu (b0_l e_dev(t) + b1_l e_dev(t+dt))
+R_bulk^l(t+dt) = a_l R_bulk^l(t) + kappa (c0_l tr(e(t)) + c1_l tr(e(t+dt)))
 a_l = exp(-dt / tau_sigma^l)
-b_l = (tau_epsilon^l / tau_sigma^l - 1) * (1 - a_l)
 ```
 
 ## Build

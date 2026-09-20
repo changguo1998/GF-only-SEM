@@ -38,9 +38,9 @@ __global__ void element_residual_kernel(
     const double* __restrict__ D, const double* __restrict__ weights, int NGLL,
     const double* __restrict__ u, double* r, const int32_t* __restrict__ pml_region,
     const double* __restrict__ pml_coef_strain, const double* __restrict__ rmemory_strain,
-    double* __restrict__ rmemory_sls, double* __restrict__ sigma_old,
-    const double* __restrict__ sls_coef_a, const double* __restrict__ sls_coef_b,
-    bool has_attenuation) {
+    double* __restrict__ rmemory_sls, double* __restrict__ strain_old,
+    const double* __restrict__ sls_decay, const double* __restrict__ sls_forcing_mu,
+    const double* __restrict__ sls_forcing_kappa, bool has_attenuation) {
     int e = blockIdx.x;
     int i = threadIdx.x;
     int j = threadIdx.y;
@@ -89,9 +89,10 @@ __global__ void element_residual_kernel(
         }
     }
     (void)rmemory_sls;
-    (void)sigma_old;
-    (void)sls_coef_a;
-    (void)sls_coef_b;
+    (void)strain_old;
+    (void)sls_decay;
+    (void)sls_forcing_mu;
+    (void)sls_forcing_kappa;
     (void)has_attenuation;
 
     // --- [5] Residual scatter (atomicAdd) ---
@@ -112,8 +113,9 @@ void compute_element_residual(int n_elem, const double* dxi_dx, const double* ja
                               const double* weights, int NGLL, const double* u, double* r,
                               const int32_t* /*pml_region*/, const double* /*pml_coef_strain*/,
                               const double* /*rmemory_strain*/, double* /*rmemory_sls*/,
-                              double* /*sigma_old*/, const double* /*sls_coef_a*/,
-                              const double* /*sls_coef_b*/, bool /*has_attenuation*/) {
+                              double* /*strain_old*/, const double* /*sls_decay*/,
+                              const double* /*sls_forcing_mu*/,
+                              const double* /*sls_forcing_kappa*/, bool /*has_attenuation*/) {
     const int n_node = NGLL * NGLL * NGLL;
 
     // --- Allocate / reuse device buffers ---
@@ -139,7 +141,7 @@ void compute_element_residual(int n_elem, const double* dxi_dx, const double* ja
         g_cuda_buffers.d_dxi_dx, g_cuda_buffers.d_jacobian, g_cuda_buffers.d_lambda,
         g_cuda_buffers.d_mu, g_cuda_buffers.d_D, g_cuda_buffers.d_weights, NGLL,
         g_cuda_buffers.d_u, g_cuda_buffers.d_r, nullptr, nullptr, nullptr, nullptr, nullptr,
-        nullptr, nullptr, false);
+        nullptr, nullptr, nullptr, false);
 
     // --- Check for launch errors ---
     GF_CUDA_CHECK(cudaGetLastError());
@@ -165,7 +167,7 @@ void cuda_launch_element_residual(const CudaDeviceState& state, int ngll, int n_
     element_residual_kernel<<<grid, block>>>(
         state.d_dxi_dx, state.d_jacobian, state.d_lambda_, state.d_mu_, state.d_D, state.d_weights,
         ngll, d_input, d_output, state.d_pml_region, state.d_pml_coef_strain,
-        state.d_rmemory_strain, nullptr, nullptr, nullptr, nullptr, false);
+        state.d_rmemory_strain, nullptr, nullptr, nullptr, nullptr, nullptr, false);
     GF_CUDA_CHECK(cudaGetLastError());
     GF_CUDA_CHECK(cudaDeviceSynchronize());
 }

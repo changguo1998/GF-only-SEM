@@ -11,6 +11,7 @@
 #include <ctime>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -272,14 +273,16 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         if (part.has_attenuation) {
             int n_total_nodes = n_local_cell * n_node;
             part.rmemory_sls.resize(n_total_nodes * SLS::MEMORY_PER_NODE, 0.0);
-            part.sigma_old.resize(n_total_nodes * SLS::VOIGT_COMPONENTS, 0.0);
+            part.strain_old.resize(n_total_nodes * SLS::VOIGT_COMPONENTS, 0.0);
 
             // Precompute SLS coefficients from tau arrays
-            part.sls_coef_a.resize(n_total_nodes * SLS::N_SLS);
-            part.sls_coef_b.resize(n_total_nodes * SLS::N_SLS);
-            SLS::precompute_sls_coefficients(part.tau_sigma.data(), part.tau_epsilon.data(),
-                                             n_total_nodes, cfg.solver_dt, part.sls_coef_a.data(),
-                                             part.sls_coef_b.data());
+            part.sls_decay.resize(n_total_nodes * SLS::N_SLS);
+            part.sls_forcing_mu.resize(n_total_nodes * SLS::N_SLS * SLS::FORCING_WEIGHTS);
+            part.sls_forcing_kappa.resize(n_total_nodes * SLS::N_SLS * SLS::FORCING_WEIGHTS);
+            SLS::precompute_sls_coefficients(
+                part.tau_sigma.data(), part.tau_epsilon_mu.data(), part.tau_epsilon_kappa.data(),
+                n_total_nodes, cfg.solver_dt, part.sls_decay.data(), part.sls_forcing_mu.data(),
+                part.sls_forcing_kappa.data());
 
             logger.debug("  SLS attenuation initialized: " + std::to_string(n_total_nodes) +
                          " nodes, n_sls=" + std::to_string(SLS::N_SLS));
@@ -408,8 +411,6 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             restart_stride = cfg.restart_stride;
         }
         bool do_restart = (restart_stride > 0);
-        RestartWriter restart_writer(output_dir, direction, rank, n_local_cell, ngll,
-                                     use_global_dof, part.n_rank_node);
         if (do_restart) {
             logger.info("  restart stride: " + std::to_string(restart_stride));
         } else {
@@ -428,6 +429,18 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                     if (!rs.pml_damping.empty()) {
                         part.pml_damping = std::move(rs.pml_damping);
                     }
+                    if (part.has_attenuation != rs.has_attenuation) {
+                        throw std::runtime_error(
+                            "restart attenuation state does not match the current model");
+                    }
+                    if (part.has_attenuation) {
+                        if (rs.rmemory_sls.size() != part.rmemory_sls.size() ||
+                            rs.sls_strain_old.size() != part.strain_old.size()) {
+                            throw std::runtime_error("restart SLS state has incompatible sizes");
+                        }
+                        part.rmemory_sls = std::move(rs.rmemory_sls);
+                        part.strain_old = std::move(rs.sls_strain_old);
+                    }
                     start_step = rs.step + 1;
                     logger.info("  resumed at step " + std::to_string(start_step) +
                                 " (time_s=" + std::to_string(rs.time_s) + ")");
@@ -437,6 +450,18 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                              " — starting from scratch");
             }
         }
+        std::unique_ptr<RestartWriter> restart_writer;
+        if (do_restart) {
+            restart_writer = std::make_unique<RestartWriter>(
+                output_dir, direction, rank, n_local_cell, ngll, use_global_dof, part.n_rank_node);
+        }
+#ifdef GF_WITH_CUDA
+        cuda_upload_cpml_data(gpu_state, part, n_node);
+        cuda_upload_sls_data(gpu_state, part, n_node);
+        if (start_step > 0) {
+            cuda_copy_state_from_host(gpu_state, displacement, velocity, acceleration);
+        }
+#endif
         for (int step = start_step; step < cfg.nsteps; ++step) {
 #ifdef GF_WITH_CUDA
             // === GPU-native path (single-GPU, no MPI) ===
@@ -497,8 +522,9 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             // --- Write restart (every restart_stride solver steps) ---
             if (do_restart && step > 0 && step % restart_stride == 0) {
                 cuda_copy_state_to_host(gpu_state, displacement, velocity, acceleration);
-                restart_writer.write(step, step * solver_dt, displacement, velocity, acceleration,
-                                     part.pml_damping, &part);
+                cuda_copy_sls_to_host(gpu_state, part);
+                restart_writer->write(step, step * solver_dt, displacement, velocity, acceleration,
+                                      part.pml_damping, &part);
             }
 
             // --- Write snapshot (every snapshot_stride solver steps) ---
@@ -621,9 +647,11 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                     part.pml_coef_strain.empty() ? nullptr : part.pml_coef_strain.data(),
                     part.rmemory_strain.empty() ? nullptr : part.rmemory_strain.data(),
                     part.has_attenuation ? part.rmemory_sls.data() : nullptr,
-                    part.has_attenuation ? part.sigma_old.data() : nullptr,
-                    part.has_attenuation ? part.sls_coef_a.data() : nullptr,
-                    part.has_attenuation ? part.sls_coef_b.data() : nullptr, part.has_attenuation);
+                    part.has_attenuation ? part.strain_old.data() : nullptr,
+                    part.has_attenuation ? part.sls_decay.data() : nullptr,
+                    part.has_attenuation ? part.sls_forcing_mu.data() : nullptr,
+                    part.has_attenuation ? part.sls_forcing_kappa.data() : nullptr,
+                    part.has_attenuation);
 
                 // 4. PML damping / C-PML accel contribution
                 if (part.has_cpml) {
@@ -692,8 +720,8 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
 
             // --- Write restart (every restart_stride solver steps) ---
             if (do_restart && step > 0 && step % restart_stride == 0) {
-                restart_writer.write(step, step * solver_dt, displacement, velocity, acceleration,
-                                     part.pml_damping, &part);
+                restart_writer->write(step, step * solver_dt, displacement, velocity, acceleration,
+                                      part.pml_damping, &part);
             }
 
             // --- Write snapshot (every snapshot_stride solver steps) ---
@@ -793,7 +821,9 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
 
         // === Finalize ===
         record.close();
-        restart_writer.close();
+        if (restart_writer) {
+            restart_writer->close();
+        }
 
         auto t_end = std::chrono::steady_clock::now();
         double total_elapsed = std::chrono::duration<double>(t_end - t_start).count();

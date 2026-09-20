@@ -38,6 +38,14 @@ python "${SCRIPT_DIR}/compare.py" \
 	--output "${WORK_DIR}/lamb_comparison.npz" \
 	--fit-scale
 
+python "${SCRIPT_DIR}/../_shared/verify_waveform.py" \
+	"${WORK_DIR}/lamb_comparison.npz" \
+	--end-time-s 2.0 \
+	--min-correlation 0.98 \
+	--max-fitted-rel-l2 0.10 \
+	--min-scale 0.8 \
+	--max-scale 1.2
+
 # ── Stage S4: Multi-point comparison ───
 echo ""
 echo "=== Stage S4: Multi-point Lamb comparison ==="

@@ -152,7 +152,7 @@ Read from [`preprocess.md`](preprocess.md):
 | `/simulation/` | solver_dt, output_dt_s, snapshot_stride, restart_dt_s, restart_stride, log_stride, nsteps, cfl_safety, snapshot_precision, record_depth_max_m, record_depth_actual_m, nx_elements, ny_elements, nz_elements, pml\_{x,y,z}{min,max}, tilex_elements, tiley_elements |
 | `/domain/` | Bounds, pml_thickness per face |
 | `/source/` | Position (x,y,z), stf[nsteps] (precomputed time series), precomputed element list + Lagrange weights |
-SLS attenuation data (tau_sigma, tau_epsilon) stored in model.h5 `/field/cell/`. No `direction` — passed via CLI `--direction` flag.
+SLS attenuation data (`tau_sigma`, `tau_epsilon_mu`, `tau_epsilon_kappa`) is stored in model.h5 `/field/cell/`. No `direction` — passed via CLI `--direction` flag.
 
 ## Physics Components
 

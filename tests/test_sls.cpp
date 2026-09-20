@@ -11,7 +11,7 @@ TEST_CASE("SLS compile-time constants", "[sls][constants]") {
     REQUIRE(SLS::NDIM == 3);
     REQUIRE(SLS::VOIGT_COMPONENTS == 6);
     REQUIRE(SLS::MEMORY_PER_NODE == 18);
-    REQUIRE(SLS::TAU_PER_NODE == 6);
+    REQUIRE(SLS::TAU_PER_NODE == 9);
 }
 
 TEST_CASE("SLS voigt_index maps symmetrically", "[sls][voigt]") {
@@ -48,10 +48,10 @@ TEST_CASE("SLS offset functions compute correct flat indices", "[sls][offsets]")
         REQUIRE(SLS::coef_offset(node, mechanism) == expected);
     }
 
-    // sigma_old_offset
+    // strain_offset
     {
         size_t expected = node * SLS::VOIGT_COMPONENTS + static_cast<size_t>(voigt);
-        REQUIRE(SLS::sigma_old_offset(node, voigt) == expected);
+        REQUIRE(SLS::strain_offset(node, voigt) == expected);
     }
 }
 
@@ -64,8 +64,9 @@ TEST_CASE("SLS coefficient precomputation", "[sls][coefficients]") {
     // Allocate input arrays
     std::vector<double> tau_sigma(n_node * SLS::N_SLS);
     std::vector<double> tau_epsilon(n_node * SLS::N_SLS);
-    std::vector<double> coef_a(n_node * SLS::N_SLS);
-    std::vector<double> coef_b(n_node * SLS::N_SLS);
+    std::vector<double> decay(n_node * SLS::N_SLS);
+    std::vector<double> forcing_mu(n_node * SLS::N_SLS * SLS::FORCING_WEIGHTS);
+    std::vector<double> forcing_kappa(n_node * SLS::N_SLS * SLS::FORCING_WEIGHTS);
 
     for (int node = 0; node < n_node; ++node) {
         for (int l = 0; l < SLS::N_SLS; ++l) {
@@ -74,18 +75,30 @@ TEST_CASE("SLS coefficient precomputation", "[sls][coefficients]") {
         }
     }
 
-    SLS::precompute_sls_coefficients(tau_sigma.data(), tau_epsilon.data(), n_node, solver_dt,
-                                     coef_a.data(), coef_b.data());
+    SLS::precompute_sls_coefficients(tau_sigma.data(), tau_epsilon.data(), tau_epsilon.data(),
+                                     n_node, solver_dt, decay.data(), forcing_mu.data(),
+                                     forcing_kappa.data());
 
     double expected_a = std::exp(-solver_dt / tau_s);
-    double expected_b = (tau_e / tau_s - 1.0) * (1.0 - expected_a);
+    const double step_ratio = solver_dt / tau_s;
+    const double previous_time_weight = (1.0 - expected_a) / step_ratio - expected_a;
+    const double current_time_weight = 1.0 - (1.0 - expected_a) / step_ratio;
+    const double normalized_weight = (tau_e / tau_s - 1.0) / (SLS::N_SLS * tau_e / tau_s);
 
     for (int node = 0; node < n_node; ++node) {
         for (int l = 0; l < SLS::N_SLS; ++l) {
-            double a = coef_a[SLS::coef_offset(node, l)];
-            double b = coef_b[SLS::coef_offset(node, l)];
+            double a = decay[SLS::coef_offset(node, l)];
+            double previous = forcing_mu[SLS::forcing_offset(node, l, 0)];
+            double current = forcing_mu[SLS::forcing_offset(node, l, 1)];
             REQUIRE_THAT(a, Catch::Matchers::WithinRel(expected_a, 1e-12));
-            REQUIRE_THAT(b, Catch::Matchers::WithinRel(expected_b, 1e-12));
+            REQUIRE_THAT(previous, Catch::Matchers::WithinRel(
+                                       normalized_weight * previous_time_weight, 1e-12));
+            REQUIRE_THAT(current, Catch::Matchers::WithinRel(
+                                      normalized_weight * current_time_weight, 1e-12));
+            REQUIRE_THAT(forcing_kappa[SLS::forcing_offset(node, l, 0)],
+                         Catch::Matchers::WithinRel(previous, 1e-12));
+            REQUIRE_THAT(forcing_kappa[SLS::forcing_offset(node, l, 1)],
+                         Catch::Matchers::WithinRel(current, 1e-12));
         }
     }
 }
@@ -97,15 +110,19 @@ TEST_CASE("SLS no-attenuation limit (tau_e == tau_s)", "[sls][limit]") {
 
     std::vector<double> tau_sigma(1 * SLS::N_SLS, tau_s);
     std::vector<double> tau_epsilon(1 * SLS::N_SLS, tau_e);
-    std::vector<double> coef_a(1 * SLS::N_SLS);
-    std::vector<double> coef_b(1 * SLS::N_SLS);
+    std::vector<double> decay(1 * SLS::N_SLS);
+    std::vector<double> forcing_mu(1 * SLS::N_SLS * SLS::FORCING_WEIGHTS);
+    std::vector<double> forcing_kappa(1 * SLS::N_SLS * SLS::FORCING_WEIGHTS);
 
-    SLS::precompute_sls_coefficients(tau_sigma.data(), tau_epsilon.data(), 1, solver_dt,
-                                     coef_a.data(), coef_b.data());
+    SLS::precompute_sls_coefficients(tau_sigma.data(), tau_epsilon.data(), tau_epsilon.data(), 1,
+                                     solver_dt, decay.data(), forcing_mu.data(),
+                                     forcing_kappa.data());
 
     for (int l = 0; l < SLS::N_SLS; ++l) {
-        double b = coef_b[SLS::coef_offset(0, l)];
-        REQUIRE_THAT(b, Catch::Matchers::WithinAbs(0.0, 1e-15));
+        REQUIRE_THAT(forcing_mu[SLS::forcing_offset(0, l, 0)],
+                     Catch::Matchers::WithinAbs(0.0, 1e-15));
+        REQUIRE_THAT(forcing_mu[SLS::forcing_offset(0, l, 1)],
+                     Catch::Matchers::WithinAbs(0.0, 1e-15));
     }
 }
 
@@ -116,20 +133,24 @@ TEST_CASE("SLS coefficient bounds", "[sls][bounds]") {
 
     std::vector<double> tau_sigma(1 * SLS::N_SLS, tau_s);
     std::vector<double> tau_epsilon(1 * SLS::N_SLS, tau_e);
-    std::vector<double> coef_a(1 * SLS::N_SLS);
-    std::vector<double> coef_b(1 * SLS::N_SLS);
+    std::vector<double> decay(1 * SLS::N_SLS);
+    std::vector<double> forcing_mu(1 * SLS::N_SLS * SLS::FORCING_WEIGHTS);
+    std::vector<double> forcing_kappa(1 * SLS::N_SLS * SLS::FORCING_WEIGHTS);
 
-    SLS::precompute_sls_coefficients(tau_sigma.data(), tau_epsilon.data(), 1, solver_dt,
-                                     coef_a.data(), coef_b.data());
+    SLS::precompute_sls_coefficients(tau_sigma.data(), tau_epsilon.data(), tau_epsilon.data(), 1,
+                                     solver_dt, decay.data(), forcing_mu.data(),
+                                     forcing_kappa.data());
 
     for (int l = 0; l < SLS::N_SLS; ++l) {
-        double a = coef_a[SLS::coef_offset(0, l)];
-        double b = coef_b[SLS::coef_offset(0, l)];
+        double a = decay[SLS::coef_offset(0, l)];
+        double previous = forcing_mu[SLS::forcing_offset(0, l, 0)];
+        double current = forcing_mu[SLS::forcing_offset(0, l, 1)];
         // a = exp(-dt/tau_s) ∈ (0, 1)
         REQUIRE(a > 0.0);
         REQUIRE(a < 1.0);
-        // b = (tau_e/tau_s - 1) * (1 - a) > 0
-        REQUIRE(b > 0.0);
-        REQUIRE(b < 1.0);
+        REQUIRE(previous > 0.0);
+        REQUIRE(previous < 1.0);
+        REQUIRE(current > 0.0);
+        REQUIRE(current < 1.0);
     }
 }

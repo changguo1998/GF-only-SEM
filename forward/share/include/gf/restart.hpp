@@ -24,7 +24,7 @@ struct RestartState {
 
     // SLS attenuation memory (only populated when file contains SLS datasets)
     std::vector<double> rmemory_sls;
-    std::vector<double> sigma_old;
+    std::vector<double> sls_strain_old;
     bool has_attenuation = false;
 };
 

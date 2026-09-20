@@ -226,9 +226,14 @@ are no longer encoded in directory names):
 
 All configs use **viscoelastic (SLS) parameters**: `q_mu`, `q_kappa`, `n_sls`
 (and `f0_for_pml_hz`). The preprocessor auto-injects them into `model.h5`
-(`field/cell/tau_*`), so the solver exercises the SLS code path. With the
-default Q→∞ (elastic limit) visco output is bit-identical to elastic; set
+(`field/cell/tau_*`); selecting a viscoelastic solver therefore exercises the SLS code path.
+With the default Q→∞ (elastic limit) visco output is bit-identical to elastic; set
 `q_mu`/`q_kappa` to a finite value (e.g. `100.0`) for real attenuation.
+
+默认回归组合刻意避免全排列：`halfspace` 使用 SLS CPU+MPI，`layer` 使用
+elastic CPU+MPI，`fullspace-cubic` 使用 elastic CUDA。前两者的 0–2 s 主体波
+比较现在包含相关系数、拟合 L2 和绝对幅值硬门限；全空间继续使用 Stokes
+解析比较门限。完整选择理由见 [`docs/testing.md`](../docs/testing.md)。
 
 **Solver selection** is done by the user, not by test-case naming. Edit
 `examples/<case>/forward.sh` and uncomment ONE solver entry — options cover:

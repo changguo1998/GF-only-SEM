@@ -26,8 +26,9 @@ void compute_element_residual(int n_elem, const double* dxi_dx, const double* ja
                               const double* weights, int NGLL, const double* u, double* r,
                               const int32_t* pml_region, const double* pml_coef_strain,
                               const double* rmemory_strain, double* /*rmemory_sls*/,
-                              double* /*sigma_old*/, const double* /*sls_coef_a*/,
-                              const double* /*sls_coef_b*/, bool /*has_attenuation*/) {
+                              double* /*strain_old*/, const double* /*sls_decay*/,
+                              const double* /*sls_forcing_mu*/,
+                              const double* /*sls_forcing_kappa*/, bool /*has_attenuation*/) {
     const int n_node = NGLL * NGLL * NGLL;
 
     for (int elem = 0; elem < n_elem; ++elem) {

@@ -29,7 +29,7 @@ all 4 MPI C++/Python variants (halfspace + layer).
 **Preprocess:** `preprocess/attenuation.py`
 
 - `compute_tau_from_q()`: τ-method with log-spaced τ_σ, least-squares fit for τ_ε
-- `write_attenuation_to_model()`: writes tau_sigma/tau_epsilon to model.h5
+- `write_attenuation_to_model()`: writes shear/bulk SLS relaxation times to model.h5
 
 **Forward solver executables:**
 

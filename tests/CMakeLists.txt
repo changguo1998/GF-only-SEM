@@ -47,6 +47,16 @@ if(MPI_FOUND)
     # SLS attenuation tests
     add_gf_test(test_sls test_sls.cpp)
 
+    # Finite-Q constitutive response against SPECFEM reference parameters.
+    add_executable(test_sls_finite_q test_sls_finite_q.cpp)
+    target_include_directories(
+        test_sls_finite_q PRIVATE ${CMAKE_SOURCE_DIR}/forward/share/include ${EIGEN3_INCLUDE_DIR}
+                                  ${HDF5_INCLUDE_DIRS})
+    target_link_libraries(test_sls_finite_q PRIVATE libgf_visco Catch2::Catch2WithMain
+                                                    MPI::MPI_CXX Eigen3::Eigen ${HDF5_C_LIBRARIES})
+    target_compile_features(test_sls_finite_q PRIVATE cxx_std_17)
+    catch_discover_tests(test_sls_finite_q)
+
     # I/O round-trip tests (HDF5)
     add_gf_test(test_io test_io.cpp)
 

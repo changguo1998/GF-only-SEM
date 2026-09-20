@@ -41,10 +41,10 @@ MEMLIMIT="$(cd "${SCRIPT_DIR}/../.." && pwd)/scripts/with_mem_limit.sh"  # host 
 # SOLVER="${PROJECT_BIN}/gf_solver_viscoelastic_mpi_cuda"
 
 # (D) ELASTIC — CPU + MPI
-# SOLVER="${PROJECT_BIN}/gf_solver_elastic_mpi"
+SOLVER="${PROJECT_BIN}/gf_solver_elastic_mpi"
 
 # (E) ELASTIC — CUDA single GPU (no MPI)
-SOLVER="${PROJECT_BIN}/gf_solver_elastic_cuda"
+# SOLVER="${PROJECT_BIN}/gf_solver_elastic_cuda"
 
 # (F) ELASTIC — CUDA + MPI (multi-GPU cluster)
 # SOLVER="${PROJECT_BIN}/gf_solver_elastic_mpi_cuda"

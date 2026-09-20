@@ -24,14 +24,13 @@ namespace gf {
 // time by the library linked (libgf_elastic, libgf_visco, ...).
 // -----------------------------------------------------------------------
 
-void compute_element_residual(int n_elem, const double* dxi_dx, const double* jacobian,
-                              const double* lambda_, const double* mu_, const double* D,
-                              const double* weights, int NGLL, const double* u, double* r,
-                              const int32_t* pml_region = nullptr,
-                              const double* pml_coef_strain = nullptr,
-                              const double* rmemory_strain = nullptr,
-                              double* rmemory_sls = nullptr, double* sigma_old = nullptr,
-                              const double* sls_coef_a = nullptr,
-                              const double* sls_coef_b = nullptr, bool has_attenuation = false);
+void compute_element_residual(
+    int n_elem, const double* dxi_dx, const double* jacobian, const double* lambda_,
+    const double* mu_, const double* D, const double* weights, int NGLL, const double* u,
+    double* r, const int32_t* pml_region = nullptr, const double* pml_coef_strain = nullptr,
+    const double* rmemory_strain = nullptr, double* rmemory_sls = nullptr,
+    double* strain_old = nullptr, const double* sls_decay = nullptr,
+    const double* sls_forcing_mu = nullptr, const double* sls_forcing_kappa = nullptr,
+    bool has_attenuation = false);
 
 }  // namespace gf

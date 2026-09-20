@@ -290,6 +290,28 @@ void cuda_copy_state_to_host(const CudaDeviceState& state, std::vector<double>& 
     }
 }
 
+void cuda_copy_state_from_host(CudaDeviceState& state, const std::vector<double>& h_displacement,
+                               const std::vector<double>& h_velocity,
+                               const std::vector<double>& h_acceleration) {
+    if (state.use_global_dof) {
+        const size_t bytes = static_cast<size_t>(state.n_rank_node) * 3 * sizeof(double);
+        GF_CUDA_CHECK(cudaMemcpy(state.d_rank_node_displacement, h_displacement.data(), bytes,
+                                 cudaMemcpyHostToDevice));
+        GF_CUDA_CHECK(cudaMemcpy(state.d_rank_node_velocity, h_velocity.data(), bytes,
+                                 cudaMemcpyHostToDevice));
+        GF_CUDA_CHECK(cudaMemcpy(state.d_rank_node_acceleration, h_acceleration.data(), bytes,
+                                 cudaMemcpyHostToDevice));
+    } else {
+        const size_t bytes = static_cast<size_t>(state.n_dof) * sizeof(double);
+        GF_CUDA_CHECK(cudaMemcpy(state.d_displacement, h_displacement.data(), bytes,
+                                 cudaMemcpyHostToDevice));
+        GF_CUDA_CHECK(
+            cudaMemcpy(state.d_velocity, h_velocity.data(), bytes, cudaMemcpyHostToDevice));
+        GF_CUDA_CHECK(cudaMemcpy(state.d_acceleration, h_acceleration.data(), bytes,
+                                 cudaMemcpyHostToDevice));
+    }
+}
+
 // =======================================================================
 // CG-SEM global scatter/gather host wrappers
 // =======================================================================
@@ -861,11 +883,21 @@ void cuda_upload_sls_data(CudaDeviceState& state, const RankData& part, int n_no
     };
 
     upload(state.d_rmemory_sls, part.rmemory_sls, sizeof(double));
-    upload(state.d_sigma_old, part.sigma_old, sizeof(double));
-    upload(state.d_sls_coef_a, part.sls_coef_a, sizeof(double));
-    upload(state.d_sls_coef_b, part.sls_coef_b, sizeof(double));
+    upload(state.d_strain_old, part.strain_old, sizeof(double));
+    upload(state.d_sls_decay, part.sls_decay, sizeof(double));
+    upload(state.d_sls_forcing_mu, part.sls_forcing_mu, sizeof(double));
+    upload(state.d_sls_forcing_kappa, part.sls_forcing_kappa, sizeof(double));
 
     state.has_attenuation = true;
+}
+
+void cuda_copy_sls_to_host(const CudaDeviceState& state, RankData& part) {
+    if (!state.has_attenuation)
+        return;
+    GF_CUDA_CHECK(cudaMemcpy(part.rmemory_sls.data(), state.d_rmemory_sls,
+                             part.rmemory_sls.size() * sizeof(double), cudaMemcpyDeviceToHost));
+    GF_CUDA_CHECK(cudaMemcpy(part.strain_old.data(), state.d_strain_old,
+                             part.strain_old.size() * sizeof(double), cudaMemcpyDeviceToHost));
 }
 
 /// Free SLS attenuation device buffers.
@@ -879,9 +911,10 @@ void cuda_free_sls_data(CudaDeviceState& state) {
         }
     };
     f(state.d_rmemory_sls);
-    f(state.d_sigma_old);
-    f(state.d_sls_coef_a);
-    f(state.d_sls_coef_b);
+    f(state.d_strain_old);
+    f(state.d_sls_decay);
+    f(state.d_sls_forcing_mu);
+    f(state.d_sls_forcing_kappa);
     state.has_attenuation = false;
 }
 
