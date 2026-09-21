@@ -1,10 +1,8 @@
-/* postprocess/cpp/common.hpp — shared CLI/wiring helpers for the serial
- * (gf_postprocess, main.cpp) and MPI tile-parallel (gf_postprocess_mpi,
- * main_mpi.cpp) postprocessors.
+/* postprocess/cpp/common.hpp — helpers for the shared serial/MPI tile-batched
+ * postprocessor pipeline in main.cpp.
  *
  * Nothing here depends on MPI. Everything is inline/header-only so a single
- * definition is shared by both translation units — the two mains previously
- * carried verbatim copies of these helpers (~160 duplicated lines).
+ * definition is shared by both build variants.
  */
 
 #ifndef GF_POSTPROCESS_COMMON_HPP

@@ -195,9 +195,9 @@ PML): strain rel_l2=1.7e-4 (step 400) / 5.1e-4 (step 700), Pearson corr
 
 **Code cleanup (2026-07-28):** removed residual debug code from
 `preprocess/cpp/source_locator.cpp` (-31 lines), duplicate `#include` in
-`postprocess/cpp/writer.hpp`, and orphan debug comments in `postprocess/cpp/main.cpp`
-and `main_mpi.cpp`. 多 rank MPI 已验证。两个入口因合并数据流不同，仍保留约 500 行
-结构相似的代码；除非引入第三种后端，否则进一步共用代码只是可选清理项。
+`postprocess/cpp/writer.hpp`, and orphan debug comments in the postprocessor. The serial
+and MPI postprocessors now compile one tile-batched `postprocess/cpp/main.cpp`; MPI only
+adds round-robin worker scheduling through `GF_POST_MPI`.
 
 ## Cross-Cutting Conventions
 

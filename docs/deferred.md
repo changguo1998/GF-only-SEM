@@ -158,10 +158,10 @@ This is a tile-format limitation, not a solver bug.
 
 ______________________________________________________________________
 
-## 7. Postprocess MPI Tile-Parallel Refactoring
+## 7. Postprocess MPI Tile-Parallel Refactoring [ARCHIVED]
 
-**Status: verified (2026-08-05).** MPI tile-parallel variant
-(`postprocess/cpp/main_mpi.cpp`, target `gf_postprocess_mpi`). Memory redesigned:
+**Status: COMPLETE & VERIFIED (2026-09-21).** Serial and MPI targets now compile the
+same tile-batched pipeline in `postprocess/cpp/main.cpp`. Memory was redesigned:
 `merge_direction()` (full replication, ~331 GB for 16 ranks -> OOM/reboot) split
 into `merge_metadata()` (cheap, ~6 MB) + `extract_tile_fields()` (tile-local,
 ~1 GB/rank). 16-rank total: ~17 GB. Tile distribution is round-robin across ranks
@@ -170,21 +170,10 @@ once; ranks beyond `n_tiles` exit before any field allocation.
 Multi-rank verification (halfspace, 9 tiles): `mpirun -n 1` and `mpirun -n 4`
 outputs are numerically bit-identical to serial `gf_postprocess` across all
 datasets of all 9 tiles (HDF5 file bytes differ only by serialization, not data).
-
-### 可选的后续清理
-
-- Deduplication (2026-08-05): the binary-independent helpers shared verbatim by
-  both mains (`Args`/`parse_args`, `read_cell_mass`, STF downsampling, `print_stats`)
-  are now in `postprocess/cpp/common.hpp` (header-only, no MPI) — reused by
-  `main.cpp` and `main_mpi.cpp`. The per-direction merge pipelines stay separate
-  by design: serial `merge_direction()` (full replication) vs tile-local
-  `merge_metadata()` + `extract_tile_fields()` are different data flows; unifying
-  them would add complexity/risk without changing behavior. The two mains still
-  share some structurally-similar merge/binning code (~500 equal lines) that a
-  future shared-library pass could fold in if a third backend ever appears.
-- (optional, non-algorithmic) HDF5 byte-level serialization parity between the two
-  binaries is not guaranteed; data + attrs are bit-identical, so consumers treating
-  tiles as data files are unaffected.
+The unified 2026-09-21 regression used the complete halfspace records (500 output
+steps in all three force directions). Serial and 4-rank MPI produced 16 tiles;
+all 160 datasets and all attributes were bit-identical. Runtime was 158.4 s serial
+and 61.1 s MPI (2.59× speedup). HDF5 serialization bytes need not be identical.
 
 ## Summary
 
@@ -197,6 +186,5 @@ datasets of all 9 tiles (HDF5 file bytes differ only by serialization, not data)
 | 超大模型 GPU 网格流式计算 | forward | 中 | 延期；当前实现要求模型可装入显存 |
 | CUDA-aware MPI 与残差常驻显存 | forward | 低 | 可选性能优化 |
 | HIP/SYCL 后端 | forward | 低 | 延期；CUDA 是当前支持的加速后端 |
-| 后处理共用代码清理 | postprocess | 低 | 可选；当前串行/MPI 流程已验证且数据流有意分离 |
 
 压缩不是待实现任务：项目规定 HDF5 不压缩。重新引入压缩必须单独进行设计评审。

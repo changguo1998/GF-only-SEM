@@ -36,18 +36,17 @@ wavefields/{x,y,z}/record_{r}_{step}.h5
 
 ## Architecture
 
-C++17 header-only design. Primary binary `gf_postprocess` (serial, built via CMake
-target `gf_postprocess`, lands in `bin/gf_postprocess`). An MPI tile-parallel
-variant `gf_postprocess_mpi` (target `gf_postprocess_mpi`) is verified — see
-[`postprocess-tile-parallel.md`](postprocess-tile-parallel.md). No compiled
-library — all logic in `main.cpp`/`main_mpi.cpp`, `reader.hpp`, `writer.hpp`.
+C++17 header-only design. `gf_postprocess` and `gf_postprocess_mpi` compile the same
+tile-batched pipeline in `main.cpp`; the `GF_POST_MPI` build enables round-robin MPI
+scheduling, while the serial build uses one worker. Without MPI, only the serial target
+is built. See [`postprocess-tile-parallel.md`](postprocess-tile-parallel.md).
 
 | File | Role |
 |------|------|
-| `cpp/main.cpp` | Serial CLI, pipeline orchestration, merge, assembly, subset, binning |
+| `cpp/main.cpp` | 串行/MPI 共用的 tile 分批、合并、组装与写入流程 |
+| `cpp/common.hpp` | 两种构建共用的参数解析和辅助函数 |
 | `cpp/reader.hpp` | HDF5 readers: config, model, record discovery and per-file scatter |
 | `cpp/writer.hpp` | HDF5 tile writer with element-count and spatial binning |
-| `cpp/main_mpi.cpp` | Verified MPI tile-parallel variant with round-robin tile ownership |
 
 ## CLI
 
@@ -222,8 +221,8 @@ postprocess/
 ├── CMakeLists.txt              (builds cpp/)
 ├── cpp/
 │   ├── CMakeLists.txt          (builds gf_postprocess + gf_postprocess_mpi)
-│   ├── main.cpp                (serial CLI, pipeline)
-│   ├── main_mpi.cpp            (verified MPI tile-parallel variant)
+│   ├── main.cpp                (shared serial/MPI tile-batched pipeline)
+│   ├── common.hpp              (shared CLI and field helpers)
 │   ├── reader.hpp               (config, model, record readers)
 │   └── writer.hpp               (tile writer + binning)
 └── _archive/                   (archived Python reference)

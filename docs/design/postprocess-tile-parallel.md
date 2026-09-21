@@ -1,14 +1,14 @@
-# Postprocess Tile-Parallel (MPI) - Design Document
+# Postprocess Tile-Batched Serial/MPI - Design Document
 
-> **状态（2026-08-05）：已验证。** 内存从完整复制（16 ranks 约 331 GB）改为
-> tile 局部提取（16 ranks 约 17 GB）。tile 轮转分配以及 1-rank/4-rank 与串行后处理的
-> 运行结果一致性均已验证。
+> **状态（2026-09-21）：已验证。** 串行和 MPI 目标共用同一个 `main.cpp` tile 分批流程。
+> 串行目标使用一个 worker，MPI 目标轮转分配 tile。内存从完整复制（16 ranks 约
+> 331 GB）降至 tile 局部提取（16 ranks 约 17 GB）。
 
 ## Goal
 
-将后处理 tile 写入任务分配给 MPI ranks，避免任一进程分配完整的
-`[n_steps, n_recorded, ...]` 数组。每个 tile 仅由一个 rank 写入；一个 rank 可处理多个
-tile，多余 ranks 提前退出。
+以分批 tile 流程避免任一进程分配完整的 `[n_steps, n_recorded, ...]` 数组。每个 tile
+仅由一个 worker 写入；串行构建按顺序处理，MPI 构建在 ranks 间轮转分配，多余 ranks
+提前退出。
 
 ## Problem (Fixed)
 
@@ -33,18 +33,18 @@ rank guard at line 811.
 
 ## Architecture (Implemented)
 
-Three-phase design that bounds per-rank memory to tile-local data:
+Three-phase design that bounds per-worker memory to tile-local data:
 
 ```text
-Phase 1 - merge_metadata() x3 (all ranks, cheap ~6 MB total)
+Phase 1 - merge_metadata() x3 (all workers, cheap ~6 MB total)
     Build GLL-node union + cell metadata. NO per-step field arrays.
 
-Phase 2 - binning (all ranks, metadata only)
-    Bin recording cells into tiles. Ranks >= n_tiles exit HERE. Surviving
-    ranks own tile positions rank, rank + nranks, ...
+Phase 2 - binning (all workers, metadata only)
+    Bin recording cells into tiles. Workers >= n_tiles exit HERE. Surviving
+    workers own positions rank, rank + worker_count, ...
 
-Phase 3 - extract_tile_fields() + assembly (surviving ranks, ~1 GB each)
-    Each rank reads record files but accumulates field data ONLY for its
+Phase 3 - extract_tile_fields() + assembly (surviving workers, ~1 GB each)
+    Each worker reads record files but accumulates field data ONLY for its
     tile's nodes. All sharing cells are still iterated so mass-weighted /
     count-based averaging stays correct. One direction at a time to bound
     peak memory.
@@ -114,28 +114,30 @@ averaging sees every contributing element.
 - **Strain**: mass-weighted average (`node_weight_sum` per tile-local node)
 - **Disp/vel/acc**: count-based average (`node_count` per tile-local node)
 
-Cost: ~1 GB per rank (n_steps × n_local × 15 doubles peak, one direction at a time).
+Cost: ~1 GB per worker (n_steps × n_local × 15 doubles peak, one direction at a time).
 
 ### `main()` flow
 
 ```text
-MPI init + 200ms stagger
+optional MPI init + 200ms stagger
+set worker_rank=0, worker_count=1 when MPI is disabled
 read config, model, cell_mass
-merge_metadata x3 (fx, fy, fz)          -- Phase 1, all ranks
+merge_metadata x3 (fx, fy, fz)          -- Phase 1, all workers
 verify n_steps + GLL node consistency
 build time_arr, downsample STF
-bin cells into tiles                    -- Phase 2, all ranks
-if mpi_rank >= n_tiles: exit            -- rank guard BEFORE field alloc
-build tile-local node set + tile_local_index
-for dir in {fx, fy, fz}:                -- Phase 3, one direction at a time
-    fields = extract_tile_fields(meta[dir], ...)
-    assemble strain -> tile_greens[dir]
-    assemble disp/vel/acc -> tile_*[dir]
-write_tile(...)
-MPI finalize + print stats
+bin cells into tiles                    -- Phase 2, all workers
+if worker_rank >= n_tiles: exit         -- guard BEFORE field alloc
+for tile_pos = worker_rank; tile_pos < n_tiles; tile_pos += worker_count:
+    build tile-local node set + tile_local_index
+    for dir in {fx, fy, fz}:            -- Phase 3, one direction at a time
+        fields = extract_tile_fields(meta[dir], ...)
+        assemble strain -> tile_greens[dir]
+        assemble disp/vel/acc -> tile_*[dir]
+    write_tile(...)
+optional MPI finalize + print stats
 ```
 
-### Tensor layouts (must match serial `main.cpp`)
+### Tensor layouts
 
 - `tile_greens`: `[n_steps, n_local, dir(3), comp(6)]` — 18 doubles per (s, li)
 - `tile_displacement/velocity/acceleration`: `[n_steps, n_local, comp(3), dir(3)]` — 9 per (s, li)
@@ -157,10 +159,14 @@ In the tile-local extraction, `tile_local_index[global_idx]` returns -1 for
 non-tile-local nodes, so they are skipped during accumulation. But the cell loop
 still iterates all cells — a tile-local node on a tile boundary still receives
 contributions from all its sharing cells, even if those cells belong to a
-different tile. This guarantees byte-identical results vs. the serial version.
+different tile. Serial and MPI builds therefore use identical numerical operations.
 
-## MPI Strategy
+## Serial/MPI Strategy
 
+- **Single source:** both targets compile `main.cpp`. `GF_POST_MPI` only enables
+  MPI initialization, staggering, and finalization.
+- **Serial ownership:** `worker_rank=0`, `worker_count=1`, so one worker processes
+  every tile sequentially.
 - **Round-robin ownership**: rank `r` processes tile positions
   `r, r + n_ranks, r + 2 * n_ranks, ...`. Every tile is written exactly once
   for any positive rank count; ranks beyond `n_tiles` exit after Phase 2.
@@ -168,14 +174,6 @@ different tile. This guarantees byte-identical results vs. the serial version.
   multiple ranks open the same record files concurrently.
 - **MPI over OpenMP**: with a non-threadsafe HDF5, per-process file handles sidestep
   HDF5's lack of thread safety entirely.
-- **Serial version is thread-parallel too (2026-08-07)**: `gf_postprocess` links the
-  Spack `hdf5 +threadsafe` build, so its tile write loop now runs on a small thread
-  pool — each thread writes its own distinct tile file (no shared HDF5 handles).
-  `GF_POST_WRITE_THREADS` caps the pool (1 = serial fallback). Verified bit-identical
-  to the serial output on all 9 halfspace tiles (datasets + attrs). Caveat: the
-  threadsafe build's global internal lock serializes concurrent chunked H5Dwrite, so
-  the gain saturates around 4 threads (~1.4× on the write phase) — MPI process
-  parallelism remains the scaling path for large models.
 - No shared mutable state between ranks — each rank builds its tile arrays from
   scratch in its own address space.
 
@@ -192,10 +190,10 @@ different tile. This guarantees byte-identical results vs. the serial version.
 1. ✅ Round-robin tile ownership for arbitrary positive rank counts
 1. ✅ Halfspace runtime verification: 1-rank and 4-rank MPI outputs are numerically
    bit-identical to serial output across every dataset and attribute of all 9 tiles
+1. ✅ Serial and MPI targets compile the same `main.cpp` pipeline
+1. ✅ 2026-09-21 complete halfspace regression (500 output steps, three force
+   directions): serial and 4-rank MPI generated 16 tiles; all 160 datasets and all
+   attributes were bit-identical. Runtime: 158.4 s serial, 61.1 s MPI (2.59× speedup)
 
-**可选的后续清理：**
-
-- 两条合并流程有意保持独立：串行路径完整复制字段，MPI 路径提取 tile 局部字段。若未来
-  引入第三种后端，可将约 500 行结构相似代码移入共用库；当前正确性和维护不依赖此重构。
-- 不要求 HDF5 文件的序列化字节完全一致；数据集值与属性位级一致，这才是使用方可见的
-  契约。
+HDF5 files need not be byte-identical at the serialization level. Dataset values
+and attributes are the consumer-visible contract.
