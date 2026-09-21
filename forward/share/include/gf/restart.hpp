@@ -22,6 +22,13 @@ struct RestartState {
     bool use_global_dof = false;  // if true, arrays are n_rank_node-sized
     int n_rank_node = 0;
 
+    // C-PML runtime memory (only populated when file contains C-PML datasets)
+    std::vector<double> pml_displ_old;
+    std::vector<double> pml_displ_new;
+    std::vector<double> rmemory_displ;
+    std::vector<double> rmemory_strain;
+    bool has_cpml = false;
+
     // SLS attenuation memory (only populated when file contains SLS datasets)
     std::vector<double> rmemory_sls;
     std::vector<double> sls_strain_old;

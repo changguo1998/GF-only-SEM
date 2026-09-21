@@ -243,6 +243,21 @@ RestartState read_restart(const std::string& output_dir, const std::string& sour
     read_dset("acceleration", state.acceleration);
     read_dset("pml_damping", state.pml_damping);
 
+    // --- C-PML runtime state ---
+    read_dset("pml_displ_old", state.pml_displ_old);
+    read_dset("pml_displ_new", state.pml_displ_new);
+    read_dset("rmemory_displ", state.rmemory_displ);
+    read_dset("rmemory_strain", state.rmemory_strain);
+    const bool has_any_cpml = !state.pml_displ_old.empty() || !state.pml_displ_new.empty() ||
+                              !state.rmemory_displ.empty() || !state.rmemory_strain.empty();
+    const bool has_all_cpml = !state.pml_displ_old.empty() && !state.pml_displ_new.empty() &&
+                              !state.rmemory_displ.empty() && !state.rmemory_strain.empty();
+    if (has_any_cpml && !has_all_cpml) {
+        H5Fclose(fid);
+        throw std::runtime_error("read_restart: incompatible C-PML restart (incomplete state)");
+    }
+    state.has_cpml = has_all_cpml;
+
     // --- SLS attenuation runtime state ---
     read_dset("rmemory_sls", state.rmemory_sls);
     read_dset("sls_strain_old", state.sls_strain_old);

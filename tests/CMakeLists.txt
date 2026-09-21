@@ -60,6 +60,9 @@ if(MPI_FOUND)
     # I/O round-trip tests (HDF5)
     add_gf_test(test_io test_io.cpp)
 
+    # Restart round-trip tests (HDF5 + C-PML state)
+    add_gf_test(test_restart test_restart.cpp)
+
     # Record writer tests (HDF5) Note: Manual registration instead of catch_discover_tests so CTest
     # creates output directories before running (caller creates dirs, not C++ code).
     add_gf_test_build(test_record test_record.cpp)

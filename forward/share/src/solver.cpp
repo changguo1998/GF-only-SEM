@@ -423,11 +423,17 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             try {
                 RestartState rs = read_restart(output_dir, direction, rank);
                 if (!rs.displacement.empty() && rs.step > 0 && rs.step < cfg.nsteps) {
-                    displacement = std::move(rs.displacement);
-                    velocity = std::move(rs.velocity);
-                    acceleration = std::move(rs.acceleration);
-                    if (!rs.pml_damping.empty()) {
-                        part.pml_damping = std::move(rs.pml_damping);
+                    if (part.has_cpml != rs.has_cpml) {
+                        throw std::runtime_error(
+                            "restart C-PML state does not match the current model");
+                    }
+                    if (part.has_cpml) {
+                        if (rs.pml_displ_old.size() != part.pml_displ_old.size() ||
+                            rs.pml_displ_new.size() != part.pml_displ_new.size() ||
+                            rs.rmemory_displ.size() != part.rmemory_displ.size() ||
+                            rs.rmemory_strain.size() != part.rmemory_strain.size()) {
+                            throw std::runtime_error("restart C-PML state has incompatible sizes");
+                        }
                     }
                     if (part.has_attenuation != rs.has_attenuation) {
                         throw std::runtime_error(
@@ -438,6 +444,21 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                             rs.sls_strain_old.size() != part.strain_old.size()) {
                             throw std::runtime_error("restart SLS state has incompatible sizes");
                         }
+                    }
+
+                    displacement = std::move(rs.displacement);
+                    velocity = std::move(rs.velocity);
+                    acceleration = std::move(rs.acceleration);
+                    if (!rs.pml_damping.empty()) {
+                        part.pml_damping = std::move(rs.pml_damping);
+                    }
+                    if (part.has_cpml) {
+                        part.pml_displ_old = std::move(rs.pml_displ_old);
+                        part.pml_displ_new = std::move(rs.pml_displ_new);
+                        part.rmemory_displ = std::move(rs.rmemory_displ);
+                        part.rmemory_strain = std::move(rs.rmemory_strain);
+                    }
+                    if (part.has_attenuation) {
                         part.rmemory_sls = std::move(rs.rmemory_sls);
                         part.strain_old = std::move(rs.sls_strain_old);
                     }
@@ -532,6 +553,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             // --- Write restart (every restart_stride solver steps) ---
             if (do_restart && step > 0 && step % restart_stride == 0) {
                 cuda_copy_state_to_host(gpu_state, displacement, velocity, acceleration);
+                cuda_copy_cpml_to_host(gpu_state, part);
                 cuda_copy_sls_to_host(gpu_state, part);
                 restart_writer->write(step, step * solver_dt, displacement, velocity, acceleration,
                                       part.pml_damping, &part);

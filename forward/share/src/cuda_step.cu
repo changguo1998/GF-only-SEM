@@ -847,6 +847,20 @@ void cuda_upload_cpml_data(CudaDeviceState& state, const RankData& part, int n_n
     state.has_cpml = true;
 }
 
+void cuda_copy_cpml_to_host(const CudaDeviceState& state, RankData& part) {
+    if (!state.has_cpml || !part.has_cpml)
+        return;
+
+    GF_CUDA_CHECK(cudaMemcpy(part.pml_displ_old.data(), state.d_pml_displ_old,
+                             part.pml_displ_old.size() * sizeof(double), cudaMemcpyDeviceToHost));
+    GF_CUDA_CHECK(cudaMemcpy(part.pml_displ_new.data(), state.d_pml_displ_new,
+                             part.pml_displ_new.size() * sizeof(double), cudaMemcpyDeviceToHost));
+    GF_CUDA_CHECK(cudaMemcpy(part.rmemory_displ.data(), state.d_rmemory_displ,
+                             part.rmemory_displ.size() * sizeof(double), cudaMemcpyDeviceToHost));
+    GF_CUDA_CHECK(cudaMemcpy(part.rmemory_strain.data(), state.d_rmemory_strain,
+                             part.rmemory_strain.size() * sizeof(double), cudaMemcpyDeviceToHost));
+}
+
 /// Free C-PML device buffers allocated by cuda_allocate_state.
 void cuda_free_cpml_data(CudaDeviceState& state) {
     if (!state.has_cpml)

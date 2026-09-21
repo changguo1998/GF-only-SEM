@@ -394,11 +394,18 @@ restart/{direction}/restart_{r}.h5
 │   ├── velocity                : float64[n_local_cell, NGLL, NGLL, NGLL, 3]
 │   ├── acceleration            : float64[n_local_cell, NGLL, NGLL, NGLL, 3]
 │
-└── pml_damping                : float64[...]  # PML damping array for exact resume
+├── pml_damping                : float64[...]  # Legacy damping array
+├── pml_displ_old              : float64[n_local_cell × NGLL³ × 3]
+├── pml_displ_new              : float64[n_local_cell × NGLL³ × 3]
+├── rmemory_displ              : float64[n_local_cell × NGLL³ × 9]
+├── rmemory_strain             : float64[n_local_cell × NGLL³ × 39]
+├── rmemory_sls                : float64[...]  # when finite-Q is enabled
+└── sls_strain_old             : float64[...]  # when finite-Q is enabled
 ```
 
 Reader auto-detects format via `use_global_dof` attribute.
-With `--resume`, `gf_solver` restores state and continues at `step + 1`.
+With `--resume`, `gf_solver` validates and restores all active C-PML/SLS memory before continuing
+at `step + 1`. CUDA copies its active device memory to the host before each restart write.
 
 ## Discretization Parameters
 

@@ -330,20 +330,9 @@ TEST_CASE("CUDA C-PML timestep updates match CPU reference", "[pml][cpml][cuda]"
     cuda_cpml_update_strain_memory(gpu_state, ngll, n_node);
     cuda_zero_residual(gpu_state);
     cuda_cpml_accel_contribution(gpu_state, solver_dt, ngll, n_node);
+    cuda_copy_cpml_to_host(gpu_state, gpu_part);
 
-    std::vector<double> gpu_displ_old(cpu_part.pml_displ_old.size());
-    std::vector<double> gpu_displ_new(cpu_part.pml_displ_new.size());
-    std::vector<double> gpu_rmemory_displ(cpu_part.rmemory_displ.size());
-    std::vector<double> gpu_rmemory_strain(cpu_part.rmemory_strain.size());
     std::vector<double> gpu_residual(n_dof);
-    cudaMemcpy(gpu_displ_old.data(), gpu_state.d_pml_displ_old,
-               gpu_displ_old.size() * sizeof(double), cudaMemcpyDeviceToHost);
-    cudaMemcpy(gpu_displ_new.data(), gpu_state.d_pml_displ_new,
-               gpu_displ_new.size() * sizeof(double), cudaMemcpyDeviceToHost);
-    cudaMemcpy(gpu_rmemory_displ.data(), gpu_state.d_rmemory_displ,
-               gpu_rmemory_displ.size() * sizeof(double), cudaMemcpyDeviceToHost);
-    cudaMemcpy(gpu_rmemory_strain.data(), gpu_state.d_rmemory_strain,
-               gpu_rmemory_strain.size() * sizeof(double), cudaMemcpyDeviceToHost);
     cudaMemcpy(gpu_residual.data(), gpu_state.d_local_cell_residual,
                gpu_residual.size() * sizeof(double), cudaMemcpyDeviceToHost);
     cuda_free_state(gpu_state);
@@ -355,9 +344,9 @@ TEST_CASE("CUDA C-PML timestep updates match CPU reference", "[pml][cpml][cuda]"
             REQUIRE_THAT(gpu_values[value_index], WithinAbs(cpu_values[value_index], 1.0e-12));
         }
     };
-    require_vectors_equal(cpu_part.pml_displ_old, gpu_displ_old);
-    require_vectors_equal(cpu_part.pml_displ_new, gpu_displ_new);
-    require_vectors_equal(cpu_part.rmemory_displ, gpu_rmemory_displ);
-    require_vectors_equal(cpu_part.rmemory_strain, gpu_rmemory_strain);
+    require_vectors_equal(cpu_part.pml_displ_old, gpu_part.pml_displ_old);
+    require_vectors_equal(cpu_part.pml_displ_new, gpu_part.pml_displ_new);
+    require_vectors_equal(cpu_part.rmemory_displ, gpu_part.rmemory_displ);
+    require_vectors_equal(cpu_part.rmemory_strain, gpu_part.rmemory_strain);
     require_vectors_equal(cpu_residual, gpu_residual);
 }

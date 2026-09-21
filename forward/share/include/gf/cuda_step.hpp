@@ -148,6 +148,8 @@ void cuda_launch_element_residual(const CudaDeviceState& state, int ngll, int n_
 
 /// Upload C-PML data from RankData to device. Must be called after cuda_allocate_state.
 void cuda_upload_cpml_data(CudaDeviceState& state, const struct RankData& part, int n_node);
+/// Download C-PML runtime state before writing a restart file.
+void cuda_copy_cpml_to_host(const CudaDeviceState& state, struct RankData& part);
 
 /// Free C-PML device buffers.
 void cuda_free_cpml_data(CudaDeviceState& state);

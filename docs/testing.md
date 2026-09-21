@@ -68,13 +68,14 @@ GF_RUN_CPP_PREPROCESS_SMOKE=1 .venv/bin/python -m pytest \
 | `tests/test_sls.cpp` | 6 | SLS 常量、索引、系数与无衰减极限 |
 | `tests/test_sls_finite_q.cpp` | 3 | SPECFEM Qμ=20 剪切、Qκ=10 体积与时间步细化 |
 | `tests/test_io.cpp` | 2 | 分区与配置 HDF5 往返 |
+| `tests/test_restart.cpp` | 1 | C-PML 运行态 HDF5 重启往返 |
 | `tests/test_record.cpp` | 2 | 应变记录和 float32 写入 |
 | `tests/test_assembly.cpp` | 8 | 全局装配、震源 RHS、scatter/gather |
 | `tests/test_exchange.cpp` | 3 | MPI halo、累加与空模式 |
 | `tests/test_integration.cpp` | 3 | 单单元正演、刚体残差与 PML 阻尼 |
 | `tests/test_postprocess_tile.cpp` | 8 | tensor 布局、独立计数与 tile schema |
 
-CTest 当前注册 63 项：postprocess 的 8 个 Catch2 case 由一个稳定入口运行，record 测试另有一个
+CTest 当前注册 65 项：postprocess 的 8 个 Catch2 case 由一个稳定入口运行，record 测试另有一个
 fixture 准备项，因此注册数与逻辑 case 数不同。有限 Q 的 3 个本构用例已注册。
 
 ```bash
