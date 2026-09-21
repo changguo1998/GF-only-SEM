@@ -4,31 +4,33 @@
 
 ## Goal
 
-Read shallow mesh-vertex strain snapshots from three SEM runs (x, y, z). Built as a C++17 binary.
-Merge per-rank records. Build 3×6 strain Green's tensors at recorded vertices. Write horizontal HDF5 tiles.
+Read shallow element-local GLL field snapshots from three SEM runs (x, y, z). Merge per-rank
+records, project strain onto unique global GLL nodes with lumped-mass weights, build 3×6 strain
+Green's tensors, and write horizontal HDF5 tiles.
 
 No receivers. Output is the configured shallow, non-PML region.
 
 ## Context
 
-Forward writes per-rank record files: each MPI rank produces `record_{r}_{step}.h5` with vertex-level
-strain at its recorded mesh vertices. Postprocess merges these by global vertex ID, then assembles
-the full Green's tensor (3 force directions × 6 strain components).
+Forward writes per-rank record files containing element-local fields and the mapping from each
+recorded cell's GLL points to unique GLL-node IDs. Postprocess merges the IDs across ranks,
+performs the strain projection described below, and assembles the full Green's tensor
+(3 force directions × 6 strain components).
 
 ## Data Flow
 
 ```
-model.h5 (/topology/vertex_to_coord, /domain/ bounds)
+model.h5 (/field/cell/mass, /domain/ bounds)
 config.h5 (/simulation/ attrs, tile arrays)
 wavefields/{x,y,z}/record_{r}_{step}.h5
          │
          ├── Read config, mesh
          ├── Discover per-step record files in each direction dir
-         ├── Per-step: merge strain by vertex_id across ranks
-         ├── Build recorded vertex list (intersection of x/y/z masks)
-         ├── Subset strain to recorded vertices
+         ├── Merge GLL metadata and cell-to-node maps across ranks
+         ├── Per-step: lumped-mass project strain onto global GLL nodes
+         ├── Count-average continuous vector fields
          ├── Assemble Green's tensor [nt, n_recorded, 6, 3]
-         ├── Bin recorded vertices into tiles (element-count or spatial)
+         ├── Bin recorded GLL nodes and whole cells into tiles
          └── Write tile_x{i}_y{j}.h5
 ```
 
@@ -36,8 +38,8 @@ wavefields/{x,y,z}/record_{r}_{step}.h5
 
 C++17 header-only design. Primary binary `gf_postprocess` (serial, built via CMake
 target `gf_postprocess`, lands in `bin/gf_postprocess`). An MPI tile-parallel
-variant `gf_postprocess_mpi` (target `gf_postprocess_mpi`) is in development —
-see [`postprocess-tile-parallel.md`](postprocess-tile-parallel.md). No compiled
+variant `gf_postprocess_mpi` (target `gf_postprocess_mpi`) is verified — see
+[`postprocess-tile-parallel.md`](postprocess-tile-parallel.md). No compiled
 library — all logic in `main.cpp`/`main_mpi.cpp`, `reader.hpp`, `writer.hpp`.
 
 | File | Role |
@@ -45,7 +47,7 @@ library — all logic in `main.cpp`/`main_mpi.cpp`, `reader.hpp`, `writer.hpp`.
 | `cpp/main.cpp` | Serial CLI, pipeline orchestration, merge, assembly, subset, binning |
 | `cpp/reader.hpp` | HDF5 readers: config, model, record discovery and per-file scatter |
 | `cpp/writer.hpp` | HDF5 tile writer with element-count and spatial binning |
-| `cpp/main_mpi.cpp` | MPI tile-parallel variant — one tile per rank (WIP, see [tile-parallel design](postprocess-tile-parallel.md)) |
+| `cpp/main_mpi.cpp` | Verified MPI tile-parallel variant with round-robin tile ownership |
 
 ## CLI
 
@@ -57,7 +59,7 @@ gf_postprocess model.h5 config.h5 \
 
 | Arg | Meaning |
 |-----|---------|
-| `model.h5` | Mesh with `/topology/vertex_to_coord` and `/domain/` bounds |
+| `model.h5` | Mesh with `/field/cell/mass`, GLL geometry, and `/domain/` bounds |
 | `config.h5` | Simulation params, source, tiles |
 | `--fx/y/z dir` | Force-direction record directories |
 | `-o dir` | Output dir (default: `greenfun/`) |
@@ -68,16 +70,38 @@ element-count tiling, or `green_tile_size_m` for spatial tiling).
 
 ## Record Merging
 
-Each record file stores `vertex_ids` (1-based global mesh vertex IDs) and `strain` for a single
-snapshot on one MPI rank. Merge process:
+Each record file stores `gll_node_ids`, `gll_node_coords`, `cell_gll_node_index`, the recorded
+model-cell indices, and element-local fields for one snapshot on one MPI rank. Merge process:
 
 1. Group `record_{r}_{step}.h5` files by step across all ranks.
-1. For each step, allocate a full `[n_vertex, 6]` array, zero-initialized.
-1. Read each rank's file, scatter strain to global array by `vertex_id - 1`.
-1. Warn if a vertex appears in multiple ranks' files for the same step.
-1. Track which vertices were recorded (vertex mask).
+1. Build the union of unique global GLL-node IDs and remap every cell-local index.
+1. For each step, accumulate every element-local strain copy with its cell lumped mass.
+1. Divide each global node by its accumulated mass.
+1. Count-average displacement, velocity, and acceleration independently; CG-SEM makes their
+   shared-node copies identical.
 
-Ranks with zero recorded vertices (no shallow elements) produce empty files — handled transparently.
+Ranks with zero recorded cells produce empty files and are handled transparently.
+
+### Strain Projection Decision
+
+The default and retained method is the recording-domain mass-lumped discrete L2 projection:
+
+```
+projected_strain[I] = sum(cell_mass[e,I] * element_strain[e,I])
+                    / sum(cell_mass[e,I])
+```
+
+It is selected because supported velocity and density models are smooth, the output library
+requires one continuous value per global GLL node, and the method matches the GLL collocation and
+diagonal-mass discretization used by the solver. It only reconciles copies at the same node; it
+does not mix distinct neighboring nodes or apply a tunable low-pass filter.
+
+SPECFEM receiver strain remains element-local and is interpolated inside the selected element.
+That is the raw reference representation, but it does not provide the unique continuous GLL field
+required by this library. A consistent-mass L2 solve and Gaussian or Laplacian smoothing are not
+used by default; they add cost or alter the Green function's spatial spectrum without demonstrated
+accuracy benefit. The bottom face of the recording region has incomplete element support, so
+production configurations should record at least one cell deeper than the maximum query depth.
 
 ## Green's Tensor Assembly
 
@@ -91,8 +115,8 @@ greens_subset[nt, n_recorded, 6, 3]
   greens[:, :, :, 2] = fz_subset  (force z → column 2)
 ```
 
-Each recorded vertex stores 3 force directions × 6 strain components = 18 values per timestep.
-Storage layout: time outermost, then vertex, then component, then direction.
+Each recorded GLL node stores 3 force directions × 6 strain components = 18 values per timestep.
+Storage layout: time outermost, then GLL node, then component, then direction.
 
 ## Tiling
 
@@ -100,13 +124,13 @@ Two tiling modes, selected by config:
 
 ### Element-count tiling (default)
 
-Vertex binned by element index. Uses `tilex_elements` and `tiley_elements` from `config.h5`.
-Vertex's element index computed from its physical coordinates and uniform element size.
+Recorded cells are binned by element index. Uses `tilex_elements` and `tiley_elements` from
+`config.h5`; each cell and all of its GLL nodes stay in one tile.
 PML region excluded via `pml_xmin/pml_xmax/pml_ymin/pml_ymax`.
 
 ### Spatial tiling (`green_tile_size_m`)
 
-When `green_tile_size_m > 0` in config, vertices binned by spatial position:
+When `green_tile_size_m > 0` in config, cells are binned by spatial position:
 
 ```
 tile_x = floor((x - xmin) / green_tile_size_m)
@@ -123,7 +147,7 @@ One file per tile:
 greenfun/tile_x000_y000.h5
 ├── attrs:
 │   ├── version           : "1.0.0"
-│   ├── basis             : "mesh_vertices"
+│   ├── basis             : "gll"
 │   ├── tile_x_index, tile_y_index : int32
 │   ├── x_min_m, x_max_m, y_min_m, y_max_m, z_min_m, z_max_m : float64
 │   ├── record_depth_max_m, record_depth_actual_m : float64
@@ -132,13 +156,16 @@ greenfun/tile_x000_y000.h5
 │   ├── t                 : float64[nt]         (time array)
 │   └── attrs: dt, nsteps
 ├── /mesh/
-│   └── vertex_ids        : int64[n_local]     (1-based global IDs)
+│   ├── gll_node_ids      : int64[n_local]     (1-based global IDs)
+│   ├── gll_node_coords   : float64[n_local, 3]
+│   └── cell_gll_node_index : int32[n_cell, NGLL³]
 └── /field/
     └── greens_tensor     : float32[nt, n_local, 6, 3]
         uncompressed (compression disabled 2026-08-09); chunked (1, n, comp, comp)
 ```
 
-Tiles include `vertex_ids` only. Coordinates stay in `model.h5` (not duplicated).
+Tiles are self-contained for GLL interpolation: they include node IDs, coordinates, and the
+cell-to-node map.
 
 ## Build
 
@@ -146,14 +173,15 @@ Tiles include `vertex_ids` only. Coordinates stay in `model.h5` (not duplicated)
 cd build
 cmake ..
 cmake --build . --target gf_postprocess      # serial
-cmake --build . --target gf_postprocess_mpi   # MPI variant (WIP)
+cmake --build . --target gf_postprocess_mpi   # verified MPI variant
 ```
 
 Dependencies: HDF5 C library (system). The serial `gf_postprocess` needs no MPI; the MPI variant `gf_postprocess_mpi` additionally requires an MPI implementation.
 
 ## Performance
 
-~0.4s for halfspace example (500 steps × 3 directions, 845 recorded vertices, 25 output tiles).
+~0.4s for the historical halfspace example (500 steps × 3 directions, 845 recorded nodes,
+25 output tiles).
 
 ## Validation
 
@@ -161,9 +189,9 @@ Abort if:
 
 - Number of steps differs across x/y/z directions.
 - No record files found in any direction directory.
-- No recorded vertices in the combined mask.
+- No recorded GLL nodes in the combined set.
 
-Warn if recorded vertex sets differ across directions.
+Warn if recorded GLL-node sets differ across directions.
 
 ## Output Stats
 
@@ -182,9 +210,10 @@ STAT_ELAPSED_S=0.4
 - C++17 (primary implementation)
 - Python 3.10+ (archived reference in `_archive/`)
 - HDF5 C library
-- No receivers, receiver search, or point interpolation
-- Forward records shallow mesh-vertex strain only — postprocess operates on merged vertices, not GLL nodes
-- Tile files store `vertex_ids`; coordinates remain in `model.h5`
+- Postprocess itself has no receivers, receiver search, or point interpolation; the separate
+  `greenfun` reader performs cell lookup and GLL interpolation
+- Forward records shallow element-local GLL fields; postprocess projects strain onto global GLL nodes
+- Tile files contain the GLL coordinates and cell-to-node map required for interpolation
 
 ## File Layout
 
@@ -194,7 +223,7 @@ postprocess/
 ├── cpp/
 │   ├── CMakeLists.txt          (builds gf_postprocess + gf_postprocess_mpi)
 │   ├── main.cpp                (serial CLI, pipeline)
-│   ├── main_mpi.cpp            (MPI tile-parallel variant, WIP)
+│   ├── main_mpi.cpp            (verified MPI tile-parallel variant)
 │   ├── reader.hpp               (config, model, record readers)
 │   └── writer.hpp               (tile writer + binning)
 └── _archive/                   (archived Python reference)

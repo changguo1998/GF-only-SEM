@@ -269,11 +269,24 @@ After each Newmark correct step, element-wise strain computed from the corrected
 
 Voigt storage order (6 components per GLL node): ε_xx, ε_yy, ε_zz, ε_xy, ε_xz, ε_yz.
 
-Recording-mode implementation: strain is computed directly at each recorded mesh corner
-from the corrected displacement field via the GLL derivative matrix and chain rule —
-no global L2 projection. (Full-volume L2 smoothing is deferred.)
+Recording-mode implementation first computes element-local strain at every GLL point of
+each recorded cell from the corrected displacement field via the GLL derivative matrix and
+chain rule. These element-local values are written to HDF5 snapshots at stride intervals.
 
-Strain values written to HDF5 snapshots at stride intervals.
+During postprocessing, copies of a shared global GLL node are merged with the element lumped
+mass as weight:
+
+<center>ε̄_I = Σ_e m_{eI} ε_{eI} / Σ_e m_{eI}, &nbsp; m_{eI} = ρ_{eI} J_{eI} w_i w_j w_k</center>
+
+This is the density-weighted, mass-lumped discrete L2 projection on the recorded domain. It
+smooths only the element-local copies at the same global GLL node: distinct neighboring nodes
+are not coupled, there is no smoothing length, and it is not Gaussian or
+Laplacian/Helmholtz filtering. For the supported smooth material models, density is continuous
+at a shared node and cancels between numerator and denominator.
+
+The recording-depth bottom face has one-sided support because cells below it are not recorded.
+Queries should stay above that face; record at least one additional cell layer when values near
+the requested maximum depth are needed.
 
 ______________________________________________________________________
 
@@ -281,21 +294,23 @@ ______________________________________________________________________
 
 ### 10.1 Green's Tensor Assembly
 
-Three runs (force x, y, z) produce recorded shallow mesh-vertex strain ε^{(d)}:
+Three runs (force x, y, z) produce projected shallow GLL-node strain ε̄^{(d)}:
 
-<center>G_{ij}(t, x_v) = ε^{(j)}_i(t, x_v) / F_j(ω)</center>
+<center>G_{ij}(t, x_I) = ε̄^{(j)}_i(t, x_I) / F_j(ω)</center>
 
-where i = 1..6 is Voigt strain, j = x,y,z is force direction, and x_v is a recorded vertex.
+where i = 1..6 is Voigt strain, j = x,y,z is force direction, and x_I is a recorded global GLL node.
 
-Each recorded vertex stores 3 force directions × 6 strain components = 18 values.
+Each recorded GLL node stores 3 force directions × 6 strain components = 18 values.
 
 ### 10.2 Spatial Tiling
 
-Output uses x/y tiles. Each `greenfun/tile_x{i}_y{j}.h5` stores non-PML recorded vertices in that tile for all saved depths.
+Output uses x/y tiles. Each `greenfun/tile_x{i}_y{j}.h5` stores non-PML recorded GLL nodes and
+cell-to-node interpolation maps in that tile for all saved depths.
 
 ### 10.3 No Receivers
 
-Green output is the configured shallow mesh-vertex subset. No receivers, receiver search, or interpolation. SEM compute still uses full GLL.
+Green output is the configured shallow GLL-node subset. Forward solving has no receivers;
+the `greenfun` reader locates a query cell and applies tensor-product GLL interpolation.
 
 ______________________________________________________________________
 

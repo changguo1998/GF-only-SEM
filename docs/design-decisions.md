@@ -100,7 +100,7 @@ GMSH .msh → converter → model.h5 (topology only)
                     restart/{x,y,z}/restart_{r}.h5
                           ↓
                      │
-                     postprocess (merge vertex strain — also reads config.h5)
+                     postprocess (project GLL strain — also reads model.h5/config.h5)
                           ↓
                     greenfun/tile_x{i}_y{j}.h5
 ```
@@ -109,13 +109,13 @@ GMSH .msh → converter → model.h5 (topology only)
 
 | File | Producer | Consumer | Content |
 |------|----------|----------|---------|
-| model.h5 | converter → preprocessor | preprocessor, postprocess | Topology + GLL geometry + `is_pml`. No material. Postprocess uses `/topology/vertex_to_coord`. |
+| model.h5 | converter → preprocessor | preprocessor, postprocess | Topology, GLL geometry/material/mass, and `is_pml`; postprocess reads cell mass for strain projection |
 | partition\_{r}.h5 | preprocessor | forward | Per-rank element data, C-PML, partition metadata, and `/recording/` map |
 | config.h5 | preprocessor | forward, postprocess | Simulation params, cadence, record depth, tile size, domain, source, STF, weights. No direction. |
-| wavefields/{direction}/record\_{r}\_{step}.h5 | forward | postprocess | Per-vertex strain at recorded mesh corners; one step per file |
+| wavefields/{direction}/record\_{r}\_{step}.h5 | forward | postprocess | Element-local GLL fields and cell-to-node maps; one step per file |
 | restart/{direction}/restart\_{r}.h5 | forward | forward (`--resume`) | Latest full-volume restart: u, v, a, C-PML memory, step/time |
 | model_auxiliary.h5 | preprocessor (optional) | validation | CSR adjacency relations |
-| greenfun/tile_x{i}\_y{j}.h5 | postprocess | user | Mesh-vertex strain Green tensors, x/y tiled |
+| greenfun/tile_x{i}\_y{j}.h5 | postprocess | user | Projected GLL-node strain Green tensors and interpolation maps, x/y tiled |
 
 ### Design Rules
 
@@ -188,17 +188,20 @@ partition_{r}.h5
 
 ### Record and Restart Format
 
-Forward writes shallow mesh-vertex records (strain + displacement/velocity/acceleration) and separate latest-only restarts.
+Forward writes shallow element-local GLL records (strain + displacement/velocity/acceleration)
+and separate latest-only restarts.
 
 ```
 wavefields/{direction}/record_{r}_{step}.h5
-├── attrs: rank, source_direction, basis="mesh_vertices", record_depth_max_m,
+├── attrs: rank, source_direction, basis="gll", record_depth_max_m,
 │          record_depth_actual_m, excludes_pml=true
-├── vertex_ids     : int64[n_record_vertices]             # global mesh vertex IDs
-├── strain         : float32[1, n_record_vertices, 6]     # single step
-├── displacement   : float32[1, n_record_vertices, 3]
-├── velocity       : float32[1, n_record_vertices, 3]
-└── acceleration   : float32[1, n_record_vertices, 3]
+├── gll_node_ids        : int64[n_unique_gll]
+├── gll_node_coords     : float64[n_unique_gll, 3]
+├── cell_gll_node_index : int32[n_record_cells, NGLL³]
+├── strain              : float32[1, n_record_cells, NGLL³, 6]
+├── displacement        : float32[1, n_record_cells, NGLL³, 3]
+├── velocity            : float32[1, n_record_cells, NGLL³, 3]
+└── acceleration        : float32[1, n_record_cells, NGLL³, 3]
 
 restart/{direction}/restart_{r}.h5
 ├── attrs: rank, source_direction, step, time_s, ngll
@@ -262,7 +265,8 @@ greenfun/
 └── ...
 ```
 
-Each tile stores recorded vertices in its x/y bounds for all saved depths. Green files store `vertex_ids`; coordinates stay in `model.h5`.
+Each tile stores projected global GLL nodes in its x/y bounds for all saved depths, including
+`gll_node_ids`, `gll_node_coords`, and `cell_gll_node_index` for interpolation.
 
 ## 7. Preprocessor Decisions
 
@@ -305,7 +309,12 @@ Each tile stores recorded vertices in its x/y bounds for all saved depths. Green
 - **No runtime PML build**: Damping profile precomputed by preprocessor, read from partition at startup.
 - **Shared nodes**: Within-rank sums via `scatter_to_rank` (atomic add on GPU). Cross-rank sums via precomputed MPI exchange patterns (global DOF indices `iglob * 3 + dir`). Mass at shared nodes is exchanged so `a = (r_local + r_neighbor) / (m_local + m_neighbor)`. Predicted displacement (`u_tilde`) is exchanged + averaged before element kernel to keep state consistent across ranks.
 - **Runtime loop (global DOF)**: Newmark predict → u_tilde sync (exchange + average at shared nodes via MPI) → gather → element residual → PML damping → source injection → scatter → MPI exchange → Newmark correct (using mass-exchanged mass) → strain recording.
-- **Recording-mode strain**: Per-vertex strain computed inline at recorded mesh corners via derivative matrix and chain rule. Data-driven recording map: ranks with zero recorded vertices skip strain computation. No fallback to full-volume GLL strain when recording is enabled.
+- **Recording-mode strain**: Element-local strain is computed at every GLL point of each recorded
+  cell via the derivative matrix and chain rule. Postprocess retains the mass-lumped discrete L2
+  projection onto unique global GLL nodes: `Σ(mass × strain) / Σmass`. This reconciles only copies
+  of the same node and is not Gaussian or Laplacian filtering. Smooth material models are the
+  supported use case. Record one additional cell layer when queries approach the recording-depth
+  bottom face, where the projection otherwise has one-sided element support.
 - **3 runs per source**: Run x/y/z force jobs. One shared `config.h5`. Each writes `wavefields/{direction}/`.
 - **Restart/resume**: Supports both DOF modes. `use_global_dof` attribute written to restart file. Global mode: flat `float64[n_rank_node * 3]` arrays. Element-local mode: `float64[n_local, NGLL, NGLL, NGLL, 3]` arrays. Reader auto-detects format. `--resume` continues from it.
 - **Parallelism**: Pure MPI, one rank per core. GPU element residual works alongside MPI (GPU replaces only the element kernel; residual copied back to CPU for exchange); see [`gpu.md`](design/gpu.md).
@@ -343,9 +352,12 @@ Both are untracked (`*.gitignore`). Changes to them do not affect the repo.
 
 ## 12. Green's Function Pipeline
 
-- **3 orthogonal force directions**: 3 independent forward runs (one per fx, fy, fz) produce the full 3×3 strain Green's tensor at a single source location.
+- **3 orthogonal force directions**: 3 independent forward runs (one per fx, fy, fz) produce the full 6×3 Voigt-strain Green tensor at a single source location.
 - **Single source location**: One source position per GF computation. Multiple source locations require separate preprocessor + 3×N forward runs.
-- **Postprocess alignment**: Validate timing, basis, depth, and merged `vertex_ids` across x/y/z before assembly.
-- **PML exclusion**: PML elements/vertices are excluded by the preprocessing recording map — only physical-domain shallow vertices contribute.
-- **Element tiling**: `tilex_elements`/`tiley_elements` define x/y tile sizes in elements. Tiles partition the non-PML interior. Each tile stores mesh-vertex Green tensors for all recorded depths.
+- **Postprocess alignment**: Validate timing, basis, depth, and merged `gll_node_ids` across x/y/z before assembly.
+- **PML exclusion**: PML cells are excluded by the preprocessing recording map — only
+  physical-domain shallow GLL nodes contribute.
+- **Element tiling**: `tilex_elements`/`tiley_elements` define x/y tile sizes in elements. Tiles
+  partition the non-PML interior. Each tile stores GLL-node Green tensors and cell interpolation
+  maps for all recorded depths.
 - **Reciprocity**: Source is on the top free surface. Strain records cover the configured shallow output volume.
