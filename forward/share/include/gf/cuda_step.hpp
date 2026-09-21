@@ -125,7 +125,7 @@ void cuda_cpml_update_displ_memory(CudaDeviceState& state, int n_node);
 void cuda_cpml_update_strain_memory(CudaDeviceState& state, int ngll, int n_node);
 
 /// C-PML: add acceleration correction to element-local residual on device.
-void cuda_cpml_accel_contribution(CudaDeviceState& state, int ngll, int n_node);
+void cuda_cpml_accel_contribution(CudaDeviceState& state, double solver_dt, int ngll, int n_node);
 
 /// Source injection: add STF * weights to residual at source element nodes.
 void cuda_source_injection(CudaDeviceState& state, int direction, double stf_val,

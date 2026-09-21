@@ -392,11 +392,12 @@ void cuda_copy_residual_from_host(CudaDeviceState& state, const double* host_buf
 // Each thread processes one GLL node in one PML element.
 __global__ void cpml_displ_fields_kernel(double* d_displ_new, double* d_displ_old,
                                          const double* d_rank_node_displacement,
+                                         const double* d_rank_node_displacement_tilde,
                                          const double* d_rank_node_velocity,
                                          const double* d_rank_node_acceleration,
                                          const int* d_local_cell2rank_node,
                                          const int32_t* d_pml_region, int n_local_cell, int n_node,
-                                         double c1, double c2) {
+                                         double c1, double c2, double half_dt) {
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
     if (idx >= n_local_cell * n_node)
         return;
@@ -409,15 +410,15 @@ __global__ void cpml_displ_fields_kernel(double* d_displ_new, double* d_displ_ol
     int rank_node = d_local_cell2rank_node[idx];
     int rank_dof = rank_node * 3;
 
-    // PML_displ_new = u + c1 * v
+    // Match the two CPU-side updates around the Newmark predictor.
     for (int d = 0; d < 3; ++d) {
+        double velocity = d_rank_node_velocity[rank_dof + d];
+        double acceleration = d_rank_node_acceleration[rank_dof + d];
+        d_displ_old[elem_off + d] =
+            d_rank_node_displacement[rank_dof + d] + c1 * velocity + c2 * acceleration;
+        double predicted_velocity = velocity + half_dt * acceleration;
         d_displ_new[elem_off + d] =
-            d_rank_node_displacement[rank_dof + d] + c1 * d_rank_node_velocity[rank_dof + d];
-    }
-
-    // PML_displ_old += c2 * a  (old was swapped to previous new in host)
-    for (int d = 0; d < 3; ++d) {
-        d_displ_old[elem_off + d] += c2 * d_rank_node_acceleration[rank_dof + d];
+            d_rank_node_displacement_tilde[rank_dof + d] + c1 * predicted_velocity;
     }
 }
 
@@ -593,11 +594,12 @@ __global__ void cpml_strain_memory_kernel(
 // Adds PML contribution to element-local residual.
 __global__ void cpml_accel_kernel(double* d_residual, const double* d_rank_node_displacement,
                                   const double* d_rank_node_velocity,
+                                  const double* d_rank_node_acceleration,
                                   const int* d_local_cell2rank_node, const int32_t* d_pml_region,
                                   const double* d_pml_coef_abar, const double* d_rmemory_displ,
                                   const double* d_density, const double* d_jacobian,
-                                  const double* d_weights, int ngll, int n_local_cell,
-                                  int n_node) {
+                                  const double* d_weights, int ngll, int n_local_cell, int n_node,
+                                  double half_dt) {
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
     if (idx >= n_local_cell * n_node)
         return;
@@ -636,7 +638,8 @@ __global__ void cpml_accel_kernel(double* d_residual, const double* d_rank_node_
 
     for (int comp = 0; comp < 3; ++comp) {
         double u_val = d_rank_node_displacement[rank_dof + comp];
-        double v_val = d_rank_node_velocity[rank_dof + comp];
+        double v_val = d_rank_node_velocity[rank_dof + comp] +
+                       half_dt * d_rank_node_acceleration[rank_dof + comp];
         double mem_x = d_rmemory_displ[node_mem_off + comp * 3 + 0];
         double mem_y = d_rmemory_displ[node_mem_off + comp * 3 + 1];
         double mem_z = d_rmemory_displ[node_mem_off + comp * 3 + 2];
@@ -659,12 +662,14 @@ void cuda_cpml_update_displ_fields(CudaDeviceState& state, double solver_dt, int
     constexpr double THETA_CPML = 1.0 / 8.0;
     double c1 = (1.0 - 2.0 * THETA_CPML) * 0.5 * solver_dt;
     double c2 = (1.0 - THETA_CPML) * 0.5 * solver_dt * solver_dt;
+    double half_dt = 0.5 * solver_dt;
 
     int n_total = state.n_local_cell * n_node;
     cpml_displ_fields_kernel<<<grid_blocks(n_total), 256>>>(
         state.d_pml_displ_new, state.d_pml_displ_old, state.d_rank_node_displacement,
-        state.d_rank_node_velocity, state.d_rank_node_acceleration, state.d_local_cell2rank_node,
-        state.d_pml_region, state.n_local_cell, n_node, c1, c2);
+        state.d_rank_node_displacement_tilde, state.d_rank_node_velocity,
+        state.d_rank_node_acceleration, state.d_local_cell2rank_node, state.d_pml_region,
+        state.n_local_cell, n_node, c1, c2, half_dt);
     GF_CUDA_CHECK(cudaGetLastError());
 }
 
@@ -694,16 +699,16 @@ void cuda_cpml_update_strain_memory(CudaDeviceState& state, int ngll, int n_node
 }
 
 /// GPU-native: add C-PML acceleration correction to element residual.
-void cuda_cpml_accel_contribution(CudaDeviceState& state, int ngll, int n_node) {
+void cuda_cpml_accel_contribution(CudaDeviceState& state, double solver_dt, int ngll, int n_node) {
     if (!state.has_cpml)
         return;
 
     int n_total = state.n_local_cell * n_node;
     cpml_accel_kernel<<<grid_blocks(n_total), 256>>>(
-        state.d_local_cell_residual, state.d_rank_node_displacement, state.d_rank_node_velocity,
-        state.d_local_cell2rank_node, state.d_pml_region, state.d_pml_coef_abar,
-        state.d_rmemory_displ, state.d_density, state.d_jacobian, state.d_weights, ngll,
-        state.n_local_cell, n_node);
+        state.d_local_cell_residual, state.d_rank_node_displacement_tilde,
+        state.d_rank_node_velocity, state.d_rank_node_acceleration, state.d_local_cell2rank_node,
+        state.d_pml_region, state.d_pml_coef_abar, state.d_rmemory_displ, state.d_density,
+        state.d_jacobian, state.d_weights, ngll, state.n_local_cell, n_node, 0.5 * solver_dt);
     GF_CUDA_CHECK(cudaGetLastError());
 }
 // =======================================================================

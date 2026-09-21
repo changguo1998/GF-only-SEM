@@ -61,7 +61,7 @@ GF_RUN_CPP_PREPROCESS_SMOKE=1 .venv/bin/python -m pytest \
 | --- | ---: | --- |
 | `tests/test_gll.cpp` | 11 | GLL 点、权重、导数与插值 |
 | `tests/test_element.cpp` | 3 | CPU 单元残差、刚体运动与均匀应变 |
-| `tests/test_element_cuda.cu` | 3 | N=3/N=5 CUDA–CPU 残差和刚体平移 |
+| `tests/test_element_cuda.cu` | 4 | N=3/N=5 CUDA–CPU 残差、刚体平移和 C-PML 单步状态对照 |
 | `tests/test_newmark.cpp` | 3 | Newmark 预测、校正与能量守恒 |
 | `tests/test_pml.cpp` | 11 | 阻尼、C-PML 索引、记忆变量更新 |
 | `tests/test_source.cpp` | 3 | 点力定位、力守恒、多单元分配 |

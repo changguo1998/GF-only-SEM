@@ -14,9 +14,11 @@
 #include <vector>
 
 #include "gf/backend.hpp"
+#include "gf/cuda_step.hpp"
 #include "gf/element.hpp"
 #include "gf/gll.hpp"
 #include "gf/kernel_helpers.hpp"
+#include "gf/pml.hpp"
 #include "gf/types.hpp"
 
 using namespace gf;
@@ -236,4 +238,126 @@ TEST_CASE("CUDA element residual — rigid body translation zero", "[element][cu
     for (size_t i = 0; i < r.size(); ++i) {
         REQUIRE_THAT(r[i], WithinAbs(0.0, 1e-5));
     }
+}
+
+TEST_CASE("CUDA C-PML timestep updates match CPU reference", "[pml][cpml][cuda]") {
+    constexpr int polynomial_order = 2;
+    constexpr int ngll = polynomial_order + 1;
+    constexpr int n_node = ngll * ngll * ngll;
+    constexpr int n_dof = n_node * 3;
+    constexpr double solver_dt = 0.002;
+
+    std::vector<double> nodes = gll_nodes(polynomial_order);
+    std::vector<double> weights = gll_weights(polynomial_order, nodes);
+    std::vector<double> derivative = gll_derivative_matrix(polynomial_order, nodes);
+    std::vector<double> mass(n_node, 1.0);
+    std::vector<double> damping(n_node, 0.0);
+    std::vector<double> dxi_dx(n_node * 9, 0.0);
+    std::vector<double> jacobian(n_node, 1.25);
+    std::vector<double> lambda(n_node, 2.0);
+    std::vector<double> mu(n_node, 1.0);
+    std::vector<double> density(n_node, 2.5);
+    std::vector<int32_t> local_cell2rank_node(n_node);
+    for (int node_index = 0; node_index < n_node; ++node_index) {
+        dxi_dx[node_index * 9 + 0] = 1.0;
+        dxi_dx[node_index * 9 + 4] = 1.0;
+        dxi_dx[node_index * 9 + 8] = 1.0;
+        local_cell2rank_node[node_index] = node_index;
+    }
+
+    RankData cpu_part;
+    cpu_part.has_cpml = true;
+    cpu_part.n_local_cell = 1;
+    cpu_part.ngll = ngll;
+    cpu_part.local_cell2rank_node = local_cell2rank_node;
+    cpu_part.pml_region.assign(1, 1);
+    cpu_part.pml_coef_alpha.resize(n_node * 9);
+    cpu_part.pml_coef_beta.resize(n_node * 9);
+    cpu_part.pml_coef_abar.resize(n_node * 5);
+    cpu_part.pml_coef_strain.resize(n_node * 18, 0.0);
+    cpu_part.density = density;
+    cpu_part.jacobian = jacobian;
+    cpu_part.dxi_dx = dxi_dx;
+    cpu_part.mass = mass;
+    for (int node_index = 0; node_index < n_node; ++node_index) {
+        for (int direction = 0; direction < 3; ++direction) {
+            int coefficient_offset = node_index * 9 + direction * 3;
+            cpu_part.pml_coef_alpha[coefficient_offset + 0] = 0.91;
+            cpu_part.pml_coef_alpha[coefficient_offset + 1] = 0.17;
+            cpu_part.pml_coef_alpha[coefficient_offset + 2] = -0.08;
+            cpu_part.pml_coef_beta[coefficient_offset + 0] = 0.87;
+            cpu_part.pml_coef_beta[coefficient_offset + 1] = 0.13;
+            cpu_part.pml_coef_beta[coefficient_offset + 2] = -0.04;
+        }
+        for (int coefficient = 0; coefficient < 5; ++coefficient) {
+            cpu_part.pml_coef_abar[node_index * 5 + coefficient] =
+                0.01 * static_cast<double>(coefficient + 1);
+        }
+    }
+    cpml_initialize(cpu_part, n_node);
+    RankData gpu_part = cpu_part;
+
+    std::vector<double> displacement(n_dof);
+    std::vector<double> velocity(n_dof);
+    std::vector<double> acceleration(n_dof);
+    std::vector<double> displacement_tilde(n_dof);
+    for (int dof_index = 0; dof_index < n_dof; ++dof_index) {
+        displacement[dof_index] = 0.01 * static_cast<double>(dof_index + 1);
+        velocity[dof_index] = -0.02 * static_cast<double>((dof_index % 7) + 1);
+        acceleration[dof_index] = 0.03 * static_cast<double>((dof_index % 5) - 2);
+        displacement_tilde[dof_index] = displacement[dof_index] + solver_dt * velocity[dof_index] +
+                                        0.5 * solver_dt * solver_dt * acceleration[dof_index];
+    }
+
+    cpml_save_displ_old(cpu_part, displacement, velocity, acceleration, solver_dt, n_node);
+    cpml_save_displ_new(cpu_part, displacement_tilde, velocity, acceleration, solver_dt, n_node);
+    cpml_update_displ_memory(cpu_part, n_node);
+    cpml_update_strain_memory(cpu_part, derivative.data(), weights.data(), ngll);
+    std::vector<double> cpu_residual(n_dof, 0.0);
+    cpml_accel_contribution(cpu_part, displacement_tilde, velocity, acceleration, solver_dt,
+                            local_cell2rank_node, weights, cpu_residual, 1, n_node);
+
+    ConfigData config;
+    config.n_src_cell = 1;
+    CudaDeviceState gpu_state = cuda_allocate_state(
+        1, ngll, mass, damping, dxi_dx, jacobian, lambda, mu, derivative.data(), weights.data(),
+        config, n_dof, local_cell2rank_node, n_node, mass, damping);
+    cuda_upload_cpml_data(gpu_state, gpu_part, n_node);
+    cuda_copy_state_from_host(gpu_state, displacement, velocity, acceleration);
+    cuda_newmark_predict(gpu_state, solver_dt, 0.0);
+    cuda_cpml_update_displ_fields(gpu_state, solver_dt, n_node);
+    cuda_cpml_update_displ_memory(gpu_state, n_node);
+    cuda_cpml_update_strain_memory(gpu_state, ngll, n_node);
+    cuda_zero_residual(gpu_state);
+    cuda_cpml_accel_contribution(gpu_state, solver_dt, ngll, n_node);
+
+    std::vector<double> gpu_displ_old(cpu_part.pml_displ_old.size());
+    std::vector<double> gpu_displ_new(cpu_part.pml_displ_new.size());
+    std::vector<double> gpu_rmemory_displ(cpu_part.rmemory_displ.size());
+    std::vector<double> gpu_rmemory_strain(cpu_part.rmemory_strain.size());
+    std::vector<double> gpu_residual(n_dof);
+    cudaMemcpy(gpu_displ_old.data(), gpu_state.d_pml_displ_old,
+               gpu_displ_old.size() * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(gpu_displ_new.data(), gpu_state.d_pml_displ_new,
+               gpu_displ_new.size() * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(gpu_rmemory_displ.data(), gpu_state.d_rmemory_displ,
+               gpu_rmemory_displ.size() * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(gpu_rmemory_strain.data(), gpu_state.d_rmemory_strain,
+               gpu_rmemory_strain.size() * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(gpu_residual.data(), gpu_state.d_local_cell_residual,
+               gpu_residual.size() * sizeof(double), cudaMemcpyDeviceToHost);
+    cuda_free_state(gpu_state);
+
+    auto require_vectors_equal = [](const std::vector<double>& cpu_values,
+                                    const std::vector<double>& gpu_values) {
+        REQUIRE(cpu_values.size() == gpu_values.size());
+        for (size_t value_index = 0; value_index < cpu_values.size(); ++value_index) {
+            REQUIRE_THAT(gpu_values[value_index], WithinAbs(cpu_values[value_index], 1.0e-12));
+        }
+    };
+    require_vectors_equal(cpu_part.pml_displ_old, gpu_displ_old);
+    require_vectors_equal(cpu_part.pml_displ_new, gpu_displ_new);
+    require_vectors_equal(cpu_part.rmemory_displ, gpu_rmemory_displ);
+    require_vectors_equal(cpu_part.rmemory_strain, gpu_rmemory_strain);
+    require_vectors_equal(cpu_residual, gpu_residual);
 }

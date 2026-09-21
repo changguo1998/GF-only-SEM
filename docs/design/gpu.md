@@ -144,7 +144,11 @@ CUDA kernels in `cuda_step.cu` implement the global DOF operations:
 | `cuda_gather_predicted` | Gather `d_rank_node_displacement_tilde` → element-local via ibool | No |
 | `cuda_zero_residual` | Zero element-local residual array | No |
 | `cuda_launch_element_residual` | Element kernel (same as legacy, reads/writes elem-local) | Depends on NGLL |
-| `cuda_pml_damping` | PML damping on rank-level velocity array | No |
+| `cuda_cpml_update_displ_fields` | Build old/new C-PML auxiliary displacement fields | No |
+| `cuda_cpml_update_displ_memory` | Update Ā₁–Ā₅ displacement memory | No |
+| `cuda_cpml_update_strain_memory` | Update A₆–A₂₃ strain memory | No |
+| `cuda_cpml_accel_contribution` | Add C-PML acceleration correction | No |
+| `cuda_pml_damping` | Legacy damping when C-PML data are absent | No |
 | `cuda_source_injection` | Source injection into element-local residual | No |
 | `cuda_scatter_to_rank` | Atomic `atomicAdd` from elem-local → rank-level residual via ibool | No |
 | `cuda_newmark_correct` | Newmark corrector with mass-exchange handling (skip ghost-only nodes) | No |
@@ -154,6 +158,11 @@ The GPU scatter kernel uses `atomicAdd` on `d_rank_node_residual` to correctly
 accumulate element contributions at shared nodes. No MPI exchange is performed
 on GPU — the residual is left on device and the host-side `exchange_halo` handles
 cross-rank assembly (GPU→CPU copy avoids device-side MPI complexity).
+
+The CUDA C-PML sequence mirrors the CPU path: build the old/new auxiliary
+displacement fields after the synchronized Newmark predictor, update displacement
+and strain memory, evaluate the element residual, then add the acceleration
+correction. Legacy velocity damping is mutually exclusive with C-PML.
 
 **Device state allocation**: `cuda_allocate_state()` in `cuda_step.cu` detects
 `use_global_dof` from partition data and allocates appropriate arrays:
@@ -204,7 +213,9 @@ cmake --build build
 
 CUDA tests compare the CUDA result against an inline CPU reference
 (`reference_element_residual` in the test file), requiring identical
-residual to `1e-12` tolerance.
+residual to `1e-12` tolerance. The C-PML CUDA test additionally compares
+the old/new auxiliary fields, displacement and strain memory, and acceleration
+residual against the CPU implementation for one complete update.
 
 ## Limits & Future Work
 

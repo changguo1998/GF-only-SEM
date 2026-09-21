@@ -114,7 +114,7 @@ dispersion over 1–2 wavelengths at 1.5–2.0 Hz. Both 2-rank CPU and single-GP
 
 CG-SEM global-DOF assembly fix complete — waves correctly propagate across element
 interfaces (both within-rank and cross-rank). All 239 Python tests are collected (238 pass and
-the opt-in C++ preprocess smoke test skips by default). The current CTest layout registers 63
+the opt-in C++ preprocess smoke test skips by default). The current CTest layout registers 64
 entries and requires an MPI-enabled build configuration.
 
 Buried source support implemented (`source_z_m = None`→free surface, `float`→buried). Preprocessor auto-detects surface vs buried mode and excludes PML elements for buried sources.

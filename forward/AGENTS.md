@@ -116,9 +116,10 @@ Caller creates directories.
 ```
 Newmark predict (global)
 → sync predicted displacement (MPI — average at shared nodes)
+→ update C-PML auxiliary fields and memory (when enabled)
 → gather predicted → element-local
 → residual K·u  [link-time selected element kernel]
-→ PML damping on velocity (global)
+→ C-PML acceleration correction, or legacy damping when C-PML is absent
 → source injection (element-local)
 → scatter element-local → global (atomic accumulation)
 → MPI halo exchange on residual

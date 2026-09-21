@@ -488,12 +488,22 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                     cuda_copy_utilde_from_host(gpu_state, displacement_tilde.data());
                 }
 
+                if (part.has_cpml) {
+                    cuda_cpml_update_displ_fields(gpu_state, solver_dt, n_node);
+                    cuda_cpml_update_displ_memory(gpu_state, n_node);
+                    cuda_cpml_update_strain_memory(gpu_state, ngll, n_node);
+                }
+
                 // Gather predicted displacement → element-local for kernel
                 cuda_gather_predicted(gpu_state);
 
                 cuda_zero_residual(gpu_state);
                 cuda_launch_element_residual(gpu_state, ngll, n_local_cell);
-                cuda_pml_damping(gpu_state);
+                if (part.has_cpml) {
+                    cuda_cpml_accel_contribution(gpu_state, solver_dt, ngll, n_node);
+                } else {
+                    cuda_pml_damping(gpu_state);
+                }
                 {
                     int dir = (direction == "x") ? 0 : ((direction == "y") ? 1 : 2);
                     double stf_val = 0.0;
