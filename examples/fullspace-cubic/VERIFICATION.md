@@ -50,7 +50,7 @@ returned energy as the dominant source.
 
 ## Bugs Discovered and Fixed
 
-### Bug 1: C++ STF parameter mismatch (CRITICAL)
+### 历史问题：C++ STF 参数不一致（已解决）
 
 **Symptom**: Correlation dropped to 0.017 after changing Python config to f0=1Hz, t0=2s.
 
@@ -67,10 +67,9 @@ double f0_hz = 1.0;  // was 2.0
 double t0_s = 2.0;   // was 1.0
 ```
 
-**Impact**: All C++ preprocessed cases with non-default STF parameters are affected.
-The halfspace and layer cases use f0=2Hz, t0=1s in both Python and C++ (matching),
-so they are NOT affected. This bug only manifests when Python and C++ STF parameters
-diverge.
+**当前行为**：`config.py` 是唯一配置来源。Python 预处理流程计算 `config.stf_func`，
+一致性检查负责核对生成结果。C++ 示例配置仅作为直接调用时的默认值，正常示例运行不需要
+手工同步两份配置。
 
 ## Results (Parameter-Optimized)
 
@@ -112,51 +111,28 @@ fields in postprocess. It is fixed in both serial and MPI implementations. Pears
 correlation did not expose the error because it is amplitude-invariant. The old fitted-L2
 formula was also wrong and has been replaced with a scale-invariant relative L2.
 
-### Remaining Shape Errors (~22% unexplained variance)
+### 当前残差归因
 
-1. **S-wave resolution (3 elements/λs)**: At f0=1Hz, λs = 3,000m with 1km elements
-   gives 3 elements per S-wavelength. This is marginal for accurate S-wave propagation.
-   P-waves (5 elements/λp) are well-resolved.
+2026-09-20 的五网格复算取代了早期基于分辨率的诊断。每个 S 波长 3.0–4.7 个单元时，
+拟合相对 L2 保持在 0.3414–0.3468，未随网格收敛。因此，继续细化紧凑域网格不能有效
+消除此残差。
 
-1. **PML corners**: Overlapping PML layers in 8 corners cause non-physical damping
-   for waves propagating diagonally.
-
-1. **Near-field integral discretization**: The analytical near-field term uses
-   discrete integration with step dt=0.01s. For receivers within 3km of the source,
-   the near-field integral has only ~20 tau points, introducing O(dt²) error.
-
-1. **Sub-sample timing (≤10ms)**: The analytical time shift uses integer step
-   truncation, causing up to 0.5 sample (5ms) jitter per receiver.
-
-### Why 0.95 May Not Be Achievable
-
-The ~22% shape error is dominated by:
-
-- **S-wave numerical dispersion** (3 elements/λs → ~5-10% phase velocity error)
-- **PML corner effects** (geometric, irreducible for cubic domain)
-- **GLL quadrature accuracy** (N=4 for near-field Green's function)
-
-To reach 0.95 correlation would require:
-
-- S-wave resolution ≥ 4 elements/λs (reduce f0 to 0.75Hz or refine mesh)
-- Larger domain or spherical PML to eliminate corner effects
-- Higher GLL order (N≥6) for near-field accuracy
-
-These are algorithmic limitations, not parameter errors. The 0.78 correlation
-represents the practical limit for N=4 SEM with 3 elements/S-wavelength.
+扩展域源区对比在每个 S 波长仅 3.0 个单元时，相关系数达到 0.9672，拟合相对 L2 为
+0.0882。这表明有限边界/C-PML 区域返回能量是紧凑域误差的主因。点源表示以及解析解的
+时间/积分离散可能贡献较小的扩展域残差，但当前测试无法进一步分离。参见
+[`docs/design/known-limitations.md`](../../docs/design/known-limitations.md)。
 
 ## Conclusions
 
-1. **STF parameter mismatch bug found and fixed** in C++ config system. Python
-   config changes must be synchronized with `config_user_*.cpp` `stf_func()`.
+1. **历史 STF 参数不一致问题已解决。** 正常预处理使用唯一配置来源 `config.py`，并检查
+   生成结果。
 
 1. **Parameter optimization improved correlation from 0.66 → 0.78** through:
    source relocation (8-cell → 1-cell), PML thickening (3→5 elements),
    and frequency-mesh matching (2Hz→1Hz for 5 elements/λp).
 
-1. **Remaining ~22% shape error is algorithmic** (S-wave dispersion, PML corners,
-   GLL quadrature). Achieving 0.95 correlation requires algorithmic improvements
-   beyond parameter tuning.
+1. **紧凑域残差主要来自有限边界/C-PML 返回能量。** 五网格研究排除了每波长
+   3.0–4.7 个单元范围内的网格分辨率主因；扩展域将拟合相对 L2 降至 0.0882。
 
 1. **The former ~3× amplitude factor was a postprocess bug**, now fixed with independent
    displacement, velocity, and acceleration averaging counts.

@@ -326,17 +326,15 @@ function-call and CLI paths share one core implementation.
 - This file (`docs/design/greenfun.md`).
 - `greenfun/AGENTS.md` (new) — module description following project convention.
 - Root `AGENTS.md` module table gains a `greenfun/` row.
-- `docs/deferred.md` unchanged; GLL-point wavefield interpolation is recorded
-  here as a future enhancement (see below).
+- `docs/deferred.md` 只记录仍处于延期状态的工作；GLL 基函数插值已经完成，本文将其描述为
+  当前行为。
 
 | GLL-basis interpolation | `GLLInterpolator` | Spectral accuracy via tensor-product Lagrange basis |
 | Legacy vertex trilinear | `TrilinearInterpolator` | 8-corner fallback for vertex-only tiles |
 
 GLL interpolation was originally planned as a future enhancement; it is now
 the default output format of `gf_postprocess` (which writes `basis="gll"`).
-The greenfun library auto-selects the interpolator based on the tile's
-`basis` attribute. See [`docs/deferred.md`](../deferred.md) for remaining
-items.
+greenfun 库根据 tile 的 `basis` 属性自动选择插值器。
 
 ### Updated file listing
 

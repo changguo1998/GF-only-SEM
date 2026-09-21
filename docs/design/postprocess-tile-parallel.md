@@ -1,15 +1,14 @@
 # Postprocess Tile-Parallel (MPI) - Design Document
 
-> **Status (2026-07-29):** OOM bug fixed. Memory redesigned from full-replication
-> (~331 GB for 16 ranks) to tile-local extraction (~17 GB for 16 ranks). Build
-> passes; multi-rank runtime verification pending (see
-> [§ Implementation Status](#implementation-status)).
+> **状态（2026-08-05）：已验证。** 内存从完整复制（16 ranks 约 331 GB）改为
+> tile 局部提取（16 ranks 约 17 GB）。tile 轮转分配以及 1-rank/4-rank 与串行后处理的
+> 运行结果一致性均已验证。
 
 ## Goal
 
-Distribute the postprocess tile-writing workload across MPI ranks so that no
-single process allocates the full `[n_steps, n_recorded, ...]` arrays. One rank
-writes one tile; excess ranks exit early.
+将后处理 tile 写入任务分配给 MPI ranks，避免任一进程分配完整的
+`[n_steps, n_recorded, ...]` 数组。每个 tile 仅由一个 rank 写入；一个 rank 可处理多个
+tile，多余 ranks 提前退出。
 
 ## Problem (Fixed)
 
@@ -41,7 +40,8 @@ Phase 1 - merge_metadata() x3 (all ranks, cheap ~6 MB total)
     Build GLL-node union + cell metadata. NO per-step field arrays.
 
 Phase 2 - binning (all ranks, metadata only)
-    Bin recording cells into tiles. Ranks >= n_tiles exit HERE.
+    Bin recording cells into tiles. Ranks >= n_tiles exit HERE. Surviving
+    ranks own tile positions rank, rank + nranks, ...
 
 Phase 3 - extract_tile_fields() + assembly (surviving ranks, ~1 GB each)
     Each rank reads record files but accumulates field data ONLY for its
@@ -161,7 +161,9 @@ different tile. This guarantees byte-identical results vs. the serial version.
 
 ## MPI Strategy
 
-- **One tile per rank**: `tile_keys[mpi_rank]`. Ranks >= n_tiles exit after Phase 2.
+- **Round-robin ownership**: rank `r` processes tile positions
+  `r, r + n_ranks, r + 2 * n_ranks, ...`. Every tile is written exactly once
+  for any positive rank count; ranks beyond `n_tiles` exit after Phase 2.
 - **200ms per-rank stagger** (`usleep`) avoids HDF5 metadata contention when
   multiple ranks open the same record files concurrently.
 - **MPI over OpenMP**: with a non-threadsafe HDF5, per-process file handles sidestep
@@ -179,7 +181,7 @@ different tile. This guarantees byte-identical results vs. the serial version.
 
 ## Implementation Status
 
-**Done:**
+**已完成并验证：**
 
 1. ✅ `merge_metadata()` — Phase 1, cheap metadata-only merge (all ranks)
 1. ✅ `extract_tile_fields()` — Phase 3, tile-local field extraction
@@ -187,12 +189,13 @@ different tile. This guarantees byte-identical results vs. the serial version.
 1. ✅ Lambda refactoring for disp/vel/acc read + assembly loops
 1. ✅ Build passes (`gf_postprocess_mpi`)
 1. ✅ Memory: 331 GB → 17 GB (16 ranks)
+1. ✅ Round-robin tile ownership for arbitrary positive rank counts
+1. ✅ Halfspace runtime verification: 1-rank and 4-rank MPI outputs are numerically
+   bit-identical to serial output across every dataset and attribute of all 9 tiles
 
-**Remaining (WIP):**
+**可选的后续清理：**
 
-1. ⬜ Multi-rank runtime verification — `n_ranks == n_tiles` required for complete
-   output; `n_ranks < n_tiles` leaves tiles unwritten. Need round-robin or block
-   distribution so each tile is owned by exactly one rank regardless of `n_ranks`.
-1. ⬜ Byte-identical verification against serial `gf_postprocess` across all tiles.
-1. ⬜ `main.cpp` and `main_mpi.cpp` share ~950 lines of duplicated code — refactor
-   into a shared library once multi-rank is verified.
+- 两条合并流程有意保持独立：串行路径完整复制字段，MPI 路径提取 tile 局部字段。若未来
+  引入第三种后端，可将约 500 行结构相似代码移入共用库；当前正确性和维护不依赖此重构。
+- 不要求 HDF5 文件的序列化字节完全一致；数据集值与属性位级一致，这才是使用方可见的
+  契约。

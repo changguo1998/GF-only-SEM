@@ -217,15 +217,19 @@ residual to `1e-12` tolerance. The C-PML CUDA test additionally compares
 the old/new auxiliary fields, displacement and strain memory, and acceleration
 residual against the CPU implementation for one complete update.
 
-## Limits & Future Work
+## 限制与后续工作
 
-1. **Device memory:** Large meshes may exceed GPU memory. Streaming (partition into tiles) is deferred.
-1. **Atomics:** `atomicAdd` on double may contend. Future: shared-memory per-element reduction, then atomic per element (not per node).
-1. **MPI:** MPI is always required and always used (CPU-side exchange). After each GPU kernel, residual is copied back to host for `exchange_halo`. CUDA-aware MPI is optional future work — would let exchanged `r` stay on device, eliminating D2H+H2D per timestep.
-1. **Occupancy:** NGLL=4 → 64 threads/block. Low occupancy. Future: launch multiple elements per block or use 2D block with inner k-loop.
-1. **r stays on device:** Residual is copied back to CPU after each step for MPI exchange. If MPI exchange stays on CPU, this is fine. If CUDA-aware MPI is used, `d_r` can persist — eliminating D2H sync.
-1. **HIP/SYCL backends:** Follow the same pattern — add tag struct, add source file, add CMake branch.
-1. **Device cleanup:** `g_cuda_buffers` is not explicitly freed before `MPI_Finalize`. Currently device memory is reclaimed by OS on process exit. For clean MPI shutdown, add explicit `free_device_buffers()` call before `MPI_Finalize`.
+1. **显存容量：** 大模型可能超过显存容量。按网格块流式计算仍处于延期状态。
+1. **原子操作竞争：** double `atomicAdd` 可能形成瓶颈。可先在共享内存中进行单元内归约，
+   再按单元执行原子累加。
+1. **CUDA + MPI 数据搬运：** 多 rank CUDA 路径每步将残差复制到主机执行
+   `exchange_halo`，再复制回设备。CUDA-aware MPI 可消除这组 D2H/H2D 搬运；单 GPU
+   可执行文件使用空交换实现，不受 MPI 通信限制。
+1. **占用率：** NGLL=4 时每 block 只有 64 个线程。可让一个 block 处理多个单元，或使用
+   二维 block 并在内部循环 k 方向。
+1. **HIP/SYCL 后端：** 可沿用 CUDA 模式增加 backend tag、源文件和 CMake 分支。
+1. **设备清理：** 求解器状态通过 `cuda_free_state()` 显式释放；单元核的静态
+   `g_cuda_buffers` 仍由进程退出时回收。若需要严格的 MPI 退出清理，可补充显式释放入口。
 
 ## File Summary
 

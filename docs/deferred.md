@@ -171,7 +171,7 @@ Multi-rank verification (halfspace, 9 tiles): `mpirun -n 1` and `mpirun -n 4`
 outputs are numerically bit-identical to serial `gf_postprocess` across all
 datasets of all 9 tiles (HDF5 file bytes differ only by serialization, not data).
 
-### Remaining
+### 可选的后续清理
 
 - Deduplication (2026-08-05): the binary-independent helpers shared verbatim by
   both mains (`Args`/`parse_args`, `read_cell_mass`, STF downsampling, `print_stats`)
@@ -188,11 +188,15 @@ datasets of all 9 tiles (HDF5 file bytes differ only by serialization, not data)
 
 ## Summary
 
-| Item | Module | Priority | Effort |
-|------|--------|----------|--------|
-|| ~~SLS attenuation~~ | preprocess + forward/viscoelastic | High | Large | **IMPLEMENTED** |
-|| ~~C-PML (strain correction)~~ | forward + preprocess | Medium | Large | **IMPLEMENTED** |
-| Compress module | - | - | Placeholder (removed, see §2 above) |
-| HIP/SYCL backends | forward/elastic/ | Low | Medium |
-| ~~Cartesian mesh anisotropy~~ | forward + preprocess | - | RESOLVED (misdiagnosis, see §6 above) |
-| Postprocess MPI tile-parallel | postprocess/ | Medium | Medium | **WIP** (OOM fixed, see §7 above) |
+有限 Q SLS、完整 C-PML、CUDA 后端、后处理 MPI tile 并行和集总质量 L2 应变投影均已
+完成并验证。目前延期事项如下：
+
+| 事项 | 模块 | 优先级 | 状态 |
+|---|---|---|---|
+| 降低紧凑域边界/C-PML 残差 | forward + examples | 中 | 已知限制；仅在需要更高全空间波形精度时继续研究 |
+| 超大模型 GPU 网格流式计算 | forward | 中 | 延期；当前实现要求模型可装入显存 |
+| CUDA-aware MPI 与残差常驻显存 | forward | 低 | 可选性能优化 |
+| HIP/SYCL 后端 | forward | 低 | 延期；CUDA 是当前支持的加速后端 |
+| 后处理共用代码清理 | postprocess | 低 | 可选；当前串行/MPI 流程已验证且数据流有意分离 |
+
+压缩不是待实现任务：项目规定 HDF5 不压缩。重新引入压缩必须单独进行设计评审。

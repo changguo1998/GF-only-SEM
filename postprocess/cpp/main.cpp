@@ -85,7 +85,7 @@ struct MergedDirection {
 };
 
 // GLL-aware merge: reads 4D records, deduplicates GLL nodes across ranks,
-// and produces simple-averaged strain (L2 projection deferred).
+// and produces a mass-lumped discrete L2 projection of element-local strain.
 static MergedDirection merge_direction(const char* dir_path, const std::vector<double>& cell_mass,
                                        int64_t n_model_cell, int ngll) {
     MergedDirection result;
