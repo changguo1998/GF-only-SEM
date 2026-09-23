@@ -263,10 +263,11 @@ def _check_storage(
     """Estimate disk usage and check against storage_limit_gb.
 
     Storage breakdown:
-      - strain per run = nsnapshots × n_cell × NGLL³ × 6 × bytes_per_value
+      - snapshot per run = nsnapshots × n_cell × NGLL³ × 15 × bytes_per_value
+        (strain 6 + displacement 3 + velocity 3 + acceleration 3)
       - restart per run = n_cell × NGLL³ × 3 × 3 × 8  (always float64)
-      - 3 runs (x, y, z) + partition files (estimated as ~3× strain)
-      - Total = strain × 3 + restart × 3 + partition_estimate
+      - 3 runs (x, y, z) + partition files
+      - Total = snapshot × 3 + restart × 3 + partition_estimate
     """
     if snapshot_stride <= 0:
         result.add_warning(f"Storage estimation: snapshot_stride = {snapshot_stride}.")
@@ -276,12 +277,12 @@ def _check_storage(
     nsnapshots = int(np.ceil(nsteps / snapshot_stride))
     n_gll_per_elem = NGLL * NGLL * NGLL
 
-    strain_one_run_bytes = nsnapshots * n_cell * n_gll_per_elem * 6 * bytes_per
+    snapshot_one_run_bytes = nsnapshots * n_cell * n_gll_per_elem * 15 * bytes_per
     restart_one_run_bytes = n_cell * n_gll_per_elem * 3 * 3 * 8  # u,v,a × float64
     partition_estimate_bytes = n_cell * n_gll_per_elem * 10 * 8  # rough estimate
 
     total_gb = (
-        strain_one_run_bytes * 3 + restart_one_run_bytes * 3 + partition_estimate_bytes
+        snapshot_one_run_bytes * 3 + restart_one_run_bytes * 3 + partition_estimate_bytes
     ) / 1e9
 
     result.stats["estimated_storage_gb"] = f"{total_gb:.2f}"

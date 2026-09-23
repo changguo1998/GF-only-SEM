@@ -146,10 +146,9 @@ static void write_field_4d(hid_t file_id, const std::string& name, int ncomp, hs
 }  // anonymous namespace
 
 RecordWriter::RecordWriter(const std::string& output_dir, const std::string& source_direction,
-                           int rank, const RankData::RecordingMap& rec_map, int ngll,
-                           int source_partition_start, int source_partition_count,
-                           bool use_float32)
-    : n_rec_cell_(static_cast<hsize_t>(rec_map.rec_cell_local.size())),
+                           int rank, int n_local_cell, int ngll, int source_partition_start,
+                           int source_partition_count, bool use_float32)
+    : n_local_cell_(static_cast<hsize_t>(n_local_cell)),
       n_node_(ngll * ngll * ngll),
       use_float32_(use_float32),
       output_dir_(output_dir),
@@ -167,7 +166,7 @@ RecordWriter::~RecordWriter() {
 
 void RecordWriter::write_step(int step, const double* strain, const double* displacement,
                               const double* velocity, const double* acceleration) {
-    if (n_rec_cell_ == 0)
+    if (n_local_cell_ == 0)
         return;
 
     std::string dirpath = output_dir_ + "/" + source_direction_;
@@ -186,11 +185,14 @@ void RecordWriter::write_step(int step, const double* strain, const double* disp
     write_scalar_attr(file_id, "rank", H5T_NATIVE_INT, &rank_);
     write_scalar_attr(file_id, "source_partition_start", H5T_NATIVE_INT, &source_partition_start_);
     write_scalar_attr(file_id, "source_partition_count", H5T_NATIVE_INT, &source_partition_count_);
-    // Write 4D field datasets [1, n_rec_cell, n_node, ncomp]
-    write_field_4d(file_id, "strain", 6, n_rec_cell_, n_node_, use_float32_, strain);
-    write_field_4d(file_id, "displacement", 3, n_rec_cell_, n_node_, use_float32_, displacement);
-    write_field_4d(file_id, "velocity", 3, n_rec_cell_, n_node_, use_float32_, velocity);
-    write_field_4d(file_id, "acceleration", 3, n_rec_cell_, n_node_, use_float32_, acceleration);
+    write_string_attr(file_id, "cell_scope", "all_local_cells");
+    const int n_local_cell = static_cast<int>(n_local_cell_);
+    write_scalar_attr(file_id, "n_local_cell", H5T_NATIVE_INT, &n_local_cell);
+    // Write 4D field datasets [1, n_local_cell, n_node, ncomp].
+    write_field_4d(file_id, "strain", 6, n_local_cell_, n_node_, use_float32_, strain);
+    write_field_4d(file_id, "displacement", 3, n_local_cell_, n_node_, use_float32_, displacement);
+    write_field_4d(file_id, "velocity", 3, n_local_cell_, n_node_, use_float32_, velocity);
+    write_field_4d(file_id, "acceleration", 3, n_local_cell_, n_node_, use_float32_, acceleration);
 
     H5Fclose(file_id);
 }

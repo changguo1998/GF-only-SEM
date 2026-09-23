@@ -130,7 +130,8 @@ Key fields: `polynomial_order`, `output_dt_s`, `total_duration_s`, `cfl_safety`,
 
 ## Design Highlights
 
-- **No receivers** — shallow element-local GLL recording, no CSV/search/interpolation
+- **No receivers** — full-domain element-local snapshots with late shallow-GLL extraction; no
+  CSV/search/interpolation
 - **Timestep split** — `solver_dt` (CFL) + `output_dt_s` (snapshot interval)
 - **Source direction** not in config — CLI `--direction {x,y,z}` per run
 - **Elastic + viscoelastic** — SLS attenuation complete; Q→∞ elastic-limit regression is bit-identical

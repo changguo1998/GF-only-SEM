@@ -384,11 +384,13 @@ Comprehensive validation before partition and writing. Runs as a checklist; with
 1. **STF**: all values finite (no NaN/Inf); warn if non-zero DC component
 1. **Partition**: `n_ranks ≤ n_cell` (pre-check before calling METIS)
 1. **Recording map**: snap requested depth to `record_depth_actual_m`; mark non-PML elements/vertices above it.
-1. **Storage**: estimate partitions + shallow strain + latest restart. Abort if > `storage_limit_gb`:
+1. **Storage**: estimate partitions + full-domain dynamic snapshots + latest restart. Abort if >
+   `storage_limit_gb`:
    - `snapshots_per_run = nsteps / snapshot_stride`
-   - `strain_per_run_GB = snapshots_per_run × n_record_vertices × 6 × bytes_per_float / 1e9`
+   - `snapshot_per_run_GB = snapshots_per_run × n_cell × NGLL³ × 15 × bytes_per_float / 1e9`
+     (strain 6 + displacement 3 + velocity 3 + acceleration 3)
    - `restart_GB = n_cell × NGLL³ × 3 × 3 × 8 / 1e9 + pml_memory_GB`
-   - `total_GB = strain_per_run_GB × 3 + restart_GB × 3 + partition_GB`
+   - `total_GB = snapshot_per_run_GB × 3 + restart_GB × 3 + partition_GB`
    - Print storage estimate to stdout
 
 ### 9. Partition (METIS) + GLL Node Global Numbering
@@ -413,8 +415,8 @@ The solver enables CG-SEM assembly when `local_cell2rank_node` is present.
 
 ### 10. Build Shallow Recording Map
 
-Green output uses shallow GLL nodes. Preprocess builds the map once; forward performs no topology
-search.
+Green output uses shallow GLL nodes. Preprocess builds the map once; postprocess applies it without
+performing a topology search. Forward retains all local elements in each snapshot.
 
 1. Read `record_depth_max_m` and tile sizes (`tilex_elements`, `tiley_elements`) from `config.py`.
 1. Compute `target_z = zmin + record_depth_max_m` (z positive downward).
@@ -560,3 +562,16 @@ Preprocessor does not configure receivers. It builds a shallow GLL recording map
 ## No Per-Cell Material Tags
 
 Material is at GLL nodes per element via config.py functions. Forward solver reads them directly — no interpolation at runtime.
+
+## 性能调试输出
+
+开发测试时设置 `GF_PRE_PROFILE=1`，预处理结束后会输出机器可解析的阶段计时：
+
+```bash
+GF_PRE_PROFILE=1 gf-preprocess
+```
+
+每行格式为 `[profile] stage=<名称> seconds=<秒> percent=<占比>%`。计时覆盖配置与拓扑
+读取、GLL 几何、边界/PML、材料插值、Lamé 参数与 CFL、C-PML 参数、源定位、STF、
+分区、记录映射、SLS 衰减参数以及 HDF5 写入。该开关用于开发期性能定位，未设置时不打印
+阶段统计。

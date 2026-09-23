@@ -46,6 +46,24 @@ def setup_logging(log_dir: str = "log") -> logging.Logger:
 logger: logging.Logger | None = None
 
 
+def _profile_record(profile: dict[str, float] | None, name: str, started_at: float) -> None:
+    """Accumulate one pipeline stage when performance debugging is enabled."""
+    if profile is not None:
+        profile[name] = profile.get(name, 0.0) + time.perf_counter() - started_at
+
+
+def _profile_report(profile: dict[str, float] | None, total_s: float) -> None:
+    """Print machine-readable per-stage timings in pipeline order."""
+    if profile is None:
+        return
+    measured_s = sum(profile.values())
+    profile["unclassified"] = max(0.0, total_s - measured_s)
+    for name, elapsed_s in profile.items():
+        percent = 100.0 * elapsed_s / total_s if total_s > 0.0 else 0.0
+        logger.info(f"[profile] stage={name} seconds={elapsed_s:.6f} percent={percent:.3f}%")
+    logger.info(f"[profile] total seconds={total_s:.6f}")
+
+
 # ── Accelerator binary discovery ──
 
 
@@ -478,7 +496,11 @@ def write_attenuation_if_configured(
 def main() -> None:
     global logger
     logger = setup_logging()
-    start = time.time()
+    start = time.perf_counter()
+    profile: dict[str, float] | None = {} if os.getenv("GF_PRE_PROFILE") is not None else None
+    if profile is not None:
+        logger.info("Performance profiling enabled (GF_PRE_PROFILE=1)")
+    stage_start = time.perf_counter()
 
     model_path = os.path.abspath("model.h5")
     config_path = os.path.abspath("config.py")
@@ -507,30 +529,40 @@ def main() -> None:
     _init_accelerators()
     if _PREPROCESS_BINARY:
         logger.info(f"C++ preprocessor found: {_PREPROCESS_BINARY}")
+    _profile_record(profile, "config_topology_read", stage_start)
 
     # config.py contains arbitrary Python material and STF callables, so it
     # cannot be represented by gf_preprocess run's compile-time C++ config.
     # Keep config.py authoritative and use C++ only for compatible stages.
 
     # ── Step 1: GLL geometry + CFL h_min ──
+    stage_start = time.perf_counter()
     gll = step_gll_geometry(model_path, topology, config, domain_bounds)
     coords = gll["coords"]
     jacobian = gll["jacobian"]
     dxi_dx = gll["dxi_dx"]
     mass = gll["mass"]
     h_min = gll["h_min"]
+    _profile_record(profile, "gll_geometry", stage_start)
 
     # ── Step 2: Boundary detection ──
+    stage_start = time.perf_counter()
     boundary_tag = step_boundary_detection(model_path, topology, config, domain_bounds, gll)
+    _profile_record(profile, "boundary_detection", stage_start)
 
     # ── Step 3: PML ──
+    stage_start = time.perf_counter()
     is_pml, damping = step_pml(model_path, topology, config, domain_bounds, coords, gll)
+    _profile_record(profile, "pml", stage_start)
 
     # ── Step 4: Material interpolation ──
+    stage_start = time.perf_counter()
     vp, vs, density = step_material_interpolation(config, coords)
     mass = mass * density
+    _profile_record(profile, "material_interpolation", stage_start)
 
     # ── Step 5: λ/μ + CFL solver_dt ──
+    stage_start = time.perf_counter()
     lame = step_lame_and_cfl(model_path, config, vp, vs, density, coords, h_min)
     lam = lame["lam"]
     mu = lame["mu"]
@@ -538,8 +570,10 @@ def main() -> None:
     snapshot_stride = lame["snapshot_stride"]
     nsteps = lame["nsteps"]
     cfl_dt = lame["cfl_dt"]
+    _profile_record(profile, "lame_cfl", stage_start)
 
     # ── Step 5b: C-PML parameters ──
+    stage_start = time.perf_counter()
     f0_for_pml = getattr(config, "f0_for_pml_hz", 2.0)
     pml_thickness_cfg = getattr(config, "pml_thickness", {}) or {}
     nx_el = int(getattr(config, "nx_elements", 1))
@@ -567,8 +601,10 @@ def main() -> None:
     )
     n_pml_val = int(is_pml.sum())
     logger.info(f"  PML elements: {n_pml_val}, regions: {np.unique(cpml_params['pml_region'])}")
+    _profile_record(profile, "cpml_parameters", stage_start)
 
     # ── Step 6: Source location ──
+    stage_start = time.perf_counter()
     source_z = getattr(config, "source_z_m", None)
     if source_z is None:
         source_z = float(domain_bounds["zmin"])
@@ -584,8 +620,10 @@ def main() -> None:
         f"  Source at ({config.source_x_m}, {config.source_y_m}, {source_z}), "
         f"{mode_label}, in {src_result['n_src_cell']} element(s)"
     )
+    _profile_record(profile, "source_location", stage_start)
 
     # ── Step 7: STF ──
+    stage_start = time.perf_counter()
     logger.info("Evaluating STF...")
     try:
         from preprocess.stf_evaluator import evaluate_stf
@@ -594,8 +632,10 @@ def main() -> None:
     except ImportError:
         stf_t = np.arange(nsteps) * solver_dt
         stf_values = np.array([config.stf_func(t) for t in stf_t])
+    _profile_record(profile, "stf_evaluation", stage_start)
 
     # ── Step 8: Partition ──
+    stage_start = time.perf_counter()
     n_ranks = int(config.n_ranks)
     logger.info(f"Partitioning into {n_ranks} ranks...")
     try:
@@ -605,8 +645,10 @@ def main() -> None:
     except ImportError:
         partition_result = None
         logger.info("  partition.py not available — skipping")
+    _profile_record(profile, "partition", stage_start)
 
     # ── Step 9: Recording map ──
+    stage_start = time.perf_counter()
     logger.info("Building recording map...")
     try:
         from preprocess.recording_map import build_recording_map
@@ -631,8 +673,10 @@ def main() -> None:
     except ImportError:
         rec_map = None
         logger.info("  recording_map.py not available — skipping")
+    _profile_record(profile, "recording_map", stage_start)
 
     # ── Step 10: Write outputs ──
+    stage_start = time.perf_counter()
     fields = {
         "coords": coords,
         "jacobian": jacobian,
@@ -647,8 +691,14 @@ def main() -> None:
         "damping": damping,
     }
     fields.update(cpml_params)
+    _profile_record(profile, "field_assembly", stage_start)
+
     # Add attenuation before model and partition files are written.
+    stage_start = time.perf_counter()
     write_attenuation_if_configured(model_path, config, n_cell, n_gll, logger, fields)
+    _profile_record(profile, "attenuation", stage_start)
+
+    stage_start = time.perf_counter()
     tile_config = {
         "nx_elements": int(config.nx_elements),
         "ny_elements": int(config.ny_elements),
@@ -661,9 +711,10 @@ def main() -> None:
         "domain_bounds": domain_bounds,
         "record_depth_actual_m": rec_map.get("record_depth_actual_m", 0.0) if rec_map else 0.0,
     }
+    _profile_record(profile, "tile_config", stage_start)
 
     logger.info(f"Writing model to: {model_path}")
-    t0 = time.time()
+    stage_start = time.perf_counter()
     from preprocess.model_writer import write_model
 
     write_model(
@@ -676,11 +727,13 @@ def main() -> None:
         recording_map=rec_map,
         tile_config=tile_config,
     )
-    logger.info(f"  model write: {time.time() - t0:.2f}s")
+    model_write_s = time.perf_counter() - stage_start
+    logger.info(f"  model write: {model_write_s:.2f}s")
+    _profile_record(profile, "model_write", stage_start)
 
     config_h5 = os.path.join(os.path.dirname(model_path), "config.h5")
     logger.info(f"Writing config to: {config_h5}")
-    t0 = time.time()
+    stage_start = time.perf_counter()
     from preprocess.config_writer import write_config
 
     write_config(
@@ -696,10 +749,13 @@ def main() -> None:
         nsteps=nsteps,
         recording_map=rec_map,
     )
-    logger.info(f"  config write: {time.time() - t0:.2f}s")
+    config_write_s = time.perf_counter() - stage_start
+    logger.info(f"  config write: {config_write_s:.2f}s")
+    _profile_record(profile, "config_write", stage_start)
 
-    elapsed = time.time() - start
+    elapsed = time.perf_counter() - start
     logger.info(f"Done in {elapsed:.1f}s")
+    _profile_report(profile, elapsed)
 
 
 if __name__ == "__main__":

@@ -86,6 +86,7 @@ def test_python_config_remains_authoritative_with_cpp_accelerator(tmp_path, monk
         return original_run_binary(binary, args, timeout=timeout, desc=desc)
 
     monkeypatch.setattr(preprocess_cli, "_run_binary", reject_unified_run)
+    monkeypatch.setenv("GF_PRE_PROFILE", "1")
     monkeypatch.chdir(tmp_path)
     preprocess_cli.main()
 
@@ -105,3 +106,7 @@ def test_python_config_remains_authoritative_with_cpp_accelerator(tmp_path, monk
     assert "unified run" not in preprocess_log
     assert "falling back" not in preprocess_log
     assert "run" not in invoked_subcommands
+    assert "Performance profiling enabled (GF_PRE_PROFILE=1)" in preprocess_log
+    assert "[profile] stage=gll_geometry" in preprocess_log
+    assert "[profile] stage=model_write" in preprocess_log
+    assert "[profile] total seconds=" in preprocess_log

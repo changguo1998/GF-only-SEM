@@ -35,7 +35,7 @@ partitions/partition_{r}.h5 (local subset per rank: topology + field/element + P
     │   │                    u += dt·v + dt²·(½-β)·a_old + dt²·β·a_new,
     │   │                    v += dt·((1-γ)·a_old + γ·a_new)
     │   ├── Element-local GLL strain — compute ε from ∇u via GATHER + derivative matrix
-    │   ├── Write shallow GLL field record when step % snapshot_stride == 0
+    │   ├── Write full-domain GLL field record when step % snapshot_stride == 0
     │   └── Overwrite restart when step % restart_stride == 0 (use_global_dof flag)
     │
     ├── wavefields/{direction}/record_{r}_{step}.h5  (field-only, one per snapshot)
@@ -166,7 +166,7 @@ SLS attenuation data (`tau_sigma`, `tau_epsilon_mu`, `tau_epsilon_kappa`) is sto
 | **newmark** | NewmarkPredictor, NewmarkCorrector (2nd order explicit, β=0, γ=½) |
 | **source** | Reads precomputed element list + Lagrange weights from config.h5. Distributes STF(t) × w_ijk to global residual |
 | **exchange** | MPI halo exchange using precomputed face-pair lists from /partition/exchange/neighbor\_{N}/ |
-| **record/snapshot** | Element-local shallow GLL fields; partition recording maps provide the static layout |
+| **record/snapshot** | Element-local full-domain GLL fields; partition recording maps select the postprocess subset |
 | **solver** | `run_forward()` main time loop; shallow strain output + latest-only restart/resume |
 
 ## Core Types
@@ -335,12 +335,12 @@ for step in 0..nsteps-1:
         v[d, iglob]  += dt·((1-γ)·a_old + γ·a_new)
         a[d, iglob]   = a_new
 
-    11. Strain snapshot (when step % snapshot_stride == 0):
-        GATHER displacement to owning element → compute ∇u at corner
+    11. Full-domain snapshot (when step % snapshot_stride == 0):
+        GATHER displacement/velocity/acceleration to every local element → compute ∇u
         via GLL derivative matrix × dxi_dx
         ε = ½(∇u + ∇uᵀ)   (6-component Voigt)
-        Write wavefields/{direction}/record_{r}_{step}.h5 using the in-memory partition
-        recording map
+        Write every local element, including PML, to
+        wavefields/{direction}/record_{r}_{step}.h5
 
     12. Restart overwrite (when step % restart_stride == 0):
          Format controlled by use_global_dof:
@@ -350,7 +350,7 @@ for step in 0..nsteps-1:
 
 ## Snapshot Output
 
-静态记录布局由预处理保存于每个 partition 中，并由正演、后处理及可视化工具共享：
+静态记录布局由预处理保存于每个 partition 中，供后处理和可视化工具延迟选择：
 
 ```
 partitions/partition_{r}.h5:/recording
@@ -371,15 +371,18 @@ wavefields/{direction}/record_{r}_{step}.h5
 │   ├── rank                    : int32
 │   ├── source_direction        : string
 │   ├── source_partition_start  : int32
-│   └── source_partition_count  : int32
-├── strain                      : float32[1, n_record_cells, NGLL³, 6]
-├── displacement                : float32[1, n_record_cells, NGLL³, 3]
-├── velocity                    : float32[1, n_record_cells, NGLL³, 3]
-└── acceleration                : float32[1, n_record_cells, NGLL³, 3]
+│   ├── source_partition_count  : int32
+│   ├── cell_scope              : string = "all_local_cells"
+│   └── n_local_cell            : int32
+├── strain                      : float32[1, n_local_cell, NGLL³, 6]
+├── displacement                : float32[1, n_local_cell, NGLL³, 3]
+├── velocity                    : float32[1, n_local_cell, NGLL³, 3]
+└── acceleration                : float32[1, n_local_cell, NGLL³, 3]
 ```
 
-字段保持单元局部 GLL 排列。每个 record 的 partition 范围属性记录求解器合并或重分配后
-实际使用的连续 partition 区间，后处理按同样顺序重建输出 rank 布局并完成全局节点合并与投影。
+字段保持单元局部 GLL 排列，包含 PML 单元。每个 record 的 partition 范围属性记录求解器
+合并或重分配后实际使用的连续 partition 区间；后处理按同样顺序重建全域单元下标，再依据
+`/recording/rec_cell_local` 延迟选择浅层非 PML 单元并完成全局节点合并与投影。
 
 ## Restart Output
 
@@ -431,6 +434,21 @@ at `step + 1`. CUDA copies its active device memory to the host before each rest
 ## Run Config (3 Simulations per Source)
 
 Green extraction uses 3 runs per source: force x, y, z. Each run calls `gf_solver --direction ...` and writes 6 strain components.
+
+## 性能调试输出
+
+开发测试时设置 `GF_FORWARD_PROFILE=1`，求解结束后会输出每个阶段的累计用时和相对整个
+进程的占比：
+
+```bash
+GF_FORWARD_PROFILE=1 gf_solver_elastic_cuda --direction x
+```
+
+统计覆盖输入读取与初始化、三个 C-PML 更新、Newmark 预测/校正、MPI 交换、GLL 聚散、
+单元残差、C-PML 加速度、源注入、重启 I/O，以及快照的设备拷贝、节点聚集、应变计算、
+记录区提取和 HDF5 写入。CUDA 计算阶段使用 CUDA event 测量实际设备执行时间，避免异步
+kernel 被错误计入后续 I/O；MPI/CPU 阶段使用单调墙钟。输出格式与后处理性能调试一致：
+`[profile] stage=<名称> seconds=<秒> percent=<占比>%`。该模式仅用于开发分析。
 
 ## Namespace
 

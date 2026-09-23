@@ -163,10 +163,10 @@ ______________________________________________________________________
 **Status: COMPLETE & VERIFIED (2026-09-21).** Serial and MPI targets now compile the
 same tile-batched pipeline in `postprocess/cpp/main.cpp`. Memory was redesigned:
 `merge_direction()` (full replication, ~331 GB for 16 ranks -> OOM/reboot) split
-into `merge_metadata()` (cheap, ~6 MB) + `extract_tile_fields()` (tile-local,
-~1 GB/rank). 16-rank total: ~17 GB. Tile distribution is round-robin across ranks
-(`tile_pos = rank, rank+nranks, ...`), so any `n_ranks` writes every tile exactly
-once; ranks beyond `n_tiles` exit before any field allocation.
+into metadata-only layout construction plus worker-local field extraction. The original one-tile
+loop was further optimized on 2026-09-23: tile ownership is assigned by record-rank overlap and
+balanced estimated work; each worker reads a record once and scatters it to all assigned tiles.
+Every tile still has one writer, and idle ranks exit before field allocation.
 Multi-rank verification (halfspace, 9 tiles): `mpirun -n 1` and `mpirun -n 4`
 outputs are numerically bit-identical to serial `gf_postprocess` across all
 datasets of all 9 tiles (HDF5 file bytes differ only by serialization, not data).
@@ -174,6 +174,8 @@ The unified 2026-09-21 regression used the complete halfspace records (500 outpu
 steps in all three force directions). Serial and 4-rank MPI produced 16 tiles;
 all 160 datasets and all attributes were bit-identical. Runtime was 158.4 s serial
 and 61.1 s MPI (2.59× speedup). HDF5 serialization bytes need not be identical.
+On the 20³/800-step profile, worker-local reuse reduced MPI-4 runtime from 34.3 s to
+19.0 s and HDF5 reading from 59.187% to 17.693% of cumulative worker time.
 
 ## Summary
 

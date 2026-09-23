@@ -311,10 +311,10 @@ int stage2_main(int argc, char** argv) {
     int64_t n_snapshots =
         (snapshot_stride > 0) ? (nsteps + snapshot_stride - 1) / snapshot_stride : 0;
     int64_t n_gll_per_elem = ngll * ngll * ngll;
-    double strain_one_run = (double)n_snapshots * n_cell * n_gll_per_elem * 6 * bytes_per;
+    double snapshot_one_run = (double)n_snapshots * n_cell * n_gll_per_elem * 15 * bytes_per;
     double restart_one_run = (double)n_cell * n_gll_per_elem * 3 * 3 * 8;
     double partition_est = (double)n_cell * n_gll_per_elem * 10 * 8;
-    double total_gb = (strain_one_run * 3 + restart_one_run * 3 + partition_est) / 1e9;
+    double total_gb = (snapshot_one_run * 3 + restart_one_run * 3 + partition_est) / 1e9;
 
     // ---- Write λ, μ to HDF5 ----
     hid_t fld_gid = H5Gopen2(fid, "field", H5P_DEFAULT);

@@ -3,8 +3,8 @@
 # Reads per-step record files from three force-direction runs, merges by vertex_id, assembles
 # Green's tensor, and writes spatially-tiled HDF5 output (byte-identical to Python gf_post).
 #
-# Both targets compile the same tile-batched pipeline. GF_POST_MPI enables round-robin MPI
-# scheduling; without it, one worker processes all tiles serially.
+# Both targets compile the same worker-local record-reuse pipeline. GF_POST_MPI enables
+# overlap-aware MPI scheduling; without it, one worker processes all tiles serially.
 
 cmake_minimum_required(VERSION 3.16)
 project(gf_postprocess_cpp LANGUAGES CXX)

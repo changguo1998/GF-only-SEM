@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Elastic CG-SEM solver. Reads `config.h5` + `partition_{r}.h5`. Computes full volume. Writes shallow element-local GLL field snapshots and latest-only restart files.
+Elastic CG-SEM solver. Reads `config.h5` + `partition_{r}.h5`. Computes full volume. Writes full-domain element-local GLL field snapshots and latest-only restart files.
 
 ## Architecture
 
@@ -22,7 +22,7 @@ Elastic CG-SEM solver. Reads `config.h5` + `partition_{r}.h5`. Computes full vol
 | `pml.hpp` | `pml.cpp` | C-PML update |
 | `exchange.hpp` | `exchange.cpp`, `exchange_noop.cpp` | MPI halo exchange (or no-op stub) |
 | `io.hpp` | `io.cpp` | HDF5 input |
-| `record.hpp` | `record.cpp` | shallow strain writer |
+| `record.hpp` | `record.cpp` | full-domain dynamic-field writer |
 | `solver.hpp` | `solver.cpp` | time loop — calls `compute_element_residual` (link-time dispatch) |
 | `attenuation.hpp` | `attenuation.cpp` | SLS coefficient precomputation (used by viscoelastic only) |
 | — | `main.cpp` | CLI for all 3 binaries, `--direction` |
@@ -106,7 +106,7 @@ mpirun -n N gf_solver_elastic_mpi_cuda --direction x
 Frozen paths from CWD:
 
 - input: `config.h5`, `partitions/partition_{r}.h5`
-- strain: `wavefields/{direction}/record_{r}_{step}.h5` (one file per snapshot)
+- dynamic fields: `wavefields/{direction}/record_{r}_{step}.h5` (one file per snapshot)
 - restart: `restart/{direction}/restart_{r}.h5`
 
 Caller creates directories.
@@ -124,7 +124,7 @@ Newmark predict (global)
 → scatter element-local → global (atomic accumulation)
 → MPI halo exchange on residual
 → Newmark correct (global, with global mass)
-→ write shallow strain if step % snapshot_stride == 0
+→ write full-domain fields if step % snapshot_stride == 0
 → overwrite restart if step % restart_stride == 0
 ```
 
@@ -143,15 +143,13 @@ estimated finish time (yyyy-mm-dd HH:MM:SS). Updated in-place via carriage retur
   forwarding (orte/iof), which line-buffers rank output pipes.
 - Log file gets full timestamped lines without escape sequences (no in-place).
 
-Some ranks may have zero recorded vertices (no shallow elements). These ranks
-write an empty record file with `vertex_ids (0,)` and `strain (0,0,6)` and skip
-strain computation. The solver does not fall back to full-volume GLL strain when
-recording mode is enabled (`record_depth_max_m > 0`).
+Every rank writes all of its local elements, including PML elements. The forward solver does not
+apply the shallow recording map; depth, PML, and tile selection are deferred to postprocess.
 
 ## Config Fields
 
 - `solver_dt`: Newmark timestep
-- `snapshot_stride`: strain write cadence
+- `snapshot_stride`: full-domain snapshot write cadence
 - `restart_stride`: restart write cadence
 - `record_depth_actual_m`: snapped bottom depth for records
 
@@ -162,10 +160,11 @@ Static recording geometry and indexes live only in
 `wavefields/`.
 
 `wavefields/{direction}/record_{r}_{step}.h5` — one field-only file per snapshot.
-Attrs: `rank`, `source_direction`, `source_partition_start`, and
-`source_partition_count`. The partition range identifies the maps merged into an output rank,
-including reduced-rank GPU execution. Datasets: `strain`, `displacement`, `velocity`, and
-`acceleration`, each shaped `[1, n_rec_cell, NGLL³, n_component]`.
+Attrs: `rank`, `source_direction`, `source_partition_start`, `source_partition_count`,
+`cell_scope="all_local_cells"`, and `n_local_cell`. The partition range identifies the partitions
+merged into an output rank, including reduced-rank GPU execution. Datasets: `strain`,
+`displacement`, `velocity`, and `acceleration`, each shaped
+`[1, n_local_cell, NGLL³, n_component]`.
 
 ## Restart Schema
 

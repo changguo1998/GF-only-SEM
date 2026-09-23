@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 // -----------------------------------------------------------------------
@@ -182,46 +183,107 @@ static void read_field_1xNx3(hid_t loc, const char* name, hsize_t& n_vertices,
 
 // ----- GLL 4D record format (post global-DOF repair) -----
 
-// Read a 4-D array [1, n_rec_cell, n_node_per_cell, ncomp] (strain snapshot)
-static void read_strain_4d(hid_t loc, const char* name, hsize_t& n_rec_cell,
-                           hsize_t& n_node_per_cell, std::vector<double>& buf) {
+// Read selected cells from [1, n_cell, n_node_per_cell, ncomp]. New records store all
+// local cells; legacy records already contain only the compact recording-cell sequence.
+static void read_field_cells_4d(hid_t loc, const char* name, int expected_component_count,
+                                const std::vector<int64_t>& selected_cells,
+                                hsize_t& output_cell_count, hsize_t& n_node_per_cell,
+                                std::vector<double>& buf) {
     hid_t ds = H5Dopen2(loc, name, H5P_DEFAULT);
     if (ds < 0) {
-        n_rec_cell = 0;
+        output_cell_count = 0;
         n_node_per_cell = 0;
+        buf.clear();
         return;
     }
     hid_t space = H5Dget_space(ds);
-    hsize_t dims[4];
+    hsize_t dims[4] = {0, 0, 0, 0};
+    if (H5Sget_simple_extent_ndims(space) != 4) {
+        fprintf(stderr, "ERROR: record dataset %s is not 4-D\n", name);
+        H5Sclose(space);
+        H5Dclose(ds);
+        exit(1);
+    }
     H5Sget_simple_extent_dims(space, dims, nullptr);
-    n_rec_cell = dims[1];
+    if (dims[0] != 1 || dims[3] != static_cast<hsize_t>(expected_component_count)) {
+        fprintf(stderr, "ERROR: record dataset %s has incompatible dimensions\n", name);
+        H5Sclose(space);
+        H5Dclose(ds);
+        exit(1);
+    }
     n_node_per_cell = dims[2];
-    hsize_t total = dims[0] * dims[1] * dims[2] * dims[3];
-    buf.resize(total);
-    H5Dread(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, buf.data());
-    H5Dclose(ds);
-    H5Sclose(space);
-}
+    const bool full_domain_record = read_attr_string(loc, "cell_scope") == "all_local_cells";
+    const bool compact_legacy_record = !full_domain_record && dims[1] == selected_cells.size();
+    if (compact_legacy_record) {
+        output_cell_count = dims[1];
+        buf.resize((size_t)(dims[1] * dims[2] * dims[3]));
+        H5Dread(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, buf.data());
+        H5Sclose(space);
+        H5Dclose(ds);
+        return;
+    }
 
-// Read a 4-D array [1, n_rec_cell, n_node_per_cell, 3] (displacement)
-static void read_field_4d(hid_t loc, const char* name, hsize_t& n_rec_cell,
-                          hsize_t& n_node_per_cell, std::vector<double>& buf) {
-    hid_t ds = H5Dopen2(loc, name, H5P_DEFAULT);
-    if (ds < 0) {
-        n_rec_cell = 0;
-        n_node_per_cell = 0;
+    output_cell_count = static_cast<hsize_t>(selected_cells.size());
+    const size_t values_per_cell = (size_t)(dims[2] * dims[3]);
+    buf.assign(selected_cells.size() * values_per_cell, 0.0);
+    if (selected_cells.empty()) {
+        H5Sclose(space);
+        H5Dclose(ds);
         return;
     }
-    hid_t space = H5Dget_space(ds);
-    hsize_t dims[4];
-    H5Sget_simple_extent_dims(space, dims, nullptr);
-    n_rec_cell = dims[1];
-    n_node_per_cell = dims[2];
-    hsize_t total = dims[0] * dims[1] * dims[2] * dims[3];
-    buf.resize(total);
-    H5Dread(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, buf.data());
-    H5Dclose(ds);
+
+    std::vector<std::pair<int64_t, size_t>> sorted_cells;
+    sorted_cells.reserve(selected_cells.size());
+    for (size_t compact_cell = 0; compact_cell < selected_cells.size(); ++compact_cell) {
+        const int64_t record_cell = selected_cells[compact_cell];
+        if (record_cell < 0 || static_cast<hsize_t>(record_cell) >= dims[1]) {
+            fprintf(stderr, "ERROR: selected cell %lld is out of range for record dataset %s\n",
+                    (long long)record_cell, name);
+            H5Sclose(space);
+            H5Dclose(ds);
+            exit(1);
+        }
+        sorted_cells.emplace_back(record_cell, compact_cell);
+    }
+    std::sort(sorted_cells.begin(), sorted_cells.end());
+    for (size_t index = 1; index < sorted_cells.size(); ++index) {
+        if (sorted_cells[index - 1].first == sorted_cells[index].first) {
+            fprintf(stderr, "ERROR: duplicate selected cell for record dataset %s\n", name);
+            H5Sclose(space);
+            H5Dclose(ds);
+            exit(1);
+        }
+    }
+
+    H5Sselect_none(space);
+    bool first_hyperslab = true;
+    for (size_t run_begin = 0; run_begin < sorted_cells.size();) {
+        size_t run_end = run_begin + 1;
+        while (run_end < sorted_cells.size() &&
+               sorted_cells[run_end].first == sorted_cells[run_end - 1].first + 1)
+            ++run_end;
+        const hsize_t start[4] = {0, static_cast<hsize_t>(sorted_cells[run_begin].first), 0, 0};
+        const hsize_t count[4] = {1, static_cast<hsize_t>(run_end - run_begin), dims[2], dims[3]};
+        H5Sselect_hyperslab(space, first_hyperslab ? H5S_SELECT_SET : H5S_SELECT_OR, start,
+                            nullptr, count, nullptr);
+        first_hyperslab = false;
+        run_begin = run_end;
+    }
+
+    const hsize_t selected_value_count =
+        static_cast<hsize_t>(selected_cells.size() * values_per_cell);
+    hid_t memory_space = H5Screate_simple(1, &selected_value_count, nullptr);
+    std::vector<double> sorted_buffer((size_t)selected_value_count);
+    H5Dread(ds, H5T_NATIVE_DOUBLE, memory_space, space, H5P_DEFAULT, sorted_buffer.data());
+    for (size_t sorted_cell = 0; sorted_cell < sorted_cells.size(); ++sorted_cell) {
+        const size_t compact_cell = sorted_cells[sorted_cell].second;
+        std::memcpy(buf.data() + compact_cell * values_per_cell,
+                    sorted_buffer.data() + sorted_cell * values_per_cell,
+                    values_per_cell * sizeof(double));
+    }
+    H5Sclose(memory_space);
     H5Sclose(space);
+    H5Dclose(ds);
 }
 
 // -----------------------------------------------------------------------

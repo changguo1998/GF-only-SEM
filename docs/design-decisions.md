@@ -198,17 +198,20 @@ partition_{r}.h5
 
 ### Record and Restart Format
 
-Forward writes shallow element-local GLL records (strain + displacement/velocity/acceleration)
-and separate latest-only restarts. Static coordinates and cell-to-node relations remain in the
-partition files written by preprocess.
+Forward writes full-domain element-local GLL records (strain +
+displacement/velocity/acceleration), including PML cells, and separate latest-only restarts. Static
+coordinates and cell-to-node relations remain in the partition files written by preprocess. The
+recording map is applied only in postprocess so intermediate wavefields retain the maximum diagnostic
+value.
 
 ```
 wavefields/{direction}/record_{r}_{step}.h5
-├── attrs: rank, source_direction, source_partition_start, source_partition_count
-├── strain              : float32[1, n_record_cells, NGLL³, 6]
-├── displacement        : float32[1, n_record_cells, NGLL³, 3]
-├── velocity            : float32[1, n_record_cells, NGLL³, 3]
-└── acceleration        : float32[1, n_record_cells, NGLL³, 3]
+├── attrs: rank, source_direction, source_partition_start, source_partition_count,
+│          cell_scope="all_local_cells", n_local_cell
+├── strain              : float32[1, n_local_cell, NGLL³, 6]
+├── displacement        : float32[1, n_local_cell, NGLL³, 3]
+├── velocity            : float32[1, n_local_cell, NGLL³, 3]
+└── acceleration        : float32[1, n_local_cell, NGLL³, 3]
 
 wavefields/tile_indexes/tile_index_x{i}_y{j}.h5
 ├── attrs: schema_version=2, tile_x_index, tile_y_index, n_node_per_cell
@@ -228,6 +231,10 @@ restart/{direction}/restart_{r}.h5
 ├── acceleration      : float64[n_cell_local, NGLL, NGLL, NGLL, 3]
 └── pml_memory_*      : float64[...]             # all C-PML state required for exact resume
 ```
+
+Postprocess reconstructs the merged local-cell order from `source_partition_start/count`, converts
+each partition's `/recording/rec_cell_local` to a full-domain record index, and reads only those
+cells. Legacy compact records without `cell_scope` remain readable in their existing order.
 
 ### config.h5 Format
 

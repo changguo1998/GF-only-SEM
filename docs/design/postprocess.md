@@ -4,18 +4,19 @@
 
 ## Goal
 
-Read shallow element-local GLL field snapshots from three SEM runs (x, y, z). Merge per-rank
-records, project strain onto unique global GLL nodes with lumped-mass weights, build 3×6 strain
-Green's tensors, and write horizontal HDF5 tiles.
+Read full-domain element-local GLL field snapshots from three SEM runs (x, y, z), select the
+configured shallow non-PML cells, project strain onto unique global GLL nodes with lumped-mass
+weights, build 3×6 strain Green's tensors, and write horizontal HDF5 tiles.
 
 No receivers. Output is the configured shallow, non-PML region.
 
 ## Context
 
-Preprocess writes each partition's recording map; forward writes field-only per-step records plus
-the source-partition range used by each output rank. Postprocess reconstructs the output-rank layouts,
-prepares one compact index file per tile, performs the strain projection, and assembles the full
-Green's tensor (3 force directions × 6 strain components).
+Preprocess writes each partition's recording map; forward writes every local element plus the
+source-partition range used by each output rank. Postprocess reconstructs the output-rank layouts,
+maps compact recording cells to full-domain record indices, prepares one compact index file per
+tile, performs the strain projection, and assembles the full Green's tensor (3 force directions × 6
+strain components).
 
 ## Data Flow
 
@@ -27,10 +28,12 @@ partitions/partition_{r}.h5:/recording
          │
          ├── Read config, mesh
          ├── Rank 0 discovers direction files and reconstructs output-rank layouts
+         ├── Map partition rec_cell_local values to full-domain record cell indices
          ├── Rank 0 builds shared indexes and tile bins; MPI broadcasts them
          ├── Rank 0 writes one compact index file per tile
-         ├── Each worker reads its assigned tile indexes
-         ├── Per-step: lumped-mass project strain onto global GLL nodes
+         ├── Cluster tiles by record-rank overlap and balance worker load
+         ├── Each worker reads every needed record once and scatters it to its tiles
+         ├── Per-step: lumped-mass project strain onto tile-local GLL nodes
          ├── Count-average continuous vector fields
          ├── Assemble Green's tensor [nt, n_recorded, 6, 3]
          ├── Bin recorded GLL nodes and whole cells into tiles
@@ -40,9 +43,9 @@ partitions/partition_{r}.h5:/recording
 ## Architecture
 
 C++17 header-only design. `gf_postprocess` and `gf_postprocess_mpi` compile the same
-tile-batched pipeline in `main.cpp`; the `GF_POST_MPI` build enables round-robin MPI
-scheduling, while the serial build uses one worker. Without MPI, only the serial target
-is built. See [`postprocess-tile-parallel.md`](postprocess-tile-parallel.md).
+worker-local record-reuse pipeline in `main.cpp`; the `GF_POST_MPI` build enables
+rank-overlap-aware scheduling, while the serial build uses one worker. Without MPI, only the
+serial target is built. See [`postprocess-tile-parallel.md`](postprocess-tile-parallel.md).
 
 | File | Role |
 |------|------|
@@ -73,23 +76,33 @@ element-count tiling, or `green_tile_size_m` for spatial tiling).
 ## Record Merging
 
 `partition_{r}.h5:/recording` stores `gll_node_ids`, `gll_node_coords`,
-`cell_gll_node_index`, and recorded model-cell indices. Each record stores one snapshot's
-element-local fields and the continuous source-partition range merged into its output rank.
+`cell_gll_node_index`, `rec_cell_local`, and recorded model-cell indices. Each new record stores one
+snapshot's full-domain element-local fields and the continuous source-partition range merged into its
+output rank.
 Merge process:
 
 1. Group `record_{r}_{step}.h5` files by step across all ranks.
 1. Read each output rank's source partitions, reproduce the solver's ordered merge, build the
-   unique global GLL-node union, and remap indices.
+   unique global GLL-node union, and convert each partition-local `rec_cell_local` to its index in
+   the merged full-domain record.
 1. Build direct `(step, rank) → record path`, cell-point mass, tile-bin, and tile-local lookup
    tables before reading any field dataset.
-1. Under MPI, rank 0 builds and broadcasts shared indexes; each tile-local lookup is built only by
-   the worker that owns that tile.
-1. For each step, accumulate every element-local strain copy with its cell lumped mass.
+1. Under MPI, rank 0 builds and broadcasts shared indexes, then assigns tiles by record-rank
+   overlap subject to a 10% per-tile load-balance window.
+1. For each direction and step, a worker opens each required record rank once and scatters its
+   selected recording cells to every assigned tile with matching compact entries. HDF5 hyperslabs
+   avoid loading unrelated full-domain cells.
+1. Accumulate every element-local strain copy with its cell lumped mass.
 1. Divide each global node by its accumulated mass.
 1. Count-average displacement, velocity, and acceleration independently; CG-SEM makes their
    shared-node copies identical.
 
-Ranks with zero recorded cells produce empty files and are handled transparently.
+旧版 `[1, n_rec_cell, NGLL³, n_component]` 紧凑 record 没有 `cell_scope` 属性，仍按原顺序
+直接读取；因此已有波场无需重算。新版 record 通过 `cell_scope="all_local_cells"` 标识，并在
+此阶段才应用深度、PML 和 tile 选择。
+
+Record ranks with no contribution to a tile are omitted from that tile index and are not opened by
+its worker.
 
 ## Per-Tile Index Contract
 
@@ -108,6 +121,7 @@ output tile. Schema version 2 stores only valid record cell-points:
 
 This file is derived data: partitions remain the authoritative static layout, while tile index
 files prevent every worker and every timestep from rebuilding or scanning dense rank-wide maps.
+The `rank_ids` list contains only ranks with at least one valid entry.
 
 ### Strain Projection Decision
 
@@ -207,8 +221,15 @@ Dependencies: HDF5 C library (system). The serial `gf_postprocess` needs no MPI;
 
 ## Performance
 
-~0.4s for the historical halfspace example (500 steps × 3 directions, 845 recorded nodes,
-25 output tiles).
+Workers share a field-array budget, divided by the active worker count. It defaults to 32 GiB and
+can be overridden with the positive-integer `GF_POST_MEMORY_GB` environment variable. Each worker
+packs as many assigned tiles as fit its share; only oversized assignments require multiple passes
+over records. The 20³ fullspace profile (800 steps, 62,073 unique nodes, 16 tiles, MPI-4) improved from
+34.3 s to 19.0 s after worker-local record reuse. Per worker, file opens fell from 9,600 to
+2,400 and dataset reads from 38,400 to 9,600. Across the four workers, HDF5 reading fell from
+59.187% to 17.693% of cumulative process time. The tradeoff is that a worker retains the final
+arrays for all assigned tiles; with four equal tiles in this case, final arrays plus one direction
+of temporary fields are approximately 7.1 GB per worker.
 
 ## Validation
 
@@ -239,7 +260,8 @@ STAT_ELAPSED_S=0.4
 - HDF5 C library
 - Postprocess itself has no receivers, receiver search, or point interpolation; the separate
   `greenfun` reader performs cell lookup and GLL interpolation
-- Forward records shallow element-local GLL fields; postprocess projects strain onto global GLL nodes
+- Forward records full-domain element-local GLL fields; postprocess selects recording cells and
+  projects strain onto global GLL nodes
 - Tile files contain the GLL coordinates and cell-to-node map required for interpolation
 
 ## File Layout

@@ -10,30 +10,31 @@
 
 namespace gf {
 
-/// Writes GLL-node field records (strain + displacement/velocity/acceleration)
-/// using the preprocess-built recording map.
+/// Writes full element-local GLL field records
+/// (strain + displacement/velocity/acceleration).
 ///
 /// Each call to write_step creates a field-only snapshot file:
 ///   wavefields/{direction}/record_{rank}_{step}.h5
-///   /strain        [1, n_rec_cell, n_node, 6]  float32 or float64
-///   /displacement  [1, n_rec_cell, n_node, 3]
-///   /velocity      [1, n_rec_cell, n_node, 3]
-///   /acceleration  [1, n_rec_cell, n_node, 3]
-///   Attributes: rank, source_direction, source_partition_start, source_partition_count
+///   /strain        [1, n_local_cell, n_node, 6]  float32 or float64
+///   /displacement  [1, n_local_cell, n_node, 3]
+///   /velocity      [1, n_local_cell, n_node, 3]
+///   /acceleration  [1, n_local_cell, n_node, 3]
+///   Attributes: rank, source_direction, source_partition_start,
+///               source_partition_count, cell_scope="all_local_cells"
 class RecordWriter {
 public:
-    /// Store recording parameters for field-only snapshots.
+    /// Store full-domain snapshot parameters.
     ///
     /// \param output_dir       Top-level output directory
     /// \param source_direction Force direction string ("x", "y", or "z")
     /// \param rank             MPI rank number
-    /// \param rec_map          Recording map with GLL node IDs and cell indices
+    /// \param n_local_cell     Number of local cells represented by this output rank
     /// \param ngll             Number of GLL points per axis (N+1)
     /// \param source_partition_start First source partition represented by this output rank
     /// \param source_partition_count Number of consecutive source partitions represented
     /// \param use_float32      If true, store fields as 32-bit float
     RecordWriter(const std::string& output_dir, const std::string& source_direction, int rank,
-                 const RankData::RecordingMap& rec_map, int ngll, int source_partition_start,
+                 int n_local_cell, int ngll, int source_partition_start,
                  int source_partition_count, bool use_float32 = false);
     ~RecordWriter();
 
@@ -42,25 +43,25 @@ public:
     /// Pointers may be null to skip writing that field.
     ///
     /// \param step           Solver step number (used in filename)
-    /// \param strain         Strain array [n_rec_cell * n_node * 6], Voigt order (or null)
-    /// \param displacement   Displacement array [n_rec_cell * n_node * 3] (or null)
-    /// \param velocity       Velocity array [n_rec_cell * n_node * 3] (or null)
-    /// \param acceleration   Acceleration array [n_rec_cell * n_node * 3] (or null)
+    /// \param strain         Strain array [n_local_cell * n_node * 6], Voigt order (or null)
+    /// \param displacement   Displacement array [n_local_cell * n_node * 3] (or null)
+    /// \param velocity       Velocity array [n_local_cell * n_node * 3] (or null)
+    /// \param acceleration   Acceleration array [n_local_cell * n_node * 3] (or null)
     void write_step(int step, const double* strain, const double* displacement = nullptr,
                     const double* velocity = nullptr, const double* acceleration = nullptr);
 
     /// No-op (each write_step creates and closes its own file).
     void close() {}
 
-    /// Return number of recording cells.
-    int n_rec_cell() const { return static_cast<int>(n_rec_cell_); }
+    /// Return number of local cells stored in each snapshot.
+    int n_local_cell() const { return static_cast<int>(n_local_cell_); }
 
     // Prevent copying
     RecordWriter(const RecordWriter&) = delete;
     RecordWriter& operator=(const RecordWriter&) = delete;
 
 private:
-    hsize_t n_rec_cell_;
+    hsize_t n_local_cell_;
     int n_node_;  // ngll^3
     bool use_float32_;
     std::string output_dir_;

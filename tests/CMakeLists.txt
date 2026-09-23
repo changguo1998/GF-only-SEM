@@ -155,3 +155,7 @@ add_test(NAME test_postprocess_tile COMMAND $<TARGET_FILE:test_postprocess_tile>
 set_tests_properties(
     test_postprocess_tile PROPERTIES SKIP_REGULAR_EXPRESSION "GF_TILE_PATH not set"
                                      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME "postprocess full-domain record selection"
+         COMMAND $<TARGET_FILE:test_postprocess_tile> "[record-reader]")
+set_tests_properties("postprocess full-domain record selection" PROPERTIES WORKING_DIRECTORY
+                                                                           "${CMAKE_SOURCE_DIR}")
