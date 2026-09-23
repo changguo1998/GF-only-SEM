@@ -69,7 +69,7 @@ GF_RUN_CPP_PREPROCESS_SMOKE=1 .venv/bin/python -m pytest \
 | `tests/test_sls_finite_q.cpp` | 3 | SPECFEM Qμ=20 剪切、Qκ=10 体积与时间步细化 |
 | `tests/test_io.cpp` | 2 | 分区与配置 HDF5 往返 |
 | `tests/test_restart.cpp` | 1 | C-PML 运行态 HDF5 重启往返 |
-| `tests/test_record.cpp` | 2 | 应变记录和 float32 写入 |
+| `tests/test_record.cpp` | 2 | 全域四类动态字段、无压缩 schema 和 float32 写入 |
 | `tests/test_assembly.cpp` | 8 | 全局装配、震源 RHS、scatter/gather |
 | `tests/test_exchange.cpp` | 3 | MPI halo、累加与空模式 |
 | `tests/test_integration.cpp` | 3 | 单单元正演、刚体残差与 PML 阻尼 |
@@ -130,6 +130,27 @@ PASS 不再只表示流程运行成功。
 | `finite-q-propagation` | 修改 SLS、衰减预处理或 record schema 时 | 20×12×12；Qμ=20/Qκ→∞；y 力沿 x 传播 | 1.5–2.0 Hz 振幅衰减误差≤12%，相位色散误差≤0.11 rad |
 | `meshsize/fullspace*` | 修改离散或开展收敛研究时 | 18³/20³/22³/24³/28³，共用 64 固定物理点 | 分辨率变化与边界误差分离；28³ 为内存上限 |
 
+### 20³ 全域 record 回归（2026-09-24）
+
+使用 `meshsize/fullspace20` 的 8000 单元模型，将持续时间缩短为 8 步并保留每步输出，运行
+CUDA 三个力方向以及串行/MPI-4 后处理。该测试专门验证全域 record 改造，不用于波形精度
+判断。
+
+| 检查项 | 结果 |
+| --- | --- |
+| Record 范围 | 24/24 文件均为 `cell_scope=all_local_cells`，每个包含 8000 单元 |
+| 动态字段 | strain/displacement/velocity/acceleration 形状正确，全部有限且无 HDF5 压缩 |
+| 磁盘占用 | 每个 record 60,017,256 B；三方向 8 步共 1.341 GiB |
+| CUDA 正演 | 每方向墙钟 2.40–3.07 s，峰值主机 RSS 1.64 GiB |
+| 串行后处理 | 内部计时 1.40 s，峰值 RSS 315 MiB；24 次文件打开、96 次数据集读取 |
+| MPI-4 后处理 | 内部计时 1.20 s，外部墙钟 2.16 s；每个 worker 均打开 24 个文件 |
+| 数值一致性 | 16 个 tile、160 个数据集和 256 个属性逐元素完全一致，所有浮点输出有限 |
+
+单 GPU 会把 16 个输入 partition 合并为一个输出 record rank，因此该模型的每个 MPI
+worker 都需要读取同一组 record；8 步规模下 MPI 启动成本高于其并行收益。按实测文件大小
+线性外推，原 800 步配置的三方向全域 record 约为 134.15 GiB，明显超过配置中的 20 GiB
+存储预算；完整生产运行前必须提高预算或降低快照频率。
+
 专项命令：
 
 ```bash
@@ -153,7 +174,7 @@ bash examples/meshsize/run_study.sh
 | SLS 有限 Q 传播正确 | `finite-q-propagation` 解析复波数传递函数 | CUDA 振幅/相位最大误差 9.67%/0.020 rad；2-rank CPU 为 8.54%/0.092 rad | 当前只覆盖均匀介质横向 S 波和 Qκ→∞ |
 | 震源绝对幅值正确 | 三个解析算例的 scale 门限 | 扩大全空间源区 scale=0.999 | 不代表晚期反射波形正确 |
 | 主要剩余误差来自边界/PML | `fullspace-expanded` 源区 corr=0.9672、拟合 L2=0.0882 | 18³–28³紧凑域拟合 L2 稳定在 0.3414–0.3468 | 近场震源与解析离散仍未单独分离 |
-| 串行/MPI 后处理一致 | halfspace 9 tiles 历史逐位对比 | tile schema 与独立计数单元测试 | 大模型内存峰值仍需单独监控 |
+| 串行/MPI 后处理一致 | halfspace 9 tiles 历史逐位对比 | 20³全域record：16 tiles、160 datasets逐元素一致 | 大模型内存峰值仍需单独监控 |
 
 ## 推荐运行节奏
 
