@@ -16,11 +16,13 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <iostream>
 #include <map>
 #include <regex>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "h5io.hpp"
@@ -126,23 +128,98 @@ static double* read_all_snapshots(hid_t dset, int64_t nlv, int n_snapshots) {
 // GLL-format record file support
 // ---------------------------------------------------------------------------
 
-/// Read node IDs from a record file (gll_node_ids or legacy vertex_ids).
-static std::vector<int64_t> read_node_ids(hid_t fid) {
-    if (dataset_exists(fid, "gll_node_ids")) {
-        return read_int64_1d(fid, "gll_node_ids");
-    }
-    return read_int64_1d(fid, "vertex_ids");
+static std::vector<int32_t> read_int32_flat(hid_t fid, const std::string& name);
+
+struct RecordingLayout {
+    std::vector<int64_t> node_ids;
+    std::vector<double> node_coords;
+    std::vector<int32_t> cell_gll_node_index;
+};
+
+static int read_root_int_attribute(hid_t file, const char* name, int fallback) {
+    if (H5Aexists(file, name) <= 0)
+        return fallback;
+    hid_t attribute = H5Aopen(file, name, H5P_DEFAULT);
+    int value = fallback;
+    H5Aread(attribute, H5T_NATIVE_INT, &value);
+    H5Aclose(attribute);
+    return value;
 }
 
-/// Read GLL node coordinates from a record file (if available).
-/// Returns flattened [n_pts * 3] array.
-static std::vector<double> read_node_coords(hid_t fid) {
-    if (dataset_exists(fid, "gll_node_coords")) {
+/// Rebuild the output-rank recording layout from its source partitions.
+static RecordingLayout read_recording_layout(const RecordFile& record) {
+    H5File record_file(record.path);
+    if (dataset_exists(record_file.id(), "gll_node_ids")) {
+        RecordingLayout legacy;
+        legacy.node_ids = read_int64_1d(record_file.id(), "gll_node_ids");
         std::vector<hsize_t> shape;
-        auto flat = read_float64_nd(fid, "gll_node_coords", shape);
-        return flat;  // already flattened by read_float64_nd
+        legacy.node_coords = read_float64_nd(record_file.id(), "gll_node_coords", shape);
+        legacy.cell_gll_node_index = read_int32_flat(record_file.id(), "cell_gll_node_index");
+        return legacy;
     }
-    return {};
+    if (dataset_exists(record_file.id(), "vertex_ids")) {
+        RecordingLayout legacy;
+        legacy.node_ids = read_int64_1d(record_file.id(), "vertex_ids");
+        return legacy;
+    }
+
+    const int partition_start =
+        read_root_int_attribute(record_file.id(), "source_partition_start", record.rank);
+    const int partition_count =
+        read_root_int_attribute(record_file.id(), "source_partition_count", 1);
+    const auto case_directory =
+        std::filesystem::path(record.path).parent_path().parent_path().parent_path();
+    const auto partition_directory = case_directory / "partitions";
+
+    RecordingLayout merged;
+    std::unordered_map<int64_t, int32_t> global_to_merged;
+    for (int partition = partition_start; partition < partition_start + partition_count;
+         ++partition) {
+        const auto path = partition_directory / ("partition_" + std::to_string(partition) + ".h5");
+        H5File partition_file(path.string());
+        if (!dataset_exists(partition_file.id(), "recording/gll_node_ids"))
+            continue;
+
+        auto partition_node_ids = read_int64_1d(partition_file.id(), "recording/gll_node_ids");
+        std::vector<hsize_t> coordinate_shape;
+        auto partition_node_coords =
+            read_float64_nd(partition_file.id(), "recording/gll_node_coords", coordinate_shape);
+        auto partition_cell_nodes =
+            read_int32_flat(partition_file.id(), "recording/cell_gll_node_index");
+
+        std::vector<int32_t> partition_to_merged(partition_node_ids.size());
+        for (size_t node = 0; node < partition_node_ids.size(); ++node) {
+            const int64_t global_id = partition_node_ids[node];
+            auto found = global_to_merged.find(global_id);
+            if (found == global_to_merged.end()) {
+                const int32_t merged_index = static_cast<int32_t>(merged.node_ids.size());
+                global_to_merged[global_id] = merged_index;
+                partition_to_merged[node] = merged_index;
+                merged.node_ids.push_back(global_id);
+                merged.node_coords.insert(merged.node_coords.end(),
+                                          partition_node_coords.begin() + node * 3,
+                                          partition_node_coords.begin() + node * 3 + 3);
+            } else {
+                partition_to_merged[node] = found->second;
+            }
+        }
+        for (int32_t partition_node : partition_cell_nodes)
+            merged.cell_gll_node_index.push_back(partition_to_merged[(size_t)partition_node]);
+    }
+    if (merged.node_ids.empty())
+        throw std::runtime_error("No recording map found for: " + record.path);
+    return merged;
+}
+
+/// Read node IDs from partition recording maps, with legacy record fallback.
+static std::vector<int64_t> read_node_ids(const RecordFile& record) {
+    return read_recording_layout(record).node_ids;
+}
+
+/// Read GLL node coordinates from partition recording maps.
+/// Returns flattened [n_pts * 3] array.
+static std::vector<double> read_node_coords(const RecordFile& record) {
+    return read_recording_layout(record).node_coords;
 }
 
 /// Check if record file uses GLL format (4D strain [snap, n_cell, n_node, 6]).
@@ -178,13 +255,13 @@ static std::vector<int32_t> read_int32_flat(hid_t fid, const std::string& name) 
 
 /// Read one snapshot of strain from GLL-format record file.
 /// Returns per-GLL-node averaged strain [n_gll_nodes * 6].
-static std::vector<double> read_step_strain_gll(const std::string& rpath, int64_t n_gll_nodes) {
-    hid_t fid = H5Fopen(rpath.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+static std::vector<double> read_step_strain_gll(const RecordFile& record, int64_t n_gll_nodes) {
+    hid_t fid = H5Fopen(record.path.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
     if (fid < 0)
-        throw std::runtime_error("Cannot open: " + rpath);
+        throw std::runtime_error("Cannot open: " + record.path);
 
     // Read cell_gll_node_index [n_cell, n_node]
-    auto cgll = read_int32_flat(fid, "cell_gll_node_index");
+    auto cgll = read_recording_layout(record).cell_gll_node_index;
     int64_t n_cell_node = (int64_t)cgll.size();
     int n_node_per_cell = 125;  // NGLL^3 = 5^3
     int64_t n_cell = n_cell_node / n_node_per_cell;
@@ -330,7 +407,7 @@ static void process_snapshot(
                 bool gll_fmt = is_gll_format(check_fid);
                 H5Fclose(check_fid);
                 if (gll_fmt) {
-                    local_buf = read_step_strain_gll(rpath, nlv);
+                    local_buf = read_step_strain_gll(record_paths[di][ri], nlv);
                 } else {
                     local_buf = read_step_strain(rpath, nlv);
                 }
@@ -587,13 +664,11 @@ int main(int argc, char** argv) {
     int n_ranks = (int)record_paths[0].size();
     std::vector<std::vector<int64_t>> vertex_id_list(n_ranks);
     for (int ri = 0; ri < n_ranks; ++ri) {
-        H5File f(record_paths[0][ri].path);
-        vertex_id_list[ri] = read_node_ids(f.id());
+        vertex_id_list[ri] = read_node_ids(record_paths[0][ri]);
     }
     for (int di = 1; di < 3; ++di) {
         for (int ri = 0; ri < n_ranks; ++ri) {
-            H5File f(record_paths[di][ri].path);
-            auto vids = read_node_ids(f.id());
+            auto vids = read_node_ids(record_paths[di][ri]);
             if (vids != vertex_id_list[ri]) {
                 std::cerr << "Error: vertex ID mismatch in " << record_paths[di][ri].path << "\n";
                 return 1;
@@ -607,8 +682,7 @@ int main(int argc, char** argv) {
     bool use_gll_coords = false;
     std::vector<float> vtx_coords_f32;
     {
-        H5File f0(record_paths[0][0].path);
-        auto gll_coords = read_node_coords(f0.id());
+        auto gll_coords = read_node_coords(record_paths[0][0]);
         if (!gll_coords.empty()) {
             use_gll_coords = true;
             int64_t n_pts = (int64_t)gll_coords.size() / 3;

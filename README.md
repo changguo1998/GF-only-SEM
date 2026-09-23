@@ -9,7 +9,9 @@ Python pre-processing, C++17 postprocess + MPI compute, HDF5 I/O, METIS partitio
 ```
 config.py + model.h5 → preprocess → partition_{r}.h5 + config.h5
                                    → forward solver (x3 directions)
-                                   → wavefields/{x,y,z}/record_{r}.h5
+                                   → wavefields/{x,y,z}/record_{r}_{step}.h5
+                                   → postprocess index preparation
+                                   → wavefields/tile_indexes/tile_index_x{i}_y{j}.h5
                                    → postprocess → greenfun/tile*.h5
 ```
 
@@ -128,7 +130,7 @@ Key fields: `polynomial_order`, `output_dt_s`, `total_duration_s`, `cfl_safety`,
 
 ## Design Highlights
 
-- **No receivers** — shallow mesh-vertex recording, no CSV/search/interpolation
+- **No receivers** — shallow element-local GLL recording, no CSV/search/interpolation
 - **Timestep split** — `solver_dt` (CFL) + `output_dt_s` (snapshot interval)
 - **Source direction** not in config — CLI `--direction {x,y,z}` per run
 - **Elastic + viscoelastic** — SLS attenuation complete; Q→∞ elastic-limit regression is bit-identical

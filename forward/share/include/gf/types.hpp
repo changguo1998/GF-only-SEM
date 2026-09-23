@@ -27,6 +27,8 @@ struct GLLQuad {
 struct RankData {
     int n_local_cell = 0, n_ghost_cell = 0, n_total_cell = 0;
     int ngll = 0;  // N+1, extracted from partition array shapes
+    int source_partition_start = 0;
+    int source_partition_count = 1;
 
     std::vector<int64_t> local_cell_ids;  // 1-based global element IDs
     std::vector<int64_t> ghost_cell_ids;

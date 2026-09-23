@@ -4,6 +4,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cstdlib>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -13,30 +14,17 @@ using namespace gf;
 using Catch::Matchers::WithinAbs;
 
 TEST_CASE("RecordWriter creates file and writes GLL strain", "[record]") {
+    std::remove("./wavefields/layout_0.h5");
     int ngll = 2;
     int n_node_per_cell = ngll * ngll * ngll;  // 8
     int n_rec_cell = 2;
-    int n_unique_gll = n_rec_cell * n_node_per_cell;  // 16 (no shared nodes)
-
-    // GLL-node recording map
-    std::vector<int64_t> gll_node_ids(n_unique_gll);
-    for (int i = 0; i < n_unique_gll; ++i)
-        gll_node_ids[i] = i;
-    std::vector<double> gll_node_coords(n_unique_gll * 3, 0.0);
     std::vector<int32_t> rec_cell_local = {0, 1};
-    std::vector<int32_t> cell_gll_node_index(n_rec_cell * n_node_per_cell);
-    for (int c = 0; c < n_rec_cell; ++c)
-        for (int n = 0; n < n_node_per_cell; ++n)
-            cell_gll_node_index[c * n_node_per_cell + n] = c * n_node_per_cell + n;
 
     RankData::RecordingMap rec_map;
     rec_map.has_recording = true;
-    rec_map.gll_node_ids = gll_node_ids;
-    rec_map.gll_node_coords = gll_node_coords;
     rec_map.rec_cell_local = rec_cell_local;
-    rec_map.cell_gll_node_index = cell_gll_node_index;
 
-    RecordWriter writer("./wavefields", "x", 0, rec_map, ngll, false);
+    RecordWriter writer("./wavefields", "x", 0, rec_map, ngll, 0, 1, false);
 
     // Write a few steps of strain data [n_rec_cell * n_node * 6]
     int strain_size = n_rec_cell * n_node_per_cell * 6;
@@ -49,7 +37,9 @@ TEST_CASE("RecordWriter creates file and writes GLL strain", "[record]") {
     }
     writer.close();
 
-    // Verify per-step files with 4D strain [1, n_rec_cell, n_node, 6]
+    REQUIRE_FALSE(std::filesystem::exists("./wavefields/layout_0.h5"));
+
+    // Verify per-step files contain only dynamic fields and small identity attributes.
     {
         std::string fname0 = "./wavefields/x/record_0_0.h5";
         hid_t file0 = H5Fopen(fname0.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
@@ -66,10 +56,22 @@ TEST_CASE("RecordWriter creates file and writes GLL strain", "[record]") {
         REQUIRE(dims0[3] == 6);
         H5Sclose(space0);
         H5Dclose(dset0);
-        // Verify gll_node_ids dataset exists
-        hid_t id_dset = H5Dopen2(file0, "gll_node_ids", H5P_DEFAULT);
-        REQUIRE(id_dset >= 0);
-        H5Dclose(id_dset);
+        REQUIRE(H5Lexists(file0, "gll_node_ids", H5P_DEFAULT) == 0);
+        REQUIRE(H5Lexists(file0, "gll_node_coords", H5P_DEFAULT) == 0);
+        REQUIRE(H5Lexists(file0, "cell_gll_node_index", H5P_DEFAULT) == 0);
+        REQUIRE(H5Lexists(file0, "recording_cell_model_index", H5P_DEFAULT) == 0);
+        int partition_start = -1;
+        int partition_count = -1;
+        hid_t start_attribute = H5Aopen(file0, "source_partition_start", H5P_DEFAULT);
+        hid_t count_attribute = H5Aopen(file0, "source_partition_count", H5P_DEFAULT);
+        REQUIRE(start_attribute >= 0);
+        REQUIRE(count_attribute >= 0);
+        REQUIRE(H5Aread(start_attribute, H5T_NATIVE_INT, &partition_start) >= 0);
+        REQUIRE(H5Aread(count_attribute, H5T_NATIVE_INT, &partition_count) >= 0);
+        REQUIRE(partition_start == 0);
+        REQUIRE(partition_count == 1);
+        H5Aclose(start_attribute);
+        H5Aclose(count_attribute);
         H5Fclose(file0);
         std::remove(fname0.c_str());
     }
@@ -78,28 +80,17 @@ TEST_CASE("RecordWriter creates file and writes GLL strain", "[record]") {
 }
 
 TEST_CASE("RecordWriter with float32", "[record]") {
+    std::remove("./wavefields/layout_1.h5");
     int ngll = 2;
     int n_node_per_cell = ngll * ngll * ngll;
     int n_rec_cell = 1;
-    int n_unique_gll = n_rec_cell * n_node_per_cell;
-
-    std::vector<int64_t> gll_node_ids(n_unique_gll);
-    for (int i = 0; i < n_unique_gll; ++i)
-        gll_node_ids[i] = i + 10;
-    std::vector<double> gll_node_coords(n_unique_gll * 3, 0.0);
     std::vector<int32_t> rec_cell_local = {0};
-    std::vector<int32_t> cell_gll_node_index(n_node_per_cell);
-    for (int n = 0; n < n_node_per_cell; ++n)
-        cell_gll_node_index[n] = n;
 
     RankData::RecordingMap rec_map;
     rec_map.has_recording = true;
-    rec_map.gll_node_ids = gll_node_ids;
-    rec_map.gll_node_coords = gll_node_coords;
     rec_map.rec_cell_local = rec_cell_local;
-    rec_map.cell_gll_node_index = cell_gll_node_index;
 
-    RecordWriter writer("./wavefields", "y", 1, rec_map, ngll, true);
+    RecordWriter writer("./wavefields", "y", 1, rec_map, ngll, 1, 1, true);
 
     int strain_size = n_rec_cell * n_node_per_cell * 6;
     std::vector<double> strain(strain_size, 1e-6);

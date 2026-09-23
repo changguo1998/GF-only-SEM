@@ -34,11 +34,11 @@ partitions/partition_{r}.h5 (local subset per rank: topology + field/element + P
     │   ├── NEWMARK CORRECT: a_new = (r_j+r_k) / (m_j+m_k),
     │   │                    u += dt·v + dt²·(½-β)·a_old + dt²·β·a_new,
     │   │                    v += dt·((1-γ)·a_old + γ·a_new)
-    │   ├── Per-vertex strain — compute ε from ∇u via GATHER + derivative matrix
-    │   ├── Write shallow mesh-vertex strain record when step % snapshot_stride == 0
+    │   ├── Element-local GLL strain — compute ε from ∇u via GATHER + derivative matrix
+    │   ├── Write shallow GLL field record when step % snapshot_stride == 0
     │   └── Overwrite restart when step % restart_stride == 0 (use_global_dof flag)
     │
-    ├── wavefields/{direction}/record_{r}_{step}.h5  (one per snapshot)
+    ├── wavefields/{direction}/record_{r}_{step}.h5  (field-only, one per snapshot)
     └── restart/{direction}/restart_{r}.h5    (latest-only full-volume restart)
 ```
 
@@ -55,6 +55,7 @@ mpirun -np N bin/gf_solver_elastic_mpi_cuda --direction x         # multi-GPU
 All paths are fixed relative to CWD:
 
 - Input: `config.h5`, `partitions/partition_{r}.h5`
+- Recording layout: `partitions/partition_{r}.h5:/recording` (preprocess output)
 - Strain output: `wavefields/{direction}/record_{r}_{step}.h5`
 - Restart output: `restart/{direction}/restart_{r}.h5`
 
@@ -165,7 +166,7 @@ SLS attenuation data (`tau_sigma`, `tau_epsilon_mu`, `tau_epsilon_kappa`) is sto
 | **newmark** | NewmarkPredictor, NewmarkCorrector (2nd order explicit, β=0, γ=½) |
 | **source** | Reads precomputed element list + Lagrange weights from config.h5. Distributes STF(t) × w_ijk to global residual |
 | **exchange** | MPI halo exchange using precomputed face-pair lists from /partition/exchange/neighbor\_{N}/ |
-| **record/snapshot** | Per-vertex strain at recorded mesh corners (direct gradient from displacement) + writer: append shallow mesh-vertex strain to extendible HDF5 dataset at snapshot steps |
+| **record/snapshot** | Element-local shallow GLL fields; partition recording maps provide the static layout |
 | **solver** | `run_forward()` main time loop; shallow strain output + latest-only restart/resume |
 
 ## Core Types
@@ -338,7 +339,8 @@ for step in 0..nsteps-1:
         GATHER displacement to owning element → compute ∇u at corner
         via GLL derivative matrix × dxi_dx
         ε = ½(∇u + ∇uᵀ)   (6-component Voigt)
-        Write wavefields/{direction}/record_{r}_{step}.h5
+        Write wavefields/{direction}/record_{r}_{step}.h5 using the in-memory partition
+        recording map
 
     12. Restart overwrite (when step % restart_stride == 0):
          Format controlled by use_global_dof:
@@ -348,25 +350,36 @@ for step in 0..nsteps-1:
 
 ## Snapshot Output
 
-One record file per rank per snapshot (at `step % snapshot_stride == 0`). Output is shallow mesh vertices, not full GLL:
+静态记录布局由预处理保存于每个 partition 中，并由正演、后处理及可视化工具共享：
+
+```
+partitions/partition_{r}.h5:/recording
+├── attrs: basis="gll", n_rec_cell, n_unique_gll,
+│          record_depth_max_m, record_depth_actual_m, excludes_pml
+├── gll_node_ids                  : int64[n_unique_gll]
+├── gll_node_coords               : float64[n_unique_gll, 3]
+├── cell_gll_node_index           : int32[n_record_cells, NGLL³]
+├── rec_cell_local                : int32[n_record_cells]
+└── rec_cell_global_ids           : int64[n_record_cells]
+```
+
+每个快照文件只保存动态场（`step % snapshot_stride == 0`）：
 
 ```
 wavefields/{direction}/record_{r}_{step}.h5
 ├── attrs:
 │   ├── rank                    : int32
 │   ├── source_direction        : string
-│   ├── basis                   : "mesh_vertices"
-│   ├── record_depth_max_m      : float64
-│   ├── record_depth_actual_m   : float64
-│   └── excludes_pml            : bool
-├── vertex_ids                  : int64[n_record_vertices]
-├── strain                      : float32[1, n_record_vertices, 6]
-├── displacement                : float32[1, n_record_vertices, 3]
-├── velocity                    : float32[1, n_record_vertices, 3]
-└── acceleration                : float32[1, n_record_vertices, 3]
+│   ├── source_partition_start  : int32
+│   └── source_partition_count  : int32
+├── strain                      : float32[1, n_record_cells, NGLL³, 6]
+├── displacement                : float32[1, n_record_cells, NGLL³, 3]
+├── velocity                    : float32[1, n_record_cells, NGLL³, 3]
+└── acceleration                : float32[1, n_record_cells, NGLL³, 3]
 ```
 
-Values are per-vertex (direct gradient from displacement at corrected corner nodes). Interior GLL points are not recorded. Displacement, velocity, acceleration are extracted from the same recorded-vertex set using the recording map.
+字段保持单元局部 GLL 排列。每个 record 的 partition 范围属性记录求解器合并或重分配后
+实际使用的连续 partition 区间，后处理按同样顺序重建输出 rank 布局并完成全局节点合并与投影。
 
 ## Restart Output
 

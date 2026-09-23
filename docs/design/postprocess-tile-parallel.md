@@ -1,6 +1,6 @@
 # Postprocess Tile-Batched Serial/MPI - Design Document
 
-> **状态（2026-09-21）：已验证。** 串行和 MPI 目标共用同一个 `main.cpp` tile 分批流程。
+> **状态（2026-09-23）：已验证。** 串行和 MPI 目标共用同一个 `main.cpp` tile 分批流程。
 > 串行目标使用一个 worker，MPI 目标轮转分配 tile。内存从完整复制（16 ranks 约
 > 331 GB）降至 tile 局部提取（16 ranks 约 17 GB）。
 
@@ -36,12 +36,14 @@ rank guard at line 811.
 Three-phase design that bounds per-worker memory to tile-local data:
 
 ```text
-Phase 1 - merge_metadata() x3 (all workers, cheap ~6 MB total)
-    Build GLL-node union + cell metadata. NO per-step field arrays.
+Phase 1 - shared index preparation (rank 0 only)
+    Scan three direction file lists once. Read partition recording maps, then build
+    the output-rank layouts, GLL union, direct record paths, mass indexes, and tile bins.
+    Broadcast the completed shared indexes to MPI workers.
 
-Phase 2 - binning (all workers, metadata only)
-    Bin recording cells into tiles. Workers >= n_tiles exit HERE. Surviving
-    workers own positions rank, rank + worker_count, ...
+Phase 2 - assigned tile index preparation (one owner per tile)
+    Rank 0 writes one compact index file per tile. Workers own positions rank,
+    rank + worker_count, ... and read their index files before field I/O.
 
 Phase 3 - extract_tile_fields() + assembly (surviving workers, ~1 GB each)
     Each worker reads record files but accumulates field data ONLY for its
@@ -60,25 +62,39 @@ Phase 3 - extract_tile_fields() + assembly (surviving workers, ~1 GB each)
 ## Key Data Structures
 
 ```cpp
-// Per-file mapping: local GLL node id -> global merged index
-struct FileMapping {
-    RecordFileInfo info;
+// Per-rank mapping: local GLL node id -> global merged index
+struct RankMapping {
+    int rank;
     std::vector<int32_t> local_to_global;
     std::vector<int32_t> cell_gll_idx;
-    std::vector<int64_t> rec_cell_model_idx;
+    std::vector<int64_t> cell_point_mass_idx;
     hsize_t n_rec_cell, nnodes;
 };
 
-// Merged metadata for one force direction (NO per-step field arrays)
-struct MergedMetadata {
+// Shared layout metadata (NO per-step field arrays)
+struct LayoutMetadata {
     std::vector<double> gll_node_coords;           // [n_unique_gll, 3]
     std::vector<int64_t> gll_node_ids;             // [n_unique_gll]
     std::vector<int32_t> cell_gll_node_index;      // [n_rec_cell_merged * n_node]
-    std::vector<int64_t> recording_cell_model_index;
-    std::vector<FileMapping> file_maps;
-    std::vector<StepGroup> groups;
-    int64_t n_unique_gll, n_steps, n_node_per_cell, n_rec_cell_merged;
+    std::vector<RankMapping> rank_maps;
+    int64_t n_unique_gll, n_node_per_cell, n_rec_cell_merged;
+};
+
+struct DirectionRecords {
+    std::vector<int> steps;
+    std::vector<std::vector<std::string>> record_paths; // [step][rank]
     bool has_displacement, has_velocity, has_acceleration;
+};
+
+struct TilePlan {
+    std::vector<int32_t> rank_ids;
+    std::vector<int64_t> rank_entry_offsets;
+    std::vector<int64_t> record_cell_point_index;
+    std::vector<int32_t> tile_local_node_index;
+    std::vector<int64_t> cell_mass_index;
+    std::vector<int32_t> cell_gll_index;
+    std::vector<int64_t> node_ids;
+    std::vector<double> node_coords;
 };
 
 // Per-direction tile-local field arrays (second pass, tile-local only)
@@ -92,24 +108,23 @@ struct DirFields {
 
 ## Key Functions
 
-### `merge_metadata(dir_path) -> MergedMetadata`
+### `merge_partition_metadata(partition_dir, records) -> LayoutMetadata`
 
-First pass over all record files in a direction. Builds:
+Rank 0 reads each output rank's source partition range and builds:
 
-- Global GLL-node union (dedup by `gll_node_ids` across rank files)
-- Merged `cell_gll_node_index` and `recording_cell_model_index`
-- `file_maps` (per-file `local_to_global` index) and `groups` (per-step file
-  groupings, used by Phase 3)
-- Optional field presence flags (`has_displacement`, etc.)
+- Global GLL-node union (dedup by `gll_node_ids` across partition recording maps)
+- Merged `cell_gll_node_index`
+- `rank_maps` with per-rank `local_to_global`, cell-node, and mass indexes
+- Direct per-direction `(step, rank) → record path` tables
 
-Cost: ~2 MB per direction. Safe to replicate on every rank.
+MPI broadcasts this result; other workers do not repeat layout reads or index construction.
 
-### `extract_tile_fields(meta, tile_local_index, n_local, ...) -> DirFields`
+### `extract_tile_fields(layout, records, tile_plan, ...) -> DirFields`
 
-Second pass over record files. For each step, for each file, reads strain and
-optional disp/vel/acc. Accumulates **only** tile-local nodes (via
-`tile_local_index`), but iterates **all** recording cells so shared-node
-averaging sees every contributing element.
+Second pass over field-only record files. For each step, for each rank, reads strain and
+optional disp/vel/acc. Accumulates only tile-local nodes by iterating the compact
+`record_cell_point_index` entries. The index includes every element copy contributing to a
+tile-local node, including copies from cells assigned to adjacent tiles.
 
 - **Strain**: mass-weighted average (`node_weight_sum` per tile-local node)
 - **Disp/vel/acc**: count-based average (`node_count` per tile-local node)
@@ -122,15 +137,17 @@ Cost: ~1 GB per worker (n_steps × n_local × 15 doubles peak, one direction at 
 optional MPI init + 200ms stagger
 set worker_rank=0, worker_count=1 when MPI is disabled
 read config, model, cell_mass
-merge_metadata x3 (fx, fy, fz)          -- Phase 1, all workers
-verify n_steps + GLL node consistency
+rank 0: scan directions + rebuild output-rank layouts from partitions
+rank 0: build record-path, mass, and tile-bin indexes
+rank 0: write one compact index file per tile
+MPI: broadcast shared indexes
+verify output steps
 build time_arr, downsample STF
-bin cells into tiles                    -- Phase 2, all workers
 if worker_rank >= n_tiles: exit         -- guard BEFORE field alloc
-for tile_pos = worker_rank; tile_pos < n_tiles; tile_pos += worker_count:
-    build tile-local node set + tile_local_index
+read every assigned TilePlan             -- Phase 2, one owner per tile
+for tile_plan in assigned plans:
     for dir in {fx, fy, fz}:            -- Phase 3, one direction at a time
-        fields = extract_tile_fields(meta[dir], ...)
+        fields = extract_tile_fields(layout, records[dir], tile_plan, ...)
         assemble strain -> tile_greens[dir]
         assemble disp/vel/acc -> tile_*[dir]
     write_tile(...)
@@ -155,11 +172,10 @@ contributing elements:
   so all contributing elements give identical values; count averaging is exact and
   avoids spurious mass scaling.
 
-In the tile-local extraction, `tile_local_index[global_idx]` returns -1 for
-non-tile-local nodes, so they are skipped during accumulation. But the cell loop
-still iterates all cells — a tile-local node on a tile boundary still receives
-contributions from all its sharing cells, even if those cells belong to a
-different tile. Serial and MPI builds therefore use identical numerical operations.
+Index construction scans every recording cell. For each tile it retains all cell-point copies
+whose global node belongs to that tile, including copies from cells assigned to an adjacent tile.
+Extraction therefore traverses only valid compact entries while preserving every contribution at
+tile boundaries. Serial and MPI builds use identical numerical operations.
 
 ## Serial/MPI Strategy
 
@@ -194,6 +210,10 @@ different tile. Serial and MPI builds therefore use identical numerical operatio
 1. ✅ 2026-09-21 complete halfspace regression (500 output steps, three force
    directions): serial and 4-rank MPI generated 16 tiles; all 160 datasets and all
    attributes were bit-identical. Runtime: 158.4 s serial, 61.1 s MPI (2.59× speedup)
+1. 2026-09-23 partition-only layout and schema-v2 tile indexes verified on the complete 20³
+   fullspace records (800 steps, 62,073 nodes, 16 tiles): serial 93.1 s, MPI-4 33.9 s. All 160
+   datasets and attributes matched each other and the previous dense-index output exactly.
+   Compact files retain 148,120 of 1,792,000 dense entries (8.266%).
 
 HDF5 files need not be byte-identical at the serialization level. Dataset values
 and attributes are the consumer-visible contract.

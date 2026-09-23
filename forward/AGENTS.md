@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Elastic CG-SEM solver. Reads `config.h5` + `partition_{r}.h5`. Computes full volume. Writes shallow mesh-vertex strain snapshots and latest-only restart files.
+Elastic CG-SEM solver. Reads `config.h5` + `partition_{r}.h5`. Computes full volume. Writes shallow element-local GLL field snapshots and latest-only restart files.
 
 ## Architecture
 
@@ -157,17 +157,15 @@ recording mode is enabled (`record_depth_max_m > 0`).
 
 ## Record Schema
 
-`wavefields/{direction}/record_{r}_{step}.h5` — one per snapshot.
+Static recording geometry and indexes live only in
+`partitions/partition_{r}.h5:/recording`. The solver does not duplicate them under
+`wavefields/`.
 
-Attrs: `rank`, `source_direction`, `basis="mesh_vertices"`, `record_depth_max_m`, `record_depth_actual_m`, `excludes_pml`.
-
-Datasets:
-
-- `vertex_ids`: `int64[n_record_vertices]`, global mesh vertex IDs, 1-based
-- `strain`: `float32[1, n_record_vertices, 6]`
-- `displacement`: `float32[1, n_record_vertices, 3]`
-- `velocity`: `float32[1, n_record_vertices, 3]`
-- `acceleration`: `float32[1, n_record_vertices, 3]`
+`wavefields/{direction}/record_{r}_{step}.h5` — one field-only file per snapshot.
+Attrs: `rank`, `source_direction`, `source_partition_start`, and
+`source_partition_count`. The partition range identifies the maps merged into an output rank,
+including reduced-rank GPU execution. Datasets: `strain`, `displacement`, `velocity`, and
+`acceleration`, each shaped `[1, n_rec_cell, NGLL³, n_component]`.
 
 ## Restart Schema
 

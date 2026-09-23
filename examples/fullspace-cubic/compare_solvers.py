@@ -33,16 +33,41 @@ N_STRAIN_COMPONENTS = 6
 
 def _read_record(record_path: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Read (strain, cell_gll_node_index, gll_node_coords) from one record file."""
+    basename = os.path.basename(record_path)
+    rank = int(basename.split("_")[1])
     with h5py.File(record_path, "r") as record_file:
         strain_obj = record_file["strain"]
-        index_obj = record_file["cell_gll_node_index"]
-        coords_obj = record_file["gll_node_coords"]
         assert isinstance(strain_obj, h5py.Dataset)
-        assert isinstance(index_obj, h5py.Dataset)
-        assert isinstance(coords_obj, h5py.Dataset)
         strain = np.asarray(strain_obj[0], dtype=np.float64)  # (n_rec_cell, 125, 6)
-        cell_gll_index = np.asarray(index_obj[:], dtype=np.int64)  # (n_rec_cell, 125)
-        node_coords = np.asarray(coords_obj[:], dtype=np.float64)  # (n_unique, 3)
+        partition_start = int(record_file.attrs.get("source_partition_start", rank))
+        partition_count = int(record_file.attrs.get("source_partition_count", 1))
+
+    case_dir = os.path.dirname(os.path.dirname(os.path.dirname(record_path)))
+    global_to_merged: dict[int, int] = {}
+    merged_coordinates: list[np.ndarray] = []
+    merged_cell_indexes: list[np.ndarray] = []
+    for partition_index in range(partition_start, partition_start + partition_count):
+        partition_path = os.path.join(case_dir, "partitions", f"partition_{partition_index}.h5")
+        with h5py.File(partition_path, "r") as partition:
+            if "recording" not in partition:
+                continue
+            recording = partition["recording"]
+            node_ids = np.asarray(recording["gll_node_ids"], dtype=np.int64)
+            coordinates = np.asarray(recording["gll_node_coords"], dtype=np.float64)
+            cell_indexes = np.asarray(recording["cell_gll_node_index"], dtype=np.int64)
+
+        partition_to_merged = np.empty(node_ids.size, dtype=np.int64)
+        for node_index, node_id in enumerate(node_ids):
+            merged_index = global_to_merged.get(int(node_id))
+            if merged_index is None:
+                merged_index = len(merged_coordinates)
+                global_to_merged[int(node_id)] = merged_index
+                merged_coordinates.append(coordinates[node_index])
+            partition_to_merged[node_index] = merged_index
+        merged_cell_indexes.append(partition_to_merged[cell_indexes.reshape(-1)])
+
+    node_coords = np.asarray(merged_coordinates, dtype=np.float64)
+    cell_gll_index = np.concatenate(merged_cell_indexes).reshape(strain.shape[:2])
     return strain, cell_gll_index, node_coords
 
 

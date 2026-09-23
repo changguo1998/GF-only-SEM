@@ -24,6 +24,7 @@ export PYTHONPATH="${PROJECT_ROOT}"
 python3 "${PROJECT_ROOT}/examples/_shared/check_sem_consistency.py" "${CASE_DIR}"
 
 rm -rf wavefields/x wavefields/y wavefields/z
+rm -rf wavefields/tile_indexes
 mkdir -p wavefields/x wavefields/y wavefields/z
 for direction in x y z; do
     echo "=== CUDA direction=${direction} ==="

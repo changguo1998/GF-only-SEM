@@ -99,9 +99,10 @@ GMSH .msh → converter → model.h5 (topology only)
                     wavefields/{x,y,z}/record_{r}_{step}.h5
                     restart/{x,y,z}/restart_{r}.h5
                           ↓
-                     │
-                     postprocess (project GLL strain — also reads model.h5/config.h5)
+                     postprocess (reads partition recording maps, prepares tile indexes,
+                                  projects GLL strain; also reads model.h5/config.h5)
                           ↓
+                    wavefields/tile_indexes/tile_index_x{i}_y{j}.h5
                     greenfun/tile_x{i}_y{j}.h5
 ```
 
@@ -110,9 +111,10 @@ GMSH .msh → converter → model.h5 (topology only)
 | File | Producer | Consumer | Content |
 |------|----------|----------|---------|
 | model.h5 | converter → preprocessor | preprocessor, postprocess | Topology, GLL geometry/material/mass, and `is_pml`; postprocess reads cell mass for strain projection |
-| partition\_{r}.h5 | preprocessor | forward | Per-rank element data, C-PML, partition metadata, and `/recording/` map |
+| partition\_{r}.h5 | preprocessor | forward, postprocess, VTK tools | Per-rank element data, C-PML, partition metadata, and the only static `/recording/` layout |
 | config.h5 | preprocessor | forward, postprocess | Simulation params, cadence, record depth, tile size, domain, source, STF, weights. No direction. |
-| wavefields/{direction}/record\_{r}\_{step}.h5 | forward | postprocess | Element-local GLL fields and cell-to-node maps; one step per file |
+| wavefields/{direction}/record\_{r}\_{step}.h5 | forward | postprocess | Element-local GLL fields plus source-partition range; one step per file |
+| wavefields/tile_indexes/tile_index_x{i}\_y{j}.h5 | postprocess index stage | postprocess workers | One compact record-point→tile-node/mass lookup per output tile |
 | restart/{direction}/restart\_{r}.h5 | forward | forward (`--resume`) | Latest full-volume restart: u, v, a, C-PML memory, step/time |
 | model_auxiliary.h5 | preprocessor (optional) | validation | CSR adjacency relations |
 | greenfun/tile_x{i}\_y{j}.h5 | postprocess | user | Projected GLL-node strain Green tensors and interpolation maps, x/y tiled |
@@ -184,24 +186,40 @@ partition_{r}.h5
     ├── ghost_owners            : int32[n_ghost_cell]
     ├── local_cell2rank_node : int64[n_local_cell * NGLL^3]  — ibool: flat per-rank GLL→node map (absent→legacy)
     └── /exchange/              — precomputed face-pair lists per neighbor
+
+/recording/
+├── attrs: basis="gll", record_depth_max_m, record_depth_actual_m, excludes_pml=true
+├── gll_node_ids                : int64[n_unique_gll]
+├── gll_node_coords             : float64[n_unique_gll, 3]
+├── rec_cell_local              : int32[n_record_cells]
+├── rec_cell_global_ids         : int64[n_record_cells]
+└── cell_gll_node_index         : int32[n_record_cells × NGLL³]
 ```
 
 ### Record and Restart Format
 
 Forward writes shallow element-local GLL records (strain + displacement/velocity/acceleration)
-and separate latest-only restarts.
+and separate latest-only restarts. Static coordinates and cell-to-node relations remain in the
+partition files written by preprocess.
 
 ```
 wavefields/{direction}/record_{r}_{step}.h5
-├── attrs: rank, source_direction, basis="gll", record_depth_max_m,
-│          record_depth_actual_m, excludes_pml=true
-├── gll_node_ids        : int64[n_unique_gll]
-├── gll_node_coords     : float64[n_unique_gll, 3]
-├── cell_gll_node_index : int32[n_record_cells, NGLL³]
+├── attrs: rank, source_direction, source_partition_start, source_partition_count
 ├── strain              : float32[1, n_record_cells, NGLL³, 6]
 ├── displacement        : float32[1, n_record_cells, NGLL³, 3]
 ├── velocity            : float32[1, n_record_cells, NGLL³, 3]
 └── acceleration        : float32[1, n_record_cells, NGLL³, 3]
+
+wavefields/tile_indexes/tile_index_x{i}_y{j}.h5
+├── attrs: schema_version=2, tile_x_index, tile_y_index, n_node_per_cell
+├── rank_ids                   : int32[n_output_ranks]
+├── rank_entry_offsets         : int64[n_output_ranks + 1]
+├── record_cell_point_index    : int64[n_entries]
+├── tile_local_node_index      : int32[n_entries]
+├── cell_mass_index            : int64[n_entries]
+├── gll_node_ids               : int64[n_tile_nodes]
+├── gll_node_coords            : float64[n_tile_nodes, 3]
+└── cell_gll_node_index        : int32[n_tile_cells, NGLL³]
 
 restart/{direction}/restart_{r}.h5
 ├── attrs: rank, source_direction, step, time_s, ngll
@@ -354,7 +372,10 @@ Both are untracked (`*.gitignore`). Changes to them do not affect the repo.
 
 - **3 orthogonal force directions**: 3 independent forward runs (one per fx, fy, fz) produce the full 6×3 Voigt-strain Green tensor at a single source location.
 - **Single source location**: One source position per GF computation. Multiple source locations require separate preprocessor + 3×N forward runs.
-- **Postprocess alignment**: Validate timing, basis, depth, and merged `gll_node_ids` across x/y/z before assembly.
+- **Postprocess indexing**: Rank 0 rebuilds output-rank layouts from partition recording maps once
+  before field I/O, broadcasts shared indexes, and writes one compact lookup file per tile. Each
+  tile owner reads its node, record-point, and mass indexes once. The three directions must have
+  identical output steps.
 - **PML exclusion**: PML cells are excluded by the preprocessing recording map — only
   physical-domain shallow GLL nodes contribute.
 - **Element tiling**: `tilex_elements`/`tiley_elements` define x/y tile sizes in elements. Tiles

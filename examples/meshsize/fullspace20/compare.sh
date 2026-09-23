@@ -65,6 +65,7 @@ echo ""
 # Hermetic run: discard stale per-step records from any previous run
 # (record_0_<step>.h5 — a shorter duration must not merge with longer ones).
 rm -rf wavefields/x wavefields/y wavefields/z
+rm -rf wavefields/tile_indexes
 mkdir -p wavefields/x wavefields/y wavefields/z
 cd "${CASE_DIR}"
 

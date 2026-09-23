@@ -22,11 +22,13 @@ No receivers. Output is the configured shallow GLL-node field.
 ```
 model.h5 (/topology/vertex_to_coord) ───┐
 config.h5 (timing + tile size) ────────┤
+partitions/partition_{r}.h5:/recording ┤ (static recording layout)
 wavefields/{x,y,z}/record_{r}_{step}.h5 ─┤ (per-step files)
                                          ↓
-merge metadata by global GLL-node ID
-→ validate timing/depth/GLL-node sets
-→ assign tiles to workers (one serial worker or MPI round-robin)
+rank 0 rebuilds output-rank layouts and indexes direction files
+→ rank 0 bins cells; MPI broadcasts shared indexes
+→ rank 0 writes one compact `wavefields/tile_indexes/tile_index_xNNN_yNNN.h5` per tile
+→ each worker reads its assigned tile indexes
 → extract and assemble one tile at a time
 → write horizontal x/y tiles
 ```
@@ -52,8 +54,10 @@ model.h5 + config.h5
 → read config (/simulation/ attrs + tile arrays)
 → read mesh (/topology/vertex_to_coord + /domain/ bounds)
 → discover record_{r}_{step}.h5 per direction (--fx, --fy, --fz)
-→ merge global GLL metadata and bin whole cells into tiles
-→ each worker extracts one assigned tile at a time
+→ rank 0 reads `/recording` maps from source partitions and rebuilds output-rank layouts
+→ rank 0 writes compact per-tile node, record-point, and mass indexes
+→ each worker reads its assigned tile index files
+→ each worker extracts assigned tiles without rebuilding indexes
 → mass-lumped L2 project strain; count-average continuous vector fields
 → assemble Green's tensor [nt, n_tile_node, 6, 3]
 → write uncompressed tile_x{i}_y{j}.h5 (precision follows config snapshot_precision)
@@ -80,13 +84,18 @@ See [`../docs/design/postprocess-tile-parallel.md`](../docs/design/postprocess-t
 ## Performance
 
 峰值字段内存受单个 tile 大小约束。串行目标顺序处理所有 tile；MPI 目标轮转分配 tile，
-每个 rank 同样只保留当前 tile 的字段。
+每个 rank 同样只保留当前 tile 的字段。共享索引仅由 rank 0 构建一次；其他 rank 接收
+广播，并只为自己负责的 tile 构建一次 tile 专属索引。
 
 ## Tests
 
 The shared serial/MPI pipeline was verified on the complete halfspace records (500 output
 steps, three force directions): serial and 4-rank MPI generated 16 tiles, with all 160
 datasets and all attributes bit-identical. Runtime was 158.4 s serial and 61.1 s MPI.
+The partition-only layout and compact tile-index schema were reverified on the 20³ fullspace
+records (800 output steps, 62,073 nodes, 16 tiles): serial 93.1 s, MPI-4 33.9 s; all 160 output
+datasets and attributes matched both paths and the previous dense-index baseline exactly. Compact
+indexes retain 148,120 of 1,792,000 dense entries (8.266%).
 The archived Python implementation (`_archive/`) includes pytest tests for the reference code.
 
 ## Design Doc

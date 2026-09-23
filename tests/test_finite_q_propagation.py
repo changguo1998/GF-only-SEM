@@ -60,11 +60,18 @@ def test_load_receiver_signals_reads_public_record_schema(tmp_path):
     record_dir.mkdir(parents=True)
     coordinates = np.array([[1500.0, 500.0, 500.0], [3000.0, 500.0, 500.0]])
     cell_node_index = np.array([[0, 1]], dtype=np.int64)
+    partition_dir = tmp_path / "partitions"
+    partition_dir.mkdir()
+    with h5py.File(partition_dir / "partition_0.h5", "w") as partition:
+        recording = partition.create_group("recording")
+        recording.create_dataset("gll_node_ids", data=np.array([10, 11]), compression=None)
+        recording.create_dataset("gll_node_coords", data=coordinates, compression=None)
+        recording.create_dataset("cell_gll_node_index", data=cell_node_index, compression=None)
 
     for step, values in ((0, [1.0, 2.0]), (5, [3.0, 4.0])):
         with h5py.File(record_dir / f"record_0_{step}.h5", "w") as record:
-            record.create_dataset("gll_node_coords", data=coordinates, compression=None)
-            record.create_dataset("cell_gll_node_index", data=cell_node_index, compression=None)
+            record.attrs["source_partition_start"] = 0
+            record.attrs["source_partition_count"] = 1
             displacement = np.zeros((1, 1, 2, 3))
             displacement[0, 0, :, 1] = values
             record.create_dataset("displacement", data=displacement, compression=None)

@@ -189,11 +189,13 @@ std::vector<int> read_dataset_int(hid_t file_id, const std::string& name) {
 }
 
 /// Read partition from HDF5.
-RankData read_partition(const std::string& path, int /*rank*/) {
+RankData read_partition(const std::string& path, int rank) {
     hid_t fid = open_read(path);
     H5FileGuard guard(fid);
 
     RankData data;
+    data.source_partition_start = rank;
+    data.source_partition_count = 1;
 
     // --- Read element counts ---
     auto local_ids = read_dataset_int64(fid, "/partition/local_cell_ids");
@@ -471,6 +473,8 @@ RankData read_partition_all(const std::string& partition_dir) {
     merged.n_local_cell = cumulative_elements;
     merged.n_ghost_cell = 0;
     merged.n_total_cell = merged.n_local_cell;
+    merged.source_partition_start = 0;
+    merged.source_partition_count = n_partitions;
 
     // n_rank_node = max global node ID + 1 (global IDs are 0..n_global_node-1)
     if (!merged.local_cell2rank_node.empty()) {
@@ -604,6 +608,8 @@ RankData read_partition_range(const std::string& partition_dir, int effective_ra
     merged.n_local_cell = cumulative_elements;
     merged.n_ghost_cell = 0;
     merged.n_total_cell = merged.n_local_cell;
+    merged.source_partition_start = start;
+    merged.source_partition_count = count;
 
     // Clear per-rank ibool — cannot merge across partitions
     merged.local_cell2rank_node.clear();

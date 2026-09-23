@@ -12,6 +12,7 @@ cd "$HERE/fullspace$g"
 
 echo "======== fullspace$g pipeline (ranks=$RANKS cap=${CAP_GB}G) ========"
 rm -f wavefields/x/record_*.h5 wavefields/y/record_*.h5 wavefields/z/record_*.h5 2>/dev/null
+rm -rf wavefields/tile_indexes
 POSTPROCESS_RANKS=$RANKS GF_SKIP_STAGE6=1 GF_MEM_LIMIT_GB=$CAP_GB bash compare.sh \
 	>../results/compare.$g.log 2>&1 &
 CPID=$!

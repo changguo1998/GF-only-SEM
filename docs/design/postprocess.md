@@ -12,10 +12,10 @@ No receivers. Output is the configured shallow, non-PML region.
 
 ## Context
 
-Forward writes per-rank record files containing element-local fields and the mapping from each
-recorded cell's GLL points to unique GLL-node IDs. Postprocess merges the IDs across ranks,
-performs the strain projection described below, and assembles the full Green's tensor
-(3 force directions × 6 strain components).
+Preprocess writes each partition's recording map; forward writes field-only per-step records plus
+the source-partition range used by each output rank. Postprocess reconstructs the output-rank layouts,
+prepares one compact index file per tile, performs the strain projection, and assembles the full
+Green's tensor (3 force directions × 6 strain components).
 
 ## Data Flow
 
@@ -23,10 +23,13 @@ performs the strain projection described below, and assembles the full Green's t
 model.h5 (/field/cell/mass, /domain/ bounds)
 config.h5 (/simulation/ attrs, tile arrays)
 wavefields/{x,y,z}/record_{r}_{step}.h5
+partitions/partition_{r}.h5:/recording
          │
          ├── Read config, mesh
-         ├── Discover per-step record files in each direction dir
-         ├── Merge GLL metadata and cell-to-node maps across ranks
+         ├── Rank 0 discovers direction files and reconstructs output-rank layouts
+         ├── Rank 0 builds shared indexes and tile bins; MPI broadcasts them
+         ├── Rank 0 writes one compact index file per tile
+         ├── Each worker reads its assigned tile indexes
          ├── Per-step: lumped-mass project strain onto global GLL nodes
          ├── Count-average continuous vector fields
          ├── Assemble Green's tensor [nt, n_recorded, 6, 3]
@@ -69,17 +72,42 @@ element-count tiling, or `green_tile_size_m` for spatial tiling).
 
 ## Record Merging
 
-Each record file stores `gll_node_ids`, `gll_node_coords`, `cell_gll_node_index`, the recorded
-model-cell indices, and element-local fields for one snapshot on one MPI rank. Merge process:
+`partition_{r}.h5:/recording` stores `gll_node_ids`, `gll_node_coords`,
+`cell_gll_node_index`, and recorded model-cell indices. Each record stores one snapshot's
+element-local fields and the continuous source-partition range merged into its output rank.
+Merge process:
 
 1. Group `record_{r}_{step}.h5` files by step across all ranks.
-1. Build the union of unique global GLL-node IDs and remap every cell-local index.
+1. Read each output rank's source partitions, reproduce the solver's ordered merge, build the
+   unique global GLL-node union, and remap indices.
+1. Build direct `(step, rank) → record path`, cell-point mass, tile-bin, and tile-local lookup
+   tables before reading any field dataset.
+1. Under MPI, rank 0 builds and broadcasts shared indexes; each tile-local lookup is built only by
+   the worker that owns that tile.
 1. For each step, accumulate every element-local strain copy with its cell lumped mass.
 1. Divide each global node by its accumulated mass.
 1. Count-average displacement, velocity, and acceleration independently; CG-SEM makes their
    shared-node copies identical.
 
 Ranks with zero recorded cells produce empty files and are handled transparently.
+
+## Per-Tile Index Contract
+
+Before any field dataset is processed, rank 0 recreates
+`wavefields/tile_indexes/` and writes exactly one `tile_index_xNNN_yNNN.h5` for every nonempty
+output tile. Schema version 2 stores only valid record cell-points:
+
+| Item | Meaning |
+| `rank_ids` | Output record ranks represented in the file |
+| `rank_entry_offsets` | CSR-style boundaries into the three entry arrays |
+| `record_cell_point_index` | Flattened `(record_cell, GLL_point)` index within that rank's record |
+| `tile_local_node_index` | Destination node within the output tile |
+| `cell_mass_index` | Flattened `model.h5:/field/cell/mass` lookup |
+| `gll_node_ids`, `gll_node_coords` | Tile-local node identity and coordinates |
+| `cell_gll_node_index` | Tile output cells mapped to tile-local nodes |
+
+This file is derived data: partitions remain the authoritative static layout, while tile index
+files prevent every worker and every timestep from rebuilding or scanning dense rank-wide maps.
 
 ### Strain Projection Decision
 

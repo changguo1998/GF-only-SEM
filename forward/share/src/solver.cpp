@@ -290,8 +290,8 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
 
         // === Initialize record writer ===
         bool use_float32 = (cfg.snapshot_precision == "float32");
-        RecordWriter record(output_dir, direction, rank, part.recording, ngll, use_float32,
-                            cfg.record_depth_max_m, cfg.record_depth_actual_m);
+        RecordWriter record(output_dir, direction, rank, part.recording, ngll,
+                            part.source_partition_start, part.source_partition_count, use_float32);
         logger.debug("  record cells: " + std::to_string(record.n_rec_cell()));
 
         // === Build source element lookup table ===

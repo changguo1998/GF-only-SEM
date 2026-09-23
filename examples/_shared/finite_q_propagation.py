@@ -137,11 +137,58 @@ def load_receiver_signals(
     if not path_by_step:
         raise ValueError(f"no valid record_<rank>_<step>.h5 files in {record_dir}")
 
+    def rank_from_path(record_path: Path) -> int:
+        match = re.fullmatch(r"record_(\d+)_\d+\.h5", record_path.name)
+        if match is None:
+            raise ValueError(f"invalid record filename: {record_path.name}")
+        return int(match.group(1))
+
+    def load_recording_layout(record_path: Path) -> tuple[np.ndarray, np.ndarray]:
+        rank = rank_from_path(record_path)
+        with h5py.File(record_path, "r") as record:
+            partition_start = int(record.attrs.get("source_partition_start", rank))
+            partition_count = int(record.attrs.get("source_partition_count", 1))
+
+        partition_dir = record_path.parents[2] / "partitions"
+        global_to_merged: dict[int, int] = {}
+        merged_coordinates: list[np.ndarray] = []
+        merged_cell_indexes: list[np.ndarray] = []
+        for partition_index in range(partition_start, partition_start + partition_count):
+            partition_path = partition_dir / f"partition_{partition_index}.h5"
+            with h5py.File(partition_path, "r") as partition:
+                if "recording" not in partition:
+                    continue
+                recording = partition["recording"]
+                node_ids = np.asarray(recording["gll_node_ids"], dtype=np.int64)
+                node_coordinates = np.asarray(recording["gll_node_coords"], dtype=np.float64)
+                cell_indexes = np.asarray(recording["cell_gll_node_index"], dtype=np.int64)
+
+            partition_to_merged = np.empty(node_ids.size, dtype=np.int64)
+            for node_index, node_id in enumerate(node_ids):
+                merged_index = global_to_merged.get(int(node_id))
+                if merged_index is None:
+                    merged_index = len(merged_coordinates)
+                    global_to_merged[int(node_id)] = merged_index
+                    merged_coordinates.append(node_coordinates[node_index])
+                partition_to_merged[node_index] = merged_index
+            merged_cell_indexes.append(partition_to_merged[cell_indexes])
+
+        if not merged_coordinates or not merged_cell_indexes:
+            raise ValueError(f"no recording map found for {record_path}")
+        return np.asarray(merged_coordinates), np.concatenate(merged_cell_indexes, axis=0)
+
+    layout_by_rank: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    for record_path in record_paths:
+        rank = rank_from_path(record_path)
+        if rank in layout_by_rank:
+            continue
+        layout_by_rank[rank] = load_recording_layout(record_path)
+
     first_step = min(path_by_step)
     available_coordinates = []
     for record_path in path_by_step[first_step]:
-        with h5py.File(record_path, "r") as record:
-            available_coordinates.append(np.asarray(record["gll_node_coords"], dtype=np.float64))
+        coordinates, _ = layout_by_rank[rank_from_path(record_path)]
+        available_coordinates.append(coordinates)
     all_coordinates = np.concatenate(available_coordinates)
 
     requested_coordinates = np.asarray(receiver_xyz_m, dtype=np.float64)
@@ -162,9 +209,8 @@ def load_receiver_signals(
         value_sums = np.zeros(len(actual_coordinates), dtype=np.float64)
         value_counts = np.zeros(len(actual_coordinates), dtype=np.int64)
         for record_path in path_by_step[step]:
+            coordinates, cell_node_index = layout_by_rank[rank_from_path(record_path)]
             with h5py.File(record_path, "r") as record:
-                coordinates = np.asarray(record["gll_node_coords"], dtype=np.float64)
-                cell_node_index = np.asarray(record["cell_gll_node_index"], dtype=np.int64)
                 flat_coordinates = coordinates[cell_node_index.reshape(-1)]
                 displacement = np.asarray(record["displacement"][0], dtype=np.float64).reshape(
                     -1, 3

@@ -147,26 +147,16 @@ static void write_field_4d(hid_t file_id, const std::string& name, int ncomp, hs
 
 RecordWriter::RecordWriter(const std::string& output_dir, const std::string& source_direction,
                            int rank, const RankData::RecordingMap& rec_map, int ngll,
-                           bool use_float32, double record_depth_max_m,
-                           double record_depth_actual_m)
-    : file_id_(-1),
-      n_rec_cell_(static_cast<hsize_t>(rec_map.rec_cell_local.size())),
+                           int source_partition_start, int source_partition_count,
+                           bool use_float32)
+    : n_rec_cell_(static_cast<hsize_t>(rec_map.rec_cell_local.size())),
       n_node_(ngll * ngll * ngll),
-      ngll_(ngll),
-      n_unique_gll_(static_cast<hsize_t>(rec_map.gll_node_ids.size())),
       use_float32_(use_float32),
       output_dir_(output_dir),
       source_direction_(source_direction),
       rank_(rank),
-      basis_("gll"),
-      excludes_pml_(rec_map.has_recording),
-      record_depth_max_m_(record_depth_max_m),
-      record_depth_actual_m_(record_depth_actual_m),
-      gll_node_ids_(rec_map.gll_node_ids),
-      gll_node_coords_(rec_map.gll_node_coords),
-      cell_gll_node_index_(rec_map.cell_gll_node_index),
-      /// Construct recording map from cell global indices.
-      recording_cell_model_index_(rec_map.rec_cell_global) {}
+      source_partition_start_(source_partition_start),
+      source_partition_count_(source_partition_count) {}
 
 RecordWriter::~RecordWriter() {
     try {
@@ -194,62 +184,8 @@ void RecordWriter::write_step(int step, const double* strain, const double* disp
     // Write root group attributes
     write_string_attr(file_id, "source_direction", source_direction_);
     write_scalar_attr(file_id, "rank", H5T_NATIVE_INT, &rank_);
-    write_scalar_attr(file_id, "ngll", H5T_NATIVE_INT, &ngll_);
-    write_string_attr(file_id, "basis", basis_);
-    int n_rec_cell_int = static_cast<int>(n_rec_cell_);
-    int n_unique_gll_int = static_cast<int>(n_unique_gll_);
-    write_scalar_attr(file_id, "n_rec_cell", H5T_NATIVE_INT, &n_rec_cell_int);
-    write_scalar_attr(file_id, "n_unique_gll", H5T_NATIVE_INT, &n_unique_gll_int);
-    hbool_t excludes_pml_flag = excludes_pml_ ? 1 : 0;
-    write_scalar_attr(file_id, "excludes_pml", H5T_NATIVE_HBOOL, &excludes_pml_flag);
-    write_scalar_attr(file_id, "record_depth_max_m", H5T_NATIVE_DOUBLE, &record_depth_max_m_);
-    write_scalar_attr(file_id, "record_depth_actual_m", H5T_NATIVE_DOUBLE,
-                      &record_depth_actual_m_);
-
-    // Write gll_node_ids [n_unique_gll] and gll_node_coords [n_unique_gll, 3]
-    if (n_unique_gll_ > 0) {
-        hsize_t id_dims[1] = {n_unique_gll_};
-        hid_t id_space = H5Screate_simple(1, id_dims, nullptr);
-        hid_t id_dset = H5Dcreate2(file_id, "gll_node_ids", H5T_NATIVE_INT64, id_space,
-                                   H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-        H5Dwrite(id_dset, H5T_NATIVE_INT64, H5S_ALL, H5S_ALL, H5P_DEFAULT, gll_node_ids_.data());
-        H5Dclose(id_dset);
-        H5Sclose(id_space);
-
-        hsize_t coord_dims[2] = {n_unique_gll_, 3};
-        hid_t coord_space = H5Screate_simple(2, coord_dims, nullptr);
-        hid_t coord_dset = H5Dcreate2(file_id, "gll_node_coords", H5T_NATIVE_DOUBLE, coord_space,
-                                      H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-        H5Dwrite(coord_dset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT,
-                 gll_node_coords_.data());
-        H5Dclose(coord_dset);
-        H5Sclose(coord_space);
-    }
-
-    // Write cell_gll_node_index [n_rec_cell, n_node]
-    if (n_rec_cell_ > 0) {
-        hsize_t idx_dims[2] = {n_rec_cell_, static_cast<hsize_t>(n_node_)};
-        hid_t idx_space = H5Screate_simple(2, idx_dims, nullptr);
-        hid_t idx_dset = H5Dcreate2(file_id, "cell_gll_node_index", H5T_NATIVE_INT32, idx_space,
-                                    H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-        H5Dwrite(idx_dset, H5T_NATIVE_INT32, H5S_ALL, H5S_ALL, H5P_DEFAULT,
-                 cell_gll_node_index_.data());
-        H5Dclose(idx_dset);
-        H5Sclose(idx_space);
-    }
-
-    // Write recording_cell_model_index [n_rec_cell] (global cell index for mass lookup)
-    if (!recording_cell_model_index_.empty()) {
-        hsize_t rcm_dims[1] = {n_rec_cell_};
-        hid_t rcm_space = H5Screate_simple(1, rcm_dims, nullptr);
-        hid_t rcm_dset = H5Dcreate2(file_id, "recording_cell_model_index", H5T_NATIVE_INT64,
-                                    rcm_space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-        H5Dwrite(rcm_dset, H5T_NATIVE_INT64, H5S_ALL, H5S_ALL, H5P_DEFAULT,
-                 recording_cell_model_index_.data());
-        H5Dclose(rcm_dset);
-        H5Sclose(rcm_space);
-    }
-
+    write_scalar_attr(file_id, "source_partition_start", H5T_NATIVE_INT, &source_partition_start_);
+    write_scalar_attr(file_id, "source_partition_count", H5T_NATIVE_INT, &source_partition_count_);
     // Write 4D field datasets [1, n_rec_cell, n_node, ncomp]
     write_field_4d(file_id, "strain", 6, n_rec_cell_, n_node_, use_float32_, strain);
     write_field_4d(file_id, "displacement", 3, n_rec_cell_, n_node_, use_float32_, displacement);
