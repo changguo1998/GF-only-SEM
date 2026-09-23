@@ -252,7 +252,9 @@ int stage2_main(int argc, char** argv) {
         if (vp[i] > vp_max)
             vp_max = vp[i];
 
-    double cfl_dt = (vp_max > 0 && h_min > 0) ? cfl_safety * h_min / vp_max : 0;
+    constexpr double cpml_k_max_pml = 1.0;
+    double cfl_dt =
+        (vp_max > 0 && h_min > 0) ? cfl_safety * h_min / (vp_max * std::sqrt(cpml_k_max_pml)) : 0;
     double solver_dt = 0;
     int snapshot_stride = 1;
     if (cfl_dt > 0 && output_dt_s > 0) {

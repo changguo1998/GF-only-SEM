@@ -21,20 +21,17 @@ import numpy.typing as npt
 
 THETA = 1.0 / 8.0  # Wang et al. (2006) second-order convolution parameter
 K_MIN_PML = 1.0
+# SPECFEM3D reference implementation uses no coordinate stretching.
 K_MAX_PML = 1.0
 NPOWER = 2
 R_COEF = 1e-5  # Target reflection coefficient
-DIST_EPSILON = 1e-3  # Clip dist to [0, 1-DIST_EPSILON] to avoid alpha=0 at boundary
+# SPECFEM permits alpha=0 at the physical PML boundary. Parameter separation
+# handles coincident partial-fraction poles; do not move the boundary inward.
 # Fallback denominator for partial-fraction formulas — SPECFEM3D's parameter
 # separation in compute_pml_profiles() should prevent this from being needed.
 MIN_DISTANCE = 1e-12
 # Factor for min_distance_between_CPML_parameter computation (SPECFEM3D: 1/8).
 MIN_DISTANCE_FACTOR = 1.0 / 8.0
-# Warn if any C-PML coefficient exceeds this magnitude (should not happen after separation).
-COEF_WARN_THRESHOLD = 1e2
-# Safety clamp: matches SPECFEM3D's approach of stopping when coefficients
-# exceed reasonable bounds. Set high (1e4) to only catch truly degenerate cases.
-COEF_SAFETY_CLAMP = 3.0
 
 # PML region codes (matching SPECFEM3D constants.h)
 CPML_X_ONLY = 1
@@ -44,6 +41,28 @@ CPML_XY_ONLY = 4
 CPML_XZ_ONLY = 5
 CPML_YZ_ONLY = 6
 CPML_XYZ = 7
+
+_REGION_TO_AXES = {
+    CPML_X_ONLY: frozenset({0}),
+    CPML_Y_ONLY: frozenset({1}),
+    CPML_Z_ONLY: frozenset({2}),
+    CPML_XY_ONLY: frozenset({0, 1}),
+    CPML_XZ_ONLY: frozenset({0, 2}),
+    CPML_YZ_ONLY: frozenset({1, 2}),
+    CPML_XYZ: frozenset({0, 1, 2}),
+}
+_AXES_TO_REGION = {axes: region for region, axes in _REGION_TO_AXES.items()}
+
+
+def _permute_region(region: int, original_axis_for_local: tuple[int, int, int]) -> int:
+    """Map a physical PML region into a permuted lijk coordinate system."""
+    active_original_axes = _REGION_TO_AXES.get(region, frozenset())
+    active_local_axes = frozenset(
+        local_axis
+        for local_axis, original_axis in enumerate(original_axis_for_local)
+        if original_axis in active_original_axes
+    )
+    return _AXES_TO_REGION.get(active_local_axes, 0)
 
 
 def _get_region(pml_regions: npt.NDArray[np.int32], e: int | np.integer) -> int:
@@ -134,7 +153,8 @@ def compute_pml_profiles(
     for e in pml_cells:
         region = _get_region(pml_regions, e)
         coords_flat = gll_coords[e].reshape(-1, 3)  # [n_node, 3]
-        vp_flat = vp[e].reshape(-1)  # [n_node]
+        # SPECFEM3D uses the global maximum P-wave speed for all PML profiles.
+        vp_flat = np.full(n_node, float(np.max(vp)), dtype=np.float64)
 
         for axis, face_key, boundary_val, direction_sign in faces:
             width = pml_widths.get(face_key, 0.0)
@@ -155,7 +175,7 @@ def compute_pml_profiles(
             # dist=0 at the interior interface and dist=1 at the physical boundary.
             coord_axis = coords_flat[:, axis]
             dist = 1.0 - np.abs(coord_axis - boundary_val) / width
-            dist = np.clip(dist, 0.0, 1.0 - DIST_EPSILON)  # clip to avoid alpha=0 at boundary
+            dist = np.clip(dist, 0.0, 1.0)
 
             K_val = K_MIN_PML + (K_MAX_PML - 1.0) * dist
             d_val = pml_damping_profile(dist, vp_flat, width)
@@ -228,8 +248,11 @@ def _separate_pml_parameters(
         warnings.warn("Cannot compute min GLL distance for PML separation; skipping.")
         return
 
-    alpha_actual_max = float(np.max(alpha_store))
-    alpha_max_pml = alpha_actual_max if alpha_actual_max > 0 else np.pi * 10.0 * 1.1
+    # SPECFEM3D derives the separation scale from ALPHA_MAX_PML_x, the
+    # smallest directional alpha maximum (0.9 * pi * f0).
+    alpha_max_pml = float(np.max(alpha_store[..., 0]))
+    if alpha_max_pml <= 0:
+        alpha_max_pml = np.pi * 10.0 * 0.9
 
     pml_w = max(
         pml_widths.get("xmin", 0.0),
@@ -334,7 +357,7 @@ def _separate_xy_node(
         by, ax = _separate_one_changeable(by, ax, sep2, sep4)
 
     if abs(ax - ay) < min_sep or abs(bx - ay) < min_sep or abs(by - ax) < min_sep:
-        warnings.warn(f"CPML XY separation failed: ax={ax:.6e} ay={ay:.6e}")
+        raise ValueError(f"CPML XY parameter separation failed: ax={ax:.6e} ay={ay:.6e}")
 
     dx = (bx - ax) * max(kx, 1.0)
     dy = (by - ay) * max(ky, 1.0)
@@ -365,7 +388,7 @@ def _separate_xz_node(
         bz, ax = _separate_one_changeable(bz, ax, sep2, sep4)
 
     if abs(ax - az) < min_sep or abs(bx - az) < min_sep or abs(bz - ax) < min_sep:
-        warnings.warn(f"CPML XZ separation failed: ax={ax:.6e} az={az:.6e}")
+        raise ValueError(f"CPML XZ parameter separation failed: ax={ax:.6e} az={az:.6e}")
 
     dx = (bx - ax) * max(kx, 1.0)
     dz = (bz - az) * max(kz, 1.0)
@@ -396,7 +419,7 @@ def _separate_yz_node(
         bz, ay = _separate_one_changeable(bz, ay, sep2, sep4)
 
     if abs(ay - az) < min_sep or abs(by - az) < min_sep or abs(bz - ay) < min_sep:
-        warnings.warn(f"CPML YZ separation failed: ay={ay:.6e} az={az:.6e}")
+        raise ValueError(f"CPML YZ parameter separation failed: ay={ay:.6e} az={az:.6e}")
 
     dy = (by - ay) * max(ky, 1.0)
     dz = (bz - az) * max(kz, 1.0)
@@ -500,7 +523,7 @@ def _separate_xyz_node(
                 ax = ay + sep2
 
     if abs(ax - ay) < min_sep or abs(ay - az) < min_sep or abs(ax - az) < min_sep:
-        warnings.warn(f"CPML XYZ alpha separation failed")
+        raise ValueError("CPML XYZ alpha parameter separation failed")
 
     # Beta adjustments
     bx = ax + dx / max(kx, 1.0)
@@ -562,7 +585,7 @@ def _separate_xyz_node(
         or abs(bz - ax) < min_sep
         or abs(bz - ay) < min_sep
     ):
-        warnings.warn(f"CPML XYZ beta separation failed")
+        raise ValueError("CPML XYZ beta parameter separation failed")
 
     dx = (bx - ax) * max(kx, 1.0)
     dy = (by - ay) * max(ky, 1.0)
@@ -812,19 +835,8 @@ def compute_abar_coefficients(
         coef_abar[e, :, 3] = A4
         coef_abar[e, :, 4] = A5
 
-    # Clamp coefficients for numerical stability. Large coefficients arise at
-    # boundary nodes where d >> alpha (partial-fraction ill-conditioning).
-    np.clip(coef_abar, -COEF_SAFETY_CLAMP, COEF_SAFETY_CLAMP, out=coef_abar)
-    try:
-        max_abar = float(np.max(np.abs(coef_abar)))
-        if max_abar > COEF_WARN_THRESHOLD:
-            warnings.warn(
-                f"C-PML abar coefficient max={max_abar:.2e} exceeds {COEF_WARN_THRESHOLD:.0e}, "
-                "possible degenerate-alpha issue",
-                stacklevel=2,
-            )
-    except ValueError:
-        pass  # empty array
+    if not np.all(np.isfinite(coef_abar)):
+        raise ValueError("C-PML acceleration coefficients contain non-finite values")
 
     return coef_abar
 
@@ -857,8 +869,7 @@ def _l_parameter(
             + A0 * (by - ay) * (bz - az - ay)
             + A0 * (bz - az) * (bx - ax - az)
         )
-        # Need alpha_x != alpha_y != alpha_z for the partial fraction
-        # Use safe division (clamp denominators)
+        # Need alpha_x != alpha_y != alpha_z for the partial fraction.
         dxy = np.where(np.abs(ax - ay) < MIN_DISTANCE, MIN_DISTANCE, ax - ay)
         dxz = np.where(np.abs(ax - az) < MIN_DISTANCE, MIN_DISTANCE, ax - az)
         dyz = np.where(np.abs(ay - az) < MIN_DISTANCE, MIN_DISTANCE, ay - az)
@@ -868,7 +879,7 @@ def _l_parameter(
 
         A3 = A0 * ax**2 * (bx - ax) * (by - ax) * (bz - ax) / (dyx * dzx)
         A4 = A0 * ay**2 * (bx - ay) * (by - ay) * (bz - ay) / (dxy * dzy)
-        A5 = A0 * az**2 * (bx - az) * (by - az) * (bz - az) / (dyz * dzx)
+        A5 = A0 * az**2 * (bx - az) * (by - az) * (bz - az) / (dyz * dxz)
 
     elif region == CPML_XY_ONLY:
         A0 = kx * ky
@@ -996,14 +1007,16 @@ def compute_strain_coefficients(
         ax, ay, az = alpha_store[e, :, 0], alpha_store[e, :, 1], alpha_store[e, :, 2]
 
         # A6..A9: lijk(z, y, x) = index 231
-        A0, A6, A7, A8 = _lijk_parameter(region, kz, dz, az, ky, dy, ay, kx, dx, ax)
+        region_231 = _permute_region(region, (2, 1, 0))
+        A0, A6, A7, A8 = _lijk_parameter(region_231, kz, dz, az, ky, dy, ay, kx, dx, ax)
         coef_strain[e, :, 0] = A0
         coef_strain[e, :, 1] = A6
         coef_strain[e, :, 2] = A7
         coef_strain[e, :, 3] = A8
 
         # A10..A13: lijk(x, z, y) = index 132
-        A0, A10, A11, A12 = _lijk_parameter(region, kx, dx, ax, kz, dz, az, ky, dy, ay)
+        region_132 = _permute_region(region, (0, 2, 1))
+        A0, A10, A11, A12 = _lijk_parameter(region_132, kx, dx, ax, kz, dz, az, ky, dy, ay)
         coef_strain[e, :, 4] = A0
         coef_strain[e, :, 5] = A10
         coef_strain[e, :, 6] = A11
@@ -1031,21 +1044,38 @@ def compute_strain_coefficients(
         coef_strain[e, :, 16] = A22
         coef_strain[e, :, 17] = A23
 
-    # Clamp coefficients for numerical stability (see compute_abar_coefficients)
-    np.clip(coef_strain, -COEF_SAFETY_CLAMP, COEF_SAFETY_CLAMP, out=coef_strain)
-
-    try:
-        max_strain = float(np.max(np.abs(coef_strain)))
-        if max_strain > COEF_WARN_THRESHOLD:
-            warnings.warn(
-                f"C-PML strain coefficient max={max_strain:.2e} exceeds {COEF_WARN_THRESHOLD:.0e}, "
-                "possible degenerate-alpha issue",
-                stacklevel=2,
-            )
-    except ValueError:
-        pass  # empty array
+    if not np.all(np.isfinite(coef_strain)):
+        raise ValueError("C-PML strain coefficients contain non-finite values")
 
     return coef_strain
+
+
+def apply_cpml_mass_correction(
+    mass: npt.NDArray[np.float64],
+    K_store: npt.NDArray[np.float64],
+    d_store: npt.NDArray[np.float64],
+    pml_regions: npt.NDArray[np.int32],
+    dt: float,
+) -> npt.NDArray[np.float64]:
+    """Apply SPECFEM's explicit C-PML mass stabilization factor."""
+    corrected_mass = np.array(mass, dtype=np.float64, copy=True)
+    corrected_flat = corrected_mass.reshape(K_store.shape[:2])
+
+    for region in range(CPML_X_ONLY, CPML_XYZ + 1):
+        cell_mask = pml_regions == region
+        if not np.any(cell_mask):
+            continue
+        active_axes = [axis for axis in range(3) if _is_axis_active(region, axis)]
+        K_active = K_store[cell_mask][:, :, active_axes]
+        d_active = d_store[cell_mask][:, :, active_axes]
+        K_product = np.prod(K_active, axis=2)
+        damping_sum = np.zeros_like(K_product)
+        for local_axis in range(len(active_axes)):
+            other_K_product = np.prod(np.delete(K_active, local_axis, axis=2), axis=2)
+            damping_sum += d_active[:, :, local_axis] * other_K_product
+        corrected_flat[cell_mask] *= K_product + 0.5 * dt * damping_sum
+
+    return corrected_mass
 
 
 def _lijk_parameter(

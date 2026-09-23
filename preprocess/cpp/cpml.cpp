@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 #include "gf_config.h"
@@ -21,21 +22,47 @@ namespace {
 
 // ── Constants (SPECFEM3D defaults) ──────────────────────────────────────────
 
-constexpr double K_MAX_PML = 1.0;  // no stretching (K=1 everywhere)
+// SPECFEM3D reference implementation uses no coordinate stretching.
+constexpr double K_MAX_PML = 1.0;
 constexpr double K_MIN_PML = 1.0;
 constexpr int NPOWER = 2;
-constexpr double R_COEF = 1e-5;  // target reflection coefficient
-constexpr double DIST_EPSILON = 1e-3;
+constexpr double R_COEF = 1e-5;      // target reflection coefficient
 constexpr double THETA = 1.0 / 8.0;  // Wang et al. second-order convolution
 constexpr double MIN_DISTANCE = 1e-12;
 constexpr double MIN_DISTANCE_FACTOR = 1.0 / 8.0;
-constexpr double COEF_SAFETY_CLAMP = 3.0;
 
 // ── PML region codes ───────────────────────────────────────────────────────
 
 constexpr int CPML_X_ONLY = 1, CPML_Y_ONLY = 2, CPML_Z_ONLY = 3;
 constexpr int CPML_XY_ONLY = 4, CPML_XZ_ONLY = 5, CPML_YZ_ONLY = 6;
 constexpr int CPML_XYZ = 7;
+
+bool is_axis_active(int region, int axis);
+
+int region_from_active_axes(bool active_x, bool active_y, bool active_z) {
+    if (active_x && active_y && active_z)
+        return CPML_XYZ;
+    if (active_x && active_y)
+        return CPML_XY_ONLY;
+    if (active_x && active_z)
+        return CPML_XZ_ONLY;
+    if (active_y && active_z)
+        return CPML_YZ_ONLY;
+    if (active_x)
+        return CPML_X_ONLY;
+    if (active_y)
+        return CPML_Y_ONLY;
+    if (active_z)
+        return CPML_Z_ONLY;
+    return 0;
+}
+
+int permute_region(int region, const std::array<int, 3>& original_axis_for_local) {
+    std::array<bool, 3> active_local{};
+    for (int local_axis = 0; local_axis < 3; ++local_axis)
+        active_local[local_axis] = is_axis_active(region, original_axis_for_local[local_axis]);
+    return region_from_active_axes(active_local[0], active_local[1], active_local[2]);
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -69,10 +96,6 @@ inline double damping_value(double dist, double vp, double pml_width) {
 
 inline double safe_denominator(double value) {
     return std::abs(value) < MIN_DISTANCE ? MIN_DISTANCE : value;
-}
-
-inline double clamp_coefficient(double value) {
-    return std::clamp(value, -COEF_SAFETY_CLAMP, COEF_SAFETY_CLAMP);
 }
 
 void separate_two_changeable(double& first, double& second, double separation_twice) {
@@ -291,9 +314,16 @@ void separate_pml_parameters(const double* coordinates, int n_cell, int ngll,
     if (!std::isfinite(minimum_squared_distance) || minimum_squared_distance <= 0.0)
         return;
 
-    double maximum_alpha = *std::max_element(alpha_store.begin(), alpha_store.end());
+    // SPECFEM3D derives the separation scale from ALPHA_MAX_PML_x, the
+    // smallest directional alpha maximum (0.9 * pi * f0).
+    double maximum_alpha = 0.0;
+    for (int cell = 0; cell < n_cell; ++cell) {
+        for (int node = 0; node < nodes_per_cell; ++node)
+            maximum_alpha =
+                std::max(maximum_alpha, alpha_store[(cell * nodes_per_cell + node) * 3]);
+    }
     if (maximum_alpha <= 0.0)
-        maximum_alpha = M_PI * 10.0 * 1.1;
+        maximum_alpha = M_PI * 10.0 * 0.9;
     double maximum_pml_width = *std::max_element(pml_widths, pml_widths + 6);
     if (maximum_pml_width <= 0.0)
         return;
@@ -333,6 +363,31 @@ void separate_pml_parameters(const double* coordinates, int n_cell, int ngll,
             else if (region == CPML_XYZ)
                 separate_xyz_node(alpha_x, alpha_y, alpha_z, k_x, k_y, k_z, d_x, d_y, d_z,
                                   minimum_separation, separation_twice, separation_fourfold);
+
+            const double beta_x = alpha_x + d_x / std::max(k_x, 1.0);
+            const double beta_y = alpha_y + d_y / std::max(k_y, 1.0);
+            const double beta_z = alpha_z + d_z / std::max(k_z, 1.0);
+            auto too_close = [minimum_separation](double first, double second) {
+                return std::abs(first - second) < minimum_separation;
+            };
+            bool invalid = false;
+            if (region == CPML_XY_ONLY)
+                invalid = too_close(alpha_x, alpha_y) || too_close(beta_x, alpha_y) ||
+                          too_close(beta_y, alpha_x);
+            else if (region == CPML_XZ_ONLY)
+                invalid = too_close(alpha_x, alpha_z) || too_close(beta_x, alpha_z) ||
+                          too_close(beta_z, alpha_x);
+            else if (region == CPML_YZ_ONLY)
+                invalid = too_close(alpha_y, alpha_z) || too_close(beta_y, alpha_z) ||
+                          too_close(beta_z, alpha_y);
+            else if (region == CPML_XYZ)
+                invalid = too_close(alpha_x, alpha_y) || too_close(alpha_x, alpha_z) ||
+                          too_close(alpha_y, alpha_z) || too_close(beta_x, alpha_y) ||
+                          too_close(beta_x, alpha_z) || too_close(beta_y, alpha_x) ||
+                          too_close(beta_y, alpha_z) || too_close(beta_z, alpha_x) ||
+                          too_close(beta_z, alpha_y);
+            if (invalid)
+                throw std::runtime_error("C-PML parameter separation failed");
         }
     }
 }
@@ -388,7 +443,7 @@ std::array<double, 5> acceleration_coefficients(int region, double k_x, double d
         coefficient_five =
             coefficient_zero * alpha_z * alpha_z * (beta_x - alpha_z) * (beta_y - alpha_z) *
             (beta_z - alpha_z) /
-            (safe_denominator(alpha_y - alpha_z) * safe_denominator(alpha_z - alpha_x));
+            (safe_denominator(alpha_y - alpha_z) * safe_denominator(alpha_x - alpha_z));
     } else if (region == CPML_XY_ONLY) {
         double coefficient_zero = k_x * k_y;
         coefficient_one = coefficient_zero * (beta_x + beta_y - alpha_x - alpha_y);
@@ -513,7 +568,9 @@ void compute_cpml_profiles(const double* gll_coords_flat,  // [n_cell * ngll³ *
     int n_node = ngll * ngll * ngll;
     int total_nodes = n_cell * n_node;
     int stride_coords = n_node * 3;
-    int stride_scalar = n_node;
+    double vp_max_all = 0.0;
+    for (int index = 0; index < n_cell * n_node; ++index)
+        vp_max_all = std::max(vp_max_all, vp_flat[index]);
 
     // Initialize: K=1, d=0, alpha=0
     K_store.assign(total_nodes * 3, 1.0);
@@ -553,8 +610,6 @@ void compute_cpml_profiles(const double* gll_coords_flat,  // [n_cell * ngll³ *
             continue;
 
         const double* coords = gll_coords_flat + e * stride_coords;
-        const double* vp_e = vp_flat + e * stride_scalar;
-
         for (const auto& face : faces) {
             double width = pml_widths[face.wi];
             if (width <= 0.0)
@@ -579,10 +634,10 @@ void compute_cpml_profiles(const double* gll_coords_flat,  // [n_cell * ngll³ *
                 double dist = 1.0 - std::abs(coord - boundary) / width;
                 if (dist < 0.0)
                     dist = 0.0;
-                if (dist > 1.0 - DIST_EPSILON)
-                    dist = 1.0 - DIST_EPSILON;
+                if (dist > 1.0)
+                    dist = 1.0;
 
-                double vp_val = vp_e[node];
+                double vp_val = vp_max_all;
 
                 // K (stretching) — currently K_MAX=1, so K stays 1
                 double K_val = K_MIN_PML + (K_MAX_PML - 1.0) * dist;
@@ -659,14 +714,15 @@ void compute_cpml_coefficients(int n_cell, int ngll, const int* pml_regions, dou
             region, k_x, d_x, alpha_x, k_y, d_y, alpha_y, k_z, d_z, alpha_z);
         int acceleration_base = global_node * 5;
         for (int coefficient = 0; coefficient < 5; ++coefficient)
-            coefficient_acceleration[acceleration_base + coefficient] =
-                clamp_coefficient(acceleration[coefficient]);
+            coefficient_acceleration[acceleration_base + coefficient] = acceleration[coefficient];
 
         int strain_base = global_node * 18;
+        int region_231 = permute_region(region, {2, 1, 0});
+        int region_132 = permute_region(region, {0, 2, 1});
         std::array<double, 4> strain_x = strain_mixed_coefficients(
-            region, k_z, d_z, alpha_z, k_y, d_y, alpha_y, k_x, d_x, alpha_x);
+            region_231, k_z, d_z, alpha_z, k_y, d_y, alpha_y, k_x, d_x, alpha_x);
         std::array<double, 4> strain_y = strain_mixed_coefficients(
-            region, k_x, d_x, alpha_x, k_z, d_z, alpha_z, k_y, d_y, alpha_y);
+            region_132, k_x, d_x, alpha_x, k_z, d_z, alpha_z, k_y, d_y, alpha_y);
         std::array<double, 4> strain_z = strain_mixed_coefficients(
             region, k_x, d_x, alpha_x, k_y, d_y, alpha_y, k_z, d_z, alpha_z);
         std::array<double, 2> strain_direction_x =
@@ -676,20 +732,54 @@ void compute_cpml_coefficients(int n_cell, int ngll, const int* pml_regions, dou
         std::array<double, 2> strain_direction_z =
             strain_direction_coefficients(region, 2, k_z, d_z, alpha_z);
         for (int coefficient = 0; coefficient < 4; ++coefficient) {
-            coefficient_strain[strain_base + coefficient] =
-                clamp_coefficient(strain_x[coefficient]);
-            coefficient_strain[strain_base + 4 + coefficient] =
-                clamp_coefficient(strain_y[coefficient]);
-            coefficient_strain[strain_base + 8 + coefficient] =
-                clamp_coefficient(strain_z[coefficient]);
+            coefficient_strain[strain_base + coefficient] = strain_x[coefficient];
+            coefficient_strain[strain_base + 4 + coefficient] = strain_y[coefficient];
+            coefficient_strain[strain_base + 8 + coefficient] = strain_z[coefficient];
         }
         for (int coefficient = 0; coefficient < 2; ++coefficient) {
-            coefficient_strain[strain_base + 12 + coefficient] =
-                clamp_coefficient(strain_direction_x[coefficient]);
-            coefficient_strain[strain_base + 14 + coefficient] =
-                clamp_coefficient(strain_direction_y[coefficient]);
-            coefficient_strain[strain_base + 16 + coefficient] =
-                clamp_coefficient(strain_direction_z[coefficient]);
+            coefficient_strain[strain_base + 12 + coefficient] = strain_direction_x[coefficient];
+            coefficient_strain[strain_base + 14 + coefficient] = strain_direction_y[coefficient];
+            coefficient_strain[strain_base + 16 + coefficient] = strain_direction_z[coefficient];
+        }
+    }
+
+    // SPECFEM aborts on invalid PML coefficients rather than silently clipping them.
+    // Parameter separation should prevent non-finite values; report a clear error if it fails.
+    for (double value : coefficient_acceleration)
+        if (!std::isfinite(value))
+            throw std::runtime_error("C-PML acceleration coefficients contain non-finite values");
+    for (double value : coefficient_strain)
+        if (!std::isfinite(value))
+            throw std::runtime_error("C-PML strain coefficients contain non-finite values");
+}
+
+void apply_cpml_mass_correction(int n_cell, int ngll, const int* pml_regions, double solver_dt,
+                                const std::vector<double>& k_store,
+                                const std::vector<double>& d_store, std::vector<double>& mass) {
+    int nodes_per_cell = ngll * ngll * ngll;
+    for (int cell = 0; cell < n_cell; ++cell) {
+        int region = pml_regions ? pml_regions[cell] : 0;
+        if (region == 0)
+            continue;
+        for (int node = 0; node < nodes_per_cell; ++node) {
+            int global_node = cell * nodes_per_cell + node;
+            int profile_base = global_node * 3;
+            double k_product = 1.0;
+            for (int axis = 0; axis < 3; ++axis)
+                if (is_axis_active(region, axis))
+                    k_product *= k_store[profile_base + axis];
+
+            double damping_sum = 0.0;
+            for (int axis = 0; axis < 3; ++axis) {
+                if (!is_axis_active(region, axis))
+                    continue;
+                double other_k_product = 1.0;
+                for (int other_axis = 0; other_axis < 3; ++other_axis)
+                    if (other_axis != axis && is_axis_active(region, other_axis))
+                        other_k_product *= k_store[profile_base + other_axis];
+                damping_sum += d_store[profile_base + axis] * other_k_product;
+            }
+            mass[global_node] *= k_product + 0.5 * solver_dt * damping_sum;
         }
     }
 }

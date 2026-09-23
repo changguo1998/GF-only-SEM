@@ -3,6 +3,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <vector>
 
+#include "gf/kernel_helpers.hpp"
 #include "gf/pml.hpp"
 
 using namespace gf;
@@ -263,6 +264,89 @@ TEST_CASE("cpml_update_strain_memory updates PML element memory", "[pml][cpml]")
         }
     }
     REQUIRE(has_nonzero);
+}
+
+TEST_CASE("cpml strain memory uses SPECFEM alpha-beta direction mapping", "[pml][cpml]") {
+    RankData part;
+    constexpr int ngll = 2;
+    constexpr int n_node = ngll * ngll * ngll;
+    part.n_local_cell = 1;
+    part.ngll = ngll;
+    part.has_cpml = true;
+    part.pml_region = {1};
+
+    part.pml_coef_alpha.assign(n_node * 9, 0.0);
+    part.pml_coef_beta.assign(n_node * 9, 0.0);
+    for (int node = 0; node < n_node; ++node) {
+        for (int direction = 0; direction < 3; ++direction) {
+            part.pml_coef_alpha[node * 9 + direction * 3 + 1] = 10.0 * (direction + 1);
+            part.pml_coef_beta[node * 9 + direction * 3 + 1] = 100.0 * (direction + 1);
+        }
+    }
+
+    part.dxi_dx.assign(n_node * 9, 0.0);
+    for (int node = 0; node < n_node; ++node) {
+        part.dxi_dx[node * 9 + 0] = 1.0;
+        part.dxi_dx[node * 9 + 4] = 1.0;
+        part.dxi_dx[node * 9 + 8] = 1.0;
+    }
+
+    part.pml_displ_old.assign(n_node * 3, 0.0);
+    part.pml_displ_new.assign(n_node * 3, 0.0);
+    for (int i = 0; i < ngll; ++i) {
+        for (int j = 0; j < ngll; ++j) {
+            for (int k = 0; k < ngll; ++k) {
+                int node = (i * ngll + j) * ngll + k;
+                part.pml_displ_new[node * 3] = i + 2.0 * j + 3.0 * k;
+            }
+        }
+    }
+    part.rmemory_strain.assign(n_node * MEMORY_PER_NODE, 0.0);
+
+    const std::vector<double> derivative = {-1.0, 1.0, -1.0, 1.0};
+    const std::vector<double> weights(ngll, 1.0);
+    cpml_update_strain_memory(part, derivative.data(), weights.data(), ngll);
+
+    const size_t dux_dx = strain_memory_offset(0, DUX_DX, 0);
+    REQUIRE(part.rmemory_strain[dux_dx + CONV_X] == 100.0);  // beta_x
+    REQUIRE(part.rmemory_strain[dux_dx + CONV_Y] == 20.0);   // alpha_y
+    REQUIRE(part.rmemory_strain[dux_dx + CONV_Z] == 30.0);   // alpha_z
+
+    const size_t dux_dy = strain_memory_offset(0, DUX_DY, 0);
+    REQUIRE(part.rmemory_strain[dux_dy + CONV_X] == 20.0);   // alpha_x
+    REQUIRE(part.rmemory_strain[dux_dy + CONV_Y] == 400.0);  // beta_y
+    REQUIRE(part.rmemory_strain[dux_dy + CONV_Z] == 60.0);   // alpha_z
+
+    const size_t dux_dz = strain_memory_offset(0, DUX_DZ, 0);
+    REQUIRE(part.rmemory_strain[dux_dz + CONV_X] == 30.0);   // alpha_x
+    REQUIRE(part.rmemory_strain[dux_dz + CONV_Y] == 60.0);   // alpha_y
+    REQUIRE(part.rmemory_strain[dux_dz + CONV_Z] == 900.0);  // beta_z
+}
+
+TEST_CASE("CPML non-symmetric stress follows SPECFEM weak-form orientation", "[pml][cpml]") {
+    std::vector<double> coefficients(COEFS_PER_NODE, 0.0);
+    coefficients[OFFSET_GRAD_WRT_X] = 10.0;
+    coefficients[OFFSET_GRAD_WRT_Y] = 20.0;
+    coefficients[OFFSET_GRAD_WRT_Z] = 30.0;
+    coefficients[OFFSET_DUX_DX] = 40.0;  // Lx
+    coefficients[OFFSET_DUY_DY] = 50.0;  // Ly
+    coefficients[OFFSET_DUZ_DZ] = 60.0;  // Lz
+    std::vector<double> memory(MEMORY_PER_NODE, 0.0);
+    const double gradient[3][3] = {{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}};
+    double stress[3][3] = {};
+
+    compute_pml_non_symmetric_stress(0, gradient, 2.0, 3.0, coefficients.data(), memory.data(),
+                                     stress);
+
+    REQUIRE(stress[0][0] == 1580.0);
+    REQUIRE(stress[1][0] == 840.0);
+    REQUIRE(stress[2][0] == 1320.0);
+    REQUIRE(stress[0][1] == 480.0);
+    REQUIRE(stress[1][1] == 1640.0);
+    REQUIRE(stress[2][1] == 1500.0);
+    REQUIRE(stress[0][2] == 660.0);
+    REQUIRE(stress[1][2] == 1200.0);
+    REQUIRE(stress[2][2] == 2660.0);
 }
 
 TEST_CASE("cpml_update_strain_memory skips interior elements", "[pml][cpml]") {

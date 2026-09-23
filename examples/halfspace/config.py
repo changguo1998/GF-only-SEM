@@ -36,7 +36,7 @@ polynomial_order = 4  # GLL quadrature order (N=4 → 5 GLL nodes/axis)
 # ── Time stepping ───────
 output_dt_s = 0.01  # Desired snapshot interval [s]
 total_duration_s = 5.0  # Total simulation duration [s]
-cfl_safety = 0.5  # CFL safety factor, scaled by 1/sqrt(K_MAX_PML=14) for CPML stability
+cfl_safety = 0.5  # SPECFEM3D suggested Courant safety factor
 log_stride = 100  # Progress-report interval in solver steps (1 = every step)
 restart_dt_s = 0.5  # Restart checkpoint interval [s] (0 = disable)
 

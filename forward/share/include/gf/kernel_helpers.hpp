@@ -327,25 +327,25 @@ inline void compute_pml_non_symmetric_stress(int global_node, const double du_dx
     sigma[0][0] = l2m * (Gx * du_dx[DUX][DX] + Mxz * mz_00 + Mxy * my_00 + Mxx * mx_00) +
                   lambda * (Lz0 * du_dx[DUY][DY] + Lz1 * lz_mem(DUY_DY)) +
                   lambda * (Ly0 * du_dx[DUZ][DZ] + Ly1 * ly_mem(DUZ_DZ));
-    sigma[0][1] = mu * (Gy * du_dx[DUX][DY] + Myx * mx_01 + Myy * mz_01 + Myz * my_01) +
+    sigma[1][0] = mu * (Gy * du_dx[DUX][DY] + Myx * mx_01 + Myy * mz_01 + Myz * my_01) +
                   mu * (Lz0 * du_dx[DUY][DX] + Lz1 * lz_mem(DUY_DX));
-    sigma[0][2] = mu * (Ly0 * du_dx[DUZ][DX] + Ly1 * ly_mem(DUZ_DX)) +
+    sigma[2][0] = mu * (Ly0 * du_dx[DUZ][DX] + Ly1 * ly_mem(DUZ_DX)) +
                   mu * (Gz * du_dx[DUX][DZ] + Mzx * mx_02 + Mzz * my_02 + Mzy * mz_02);
 
     auto [mx_12, my_12, mz_12] = mem(DUY, DZ);
     auto [mx_21, my_21, mz_21] = mem(DUZ, DY);
 
-    sigma[1][0] = mu * (Lz0 * du_dx[DUX][DY] + Lz1 * lz_mem(DUX_DY)) +
+    sigma[0][1] = mu * (Lz0 * du_dx[DUX][DY] + Lz1 * lz_mem(DUX_DY)) +
                   mu * (Gx * du_dx[DUY][DX] + Mxz * mz_10 + Mxy * my_10 + Mxx * mx_10);
     sigma[1][1] = lambda * (Lz0 * du_dx[DUX][DX] + Lz1 * lz_mem(DUX_DX)) +
                   l2m * (Gy * du_dx[DUY][DY] + Myx * mx_11 + Myy * mz_11 + Myz * my_11) +
                   lambda * (Lx0 * du_dx[DUZ][DZ] + Lx1 * lx_mem(DUZ_DZ));
-    sigma[1][2] = mu * (Lx0 * du_dx[DUZ][DY] + Lx1 * lx_mem(DUZ_DY)) +
+    sigma[2][1] = mu * (Lx0 * du_dx[DUZ][DY] + Lx1 * lx_mem(DUZ_DY)) +
                   mu * (Gz * du_dx[DUY][DZ] + Mzx * mx_12 + Mzz * my_12 + Mzy * mz_12);
 
-    sigma[2][0] = mu * (Gx * du_dx[DUZ][DX] + Mxz * mz_20 + Mxy * my_20 + Mxx * mx_20) +
+    sigma[0][2] = mu * (Gx * du_dx[DUZ][DX] + Mxz * mz_20 + Mxy * my_20 + Mxx * mx_20) +
                   mu * (Ly0 * du_dx[DUX][DZ] + Ly1 * ly_mem(DUX_DZ));
-    sigma[2][1] = mu * (Gy * du_dx[DUZ][DY] + Myx * mx_21 + Myy * mz_21 + Myz * my_21) +
+    sigma[1][2] = mu * (Gy * du_dx[DUZ][DY] + Myx * mx_21 + Myy * mz_21 + Myz * my_21) +
                   mu * (Lx0 * du_dx[DUY][DZ] + Lx1 * lx_mem(DUY_DZ));
     sigma[2][2] = lambda * (Ly0 * du_dx[DUX][DX] + Ly1 * ly_mem(DUX_DX)) +
                   lambda * (Lx0 * du_dx[DUY][DY] + Lx1 * lx_mem(DUY_DY)) +

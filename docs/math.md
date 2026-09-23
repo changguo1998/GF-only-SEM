@@ -210,8 +210,10 @@ Each PML GLL node stores 48 memory scalars:
 - 9 displacement memory (3 directions × 3 components for Ã₁…Ã₅ correction)
 - 39 strain memory (27 lijk β-convolved + 12 lx/ly/lz α-convolved for A₆…A₂₃ correction)
 
-Key parameters: K_MAX_PML=1.0, CFS α-shift only (no coordinate stretching).
-COEF_SAFETY_CLAMP=3.0 as fallback for pathological coefficients.
+Key parameters: K_MAX_PML=K_MIN_PML=1.0, matching the local SPECFEM3D
+reference implementation; no additional coordinate-stretching CFL factor is used.
+Non-finite C-PML coefficients are rejected during preprocessing; coefficients are
+not silently clipped.
 
 ## 7. Source Injection
 

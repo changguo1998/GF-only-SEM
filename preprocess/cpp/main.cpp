@@ -801,7 +801,7 @@ static ComputeResult compute_all(
         }
     }
 
-    // CFL: h_min only. Python combines with vp_max: cfl_dt = cfl_safety * h_min / vp_max
+    // CFL: h_min only. Python combines with vp_max and CPML K_MAX_PML in stage 2.
     res.cfl_dt = (h_min < 1e29) ? h_min : 0.0;  // just h_min, not full dt
 
     return res;

@@ -365,6 +365,13 @@ static int run_main(int argc, char** argv) {
                                   cpml_alpha, pml_coefficient_alpha, pml_coefficient_beta,
                                   pml_coefficient_acceleration, pml_coefficient_strain);
 
+    std::vector<double> mass = gf::h5::read_double(model_fid, "field/element/mass");
+    gf::apply_cpml_mass_correction(n_cell, ngll, pml_regions.data(), solver_dt, cpml_K, cpml_d,
+                                   mass);
+    gf::h5::write_double(model_fid, "field/element/mass", mass,
+                         {static_cast<hsize_t>(n_cell), static_cast<hsize_t>(ngll),
+                          static_cast<hsize_t>(ngll), static_cast<hsize_t>(ngll)});
+
     std::vector<hsize_t> pml_dims = {static_cast<hsize_t>(n_cell),
                                      static_cast<hsize_t>(ngll * ngll * ngll), 3};
     gf::h5::write_double(model_fid, "field/element/cpml_K", cpml_K, pml_dims);

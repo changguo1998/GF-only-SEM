@@ -4,6 +4,16 @@
 correlation with Lamb reference. The former ~3× factor was a postprocess count bug and is fixed.
 **Reference:** Wang et al. (2006), Xie et al. (2014), SPECFEM3D implementation
 
+**Latest stability validation (2026-09-22):** the XYZ acceleration residue `A5`
+uses the SPECFEM denominator `(alpha_y-alpha_z)*(alpha_x-alpha_z)`. After
+regenerating `model.h5` and all partitions with this sign, the half-space
+configuration (`22x22x11`, `N=4`, `dt=5 ms`, all seven PML region types)
+completed 5 s on the CUDA solver;
+strain, displacement, velocity, and acceleration remained finite. Existing
+generated HDF5 files must be regenerated after changing CPML coefficient code;
+otherwise they retain stale coefficients and can reproduce the old corner
+overflow.
+
 ## 1. Overview
 
 Replace the current simple linear-ramp velocity damping (`v -= d·v`) with full
@@ -30,7 +40,7 @@ For each PML direction (x, y, z), compute at each GLL node:
 ```
 dist = |coord - pml_start| / pml_width    ∈ [0, 1]
 
-K_axis = K_MIN + (K_MAX - 1) * dist       (K_MIN = K_MAX = 1.0 in SPECFEM3D)
+K_axis = K_MIN + (K_MAX - K_MIN) * dist  (K_MIN = K_MAX = 1, SPECFEM3D reference)
 
 d_axis = -(NPOWER + 1) * vp * ln(R_coef) / (2 * pml_width) * dist^(1.2 * NPOWER)
          (NPOWER = 2, R_coef = 1e-5 typical)
@@ -42,7 +52,7 @@ d_axis = -(NPOWER + 1) * vp * ln(R_coef) / (2 * pml_width) * dist^(1.2 * NPOWER)
 
 Where:
 
-- `vp` = P-wave velocity at the GLL node
+- `vp` = global maximum P-wave velocity (the SPECFEM3D convention)
 - `f0` = dominant frequency of the source (Ricker peak frequency)
 - `R_coef` = target reflection coefficient (typically 1e-5)
 - `NPOWER` = polynomial grading exponent (typically 2)
@@ -270,24 +280,25 @@ coefficients for time convolution, matching SPECFEM3D
 `pml_compute_memory_variables.f90:269-287`. Total strain memory: 39 entries/node
 (27 lijk β-conv + 12 alpha-conv).
 
-### SPECFEM3D Parameter Separation + Safety Clamp
+### SPECFEM3D Parameter Separation
 
 1. **Parameter separation** (`_separate_pml_parameters`) matches SPECFEM3D's
    `pml_set_local_dampingcoeff.f90:1378-1833` — adjusts α/beta values to prevent
    near-zero partial-fraction denominators, recomputes d to preserve absorption.
-1. **COEF_SAFETY_CLAMP=3.0** — fallback for pathological coefficients when
-   K_MAX_PML=1 causes strain coefficients ~O(1e3). Equivalent to SPECFEM3D's
-   `stop` on degenerate parameters, but softer (clamp instead of crash).
-1. **K_MAX_PML=1.0** (SPECFEM3D default) — kappa=1 means no coordinate stretching;
-   the C-PML uses CFS alpha-shift damping only. K_MAX≥7 would reduce coefficient
-   magnitude but requires 4-8× smaller dt due to kx·ky gradient prefactors.
+1. **Coefficient handling** — coefficients are not silently clipped. As in
+   SPECFEM3D, parameter separation is applied before the partial-fraction
+   formulas; non-finite coefficients abort preprocessing explicitly.
+   The physical PML boundary is evaluated at `dist=1`, so `alpha=0` there.
+1. **K_MAX_PML=K_MIN_PML=1.0** — this matches the local SPECFEM3D reference
+   implementation used by the project; no coordinate-stretching CFL factor is
+   applied.
 
 ## 5. Key Constants
 
 ```python
 THETA = 1.0 / 8.0          # Wang et al. (2006)
 K_MIN_PML = 1.0             # SPECFEM3D default
-K_MAX_PML = 1.0             # SPECFEM3D default
+K_MAX_PML = 1.0             # SPECFEM3D reference implementation
 NPOWER = 2                  # Polynomial grading
 R_COEF = 1e-5               # Target reflection coefficient
 ALPHA_MAX_X = pi * f0 * 0.9 # Slightly different per direction
@@ -309,8 +320,8 @@ MIN_DISTANCE = 1e-6         # Singularity avoidance threshold
 
 ### Known Limitations
 
-1. **K_MAX_PML=1**: No coordinate stretching; CFS α-shift only. K_MAX≥7 would
-   reduce coefficients ~200× but requires dt reduction for PML corner CFL.
-1. **COEF_SAFETY_CLAMP=3.0**: Clamps strain coefficients that would otherwise
-   be O(1e3). Acceptable for K=1; should be raised when K≥7.
+1. **CFL**: K_MAX_PML=1 in the SPECFEM3D reference implementation, so the
+   ordinary SEM CFL limit is used.
+1. **Coefficient validity**: no safety clamp is applied. If parameter separation
+   fails and produces a non-finite coefficient, preprocessing stops explicitly.
 1. **PML&SVD mutually exclusive**: Viscoelastic kernels skip SLS memory for PML nodes.

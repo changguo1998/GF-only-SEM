@@ -242,7 +242,7 @@ Before writing output files, the preprocessor runs comprehensive validation:
 | Mesh | All hex elements have 8 distinct vertices | Degenerate hex → abort |
 | Mesh | det(J) > 0 at all GLL nodes | Inverted/tangled element → abort |
 | Material | vp > 0, vs ≥ 0, density > 0 at all GLL nodes | Invalid material → abort |
-| CFL | cfl_dt = cfl_safety × h_min / vp_max (h_min = minimum GLL node spacing) | — |
+| CFL | cfl_dt = cfl_safety × h_min / vp_max; h_min = minimum GLL node spacing | — |
 | CFL | Find smallest stride where output_dt_s / stride ≤ cfl_dt; set solver_dt and snapshot_stride | No stride ≤ MAX_STRIDE → abort with suggestion |
 | Time | nsteps = ceil(total_duration_s / solver_dt); nsteps % snapshot_stride == 0; restart_stride = round(restart_dt_s / solver_dt) ≥ 1 | Invalid derived stride → abort |
 | Boundary | Free surface detected at z ≈ z_min | No free surface → abort |
@@ -364,7 +364,8 @@ Output: `/field/element/is_pml` (int8, 1=PML).
 - Strain correction coefficients A₆…A₂₃ (18 entries)
 - SPECFEM3D parameter separation to prevent degenerate denominators
 - Parameter-separation threshold uses the minimum adjacent GLL-node distance
-- COEF_SAFETY_CLAMP=3.0 as fallback for stability with K_MAX_PML=1.0
+- No coefficient clipping; non-finite C-PML coefficients abort preprocessing,
+  matching SPECFEM's fail-fast handling of degenerate parameters.
 - Min/max faces are selected per element center; damping grows from the PML interface toward the
   physical boundary, including when both faces of one axis are active.
 

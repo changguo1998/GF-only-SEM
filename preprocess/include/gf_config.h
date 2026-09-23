@@ -61,6 +61,9 @@ void compute_cpml_coefficients(int n_cell, int ngll, const int* pml_regions, dou
                                std::vector<double>& coefficient_beta,
                                std::vector<double>& coefficient_acceleration,
                                std::vector<double>& coefficient_strain);
+void apply_cpml_mass_correction(int n_cell, int ngll, const int* pml_regions, double solver_dt,
+                                const std::vector<double>& K_store,
+                                const std::vector<double>& d_store, std::vector<double>& mass);
 
 // ── METIS partition + global node numbering ──
 void partition_metis(const char* model_path, int n_ranks);

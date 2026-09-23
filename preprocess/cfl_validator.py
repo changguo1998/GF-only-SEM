@@ -15,6 +15,9 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
+# SPECFEM3D reference implementation uses K_MAX_PML=K_MIN_PML=1.
+CPML_K_MAX_PML = 1.0
+
 MAX_STRIDE = 100
 
 
@@ -71,7 +74,7 @@ def compute_cfl_dt(
     if vp_max <= 0:
         raise ValueError(f"Invalid maximum vp: {vp_max}")
 
-    return cfl_safety * h_min / vp_max
+    return cfl_safety * h_min / (vp_max * np.sqrt(CPML_K_MAX_PML))
 
 
 def compute_solver_dt(

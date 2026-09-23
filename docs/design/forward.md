@@ -89,8 +89,8 @@ Preprocess writes all mesh data to per-rank partitions. Rank `R` reads `partitio
 - Acceleration correction (Ā₁…Ā₅, 9 displacement memory vars/node)
 - Non-symmetric stress correction (A₆…A₂₃, 39 strain memory vars/node:
   27 lijk β-conv + 12 lx/ly/lz α-conv)
-- SPECFEM3D parameter separation + COEF_SAFETY_CLAMP=3.0
-- K_MAX_PML=1.0 (SPECFEM3D default)
+- SPECFEM3D parameter separation; invalid non-finite coefficients abort preprocessing
+- K_MAX_PML=K_MIN_PML=1.0 (matches the SPECFEM3D reference implementation)
 - See [`docs/design/cpml.md`](../design/cpml.md) and [`docs/bugs.md`](../bugs.md).
 
 **Partition discovery**: rank `R` opens `partitions/partition_{R}.h5`. All ranks read same `config.h5`.
@@ -265,7 +265,7 @@ Full recursive-convolution C-PML (Wang et al. 2006, θ=1/8) — COMPLETE:
 - Accel correction: Ā₁…Ā₅ per node
 - Non-symmetric stress correction: A₆…A₂₃, three-group (\_x, \_y, \_z) formulation
 - SPECFEM3D parameter separation prevents degenerate partial-fraction denominators
-- COEF_SAFETY_CLAMP=3.0 as fallback
+- No coefficient clipping; invalid non-finite coefficients abort preprocessing
 
 Implementation: 8+ commits (Jul 2026). 4 bugs fixed (see [`docs/bugs.md`](../bugs.md)).
 Solver physics verified: 99.1% scaled waveform correlation with Lamb reference. The former

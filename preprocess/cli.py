@@ -174,10 +174,12 @@ def step_gll_geometry(
     t0 = time.time()
     coords, jacobian, dxi_dx, mass = compute_gll_geometry(topology, N)
     # Compute h_min via compute_cfl_dt with unit vp (isolates h_min)
-    from preprocess.cfl_validator import compute_cfl_dt
+    from preprocess.cfl_validator import CPML_K_MAX_PML, compute_cfl_dt
 
     unit_vp = np.ones(coords.shape[:-1], dtype=np.float64)
-    h_min = compute_cfl_dt(coords, unit_vp, 1.0)  # cfl_safety=1, vp=1 => cfl_dt = h_min
+    # compute_cfl_dt includes the PML stretching factor; undo it to recover
+    # the geometric spacing used by the later material-dependent CFL step.
+    h_min = compute_cfl_dt(coords, unit_vp, 1.0) * np.sqrt(CPML_K_MAX_PML)
     logger.info(f"  Python GLL: {time.time() - t0:.2f}s, h_min={h_min:.4e}")
     return {
         "coords": coords,
@@ -377,7 +379,9 @@ def step_lame_and_cfl(
     from preprocess.cfl_validator import compute_solver_dt
 
     vp_max = float(vp.max())
-    cfl_dt = float(config.cfl_safety) * h_min / vp_max
+    from preprocess.cfl_validator import CPML_K_MAX_PML
+
+    cfl_dt = float(config.cfl_safety) * h_min / (vp_max * np.sqrt(CPML_K_MAX_PML))
     solver_dt, snapshot_stride = compute_solver_dt(float(config.output_dt_s), cfl_dt)
     nsteps = math.ceil(float(config.total_duration_s) / solver_dt)
     logger.info(f"  cfl_dt={cfl_dt:.6e}, solver_dt={solver_dt:.6e}, nsteps={nsteps}")
@@ -553,10 +557,13 @@ def main() -> None:
         "zmax": pml_thickness_cfg.get("zmax", 0) * dz_el,
     }
     logger.info(f"Computing C-PML parameters (f0={f0_for_pml} Hz, dt={solver_dt:.4e} s)...")
-    from preprocess.pml_cpml import compute_cpml_parameters
+    from preprocess.pml_cpml import apply_cpml_mass_correction, compute_cpml_parameters
 
     cpml_params = compute_cpml_parameters(
         coords, is_pml, domain_bounds, pml_widths, vp, f0_for_pml, solver_dt
+    )
+    mass = apply_cpml_mass_correction(
+        mass, cpml_params["pml_K"], cpml_params["pml_d"], cpml_params["pml_region"], solver_dt
     )
     n_pml_val = int(is_pml.sum())
     logger.info(f"  PML elements: {n_pml_val}, regions: {np.unique(cpml_params['pml_region'])}")

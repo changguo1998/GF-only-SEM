@@ -314,22 +314,36 @@ void cpml_update_strain_memory(RankData& part, const double* D, const double* /*
                     old_dudxi[comp] * dd[6] + old_dudeta[comp] * dd[7] + old_dudzeta[comp] * dd[8];
             }
 
-            // --- 3. Update strain memory with β convolution ---
+            // --- 3. Update strain memory with SPECFEM's mixed convolutions ---
+            // For a derivative along x/y/z, the three memory slots are
+            // (alpha of the other two directions, beta of the derivative
+            // direction), respectively.  They are not beta_x/beta_y/beta_z
+            // in slot order; the stress kernel reads the slots in this
+            // SPECFEM-specific permutation.
             using namespace CpmlStrain;
             for (int grad = 0; grad < NUM_GRADIENT_COMPS; ++grad) {
                 double new_grad = new_phys_grad[grad];
                 double old_grad = old_phys_grad[grad];
-                for (int conv_dir = 0; conv_dir < NUM_CONV_DIRECTIONS; ++conv_dir) {
-                    /// Compute flat memory offset for C-PML strain memory (node, gradient,
-                    /// component).
-                    size_t mem_off = strain_memory_offset(elem_off + n, grad, conv_dir);
-                    int beta_off =
-                        (elem_off + n) * BETA_COEFS_PER_NODE + conv_dir * BETA_COEFS_PER_DIR;
+                const int derivative_dir = grad % NUM_DERIVATIVE_DIRS;
+                const int alpha_dir0 = (derivative_dir + 1) % NUM_CONV_DIRECTIONS;
+                const int alpha_dir1 = (derivative_dir + 2) % NUM_CONV_DIRECTIONS;
+                const int node_index = elem_off + n;
+                const int alpha_base = node_index * NUM_CONV_DIRECTIONS * 3;
+                const int beta_base = node_index * BETA_COEFS_PER_NODE;
+
+                auto update_memory = [&](int memory_dir, int coefficient_base,
+                                         const std::vector<double>& coefficients) {
+                    const size_t mem_off = strain_memory_offset(node_index, grad, memory_dir);
                     part.rmemory_strain[mem_off] =
-                        part.pml_coef_beta[beta_off + BETA_COEF0] * part.rmemory_strain[mem_off] +
-                        part.pml_coef_beta[beta_off + BETA_COEF1] * new_grad +
-                        part.pml_coef_beta[beta_off + BETA_COEF2] * old_grad;
-                }
+                        coefficients[coefficient_base + BETA_COEF0] *
+                            part.rmemory_strain[mem_off] +
+                        coefficients[coefficient_base + BETA_COEF1] * new_grad +
+                        coefficients[coefficient_base + BETA_COEF2] * old_grad;
+                };
+
+                update_memory(alpha_dir0, alpha_base + alpha_dir0 * 3, part.pml_coef_alpha);
+                update_memory(alpha_dir1, alpha_base + alpha_dir1 * 3, part.pml_coef_alpha);
+                update_memory(derivative_dir, beta_base + derivative_dir * 3, part.pml_coef_beta);
             }
 
             // --- 3b. Update LX/LY/LZ memory with α convolution ---

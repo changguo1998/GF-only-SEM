@@ -29,7 +29,7 @@ class TestCFLValidator:
 
         cfl_safety = 0.5
         cfl_dt = compute_cfl_dt(gll_coords, vp_array, cfl_safety)
-        expected_cfl_dt = 0.5 * (1.0 / 3.0) / 5000.0  # h_min ≈ 1/3, vp_max = 5000
+        expected_cfl_dt = 0.5 * (1.0 / 3.0) / 5000.0
         assert abs(cfl_dt - expected_cfl_dt) < 1e-12, f"{cfl_dt} != {expected_cfl_dt}"
 
     def test_compute_cfl_dt_negative_vp_raises(self):
