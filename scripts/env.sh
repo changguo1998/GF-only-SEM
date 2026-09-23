@@ -59,10 +59,51 @@ _spack_load() {
 	fi
 }
 
-_spack_load /jncd4ux # openmpi@5.0.10 (specific hash to avoid ambiguity)
+# OpenMPI@5.0.10 used by the current binaries. Keep the full hash so Spack
+# does not resolve the stale /jncd4ux prefix from the previous environment.
+_spack_load /jncd4uxo43ob3fzgi43roqzdypqrj7sn
 _spack_load eigen
 _spack_load cuda # optional: uncomment for GPU builds (cuda@13.2.1)
 _spack_load hdf5
+
+# Spack's database may be read-only on compute nodes even though the installed
+# prefixes are usable. Recover the runtime paths directly from the installed
+# tree so an existing build remains runnable (MPI/CUDA/HDF5).
+SPACK_OPT_ROOT="${HOME}/.spack/opt/spack"
+_prepend_prefix_bin() {
+	local prefix="$1"
+	if [ -d "${prefix}/bin" ]; then
+		export PATH="${prefix}/bin:${PATH}"
+	fi
+	if [ -d "${prefix}/lib" ]; then
+		export LD_LIBRARY_PATH="${prefix}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+	fi
+}
+
+_runtime_prefix_from_linked_library() {
+	local binary="$1"
+	local library_name="$2"
+	local library_path
+	library_path=$(ldd "${binary}" 2>/dev/null | awk -v name="${library_name}" '$1 == name {print $3; exit}')
+	if [ -n "${library_path}" ] && [ -f "${library_path}" ]; then
+		cd "$(dirname "${library_path}")/.." && pwd
+	fi
+}
+
+if [ -d "${SPACK_OPT_ROOT}" ]; then
+	MPI_PREFIX=$(_runtime_prefix_from_linked_library "${BIN_DIR}/gf_solver_viscoelastic_mpi" libmpi.so.40)
+	if [ -z "${MPI_PREFIX}" ]; then
+		MPI_PREFIX=$(find "${SPACK_OPT_ROOT}" -maxdepth 5 -path '*/openmpi-*/bin/mpirun' -type f -perm -111 -print -quit 2>/dev/null | sed 's#/bin/mpirun$##')
+	fi
+	CUDA_PREFIX=$(find "${SPACK_OPT_ROOT}" -maxdepth 5 -path '*/cuda-*/bin/nvcc' -type f -perm -111 -print -quit 2>/dev/null | sed 's#/bin/nvcc$##')
+	HDF5_PREFIX=$(_runtime_prefix_from_linked_library "${BIN_DIR}/gf_solver_viscoelastic_mpi" libhdf5.so.310)
+	[ -n "${MPI_PREFIX}" ] && _prepend_prefix_bin "${MPI_PREFIX}"
+	[ -n "${CUDA_PREFIX}" ] && _prepend_prefix_bin "${CUDA_PREFIX}"
+	[ -n "${HDF5_PREFIX}" ] && _prepend_prefix_bin "${HDF5_PREFIX}"
+	[ -n "${MPI_PREFIX}" ] && echo "[OK] runtime MPI: ${MPI_PREFIX}"
+	[ -n "${CUDA_PREFIX}" ] && echo "[OK] runtime CUDA: ${CUDA_PREFIX}"
+	[ -n "${HDF5_PREFIX}" ] && echo "[OK] runtime HDF5: ${HDF5_PREFIX}"
+fi
 
 # ── 3. Project binaries ───────────────────────────────────────────────────
 
