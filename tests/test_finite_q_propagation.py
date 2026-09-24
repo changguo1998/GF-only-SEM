@@ -82,3 +82,30 @@ def test_load_receiver_signals_reads_public_record_schema(tmp_path):
 
     np.testing.assert_allclose(times_s, [0.0, 0.04])
     np.testing.assert_allclose(signals, [[1.0, 3.0], [2.0, 4.0]])
+
+
+def test_load_receiver_signals_reads_debug_all_cell_schema(tmp_path):
+    record_dir = tmp_path / "wavefields" / "y"
+    record_dir.mkdir(parents=True)
+    coordinates = np.array([[1500.0, 500.0, 500.0], [3000.0, 500.0, 500.0]])
+    partition_dir = tmp_path / "partitions"
+    partition_dir.mkdir()
+    with h5py.File(partition_dir / "partition_0.h5", "w") as partition:
+        cell = partition.create_group("field/cell")
+        cell.create_dataset("coords", data=coordinates.reshape(1, 1, 1, 2, 3), compression=None)
+
+    for step, values in ((0, [1.0, 2.0]), (5, [3.0, 4.0])):
+        with h5py.File(record_dir / f"record_0_{step}.h5", "w") as record:
+            record.attrs["source_partition_start"] = 0
+            record.attrs["source_partition_count"] = 1
+            record.attrs["cell_scope"] = "all_local_cells"
+            displacement = np.zeros((1, 1, 2, 3))
+            displacement[0, 0, :, 1] = values
+            record.create_dataset("displacement", data=displacement, compression=None)
+
+    times_s, signals = load_receiver_signals(
+        record_dir, receiver_xyz_m=coordinates, component=1, solver_dt_s=0.008
+    )
+
+    np.testing.assert_allclose(times_s, [0.0, 0.04])
+    np.testing.assert_allclose(signals, [[1.0, 3.0], [2.0, 4.0]])

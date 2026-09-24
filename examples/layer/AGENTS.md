@@ -27,7 +27,7 @@ examples/layer/.venv/bin/python examples/layer/reference.py \
 # With Ricker wavelet synthetic
 examples/layer/.venv/bin/python examples/layer/reference.py \
   examples/layer/greenfun --source 5778 5278 0 --receiver 5278 5278 278 \
-  --output /tmp/layer_synth.npz --ricker-freq 2
+  --output /tmp/layer_synth.npz --ricker-freq 1
 ```
 
 ## Prerequisites

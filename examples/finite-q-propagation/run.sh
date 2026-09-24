@@ -7,6 +7,7 @@ PROJECT_ROOT="$(cd "${CASE_DIR}/../.." && pwd)"
 BACKEND="${1:-auto}"
 
 source "${PROJECT_ROOT}/scripts/env.sh" >/dev/null 2>&1 || true
+BIN_DIR="${GF_BIN_DIR:-${PROJECT_ROOT}/bin-debug}"
 
 if [ "${BACKEND}" = "auto" ]; then
 	if nvidia-smi >/dev/null 2>&1; then
@@ -28,9 +29,9 @@ PYTHONPATH="${PROJECT_ROOT}" "${PROJECT_ROOT}/.venv/bin/python" -m preprocess
 run_solver() {
 	local physics="$1"
 	if [ "${BACKEND}" = "cuda" ]; then
-		"${PROJECT_ROOT}/bin/gf_solver_${physics}_cuda" --direction y
+		"${BIN_DIR}/gf_solver_${physics}_cuda" --direction y
 	else
-		mpirun -n 2 "${PROJECT_ROOT}/bin/gf_solver_${physics}_mpi" --direction y
+		mpirun -n 2 "${BIN_DIR}/gf_solver_${physics}_mpi" --direction y
 	fi
 }
 

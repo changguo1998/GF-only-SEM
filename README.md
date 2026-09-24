@@ -135,6 +135,9 @@ Key fields: `polynomial_order`, `output_dt_s`, `total_duration_s`, `cfl_safety`,
 `n_ranks`, `pml_thickness`, `source_x_m`/`source_y_m`, `record_depth_max_m`,
 `tilex_elements`, `tiley_elements`, `stf_func(t_s)`, `vp_m_s`/`vs_m_s`/`density_kg_m3` callables.
 
+All current examples use a 1 Hz Ricker source. `f0_for_pml_hz` and the SLS reference
+frequency are kept consistent with the source frequency.
+
 ## Design Highlights
 
 - **No receivers** — production snapshots contain compact shallow non-PML recording-cell strain;
@@ -148,7 +151,7 @@ Key fields: `polynomial_order`, `output_dt_s`, `total_duration_s`, `cfl_safety`,
 ## Testing
 
 ```bash
-.venv/bin/python -m pytest tests -q                 # Python (238 pass, 1 skip)
+.venv/bin/python -m pytest tests -q                 # Python (248 pass, 1 skip)
 ctest --test-dir build-debug --output-on-failure    # C++/CUDA (DEBUG build only)
 bash scripts/run_all_examples.sh                    # Three complementary pipelines
 ```

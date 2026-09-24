@@ -148,8 +148,26 @@ def load_receiver_signals(
         with h5py.File(record_path, "r") as record:
             partition_start = int(record.attrs.get("source_partition_start", rank))
             partition_count = int(record.attrs.get("source_partition_count", 1))
+            cell_scope = record.attrs.get("cell_scope", "recording_cells")
+            if isinstance(cell_scope, bytes):
+                cell_scope = cell_scope.decode()
 
         partition_dir = record_path.parents[2] / "partitions"
+        if cell_scope == "all_local_cells":
+            cell_coordinates = []
+            for partition_index in range(partition_start, partition_start + partition_count):
+                partition_path = partition_dir / f"partition_{partition_index}.h5"
+                with h5py.File(partition_path, "r") as partition:
+                    cell_coordinates.append(
+                        np.asarray(partition["field/cell/coords"], dtype=np.float64)
+                    )
+            merged_cell_coordinates = np.concatenate(cell_coordinates, axis=0)
+            flat_coordinates = merged_cell_coordinates.reshape(-1, 3)
+            cell_indexes = np.arange(flat_coordinates.shape[0], dtype=np.int64).reshape(
+                merged_cell_coordinates.shape[:-1]
+            )
+            return flat_coordinates, cell_indexes
+
         global_to_merged: dict[int, int] = {}
         merged_coordinates: list[np.ndarray] = []
         merged_cell_indexes: list[np.ndarray] = []

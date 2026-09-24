@@ -88,17 +88,17 @@ source_force_amplitude_n = 1.0e20
 
 # Dominant source frequency for C-PML damping profile computation (Hz).
 # Should match the Ricker peak frequency in stf_func.
-f0_for_pml_hz = 2.0
+f0_for_pml_hz = 1.0
 
 
 # ── Source time function (callable) ───
 def stf_func(t_s):
     """Ricker wavelet (second derivative of Gaussian) scaled to source force [N].
 
-    Peak frequency f0=2 Hz, peak time t0=1.0 s.
+    Peak frequency f0=1 Hz, peak time t0=1.0 s.
     Returns force amplitude in Newtons (dimensionless Ricker × source_force_amplitude_n).
     """
-    f0_hz = 2.0
+    f0_hz = 1.0
     t0_s = 1.0
     a = np.pi * f0_hz * (t_s - t0_s)
     return source_force_amplitude_n * (1.0 - 2.0 * a**2) * np.exp(-(a**2))

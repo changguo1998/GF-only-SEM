@@ -2,6 +2,8 @@
 
 本文档是项目测试的统一入口。目标不是穷举“模型 × 求解器 × 后端 × 参数”的笛卡尔积，
 而是让每个结论至少有一个独立、可重复的证据，并让同一个端到端算例承担多个相容的验证任务。
+会话期间各组测试的目的、方法、参数、结果与失效历史见
+[`docs/test-reports/`](test-reports/README.md)。
 
 ## 测试分层
 
@@ -14,7 +16,7 @@
 
 ## 自动化测试清单
 
-### Python：247 项通过（另有 1 项环境相关跳过）
+### Python：248 项通过（另有 1 项环境相关跳过）
 
 | 文件 | 数量 | 覆盖内容 |
 | --- | ---: | --- |
@@ -41,7 +43,7 @@
 | `tests/preprocess/test_topology_reader.py` | 7 | 拓扑 schema、方向约定与错误文件 |
 | `tests/test_analytical_compare.py` | 5 | 解析比较、尺度拟合、接收点选择 |
 | `tests/test_attenuation_injection.py` | 15 | Qμ/Qκ 独立拟合、SLS 注入、模量校正与弹性极限 |
-| `tests/test_finite_q_propagation.py` | 4 | SLS 解析传递函数、门限与 record HDF5 读取 |
+| `tests/test_finite_q_propagation.py` | 5 | SLS 解析传递函数、门限与两种 record schema 读取 |
 | `tests/test_sls_memory.py` | 5 | 应变驱动记忆变量、稳态、体积/偏量独立性 |
 | `tests/test_waveform_validation.py` | 2 | 解析算例门限和三倍幅值错误回归 |
 | `tests/tools/test_gmsh_to_hdf5.py` | 18 | GMSH 拓扑转换、方向、CSR 与 HDF5 |
@@ -127,7 +129,7 @@ build/tests/test_sls_finite_q --reporter compact
 
 | 算例 | 代表参数 | 默认求解器 | 证明内容 | 自动门限 |
 | --- | --- | --- | --- | --- |
-| `halfspace` | 22×22×11；2 Hz；278 m 埋源；Q=1e9；自由表面 | SLS CPU+MPI，16 ranks | SLS 弹性极限下的自由表面主体波、幅值、三方向张量 | 0–2 s：corr≥0.98，拟合 L2≤0.10，scale∈[0.8,1.2] |
+| `halfspace` | 22×22×11；1 Hz；278 m 埋源；Q=1e9；自由表面 | SLS CPU+MPI，16 ranks | SLS 弹性极限下的自由表面主体波、幅值、三方向张量 | 0–2 s：corr≥0.98，拟合 L2≤0.10，scale∈[0.8,1.2] |
 | `layer` | 22×22×11；1 Hz；500 m 界面对齐；278 m 埋源；Q=1e9 | elastic CPU+MPI，16 ranks | 层状材料、界面、MPI 正演与 PyFK 一致性 | 0–2 s：corr≥0.98，拟合 L2≤0.20，scale∈[0.8,1.2] |
 | `fullspace-cubic` | 24³；1 Hz；全六面 PML；8 s；Q=1e9 | elastic CUDA | 全空间传播、PML、CUDA 和 Stokes 解析解 | corr≥0.80，scale∈[0.8,1.2]；0.80–0.95 记为已知边界误差警告 |
 
@@ -163,7 +165,7 @@ PASS 不再只表示流程运行成功。
 | `layer-shallow-source` | 修改震源定位/插值时 | 仅把层状模型震源改为 100 m | 浅部非 GLL 点埋源有效；主体波与 PyFK 一致 |
 | `layer-surface-source-cpp` | 修改 C++ 预处理或地表源时 | `source_z_m=None`，全 C++ 流程 | 地表源定位及 C++ mesh→postprocess 链路有效 |
 | `fullspace-expanded` | 修改 PML或边界时 | 28 km 域、22³、约 6.36 km PML | 源区 corr=0.9672 且 scale≈1，说明主要残差来自有限边界/PML |
-| `finite-q-propagation` | 修改 SLS、衰减预处理或 record schema 时 | 20×12×12；Qμ=20/Qκ→∞；y 力沿 x 传播 | 1.5–2.0 Hz 振幅衰减误差≤12%，相位色散误差≤0.11 rad |
+| `finite-q-propagation` | 修改 SLS、衰减预处理或 record schema 时 | 20×14×14；1 Hz；Qμ=20/Qκ→∞；y 力沿 x 传播 | CPU/CUDA 最大振幅误差 6.25%、最大相位误差 0.0084 rad，全部通过 |
 | `meshsize/fullspace*` | 修改离散或开展收敛研究时 | 18³/20³/22³/24³/28³，共用 64 固定物理点 | 分辨率变化与边界误差分离；28³ 为内存上限 |
 
 ### 20³ 全域 record 回归（2026-09-24）
@@ -202,12 +204,12 @@ bash examples/meshsize/run_study.sh
 
 | 结论 | 首要证据 | 交叉证据 | 不能外推的范围 |
 | --- | --- | --- | --- |
-| 自由表面主体波与幅值正确 | `halfspace` 0–2 s Lamb 门限 | 10 个固定地表点 mean corr=0.9995 | 2 s 后受有限边界/PML 回波影响 |
+| 自由表面主体波与幅值正确 | `halfspace` 1 Hz、0–2 s Lamb 门限 | 单点 corr=0.999792；10 点 mean corr=0.9999 | 最远点的晚期波仍受有限边界/PML 返回影响 |
 | 层状界面实现正确 | `layer` 0–2 s PyFK 门限 | 278 m/100 m 两个源深度 corr=0.9914/0.9930 | 5 s 全时段不能用于判断主体波误差 |
 | CPU-MPI 与 CUDA 一致 | `fullspace-cubic/compare_solvers.py` | step 400/700 corr>0.9999998，rel_l2≤5.1e-4 | 当前脚本只比较弹性 x 方向 |
 | SLS 在 Q→∞ 回到弹性 | SLS 单元测试和 `halfspace` SLS 解析验证 | 历史端到端 rel_l2=0.0 | 不替代有限 Q 验证 |
 | SLS 有限 Q 本构正确 | SPECFEM Qμ=20 剪切、Qκ=10 体积复模量 | 时间步减半稳定 | 单元本构不替代传播验证 |
-| SLS 有限 Q 传播正确 | `finite-q-propagation` 解析复波数传递函数 | CUDA 振幅/相位最大误差 9.67%/0.020 rad；2-rank CPU 为 8.54%/0.092 rad | 当前只覆盖均匀介质横向 S 波和 Qκ→∞ |
+| SLS 有限 Q 传播正确 | `finite-q-propagation` 当前 1 Hz Debug 全域 record 重算 | 20×14×14 上 CPU/CUDA 在报告精度内相同：最大振幅误差 6.25%、最大相位误差 0.0084 rad | 当前只覆盖均匀介质横向 S 波和 Qκ→∞；20×12×12 失败源于非 PML 横截面过窄 |
 | 震源绝对幅值正确 | 三个解析算例的 scale 门限 | 扩大全空间源区 scale=0.999 | 不代表晚期反射波形正确 |
 | 主要剩余误差来自边界/PML | `fullspace-expanded` 源区 corr=0.9672、拟合 L2=0.0882 | 18³–28³紧凑域拟合 L2 稳定在 0.3414–0.3468 | 近场震源与解析离散仍未单独分离 |
 | 串行/MPI 后处理一致 | halfspace 9 tiles 历史逐位对比 | 20³全域record：16 tiles、160 datasets逐元素一致 | 大模型内存峰值仍需单独监控 |

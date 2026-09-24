@@ -85,7 +85,7 @@ def stokes_displacement_green_tensor(
 
 
 def make_ricker_stf(
-    f0_hz: float = 2.0,
+    f0_hz: float = 1.0,
     t0_s: float = 1.0,
     amplitude_n: float = 1.0e20,
     dt_s: float = 0.01,

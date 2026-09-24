@@ -26,7 +26,8 @@ all 4 MPI C++/Python variants (halfspace + layer).
 - Independent Qμ/Qκ per GLL node, n_sls = 3 (compile-time)
 - `has_attenuation` flag gates all SLS code paths
 - Propagation-level analytical attenuation/dispersion validation in
-  `examples/finite-q-propagation/`
+  `examples/finite-q-propagation/`. The current 20×14×14, 1 Hz CPU/CUDA runs have maximum
+  amplitude/phase errors of 6.25%/0.0084 rad and pass (see `test-reports/05-finite-q.md`).
 
 **Preprocess:** `preprocess/attenuation.py`
 

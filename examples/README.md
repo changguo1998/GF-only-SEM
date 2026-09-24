@@ -15,12 +15,17 @@ the user inside each example's `forward.sh` (commented-out, switchable).
 
 Green's function extraction uses configured shallow mesh vertices. No receivers.
 
+All current example configurations use a 1 Hz Ricker source. Their
+`f0_for_pml_hz` and, when present, SLS reference frequency match that source.
+
 ## Finite-Q Propagation
 
 `finite-q-propagation` is the small analytical attenuation/dispersion regression. It runs an
-elastic baseline and a Qμ=20 viscoelastic y-force on a 20×12×12 full-space mesh, then compares
+elastic baseline and a Qμ=20 viscoelastic y-force on a 20×14×14 full-space mesh, then compares
 the finite-Q/elastic transfer between one and two S wavelengths against the exact complex SLS
-Green function at 1.5–2.0 Hz.
+Green function at 0.75–1.0 Hz. The x direction and time are a two-times scaling of the former
+2 Hz case. The transverse section was widened from 12 to 14 km so its non-PML width exceeds
+one S wavelength without changing the 1 km element size.
 
 ```bash
 bash examples/finite-q-propagation/run.sh auto  # CUDA when available, else 2-rank CPU
@@ -28,8 +33,11 @@ bash examples/finite-q-propagation/run.sh cpu
 bash examples/finite-q-propagation/run.sh cuda
 ```
 
-Acceptance limits are 12% relative amplitude error and 0.11 rad phase error. Both CPU and CUDA
-were verified on 2026-09-20.
+Acceptance limits are 12% relative amplitude error and 0.11 rad phase error. A 2026-09-24
+current-code rerun gives CPU/CUDA metrics identical at the reported precision: maximum
+amplitude error 6.25% and maximum phase error 0.0084 rad, so all points pass. The former
+20×12×12 model failed because its 5-element PML on each side left only a 2 km transverse
+physical section. See `docs/test-reports/05-finite-q.md`.
 
 ## Half-Space
 
@@ -85,15 +93,15 @@ python examples/halfspace/multi_compare.py \
 1. Generates analytic Lamb (Johnson 1974) reference waveform
 1. Compares SEM result with analytic reference (relative L² error, best-fit amplitude scaling)
 
-**22×22×11 验证（2026-09-18）：** CUDA 三个力方向耗时分别为
-40.9/40.6/40.5 秒。4-rank MPI 后处理在共享 60 GiB 限制内用时 58.9 秒。
-与 Lamb 解析解相比，位移相关系数为 0.9860，原始相对 L² 为 0.1692，
-SEM 最佳拟合缩放系数为 0.9726，拟合后相对 L² 为 0.1669。
+**22×22×11、1 Hz 验证（2026-09-24）：** 16-rank CPU SLS 弹性极限三个力方向耗时分别为
+56.83/55.94/56.83 秒。4-rank MPI Debug 后处理在共享 60 GiB 限制内用时 75.0 秒。
+与 Lamb 解析解相比，0–2 秒位移相关系数为 0.999792，SEM/参考缩放系数为
+1.007655，拟合相对 L² 为 0.020396。
 
 10 个固定地表点覆盖 0.5–1.5 km 距离及正负 x/y、对角方向。0–2 秒主波
-平均相关系数为 0.9995，平均拟合相对 L² 为 0.0312；包含晚期回波的 0–5 秒
-平均相关系数为 0.9438，平均拟合相对 L² 为 0.3176。随距离增加而恶化的
-全时段指标主要反映有限边界和 PML 回波，而非主体波形或震源幅值误差。
+平均相关系数为 0.9999，平均拟合相对 L² 为 0.0171；0–5 秒平均相关系数为
+0.9992、平均拟合相对 L² 为 0.0320。1 Hz 长波降低了该网格上的离散误差；最远
+1.5 km 点的全时段误差仍较高，主要反映晚期有限边界/PML 返回。
 
 **Output layout:**
 

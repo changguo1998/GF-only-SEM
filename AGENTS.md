@@ -107,15 +107,18 @@ unified on viscoelastic (SLS) config — the solver is chosen by the user via co
 entries in `examples/*/forward.sh` (or interactively via `scripts/solver.sh`); no more
 test-case naming for GPU/CPU or solver.
 
-Finite-Q SLS was reverified 2026-09-20 against the SPECFEM constitutive formulation:
-Qμ=20 shear, Qκ=10 volumetric, and timestep-refinement tests pass. The 20×12×12
+Finite-Q SLS was reverified against the SPECFEM constitutive formulation: Qμ=20 shear,
+Qκ=10 volumetric, and timestep-refinement tests pass. The 20×14×14
 `finite-q-propagation` example independently checks analytical S-wave attenuation and
-dispersion over 1–2 wavelengths at 1.5–2.0 Hz. Both 2-rank CPU and single-GPU CUDA pass the
-12% amplitude and 0.11 rad phase-error gates.
+dispersion over 1–2 wavelengths at 0.75–1.0 Hz. A 2026-09-24 rerun with the current Debug
+all-cell record gives CPU/CUDA metrics identical at the reported precision: maximum amplitude
+error 6.25% and maximum phase error 0.0084 rad, both within their gates. The former 20×12×12
+model left only a 2 km non-PML transverse width and failed through boundary contamination;
+see `docs/test-reports/05-finite-q.md`.
 
 CG-SEM global-DOF assembly fix complete — waves correctly propagate across element
-interfaces (both within-rank and cross-rank). All 239 Python tests are collected (238 pass and
-the opt-in C++ preprocess smoke test skips by default). The current CTest layout registers 65
+interfaces (both within-rank and cross-rank). The current Python suite has 248 passing tests and
+one opt-in C++ preprocess smoke test skipped by default. The current CTest layout registers 69
 entries and requires an MPI-enabled build configuration.
 
 Buried source support implemented (`source_z_m = None`→free surface, `float`→buried). Preprocessor auto-detects surface vs buried mode and excludes PML elements for buried sources.
