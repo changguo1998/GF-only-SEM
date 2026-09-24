@@ -101,3 +101,27 @@ def test_load_sem_parameters_reads_canonical_cell_material_schema(tmp_path):
     assert parameters["vp_m_s"] == 5000.0
     assert parameters["vs_m_s"] == 3000.0
     assert parameters["density_kg_m3"] == 2700.0
+
+
+def test_load_sem_parameters_downsamples_solver_stf_to_output_frames(tmp_path):
+    config_path = tmp_path / "config.h5"
+    model_path = tmp_path / "model.h5"
+    with h5py.File(config_path, "w") as config:
+        source = config.create_group("source")
+        source.attrs.update({"x": 1.0, "y": 2.0, "z": 3.0})
+        source.create_dataset("stf_t", data=np.arange(6) * 0.01, compression=None)
+        source.create_dataset("stf_values", data=np.arange(6), compression=None)
+        simulation = config.create_group("simulation")
+        simulation.attrs.update(
+            {"solver_dt": 0.01, "snapshot_stride": 2, "output_dt_s": 0.02, "nsteps": 5}
+        )
+    with h5py.File(model_path, "w") as model:
+        cell = model.create_group("field/cell")
+        cell.create_dataset("vp", data=[5000.0], compression=None)
+        cell.create_dataset("vs", data=[3000.0], compression=None)
+        cell.create_dataset("density", data=[2700.0], compression=None)
+
+    parameters = ANALYTICAL_COMPARE.load_sem_parameters(str(config_path), str(model_path), 3)
+
+    np.testing.assert_array_equal(parameters["stf"], [0, 2, 4])
+    assert parameters["output_dt_s"] == 0.02

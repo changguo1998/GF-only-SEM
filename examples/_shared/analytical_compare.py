@@ -18,7 +18,7 @@ output files instead of being duplicated here:
                              solver_dt by the preprocessor; the force
                              amplitude is embedded in these values)
   * source location       -> config.h5:/source/{x,y,z}
-  * time step             -> config.h5:/simulation/output_dt_s
+  * time step             -> config.h5:/simulation/solver_dt and snapshot_stride
   * material (vp, vs, rho)-> model.h5:/field/cell/{vp,vs,density}
                              (representative value = median)
 
@@ -110,6 +110,13 @@ def load_sem_parameters(config_h5: str, model_h5: str, n_steps: int) -> dict:
         output_dt_s = _to_float(
             np.asarray(f["simulation"].attrs["output_dt_s"]), "simulation.output_dt_s"
         )
+        solver_dt_s = _to_float(
+            np.asarray(f["simulation"].attrs.get("solver_dt", output_dt_s)), "simulation.solver_dt"
+        )
+        snapshot_stride = _to_int(
+            np.asarray(f["simulation"].attrs.get("snapshot_stride", 1)),
+            "simulation.snapshot_stride",
+        )
         nsteps_artifact = _to_int(np.asarray(f["simulation"].attrs["nsteps"]), "simulation.nsteps")
 
     with h5py.File(model_h5, "r") as f:
@@ -122,23 +129,32 @@ def load_sem_parameters(config_h5: str, model_h5: str, n_steps: int) -> dict:
         vs = _median("field/cell/vs")
         rho = _median("field/cell/density")
 
-    # Validate STF time grid against output_dt_s.
+    # Validate the solver STF grid and output sampling relation.
     stf_dt = (
-        _to_float(stf_time[1] - stf_time[0], "stf_time.dt") if len(stf_time) > 1 else output_dt_s
+        _to_float(stf_time[1] - stf_time[0], "stf_time.dt") if len(stf_time) > 1 else solver_dt_s
     )
-    if not np.isclose(stf_dt, output_dt_s, rtol=1e-9, atol=1e-12):
+    if not np.isclose(stf_dt, solver_dt_s, rtol=1e-9, atol=1e-12):
         raise ValueError(
-            f"config.h5 STF dt={stf_dt} != output_dt_s={output_dt_s} — STF/record misalignment"
+            f"config.h5 STF dt={stf_dt} != solver_dt={solver_dt_s} — invalid STF grid"
+        )
+    if snapshot_stride < 1 or not np.isclose(
+        solver_dt_s * snapshot_stride, output_dt_s, rtol=1e-9, atol=1e-12
+    ):
+        raise ValueError(
+            f"solver_dt={solver_dt_s} * snapshot_stride={snapshot_stride} != "
+            f"output_dt_s={output_dt_s} — invalid output sampling"
         )
 
-    # Recorded frames must equal the config nsteps attr (catches stale/mixed
-    # record files from a previous run of a different duration).
-    if n_steps != nsteps_artifact:
+    # Recorded frames must equal the solver steps sampled at snapshot_stride
+    # (catches stale/mixed records from a previous run of a different duration).
+    expected_frames = (nsteps_artifact + snapshot_stride - 1) // snapshot_stride
+    if n_steps != expected_frames:
         raise ValueError(
-            f"recorded frames ({n_steps}) != config.h5 nsteps ({nsteps_artifact}) — "
+            f"recorded frames ({n_steps}) != expected output frames ({expected_frames}) "
+            f"from config nsteps={nsteps_artifact}, snapshot_stride={snapshot_stride} — "
             "stale/mixed-run records; re-run the pipeline"
         )
-    stf_values = stf_values[:n_steps]
+    stf_values = stf_values[::snapshot_stride][:n_steps]
     if len(stf_values) < n_steps:
         raise ValueError(
             f"config.h5 STF shorter ({len(stf_values)}) than recorded frames ({n_steps})"
