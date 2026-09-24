@@ -1,13 +1,15 @@
 """CFL validator — compute CFL-limited timestep and derive solver timestep.
 
 After GLL geometry and material (vp) are known, compute the minimum GLL
-node spacing h_min and the CFL-limited time step:
+node spacing h_min, the elastic CFL limit, and the C-PML damping limit:
 
     cfl_dt = cfl_safety × h_min / vp_max
+    cpml_dt = stability_number / max(sum(d_axis))
 
 Then derive the solver timestep by searching for an integer stride such
-that output_dt_s / stride ≤ cfl_dt. The solver_dt is the largest timestep
-that satisfies CFL while keeping output_dt_s as an integer multiple.
+that output_dt_s / stride is no greater than either limit. The solver_dt is
+the largest timestep that satisfies both constraints while keeping output_dt_s
+as an integer multiple.
 """
 
 from __future__ import annotations
@@ -15,8 +17,15 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
+from preprocess.pml_cpml import NPOWER as CPML_NPOWER
+from preprocess.pml_cpml import R_COEF as CPML_R_COEF
+
 # SPECFEM3D reference implementation uses K_MAX_PML=K_MIN_PML=1.
 CPML_K_MAX_PML = 1.0
+
+# The measured XYZ-corner instability starts near dt * sum(d / K) = 1.4.
+# Use a conservative dimensionless limit rather than encoding that threshold.
+CPML_STABILITY_NUMBER = 1.0
 
 MAX_STRIDE = 100
 
@@ -75,6 +84,43 @@ def compute_cfl_dt(
         raise ValueError(f"Invalid maximum vp: {vp_max}")
 
     return cfl_safety * h_min / (vp_max * np.sqrt(CPML_K_MAX_PML))
+
+
+def compute_cpml_stability_dt(pml_widths: dict[str, float], vp_max: float) -> float:
+    """Compute the C-PML damping-limited timestep.
+
+    At an edge or corner, damping from each active axis contributes to the
+    explicit acceleration update. The worst case uses the thinner active face
+    on each axis because it has the largest maximum damping coefficient.
+
+    Args:
+        pml_widths: Physical PML width per face in metres.
+        vp_max: Global maximum P-wave velocity in metres per second.
+
+    Returns:
+        Conservative timestep limit in seconds, or infinity when no PML face
+        is active.
+    """
+    active_widths = []
+    for axis in ("x", "y", "z"):
+        face_widths = [
+            float(pml_widths.get(f"{axis}min", 0.0)),
+            float(pml_widths.get(f"{axis}max", 0.0)),
+        ]
+        positive_widths = [width for width in face_widths if width > 0.0]
+        if positive_widths:
+            active_widths.append(min(positive_widths))
+
+    if not active_widths:
+        return float("inf")
+    if vp_max <= 0.0:
+        raise ValueError(f"vp_max must be positive when PML is active, got {vp_max}")
+
+    damping_sum_max = sum(
+        -((CPML_NPOWER + 1.0) * vp_max * np.log(CPML_R_COEF) / (2.0 * width))
+        for width in active_widths
+    )
+    return CPML_STABILITY_NUMBER / damping_sum_max
 
 
 def compute_solver_dt(

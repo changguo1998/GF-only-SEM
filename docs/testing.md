@@ -14,7 +14,7 @@
 
 ## 自动化测试清单
 
-### Python：235 项（另有 1 项环境相关跳过）
+### Python：247 项通过（另有 1 项环境相关跳过）
 
 | 文件 | 数量 | 覆盖内容 |
 | --- | ---: | --- |
@@ -23,8 +23,8 @@
 | `tests/greenfun/test_interpolator.py` | 9 | 三线性插值、边界、形状校验 |
 | `tests/greenfun/test_library.py` | 24 | 单点/批量查询、源选择、异常输入 |
 | `tests/greenfun/test_source_run.py` | 16 | tile 加载、懒加载、重叠节点去重 |
-| `tests/preprocess/test_boundary_detector.py` | 3 | 外边界、自由表面、共享面 |
-| `tests/preprocess/test_cfl_validator.py` | 12 | CFL、输出步长、stride 与非法参数 |
+| `tests/preprocess/test_boundary_detector.py` | 4 | 外边界、自由表面/全空间 zmin、共享面 |
+| `tests/preprocess/test_cfl_validator.py` | 17 | 弹性 CFL、C-PML 面/棱/角稳定上限、输出步长、stride 与非法参数 |
 | `tests/preprocess/test_cli_integration.py` | 1 | Python 配置对 C++ 加速器保持权威 |
 | `tests/preprocess/test_config_loader.py` | 6 | 配置加载与字段校验 |
 | `tests/preprocess/test_config_writer.py` | 6 | `config.h5` 分组、类型与目录创建 |
@@ -55,6 +55,42 @@ GF_RUN_CPP_PREPROCESS_SMOKE=1 .venv/bin/python -m pytest \
   tests/preprocess/test_cpp_preprocess_smoke.py -q
 ```
 
+### C-PML 时间步专项回归（2026-09-24）
+
+固定 12 km 立方域、12³ 单元、侧面与 zmax 各 3 层（3 km）PML、zmin 自由表面、
+`vp=5000 m/s`，此前仅按弹性 CFL 自动得到 `solver_dt=16.667 ms`，约 3.4 s 后从 XYZ
+外角开始指数增长并最终产生 Inf。加入 C-PML 限制后：
+
+| 项目 | 结果 |
+| --- | ---: |
+| 弹性 CFL 上限 | 17.267 ms |
+| C-PML 上限 | 11.581 ms |
+| 输出间隔 50 ms 对应的自动步长 | 10.000 ms（stride=5） |
+| CUDA Debug 全流程 | 8 s / 800 步完成 |
+| 记录结果 | 160 个全域快照全部有限，无角区晚期指数增长 |
+
+这项测试验证的是时间推进稳定性，不代表三层 PML 已满足最终反射误差要求；厚度反射
+扫描必须在各配置均满足新时间步限制后重新执行。
+
+### C-PML 厚度扫描（2026-09-24）
+
+固定浅层地球物理域 8×8×8 km、1 km 单元、自由表面 zmin，仅扩展侧面与 zmax PML。
+所有模型统一 `solver_dt=6.25 ms`，CUDA 计算 10 s；以 6 层结果为参考，在相同物理域
+逐快照相减，统计 4–10 s 差值场 RMS，并用 6 层直达场峰值归一化：
+
+| PML 层数 | 网格 | 相对 6 层的差值峰值 | 相对 6 层的差值 RMS |
+| ---: | ---: | ---: | ---: |
+| 2 | 12×12×10 | 0.520% | 0.346% |
+| 3 | 14×14×11 | 0.231% | 0.164% |
+| 4 | 16×16×12 | 0.119% | 0.0857% |
+| 5 | 18×18×13 | 0.0555% | 0.0404% |
+| 6 | 20×20×14 | 参考 | 参考 |
+
+厚度误差随层数单调下降，约每增加一层减半。三层已把相对差值峰值压到 0.25% 以下，
+四层约 0.12%；此前薄层模型的强烈晚期波主要来自时间步失稳，不是这种正常的有限厚度
+残差。另用固定 8³ 内域、六面各 3 层的 14³ 全空间模型验证 `pml_zmin`：自动步长 10 ms，
+CUDA Debug 完成 10 s / 1000 步，200 个全域快照全部有限。
+
 ### C++/CUDA：有限 Q 测试已纳入常规 CTest
 
 | 文件 | 数量 | 覆盖内容 |
@@ -75,7 +111,7 @@ GF_RUN_CPP_PREPROCESS_SMOKE=1 .venv/bin/python -m pytest \
 | `tests/test_integration.cpp` | 3 | 单单元正演、刚体残差与 PML 阻尼 |
 | `tests/test_postprocess_tile.cpp` | 8 | tensor 布局、独立计数与 tile schema |
 
-CTest 当前注册 65 项：postprocess 的 8 个 Catch2 case 由一个稳定入口运行，record 测试另有一个
+CTest 当前注册 69 项：postprocess 的 8 个 Catch2 case 由一个稳定入口运行，record 测试另有一个
 fixture 准备项，因此注册数与逻辑 case 数不同。有限 Q 的 3 个本构用例已注册。
 
 ```bash

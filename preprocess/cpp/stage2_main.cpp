@@ -30,6 +30,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -37,6 +38,22 @@
 #include "debug.hpp"
 
 static const int MAX_STRIDE = 100;
+static constexpr int CPML_NPOWER = 2;
+static constexpr double CPML_R_COEF = 1.0e-5;
+static constexpr double CPML_STABILITY_NUMBER = 1.0;
+
+static double cpml_axis_damping_max(double minimum_face_width, double maximum_face_width,
+                                    double vp_max) {
+    double controlling_width = 0.0;
+    if (minimum_face_width > 0.0)
+        controlling_width = minimum_face_width;
+    if (maximum_face_width > 0.0 &&
+        (controlling_width <= 0.0 || maximum_face_width < controlling_width))
+        controlling_width = maximum_face_width;
+    if (controlling_width <= 0.0)
+        return 0.0;
+    return -(CPML_NPOWER + 1.0) * vp_max * std::log(CPML_R_COEF) / (2.0 * controlling_width);
+}
 
 // -----------------------------------------------------------------------
 // HDF5 helpers
@@ -184,6 +201,7 @@ int stage2_main(int argc, char** argv) {
     double cfl_safety = 0.5, output_dt_s = 1.0, total_duration_s = 5.0;
     double storage_limit_gb = 50.0, record_depth_max_m = 5000.0;
     int64_t n_ranks = 1, nx_elements = 16, ny_elements = 16, ngll = 5;
+    int64_t pml_xmin = 0, pml_xmax = 0, pml_ymin = 0, pml_ymax = 0, pml_zmin = 0, pml_zmax = 0;
     char snapshot_precision[16] = "float32";
     read_attr_double(cfg_gid, "cfl_safety", cfl_safety);
     read_attr_double(cfg_gid, "output_dt_s", output_dt_s);
@@ -194,6 +212,12 @@ int stage2_main(int argc, char** argv) {
     read_attr_int64(cfg_gid, "nx_elements", nx_elements);
     read_attr_int64(cfg_gid, "ny_elements", ny_elements);
     read_attr_int64(cfg_gid, "NGLL", ngll);
+    read_attr_int64(cfg_gid, "pml_xmin", pml_xmin);
+    read_attr_int64(cfg_gid, "pml_xmax", pml_xmax);
+    read_attr_int64(cfg_gid, "pml_ymin", pml_ymin);
+    read_attr_int64(cfg_gid, "pml_ymax", pml_ymax);
+    read_attr_int64(cfg_gid, "pml_zmin", pml_zmin);
+    read_attr_int64(cfg_gid, "pml_zmax", pml_zmax);
     read_attr_str(cfg_gid, "snapshot_precision", snapshot_precision, sizeof(snapshot_precision));
     H5Gclose(cfg_gid);
 
@@ -255,21 +279,58 @@ int stage2_main(int argc, char** argv) {
             vp_max = vp[i];
 
     constexpr double cpml_k_max_pml = 1.0;
-    double cfl_dt =
+    double elastic_cfl_dt =
         (vp_max > 0 && h_min > 0) ? cfl_safety * h_min / (vp_max * std::sqrt(cpml_k_max_pml)) : 0;
+
+    double cpml_dt_limit = std::numeric_limits<double>::infinity();
+    int64_t nz_elements =
+        (nx_elements > 0 && ny_elements > 0) ? n_cell / (nx_elements * ny_elements) : 0;
+    if (vp_max > 0.0 && nx_elements > 0 && ny_elements > 0 && nz_elements > 0) {
+        double coordinate_min[3] = {std::numeric_limits<double>::infinity(),
+                                    std::numeric_limits<double>::infinity(),
+                                    std::numeric_limits<double>::infinity()};
+        double coordinate_max[3] = {-std::numeric_limits<double>::infinity(),
+                                    -std::numeric_limits<double>::infinity(),
+                                    -std::numeric_limits<double>::infinity()};
+        for (size_t index = 0; index < coords.size() / 3; ++index) {
+            for (int axis = 0; axis < 3; ++axis) {
+                coordinate_min[axis] = std::min(coordinate_min[axis], coords[index * 3 + axis]);
+                coordinate_max[axis] = std::max(coordinate_max[axis], coords[index * 3 + axis]);
+            }
+        }
+        double element_size[3] = {
+            (coordinate_max[0] - coordinate_min[0]) / nx_elements,
+            (coordinate_max[1] - coordinate_min[1]) / ny_elements,
+            (coordinate_max[2] - coordinate_min[2]) / nz_elements,
+        };
+        double damping_sum_max =
+            cpml_axis_damping_max(pml_xmin * element_size[0], pml_xmax * element_size[0], vp_max) +
+            cpml_axis_damping_max(pml_ymin * element_size[1], pml_ymax * element_size[1], vp_max) +
+            cpml_axis_damping_max(pml_zmin * element_size[2], pml_zmax * element_size[2], vp_max);
+        if (damping_sum_max > 0.0)
+            cpml_dt_limit = CPML_STABILITY_NUMBER / damping_sum_max;
+    }
+    double cfl_dt = std::min(elastic_cfl_dt, cpml_dt_limit);
     double solver_dt = 0;
-    int snapshot_stride = 1;
+    int snapshot_stride = 0;
     if (cfl_dt > 0 && output_dt_s > 0) {
         for (int stride = 1; stride <= MAX_STRIDE; ++stride) {
-            solver_dt = output_dt_s / stride;
-            if (solver_dt <= cfl_dt) {
+            double candidate_dt = output_dt_s / stride;
+            if (candidate_dt <= cfl_dt) {
+                solver_dt = candidate_dt;
                 snapshot_stride = stride;
                 break;
             }
         }
     }
-    if (solver_dt <= 0)
-        solver_dt = cfl_dt;
+    if (solver_dt <= 0.0) {
+        fprintf(stderr,
+                "ERROR: no integer snapshot stride 1..%d satisfies timestep limit %.6e s "
+                "for output_dt_s %.6e s\n",
+                MAX_STRIDE, cfl_dt, output_dt_s);
+        H5Fclose(fid);
+        return 1;
+    }
     int64_t nsteps = (total_duration_s > 0 && solver_dt > 0)
                          ? (int64_t)std::ceil(total_duration_s / solver_dt)
                          : 0;
@@ -377,6 +438,8 @@ int stage2_main(int argc, char** argv) {
     printf("STAT_NSNAPSHOTS=%lld\n", (long long)n_snapshots);
     printf("STAT_SNAPSHOT_STRIDE=%d\n", snapshot_stride);
     printf("STAT_SOLVER_DT=%.15e\n", solver_dt);
+    printf("STAT_ELASTIC_CFL_DT=%.15e\n", elastic_cfl_dt);
+    printf("STAT_CPML_DT_LIMIT=%.15e\n", cpml_dt_limit);
     printf("STAT_CFL_DT=%.15e\n", cfl_dt);
     printf("STAT_DETJ_MIN=%.4e\n", detJ_min);
     printf("STAT_DETJ_MAX=%.4e\n", detJ_max);

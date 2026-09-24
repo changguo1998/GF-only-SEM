@@ -242,10 +242,11 @@ Before writing output files, the preprocessor runs comprehensive validation:
 | Mesh | All hex elements have 8 distinct vertices | Degenerate hex → abort |
 | Mesh | det(J) > 0 at all GLL nodes | Inverted/tangled element → abort |
 | Material | vp > 0, vs ≥ 0, density > 0 at all GLL nodes | Invalid material → abort |
-| CFL | cfl_dt = cfl_safety × h_min / vp_max; h_min = minimum GLL node spacing | — |
-| CFL | Find smallest stride where output_dt_s / stride ≤ cfl_dt; set solver_dt and snapshot_stride | No stride ≤ MAX_STRIDE → abort with suggestion |
+| CFL | elastic_cfl_dt = cfl_safety × h_min / vp_max; h_min = minimum GLL node spacing | — |
+| C-PML | cpml_dt_limit = 1 / Σ d_axis,max at the worst active edge/corner | — |
+| CFL | Find smallest stride where output_dt_s / stride ≤ min(elastic_cfl_dt, cpml_dt_limit); set solver_dt and snapshot_stride | No stride ≤ MAX_STRIDE → abort with suggestion |
 | Time | nsteps = ceil(total_duration_s / solver_dt); nsteps % snapshot_stride == 0; restart_stride = round(restart_dt_s / solver_dt) ≥ 1 | Invalid derived stride → abort |
-| Boundary | Free surface detected at z ≈ z_min | No free surface → abort |
+| Boundary | `pml_zmin=0` 时 zmin 为自由表面；`pml_zmin>0` 时为吸收边界 | — |
 | Boundary | PML has ≥ 2 elements per absorbing face | Too thin PML → warn |
 | Source | source_x_m, source_y_m within domain bounds | Outside domain → abort |
 | STF | stf_func(t_s) returns finite, non-NaN for t_s ∈ [0, nsteps×solver_dt] | Bad STF → abort |
@@ -315,7 +316,12 @@ Output: `/field/element/lambda`, `/field/element/mu`.
 
 1. Compute minimum GLL node spacing `h_min` across all elements (from stage1 or gll_geometry.py)
 1. Compute `vp_max = max(vp)` across all GLL nodes
-1. Compute `cfl_dt = cfl_safety × h_min / vp_max`
+1. Compute `elastic_cfl_dt = cfl_safety × h_min / vp_max`
+1. For each active PML axis, use the thinner opposite face to compute
+   `d_axis,max = −(NPOWER+1) vp_max ln(R_COEF) / (2 width_axis)`
+1. Compute the conservative C-PML limit `cpml_dt_limit = 1 / Σ d_axis,max`; without PML the
+   limit is infinite
+1. Set `cfl_dt = min(elastic_cfl_dt, cpml_dt_limit)`
 1. Search `stride = 1..MAX_STRIDE` for the first value where `output_dt_s / stride ≤ cfl_dt`
 1. Set `solver_dt = output_dt_s / stride` and `snapshot_stride = stride`
 1. Set `nsteps = ceil(total_duration_s / solver_dt)`
@@ -325,6 +331,11 @@ When C++ stage2 is used, vp/vs/density are written temporarily to HDF5, stage2 r
 them, computes λ/μ + CFL, writes λ/μ back, and Python reads them before deleting the
 temporary material arrays.
 
+The dimensionless C-PML bound `solver_dt × Σ(d/K) ≤ 1` is a project stability guard. It is
+deliberately below the measured XYZ-corner instability threshold (about 1.4) and is not claimed
+as a SPECFEM default. Python fallback and C++ stage2 use the same formula. C++ reports
+`STAT_ELASTIC_CFL_DT`, `STAT_CPML_DT_LIMIT`, and the effective `STAT_CFL_DT` separately.
+
 Store time fields in `/simulation`. Forward integrates with `solver_dt`, writes strain every `snapshot_stride`, and overwrites restart every `restart_stride`.
 
 ### 6. Auto-Detect Boundary Tags
@@ -333,12 +344,15 @@ No GMSH physical groups. Boundary tags computed from surface face center geometr
 
 ```
 For each surface: check face center position
-  z ≈ z_min      → boundary_tag = 1  (free surface)
+  z ≈ z_min and pml_zmin = 0 → boundary_tag = 1  (free surface)
+  z ≈ z_min and pml_zmin > 0 → boundary_tag = 2  (absorbing/PML)
   on domain bounds → boundary_tag = 2  (absorbing/PML)
   else              → boundary_tag = 0  (interior)
 ```
 
-Domain bounds auto-detected from `vertex_to_coord`. Output: `/field/surface/boundary_tag`.
+Domain bounds auto-detected from `vertex_to_coord`. This makes `pml_zmin` the explicit switch
+between shallow-Earth/free-surface and all-face full-space models. Output:
+`/field/surface/boundary_tag`.
 
 ### 7. Identify PML Elements + C-PML Profile Computation
 
@@ -346,9 +360,10 @@ PML elements are the elements closest to each absorbing boundary, up to `pml_thi
 layers deep. The `is_pml` flag is computed in two stages:
 
 1. **Surface detection** (`boundary_detector.py`): classify each cell's faces by their
-   center coordinates. Faces at `z ≈ z_min` → free surface (tag=1), faces on domain
-   bounds → absorbing (tag=2), others → interior (tag=0). Cells with any absorbing
-   face get a preliminary 1-layer `is_pml=True`.
+   center coordinates. Faces at `z ≈ z_min` are free only when `pml_zmin=0`; with
+   `pml_zmin>0` they are absorbing. Other configured domain faces are absorbing (tag=2), and
+   internal faces use tag 0. Cells with any absorbing face get a preliminary 1-layer
+   `is_pml=True`.
 
 1. **Layer expansion** (`cli.py`): for structured hex meshes, expand `is_pml` by
    `pml_thickness` using element grid position `(i,j,k)`.

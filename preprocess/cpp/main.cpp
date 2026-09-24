@@ -413,9 +413,11 @@ struct ComputeResult {
 };
 
 // -----------------------------------------------------------------------
-// Boundary detection: tag surfaces as free (1), absorbing (2), interior (0)
+// Boundary detection: tag surfaces as free (1), absorbing (2), interior (0).
+// A configured zmin PML switches the lower face from free to absorbing.
 // -----------------------------------------------------------------------
 static void detect_boundaries(const Topology& topo, const double domain_bounds[6],
+                              bool absorb_zmin,
                               int64_t* boundary_tag_out,  // [n_surface]
                               int64_t* is_pml_out         // [n_cell] 0/1 — 1-layer from topology
 ) {
@@ -466,7 +468,7 @@ static void detect_boundaries(const Topology& topo, const double domain_bounds[6
 
         // Classify
         if (std::abs(cz - zmin) < tol) {
-            boundary_tag_out[s] = 1;  // free surface
+            boundary_tag_out[s] = absorb_zmin ? 2 : 1;
         } else if (std::abs(cx - domain_bounds[0]) < tol ||
                    std::abs(cx - domain_bounds[1]) < tol ||
                    std::abs(cy - domain_bounds[2]) < tol ||
@@ -529,6 +531,7 @@ static ComputeResult compute_all(
                 i >= nx - static_cast<int64_t>(pml_thickness[1]) ||
                 j < static_cast<int64_t>(pml_thickness[2]) ||
                 j >= ny - static_cast<int64_t>(pml_thickness[3]) ||
+                k < static_cast<int64_t>(pml_thickness[4]) ||
                 k >= nz - static_cast<int64_t>(pml_thickness[5])) {
                 res.is_pml[e] = 1;
             }
@@ -1015,7 +1018,8 @@ int stage1_main(int argc, char** argv) {
     int64_t n_cell = topo.n_cell;
     std::vector<int64_t> boundary_tag(n_surface, 0);
     std::vector<int64_t> bd_is_pml(n_cell, 0);  // 1-layer (not used if grid PML active)
-    detect_boundaries(topo, domain_bounds, boundary_tag.data(), bd_is_pml.data());
+    detect_boundaries(topo, domain_bounds, pml_thickness[4] > 0.0, boundary_tag.data(),
+                      bd_is_pml.data());
     GF_PREPROCESS_DEBUG_LOG("Boundary: %lld free, %lld absorbing\n",
                             (long long)std::count(boundary_tag.begin(), boundary_tag.end(), 1),
                             (long long)std::count(boundary_tag.begin(), boundary_tag.end(), 2));

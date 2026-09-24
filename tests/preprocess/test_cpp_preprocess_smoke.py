@@ -66,7 +66,7 @@ def test_cpp_run_writes_solver_ready_partitions(tmp_path: Path) -> None:
             "-B",
             str(build_dir),
             f"-DGF_USER_CONFIG={config_source}",
-            f"-DGF_PREPROCESS_RUNTIME_DIR={runtime_dir}",
+            f"-DGF_RUNTIME_OUTPUT_DIRECTORY={runtime_dir}",
         ],
         cwd=tmp_path,
     )
@@ -106,12 +106,14 @@ def test_cpp_run_writes_solver_ready_partitions(tmp_path: Path) -> None:
 
     with h5py.File(tmp_path / "config.h5", "r") as config:
         _assert_uncompressed(config)
-        assert config["simulation"].attrs["nsteps"] == 100
-        assert config["source/stf_t"].shape == (100,)
+        assert config["simulation"].attrs["solver_dt"] == pytest.approx(0.005)
+        assert config["simulation"].attrs["nsteps"] == 400
+        assert config["source/stf_t"].shape == (400,)
         assert config["source/cells/weights"].shape == (8, 27)
         assert np.sum(config["source/cells/weights"]) == pytest.approx(1.0)
 
         with h5py.File(model_path, "r") as model:
+            assert np.count_nonzero(model["field/element/is_pml"]) == 56
             domain = {name: float(config["domain"].attrs[name]) for name in config["domain"].attrs}
             solver_dt = float(config["simulation"].attrs["solver_dt"])
             reference = compute_cpml_parameters(

@@ -1,9 +1,9 @@
 """Boundary detector — auto-detect boundary tags from surface geometry.
 
 For each surface in the mesh, compute the face center coordinates and
-classify as free surface (z ≈ z_min), absorbing (x/y/z at domain bounds),
-or interior (tag 0).  Also flag cells that touch absorbing boundaries
-for PML treatment.
+classify it as free, absorbing, or interior. The z-min face is free by
+default and becomes absorbing for all-face full-space models. Also flag
+cells that touch absorbing boundaries for PML treatment.
 """
 
 import numpy as np
@@ -16,13 +16,14 @@ _BOUND_TOL = 1e-6
 
 
 def detect_boundaries(
-    topology: TopologyData, domain_bounds: dict[str, float]
+    topology: TopologyData, domain_bounds: dict[str, float], *, absorb_zmin: bool = False
 ) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.bool_]]:
     """Detect boundary types for each surface.
 
     Args:
         topology: Mesh topology with surface-to-edge and edge-to-vertex.
         domain_bounds: Dict with xmin, xmax, ymin, ymax, zmin, zmax.
+        absorb_zmin: Classify zmin as absorbing instead of a free surface.
 
     Returns:
         boundary_tag: [n_surface] int64 — 0=interior, 1=free surface, 2=absorbing
@@ -55,9 +56,9 @@ def detect_boundaries(
         face_coords = np.array([v2c[v - 1] for v in sorted(vids)])
         center = face_coords.mean(axis=0)
 
-        # Check z ≈ zmin → free surface
+        # zmin is a free surface unless the configuration requests a bottom PML.
         if np.isclose(center[2], domain_bounds["zmin"], atol=tol):
-            boundary_tag[surf_idx] = 1
+            boundary_tag[surf_idx] = 2 if absorb_zmin else 1
             continue
 
         # Check other domain bounds → absorbing

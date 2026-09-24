@@ -144,12 +144,14 @@ def _check_material(
         result.add_warning("Material: vs = 0 at some nodes (acoustic region).")
 
 
-def _check_boundary(boundary_tag: npt.NDArray[np.int64], result: PreflightResult) -> None:
+def _check_boundary(
+    boundary_tag: npt.NDArray[np.int64], result: PreflightResult, require_free_surface: bool = True
+) -> None:
     """Check boundary tags for required free surface and absorbing boundaries."""
     n_free = int(np.count_nonzero(boundary_tag == 1))
     n_absorbing = int(np.count_nonzero(boundary_tag == 2))
 
-    if n_free < 1:
+    if require_free_surface and n_free < 1:
         result.add_error("Boundary: No free surface (tag=1) detected.")
     if n_absorbing < 1:
         result.add_error("Boundary: No absorbing boundary (tag=2) detected.")
@@ -359,7 +361,10 @@ def run_preflight(
     result.stats["snapshot_stride"] = f"{snapshot_stride}"
 
     # 4. Boundary
-    _check_boundary(boundary_tag, result)
+    pml_thickness = getattr(config_module, "pml_thickness", {}) or {}
+    _check_boundary(
+        boundary_tag, result, require_free_surface=int(pml_thickness.get("zmin", 0)) == 0
+    )
 
     # 5. Source
     source_x = getattr(config_module, "source_x_m", float(source_xyz[0]))

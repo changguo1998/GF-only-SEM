@@ -229,7 +229,10 @@ def step_boundary_detection(
     logger.info("Detecting boundaries (Python)...")
     from preprocess.boundary_detector import detect_boundaries
 
-    boundary_tag, _ = detect_boundaries(topology, domain_bounds)
+    pml_thickness = getattr(config, "pml_thickness", {}) or {}
+    boundary_tag, _ = detect_boundaries(
+        topology, domain_bounds, absorb_zmin=int(pml_thickness.get("zmin", 0)) > 0
+    )
     return boundary_tag
 
 
@@ -270,6 +273,7 @@ def step_pml(
             "xmax": int(pml_thickness_cfg.get("xmax", 0)),
             "ymin": int(pml_thickness_cfg.get("ymin", 0)),
             "ymax": int(pml_thickness_cfg.get("ymax", 0)),
+            "zmin": int(pml_thickness_cfg.get("zmin", 0)),
             "zmax": int(pml_thickness_cfg.get("zmax", 0)),
         }
         for e in range(n_cell):
@@ -281,6 +285,7 @@ def step_pml(
                 or i >= nx - cnt["xmax"]
                 or j < cnt["ymin"]
                 or j >= ny - cnt["ymax"]
+                or k < cnt["zmin"]
                 or k >= nz - cnt["zmax"]
             ):
                 is_pml[e] = True
@@ -314,6 +319,24 @@ def step_material_interpolation(config: object, coords: np.ndarray) -> tuple:
     return vp, vs, density
 
 
+def _physical_pml_widths(config: object, coords: np.ndarray) -> dict[str, float]:
+    """Convert configured PML element counts to physical face widths."""
+    pml_thickness = getattr(config, "pml_thickness", {}) or {}
+    nx_elements = int(getattr(config, "nx_elements", 1))
+    ny_elements = int(getattr(config, "ny_elements", 1))
+    n_cell = int(coords.shape[0])
+    nz_elements = n_cell // (nx_elements * ny_elements)
+    element_sizes = {
+        "x": (float(np.max(coords[..., 0])) - float(np.min(coords[..., 0]))) / nx_elements,
+        "y": (float(np.max(coords[..., 1])) - float(np.min(coords[..., 1]))) / ny_elements,
+        "z": (float(np.max(coords[..., 2])) - float(np.min(coords[..., 2]))) / nz_elements,
+    }
+    return {
+        face: float(pml_thickness.get(face, 0)) * element_sizes[face[0]]
+        for face in ("xmin", "xmax", "ymin", "ymax", "zmin", "zmax")
+    }
+
+
 def step_lame_and_cfl(
     model_path: str,
     config: object,
@@ -323,8 +346,10 @@ def step_lame_and_cfl(
     coords: np.ndarray,
     h_min: float,
 ) -> dict:
-    N = int(config.polynomial_order)
     """Compute λ/μ, CFL solver_dt, nsteps. C++ stage2 if available."""
+    N = int(config.polynomial_order)
+    pml_thickness = getattr(config, "pml_thickness", {}) or {}
+    pml_widths = _physical_pml_widths(config, coords)
 
     if _PREPROCESS_BINARY is not None:
         # Write vp/vs/density + config to HDF5, run stage2
@@ -348,6 +373,8 @@ def step_lame_and_cfl(
                 "ny_elements": int(config.ny_elements),
                 "NGLL": N + 1,
             }
+            for face in ("xmin", "xmax", "ymin", "ymax", "zmin", "zmax"):
+                cfg_attrs[f"pml_{face}"] = int(pml_thickness.get(face, 0))
             for key, val in cfg_attrs.items():
                 cfg.attrs[key] = val
 
@@ -368,6 +395,8 @@ def step_lame_and_cfl(
             snapshot_stride = int(stats.get("STAT_SNAPSHOT_STRIDE", "1"))
             nsteps = int(stats.get("STAT_NSTEPS", "0"))
             cfl_dt = float(stats.get("STAT_CFL_DT", "0"))
+            elastic_cfl_dt = float(stats.get("STAT_ELASTIC_CFL_DT", cfl_dt))
+            cpml_dt_limit = float(stats.get("STAT_CPML_DT_LIMIT", "inf"))
 
             # Delete temp material arrays
             with h5py.File(model_path, "a") as f:
@@ -376,7 +405,11 @@ def step_lame_and_cfl(
                     if name in fld:
                         del fld[name]
 
-            logger.info(f"  C++ λ/μ: solver_dt={solver_dt:.6e}, nsteps={nsteps}")
+            logger.info(
+                f"  C++ λ/μ: elastic_cfl_dt={elastic_cfl_dt:.6e}, "
+                f"cpml_dt_limit={cpml_dt_limit:.6e}, solver_dt={solver_dt:.6e}, "
+                f"nsteps={nsteps}"
+            )
             logger.info(f"  C++ stats: λ min={stats.get('STAT_LAM_MIN', '?')}")
             return {
                 "lam": lam,
@@ -385,6 +418,8 @@ def step_lame_and_cfl(
                 "snapshot_stride": snapshot_stride,
                 "nsteps": nsteps,
                 "cfl_dt": cfl_dt,
+                "elastic_cfl_dt": elastic_cfl_dt,
+                "cpml_dt_limit": cpml_dt_limit,
                 "used_cpp": True,
             }
 
@@ -394,15 +429,20 @@ def step_lame_and_cfl(
     lam = density * (vp**2 - 2.0 * vs**2)
 
     logger.info("Computing CFL (Python)...")
-    from preprocess.cfl_validator import compute_solver_dt
+    from preprocess.cfl_validator import compute_cpml_stability_dt, compute_solver_dt
 
     vp_max = float(vp.max())
     from preprocess.cfl_validator import CPML_K_MAX_PML
 
-    cfl_dt = float(config.cfl_safety) * h_min / (vp_max * np.sqrt(CPML_K_MAX_PML))
+    elastic_cfl_dt = float(config.cfl_safety) * h_min / (vp_max * np.sqrt(CPML_K_MAX_PML))
+    cpml_dt_limit = compute_cpml_stability_dt(pml_widths, vp_max)
+    cfl_dt = min(elastic_cfl_dt, cpml_dt_limit)
     solver_dt, snapshot_stride = compute_solver_dt(float(config.output_dt_s), cfl_dt)
     nsteps = math.ceil(float(config.total_duration_s) / solver_dt)
-    logger.info(f"  cfl_dt={cfl_dt:.6e}, solver_dt={solver_dt:.6e}, nsteps={nsteps}")
+    logger.info(
+        f"  elastic_cfl_dt={elastic_cfl_dt:.6e}, cpml_dt_limit={cpml_dt_limit:.6e}, "
+        f"solver_dt={solver_dt:.6e}, nsteps={nsteps}"
+    )
 
     return {
         "lam": lam,
@@ -411,6 +451,8 @@ def step_lame_and_cfl(
         "snapshot_stride": snapshot_stride,
         "nsteps": nsteps,
         "cfl_dt": cfl_dt,
+        "elastic_cfl_dt": elastic_cfl_dt,
+        "cpml_dt_limit": cpml_dt_limit,
         "used_cpp": False,
     }
 
@@ -575,21 +617,7 @@ def main() -> None:
     # ── Step 5b: C-PML parameters ──
     stage_start = time.perf_counter()
     f0_for_pml = getattr(config, "f0_for_pml_hz", 2.0)
-    pml_thickness_cfg = getattr(config, "pml_thickness", {}) or {}
-    nx_el = int(getattr(config, "nx_elements", 1))
-    ny_el = int(getattr(config, "ny_elements", 1))
-    nz_el = n_cell // (nx_el * ny_el) if nx_el * ny_el > 0 else 1
-    dx_el = (domain_bounds["xmax"] - domain_bounds["xmin"]) / max(nx_el, 1)
-    dy_el = (domain_bounds["ymax"] - domain_bounds["ymin"]) / max(ny_el, 1)
-    dz_el = (domain_bounds["zmax"] - domain_bounds["zmin"]) / max(nz_el, 1)
-    pml_widths = {
-        "xmin": pml_thickness_cfg.get("xmin", 0) * dx_el,
-        "xmax": pml_thickness_cfg.get("xmax", 0) * dx_el,
-        "ymin": pml_thickness_cfg.get("ymin", 0) * dy_el,
-        "ymax": pml_thickness_cfg.get("ymax", 0) * dy_el,
-        "zmin": pml_thickness_cfg.get("zmin", 0) * dz_el,
-        "zmax": pml_thickness_cfg.get("zmax", 0) * dz_el,
-    }
+    pml_widths = _physical_pml_widths(config, coords)
     logger.info(f"Computing C-PML parameters (f0={f0_for_pml} Hz, dt={solver_dt:.4e} s)...")
     from preprocess.pml_cpml import apply_cpml_mass_correction, compute_cpml_parameters
 

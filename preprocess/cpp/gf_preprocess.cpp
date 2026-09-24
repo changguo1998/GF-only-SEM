@@ -182,6 +182,12 @@ static int run_main(int argc, char** argv) {
         write_i64("nx_elements", stage2_cfg.nx_elements);
         write_i64("ny_elements", stage2_cfg.ny_elements);
         write_i64("NGLL", stage2_cfg.polynomial_order + 1);
+        write_i64("pml_xmin", stage2_cfg.pml_xmin);
+        write_i64("pml_xmax", stage2_cfg.pml_xmax);
+        write_i64("pml_ymin", stage2_cfg.pml_ymin);
+        write_i64("pml_ymax", stage2_cfg.pml_ymax);
+        write_i64("pml_zmin", stage2_cfg.pml_zmin);
+        write_i64("pml_zmax", stage2_cfg.pml_zmax);
         write_str("snapshot_precision",
                   stage2_cfg.snapshot_precision_bytes == 4 ? "float32" : "float64");
 

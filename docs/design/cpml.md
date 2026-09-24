@@ -14,6 +14,21 @@ generated HDF5 files must be regenerated after changing CPML coefficient code;
 otherwise they retain stale coefficients and can reproduce the old corner
 overflow.
 
+**Timestep stability guard (2026-09-24):** the ordinary elastic CFL bound alone is
+insufficient for strong C-PML damping. In a 12³ shallow model with 1 km elements and three
+active PML layers on the side and zmax faces, `dt=16.667 ms` developed exponential growth first
+in the XYZ corner, while `dt≤16.0 ms` remained finite for 8 s. The preprocessor now also enforces
+the conservative bound
+`dt × Σ(d_axis/K_axis) ≤ 1` at the worst active edge/corner. For this model it gives
+`cpml_dt_limit=11.581 ms`; the output cadence selects `solver_dt=10 ms`. A CUDA rerun completed
+all 800 steps and all 160 Debug snapshots remained finite, with no late corner growth.
+
+The same guard was then rerun after fixing all-face full-space detection: a 14³ model with a
+fixed 8³ physical interior and three PML layers on all six faces selected the same 10 ms step,
+completed 10 s / 1000 CUDA steps, and kept all 200 Debug snapshots finite. The final-frame
+maximum velocity was 316 overall and 105 in XYZ corners, versus an overall run peak of
+`1.08e7`; no late growth remained.
+
 ## 1. Overview
 
 Replace the current simple linear-ramp velocity damping (`v -= d·v`) with full
@@ -317,11 +332,13 @@ MIN_DISTANCE = 1e-6         # Singularity avoidance threshold
 | 4 SPECFEM3D-alignment bugs fixed (see `docs/bugs.md`) | ✅ |
 | Lamb reference waveform correlation: 99.1% (scaled, best-aligned) | ✅ |
 | Backward compatibility (old damping fallback) | ✅ |
+| Six-face full-space `pml_zmin` classification and 10 s CUDA stability | ✅ |
 
 ### Known Limitations
 
-1. **CFL**: K_MAX_PML=1 in the SPECFEM3D reference implementation, so the
-   ordinary SEM CFL limit is used.
+1. **C-PML stability bound**: `dt × Σ(d/K) ≤ 1` is a conservative project guard derived from
+   the measured XYZ-corner threshold; it is not claimed as a SPECFEM default or a sharp
+   theoretical bound.
 1. **Coefficient validity**: no safety clamp is applied. If parameter separation
    fails and produces a non-finite coefficient, preprocessing stops explicitly.
 1. **PML&SVD mutually exclusive**: Viscoelastic kernels skip SLS memory for PML nodes.

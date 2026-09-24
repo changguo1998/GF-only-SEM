@@ -161,6 +161,16 @@ class TestBoundaryDetector:
         face_coords = np.array([v2c[v - 1] for v in sorted(vids)])
         assert np.isclose(face_coords[:, 2].mean(), 0.0, atol=1e-6)
 
+    def test_zmin_can_be_absorbing(self):
+        """Full-space mode should classify zmin as absorbing when requested."""
+        topo = _make_unit_cube_topo()
+        bounds = {"xmin": 0, "xmax": 1, "ymin": 0, "ymax": 1, "zmin": 0, "zmax": 1}
+        boundary_tag, is_pml = detect_boundaries(topo, bounds, absorb_zmin=True)
+
+        assert np.sum(boundary_tag == 1) == 0
+        assert np.sum(boundary_tag == 2) == 6
+        assert is_pml[0]
+
     def test_two_cubes_shared_face_interior(self):
         """Two cubes stacked: shared face at z=1 is interior (tag 0)."""
         topo = _make_two_cube_topo()

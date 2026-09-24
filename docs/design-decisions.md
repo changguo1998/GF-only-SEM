@@ -27,6 +27,8 @@ Mathematical formulation for all methods below: [`docs/math.md`](math.md)
 
 - **Absorbing boundaries**: C-PML (convolutional Perfectly Matched Layer), matching SPECFEM3D
 - **Domain**: Cartesian box with C-PML layers surrounding the physical domain
+- **zmin boundary mode**: `pml_zmin=0` selects the shallow-Earth free surface;
+  `pml_zmin>0` selects an absorbing bottom face for full-space models
 - **Coordinate convention**: z positive downward (seismology standard). z_min = top free surface, z_max = bottom.
 - **PML thickness**: Configurable per face (default 3 elements)
 - **PML precompute**: Preprocess writes all C-PML arrays. Forward reads and applies them.
@@ -306,7 +308,8 @@ Each tile stores projected global GLL nodes in its x/y bounds for all saved dept
 - **Validation**: Comprehensive checks at preprocess time:
   - Mesh: n_cell > 0, non-degenerate hex elements, det(J) > 0 at all GLL nodes
   - Material: vp > 0, vs ≥ 0, density > 0 at all GLL nodes
-  - CFL: solver_dt auto-derived from CFL constraint; snapshot_stride and restart_stride validated as integers
+  - CFL: solver_dt auto-derived from the minimum of the elastic SEM CFL limit and the C-PML
+    damping limit `1 / Σ d_axis,max`; snapshot_stride and restart_stride validated as integers
   - Boundary: Free surface detected at z ≈ z_min; PML has ≥ 2 elements per absorbing face (warn if thinner)
   - Source: x_m, y_m within domain bounds; stf_func returns finite non-NaN values over [0, nsteps×solver_dt]
   - Storage: estimated disk usage ≤ storage_limit_gb, abort if exceeded

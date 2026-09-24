@@ -9,7 +9,7 @@ import pytest
 _project_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 sys.path.insert(0, _project_root)
 
-from preprocess.cfl_validator import compute_cfl_dt, compute_solver_dt
+from preprocess.cfl_validator import compute_cfl_dt, compute_cpml_stability_dt, compute_solver_dt
 
 
 class TestCFLValidator:
@@ -44,6 +44,45 @@ class TestCFLValidator:
 
         with pytest.raises(ValueError, match="Invalid maximum vp"):
             compute_cfl_dt(gll_coords, vp_array, 0.5)
+
+    def test_compute_cpml_stability_dt_without_pml(self):
+        """No active PML face should impose no additional timestep limit."""
+        assert compute_cpml_stability_dt({}, 5000.0) == float("inf")
+
+    def test_compute_cpml_stability_dt_single_axis(self):
+        """A single active axis should use its maximum damping coefficient."""
+        widths = {"xmin": 3000.0, "xmax": 0.0}
+        damping_max = -(2 + 1) * 5000.0 * np.log(1.0e-5) / (2.0 * 3000.0)
+        assert compute_cpml_stability_dt(widths, 5000.0) == pytest.approx(1.0 / damping_max)
+
+    def test_compute_cpml_stability_dt_uses_thinner_face(self):
+        """Opposite faces share an axis, so the thinner face controls its damping."""
+        widths = {"xmin": 3000.0, "xmax": 2000.0}
+        damping_max = -(2 + 1) * 5000.0 * np.log(1.0e-5) / (2.0 * 2000.0)
+        assert compute_cpml_stability_dt(widths, 5000.0) == pytest.approx(1.0 / damping_max)
+
+    def test_compute_cpml_stability_dt_xyz_corner(self):
+        """The worst XYZ corner combines the largest damping on all active axes."""
+        widths = {
+            "xmin": 3000.0,
+            "xmax": 3000.0,
+            "ymin": 3000.0,
+            "ymax": 3000.0,
+            "zmin": 3000.0,
+            "zmax": 3000.0,
+        }
+        one_axis_damping = -(2 + 1) * 5000.0 * np.log(1.0e-5) / (2.0 * 3000.0)
+        cpml_dt = compute_cpml_stability_dt(widths, 5000.0)
+        assert cpml_dt == pytest.approx(1.0 / (3.0 * one_axis_damping))
+        assert cpml_dt == pytest.approx(0.011581, rel=1.0e-4)
+
+    def test_cpml_limit_selects_safe_integer_stride(self):
+        """The unstable 12-cube setup should select a 10 ms solver timestep."""
+        widths = {face: 3000.0 for face in ("xmin", "xmax", "ymin", "ymax", "zmin", "zmax")}
+        cpml_dt = compute_cpml_stability_dt(widths, 5000.0)
+        solver_dt, stride = compute_solver_dt(0.05, cpml_dt)
+        assert stride == 5
+        assert solver_dt == pytest.approx(0.01)
 
     def test_compute_solver_dt_exact_stride(self):
         """Test compute_solver_dt finds exact stride dividing output_dt_s."""
