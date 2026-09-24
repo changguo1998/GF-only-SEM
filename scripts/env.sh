@@ -83,12 +83,15 @@ SPACK_OPT_ROOT="${HOME}/.spack/opt/spack"
 _prepend_path() {
 	local variable_name="$1"
 	local entry="$2"
-	local current_value="${!variable_name:-}"
+	local current_value
 	local filtered_value=""
 	local current_entry
-	local entries=()
-	IFS=: read -r -a entries <<<"${current_value}"
-	for current_entry in "${entries[@]}"; do
+	local remaining
+	eval "current_value=\${${variable_name}:-}"
+	remaining="${current_value}:"
+	while [ -n "${remaining}" ]; do
+		current_entry="${remaining%%:*}"
+		remaining="${remaining#*:}"
 		[ -z "${current_entry}" ] && continue
 		[ "${current_entry}" = "${entry}" ] && continue
 		filtered_value="${filtered_value}${filtered_value:+:}${current_entry}"
@@ -99,12 +102,15 @@ _prepend_path() {
 _remove_path_pattern() {
 	local variable_name="$1"
 	local path_pattern="$2"
-	local current_value="${!variable_name:-}"
+	local current_value
 	local filtered_value=""
 	local current_entry
-	local entries=()
-	IFS=: read -r -a entries <<<"${current_value}"
-	for current_entry in "${entries[@]}"; do
+	local remaining
+	eval "current_value=\${${variable_name}:-}"
+	remaining="${current_value}:"
+	while [ -n "${remaining}" ]; do
+		current_entry="${remaining%%:*}"
+		remaining="${remaining#*:}"
 		[ -z "${current_entry}" ] && continue
 		[[ "${current_entry}" == ${path_pattern} ]] && continue
 		filtered_value="${filtered_value}${filtered_value:+:}${current_entry}"
