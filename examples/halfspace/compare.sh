@@ -4,6 +4,7 @@
 # ==============
 # Orchestration: compute SEM Green's functions → generate Lamb reference → compare.
 # Usage: bash compare.sh
+# Debug validation: GF_BIN_DIR=/path/to/bin-debug bash compare.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

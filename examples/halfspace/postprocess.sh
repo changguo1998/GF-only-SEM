@@ -17,7 +17,7 @@ echo ""
 echo "=== Stage 4: Green's function extraction ==="
 cd "${WORK_DIR}"
 
-PROJECT_BIN="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}/bin"
+PROJECT_BIN="${PROJECT_BIN:-${GF_BIN_DIR:-${PROJECT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}/bin}}"
 GF_POST="${PROJECT_BIN}/gf_postprocess_mpi"
 MEMLIMIT="$(cd "${SCRIPT_DIR}/../.." && pwd)/scripts/with_mem_limit.sh"  # host RAM cap (GF_MEM_LIMIT_GB, 0=off)
 if [ -x "${GF_POST}" ]; then

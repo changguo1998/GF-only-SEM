@@ -7,10 +7,12 @@
 #
 # Usage:
 #   source examples/halfspace/setenv.sh
+#   GF_BIN_DIR="$PWD/bin-debug" source examples/halfspace/setenv.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 EXAMPLE_DIR="${PROJECT_DIR}/examples/halfspace"
+PROJECT_BIN="${GF_BIN_DIR:-${PROJECT_DIR}/bin}"
 
 # Source project env (Python venv + Spack MPI/Eigen/HDF5)
 source "${PROJECT_DIR}/env_setup.sh"
@@ -29,7 +31,7 @@ MPIRUN="${MPIRUN:-mpirun}"
 #   SOLVER="${PROJECT_DIR}/bin/gf_solver_viscoelastic_cuda" # visco CUDA (GPU buggy, see AGENTS.md)
 #   SOLVER="${PROJECT_DIR}/bin/gf_solver_viscoelastic_mpi"  # visco CPU+MPI (default)
 # Current GPU runs select gf_solver_elastic_cuda in forward.sh (valid on Q→∞).
-SOLVER="${SOLVER:-${PROJECT_DIR}/bin/gf_solver_viscoelastic_mpi}"
+SOLVER="${SOLVER:-${PROJECT_BIN}/gf_solver_viscoelastic_mpi}"
 if [ ! -x "${SOLVER}" ]; then
     echo "ERROR: solver not found at ${SOLVER}"
     echo "       Build with: cd ${PROJECT_DIR}/build && cmake --build . --target gf_solver_viscoelastic_mpi"
@@ -37,7 +39,7 @@ if [ ! -x "${SOLVER}" ]; then
 fi
 
 # Make C++ tool binaries (gf_model2vtk, gf_postprocess, ...) available by name
-export PATH="${PROJECT_DIR}/bin:${PATH}"
+export PATH="${PROJECT_BIN}:${PATH}"
 
-export PROJECT_DIR EXAMPLE_DIR N_RANKS MPIRUN SOLVER
+export PROJECT_DIR PROJECT_BIN EXAMPLE_DIR N_RANKS MPIRUN SOLVER
 echo "Environment ready: N_RANKS=${N_RANKS}, MPIRUN=${MPIRUN}, SOLVER=${SOLVER}"
