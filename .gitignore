@@ -15,6 +15,7 @@ preprocess/cpp/gf_preprocess
 *.o
 *_nothread
 bin/
+bin-debug/
 
 # Simulation output (reproducible from preprocess + solver)
 wavefields/

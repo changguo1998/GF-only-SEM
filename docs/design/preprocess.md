@@ -384,13 +384,15 @@ Comprehensive validation before partition and writing. Runs as a checklist; with
 1. **STF**: all values finite (no NaN/Inf); warn if non-zero DC component
 1. **Partition**: `n_ranks ≤ n_cell` (pre-check before calling METIS)
 1. **Recording map**: snap requested depth to `record_depth_actual_m`; mark non-PML elements/vertices above it.
-1. **Storage**: estimate partitions + full-domain dynamic snapshots + latest restart. Abort if >
-   `storage_limit_gb`:
+1. **Storage**: conservatively estimate partitions + Debug full-domain dynamic snapshots + latest
+   restart, because the preprocessor runs before the production recording map is finalized. Abort if
+   > `storage_limit_gb`:
    - `snapshots_per_run = nsteps / snapshot_stride`
    - `snapshot_per_run_GB = snapshots_per_run × n_cell × NGLL³ × 15 × bytes_per_float / 1e9`
      (strain 6 + displacement 3 + velocity 3 + acceleration 3)
    - `restart_GB = n_cell × NGLL³ × 3 × 3 × 8 / 1e9 + pml_memory_GB`
    - `total_GB = snapshot_per_run_GB × 3 + restart_GB × 3 + partition_GB`
+   - Production compact-strain records are smaller; this remains a safe upper bound.
    - Print storage estimate to stdout
 
 ### 9. Partition (METIS) + GLL Node Global Numbering

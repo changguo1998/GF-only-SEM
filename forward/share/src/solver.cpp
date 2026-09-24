@@ -41,6 +41,7 @@ namespace gf {
 
 namespace {
 
+#ifdef DEBUG
 struct ForwardProfile {
     bool enabled = std::getenv("GF_FORWARD_PROFILE") != nullptr;
     std::chrono::steady_clock::time_point total_start = std::chrono::steady_clock::now();
@@ -171,6 +172,30 @@ struct CudaStepProfile {
 };
 #endif
 
+#define GF_PROFILE_ENABLED(profile) ((profile).enabled)
+#define GF_PROFILE_START(name) auto name = std::chrono::steady_clock::now()
+#define GF_PROFILE_RESTART(name) name = std::chrono::steady_clock::now()
+#define GF_PROFILE_ACCUMULATE(field, started_at) field += elapsed_since(started_at)
+#ifdef GF_WITH_CUDA
+#define GF_CUDA_PROFILE_CREATE(name, profile) CudaStepProfile name((profile).enabled)
+#define GF_CUDA_PROFILE_RECORD(name, boundary) name.record(boundary)
+#define GF_CUDA_PROFILE_ACCUMULATE(name, profile, displacement_exchange, residual_exchange) \
+    name.accumulate(profile, displacement_exchange, residual_exchange)
+#endif
+#else
+struct ForwardProfile {};
+inline void print_profile(Logger&, const ForwardProfile&) {}
+#define GF_PROFILE_ENABLED(profile) false
+#define GF_PROFILE_START(name)
+#define GF_PROFILE_RESTART(name)
+#define GF_PROFILE_ACCUMULATE(field, started_at)
+#ifdef GF_WITH_CUDA
+#define GF_CUDA_PROFILE_CREATE(name, profile)
+#define GF_CUDA_PROFILE_RECORD(name, boundary)
+#define GF_CUDA_PROFILE_ACCUMULATE(name, profile, displacement_exchange, residual_exchange)
+#endif
+#endif
+
 // Newmark explicit predict step: ũ = u + dt·v + (dt²/2)·(1-2β)·a
 inline void newmark_predict(double solver_dt, double beta, const std::vector<double>& displacement,
                             const std::vector<double>& velocity,
@@ -223,7 +248,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
 
     Logger logger(direction, rank);
     ForwardProfile profile;
-    if (profile.enabled)
+    if (GF_PROFILE_ENABLED(profile))
         logger.info("Performance profiling enabled (GF_FORWARD_PROFILE=1)");
 #ifdef GF_NO_MPI
     logger.info("single process, direction=" + direction);
@@ -243,14 +268,14 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         int ngll = cfg.polynomial_order + 1;
         auto io_elapsed =
             std::chrono::duration<double>(std::chrono::steady_clock::now() - t_io).count();
-        profile.config_read_s += io_elapsed;
-        logger.debug("  config read: " + std::to_string(io_elapsed) + "s");
-        logger.debug("  polynomial_order=" + std::to_string(cfg.polynomial_order) +
-                     " ngll=" + std::to_string(ngll));
-        logger.debug("  solver_dt=" + std::to_string(cfg.solver_dt) +
-                     " nsteps=" + std::to_string(cfg.nsteps));
-        logger.debug("  snapshot_stride=" + std::to_string(cfg.snapshot_stride) +
-                     " precision=" + cfg.snapshot_precision);
+        GF_PROFILE_ACCUMULATE(profile.config_read_s, t_io);
+        GF_FORWARD_DEBUG_LOG(logger, "  config read: " + std::to_string(io_elapsed) + "s");
+        GF_FORWARD_DEBUG_LOG(logger, "  polynomial_order=" + std::to_string(cfg.polynomial_order) +
+                                         " ngll=" + std::to_string(ngll));
+        GF_FORWARD_DEBUG_LOG(logger, "  solver_dt=" + std::to_string(cfg.solver_dt) +
+                                         " nsteps=" + std::to_string(cfg.nsteps));
+        GF_FORWARD_DEBUG_LOG(logger, "  snapshot_stride=" + std::to_string(cfg.snapshot_stride) +
+                                         " precision=" + cfg.snapshot_precision);
 
         // === Read partition(s) for this rank ===
         t_io = std::chrono::steady_clock::now();
@@ -258,14 +283,14 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         if (eff_nprocs == 1) {
             // Single effective rank: merge all partitions into full domain
             part = read_partition_all(partition_dir);
-            logger.debug("  merged " + std::to_string(part.n_local_cell) +
-                         " elements from all partitions");
+            GF_FORWARD_DEBUG_LOG(logger, "  merged " + std::to_string(part.n_local_cell) +
+                                             " elements from all partitions");
         } else if (eff_nprocs < nprocs) {
             // Reduced effective ranks: block-distribute partitions
             int eff_rank = rank % eff_nprocs;
             part = read_partition_range(partition_dir, eff_rank, eff_nprocs);
-            logger.debug("  effective rank " + std::to_string(eff_rank) + ": " +
-                         std::to_string(part.n_local_cell) + " elements");
+            GF_FORWARD_DEBUG_LOG(logger, "  effective rank " + std::to_string(eff_rank) + ": " +
+                                             std::to_string(part.n_local_cell) + " elements");
         } else {
             std::string partition_path =
                 partition_dir + "/partition_" + std::to_string(rank) + ".h5";
@@ -273,9 +298,9 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         }
         io_elapsed =
             std::chrono::duration<double>(std::chrono::steady_clock::now() - t_io).count();
-        profile.partition_read_s += io_elapsed;
-        logger.debug("  partition read: " + std::to_string(io_elapsed) + "s");
-        const auto setup_start = std::chrono::steady_clock::now();
+        GF_PROFILE_ACCUMULATE(profile.partition_read_s, t_io);
+        GF_FORWARD_DEBUG_LOG(logger, "  partition read: " + std::to_string(io_elapsed) + "s");
+        GF_PROFILE_START(setup_start);
 
         int n_local_cell = part.n_local_cell;
         int n_node = ngll * ngll * ngll;
@@ -297,7 +322,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         mem_bytes +=
             n_local_cell_dof * 4 * 8;  // element-local displacement/velocity/acceleration/residual
         double mem_mb = static_cast<double>(mem_bytes) / (1024.0 * 1024.0);
-        logger.debug("  est memory (state): " + std::to_string(mem_mb) + " MB");
+        GF_FORWARD_DEBUG_LOG(logger, "  est memory (state): " + std::to_string(mem_mb) + " MB");
 
         // === GLL quadrature ===
         std::vector<double> gll_pts = gll_nodes(cfg.polynomial_order);
@@ -316,8 +341,10 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
 
         // Element-local temp arrays for kernel (always element-local)
         std::vector<double> local_cell_displacement(n_local_cell_dof, 0.0);
+#ifdef DEBUG
         std::vector<double> local_cell_velocity(n_local_cell_dof, 0.0);
         std::vector<double> local_cell_acceleration(n_local_cell_dof, 0.0);
+#endif
         std::vector<double> local_cell_residual(n_local_cell_dof, 0.0);
 #ifdef GF_WITH_CUDA
         CudaDeviceState gpu_state;
@@ -407,8 +434,9 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         // === Initialize C-PML memory state ===
         if (part.has_cpml) {
             cpml_initialize(part, n_node);
-            logger.debug("  C-PML initialized: " + std::to_string(part.n_local_cell) +
-                         " elements, memory vars allocated");
+            GF_FORWARD_DEBUG_LOG(logger,
+                                 "  C-PML initialized: " + std::to_string(part.n_local_cell) +
+                                     " elements, memory vars allocated");
         }
 
         // === Initialize SLS attenuation memory state ===
@@ -426,15 +454,22 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 n_total_nodes, cfg.solver_dt, part.sls_decay.data(), part.sls_forcing_mu.data(),
                 part.sls_forcing_kappa.data());
 
-            logger.debug("  SLS attenuation initialized: " + std::to_string(n_total_nodes) +
-                         " nodes, n_sls=" + std::to_string(SLS::N_SLS));
+            GF_FORWARD_DEBUG_LOG(
+                logger, "  SLS attenuation initialized: " + std::to_string(n_total_nodes) +
+                            " nodes, n_sls=" + std::to_string(SLS::N_SLS));
         }
 
         // === Initialize record writer ===
         bool use_float32 = (cfg.snapshot_precision == "float32");
+#ifdef DEBUG
         RecordWriter record(output_dir, direction, rank, n_local_cell, ngll,
                             part.source_partition_start, part.source_partition_count, use_float32);
-        logger.debug("  full-domain record cells: " + std::to_string(record.n_local_cell()));
+        GF_FORWARD_DEBUG_LOG(
+            logger, "  full-domain record cells: " + std::to_string(record.n_record_cell()));
+#else
+        RecordWriter record(output_dir, direction, rank, part.recording, ngll,
+                            part.source_partition_start, part.source_partition_count, use_float32);
+#endif
 
         // === Build source element lookup table ===
         // Map precomputed source element IDs (from config.h5) to local element indices.
@@ -449,7 +484,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             }
         }
         if (cfg.n_src_cell > 0) {
-            logger.debug("  source elements: " + std::to_string(cfg.n_src_cell));
+            GF_FORWARD_DEBUG_LOG(logger, "  source elements: " + std::to_string(cfg.n_src_cell));
         }
 
 #ifdef GF_WITH_CUDA
@@ -530,6 +565,23 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
             return full_strain;
         };
 
+#ifndef DEBUG
+        auto extract_recording_strain = [&](const std::vector<double>& full_strain) {
+            const size_t n_record_cell = part.recording.rec_cell_local.size();
+            std::vector<double> recording_strain(n_record_cell * n_node * 6, 0.0);
+            for (size_t record_cell = 0; record_cell < n_record_cell; ++record_cell) {
+                const int local_cell = part.recording.rec_cell_local[record_cell];
+                if (local_cell < 0 || local_cell >= n_local_cell)
+                    throw std::runtime_error("recording cell index is out of range");
+                const size_t source_offset = static_cast<size_t>(local_cell) * n_node * 6;
+                const size_t destination_offset = record_cell * n_node * 6;
+                std::copy_n(full_strain.data() + source_offset, static_cast<size_t>(n_node) * 6,
+                            recording_strain.data() + destination_offset);
+            }
+            return recording_strain;
+        };
+#endif
+
         // === Newmark parameters ===
         double beta = 0.0;  // explicit central difference
         double gamma = 0.5;
@@ -556,7 +608,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         if (do_restart) {
             logger.info("  restart stride: " + std::to_string(restart_stride));
         } else {
-            logger.debug("  restart: disabled");
+            GF_FORWARD_DEBUG_LOG(logger, "  restart: disabled");
         }
 
         // === Main time loop ===
@@ -624,25 +676,25 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         if (start_step > 0) {
             cuda_copy_state_from_host(gpu_state, displacement, velocity, acceleration);
         }
-        CudaStepProfile cuda_step_profile(profile.enabled);
+        GF_CUDA_PROFILE_CREATE(cuda_step_profile, profile);
 #endif
-        profile.setup_s += elapsed_since(setup_start);
+        GF_PROFILE_ACCUMULATE(profile.setup_s, setup_start);
         for (int step = start_step; step < cfg.nsteps; ++step) {
 #ifdef GF_WITH_CUDA
             // === GPU-native path (single-GPU, no MPI) ===
             // All state vectors live on device. Only copy for I/O.
             if (gpu_state.use_global_dof) {
                 // ---- CG-SEM global assembly on GPU ----
-                cuda_step_profile.record(0);
+                GF_CUDA_PROFILE_RECORD(cuda_step_profile, 0);
                 cuda_newmark_predict(gpu_state, solver_dt, beta);
-                cuda_step_profile.record(1);
+                GF_CUDA_PROFILE_RECORD(cuda_step_profile, 1);
 
                 // Sync predicted displacement at shared interface nodes (multi-rank).
                 // Mirrors CPU CG-SEM step 2: exchange u_tilde, average by share count.
                 // No-op for single-GPU (exchange_patterns empty; exchange_halo is no-op
                 // under GF_NO_MPI).
                 if (!exchange_patterns.empty()) {
-                    const auto stage_start = std::chrono::steady_clock::now();
+                    GF_PROFILE_START(stage_start);
                     cuda_copy_utilde_to_host(gpu_state, displacement_tilde.data());
                     std::vector<double> ut_avg(displacement_tilde);
                     exchange_halo(exchange_patterns, ut_avg, 3);
@@ -654,36 +706,36 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                         }
                     }
                     cuda_copy_utilde_from_host(gpu_state, displacement_tilde.data());
-                    profile.displacement_exchange_s += elapsed_since(stage_start);
+                    GF_PROFILE_ACCUMULATE(profile.displacement_exchange_s, stage_start);
                 }
-                cuda_step_profile.record(2);
+                GF_CUDA_PROFILE_RECORD(cuda_step_profile, 2);
 
                 if (part.has_cpml) {
                     cuda_cpml_update_displ_fields(gpu_state, solver_dt, n_node);
                 }
-                cuda_step_profile.record(3);
+                GF_CUDA_PROFILE_RECORD(cuda_step_profile, 3);
                 if (part.has_cpml) {
                     cuda_cpml_update_displ_memory(gpu_state, n_node);
                 }
-                cuda_step_profile.record(4);
+                GF_CUDA_PROFILE_RECORD(cuda_step_profile, 4);
                 if (part.has_cpml) {
                     cuda_cpml_update_strain_memory(gpu_state, ngll, n_node);
                 }
-                cuda_step_profile.record(5);
+                GF_CUDA_PROFILE_RECORD(cuda_step_profile, 5);
 
                 // Gather predicted displacement → element-local for kernel
                 cuda_gather_predicted(gpu_state);
-                cuda_step_profile.record(6);
+                GF_CUDA_PROFILE_RECORD(cuda_step_profile, 6);
 
                 cuda_zero_residual(gpu_state);
                 cuda_launch_element_residual(gpu_state, ngll, n_local_cell);
-                cuda_step_profile.record(7);
+                GF_CUDA_PROFILE_RECORD(cuda_step_profile, 7);
                 if (part.has_cpml) {
                     cuda_cpml_accel_contribution(gpu_state, solver_dt, ngll, n_node);
                 } else {
                     cuda_pml_damping(gpu_state);
                 }
-                cuda_step_profile.record(8);
+                GF_CUDA_PROFILE_RECORD(cuda_step_profile, 8);
                 {
                     int dir = (direction == "x") ? 0 : ((direction == "y") ? 1 : 2);
                     double stf_val = 0.0;
@@ -695,74 +747,83 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                                               cfg.n_src_cell);
                     }
                 }
-                cuda_step_profile.record(9);
+                GF_CUDA_PROFILE_RECORD(cuda_step_profile, 9);
                 // Scatter element-local → global (atomicAdd at shared nodes)
                 cuda_scatter_to_rank(gpu_state);
-                cuda_step_profile.record(10);
+                GF_CUDA_PROFILE_RECORD(cuda_step_profile, 10);
 
                 // MPI halo exchange on global residual (multi-rank CG-SEM).
                 // Mirrors CPU CG-SEM step 6: accumulate neighbor contributions at
                 // shared nodes. No-op for single-GPU (exchange_patterns empty).
                 if (!exchange_patterns.empty()) {
-                    const auto stage_start = std::chrono::steady_clock::now();
+                    GF_PROFILE_START(stage_start);
                     cuda_copy_residual_to_host(gpu_state, residual.data());
                     exchange_halo(exchange_patterns, residual, 3);
                     cuda_copy_residual_from_host(gpu_state, residual.data());
-                    profile.residual_exchange_s += elapsed_since(stage_start);
+                    GF_PROFILE_ACCUMULATE(profile.residual_exchange_s, stage_start);
                 }
-                cuda_step_profile.record(11);
+                GF_CUDA_PROFILE_RECORD(cuda_step_profile, 11);
                 cuda_newmark_correct(gpu_state, solver_dt, beta, gamma);
-                cuda_step_profile.record(12);
-                cuda_step_profile.accumulate(profile, !exchange_patterns.empty(),
-                                             !exchange_patterns.empty());
+                GF_CUDA_PROFILE_RECORD(cuda_step_profile, 12);
+                GF_CUDA_PROFILE_ACCUMULATE(cuda_step_profile, profile, !exchange_patterns.empty(),
+                                           !exchange_patterns.empty());
             }
 
             // --- Write restart (every restart_stride solver steps) ---
             if (do_restart && step > 0 && step % restart_stride == 0) {
-                const auto stage_start = std::chrono::steady_clock::now();
+                GF_PROFILE_START(stage_start);
                 cuda_copy_state_to_host(gpu_state, displacement, velocity, acceleration);
                 cuda_copy_cpml_to_host(gpu_state, part);
                 cuda_copy_sls_to_host(gpu_state, part);
                 restart_writer->write(step, step * solver_dt, displacement, velocity, acceleration,
                                       part.pml_damping, &part);
-                profile.restart_io_s += elapsed_since(stage_start);
+                GF_PROFILE_ACCUMULATE(profile.restart_io_s, stage_start);
             }
 
             // --- Write snapshot (every snapshot_stride solver steps) ---
             if (cfg.snapshot_stride > 0 && step % cfg.snapshot_stride == 0) {
                 // Copy all dynamic state to host, then convert global nodal arrays to the
                 // element-local layout used by the full-domain record format.
-                auto stage_start = std::chrono::steady_clock::now();
+                GF_PROFILE_START(stage_start);
                 cuda_copy_state_to_host(gpu_state, displacement, velocity, acceleration);
-                profile.snapshot_state_copy_s += elapsed_since(stage_start);
+                GF_PROFILE_ACCUMULATE(profile.snapshot_state_copy_s, stage_start);
 
-                stage_start = std::chrono::steady_clock::now();
+                GF_PROFILE_RESTART(stage_start);
                 if (gpu_state.use_global_dof) {
                     gather_from_rank(displacement, part.local_cell2rank_node, n_local_cell, n_node,
                                      local_cell_displacement);
+#ifdef DEBUG
                     gather_from_rank(velocity, part.local_cell2rank_node, n_local_cell, n_node,
                                      local_cell_velocity);
                     gather_from_rank(acceleration, part.local_cell2rank_node, n_local_cell, n_node,
                                      local_cell_acceleration);
+#endif
                 }
-                profile.snapshot_gather_s += elapsed_since(stage_start);
+                GF_PROFILE_ACCUMULATE(profile.snapshot_gather_s, stage_start);
                 const double* snapshot_displacement = gpu_state.use_global_dof
                                                           ? local_cell_displacement.data()
                                                           : displacement.data();
+#ifdef DEBUG
                 const double* snapshot_velocity =
                     gpu_state.use_global_dof ? local_cell_velocity.data() : velocity.data();
                 const double* snapshot_acceleration = gpu_state.use_global_dof
                                                           ? local_cell_acceleration.data()
                                                           : acceleration.data();
+#endif
 
-                stage_start = std::chrono::steady_clock::now();
+                GF_PROFILE_RESTART(stage_start);
                 auto full_strain = compute_full_strain(snapshot_displacement);
-                profile.snapshot_strain_s += elapsed_since(stage_start);
+                GF_PROFILE_ACCUMULATE(profile.snapshot_strain_s, stage_start);
 
-                const auto write_start = std::chrono::steady_clock::now();
+                GF_PROFILE_START(write_start);
+#ifdef DEBUG
                 record.write_step(step, full_strain.data(), snapshot_displacement,
                                   snapshot_velocity, snapshot_acceleration);
-                profile.snapshot_write_s += elapsed_since(write_start);
+#else
+                auto recording_strain = extract_recording_strain(full_strain);
+                record.write_step(step, recording_strain.data());
+#endif
+                GF_PROFILE_ACCUMULATE(profile.snapshot_write_s, write_start);
             }
 #else
             // --- CPU path ---
@@ -772,17 +833,17 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 // 0. C-PML: Save PML_displ_old BEFORE predictor (uses old fields)
                 //    Matches SPECFEM3D update_displ_elastic_PML called before predictor
                 if (part.has_cpml) {
-                    const auto stage_start = std::chrono::steady_clock::now();
+                    GF_PROFILE_START(stage_start);
                     cpml_save_displ_old(part, displacement, velocity, acceleration, solver_dt,
                                         n_node);
-                    profile.cpml_displacement_state_s += elapsed_since(stage_start);
+                    GF_PROFILE_ACCUMULATE(profile.cpml_displacement_state_s, stage_start);
                 }
 
                 // 1. Newmark predictor (global arrays)
-                auto stage_start = std::chrono::steady_clock::now();
+                GF_PROFILE_START(stage_start);
                 newmark_predict(solver_dt, beta, displacement, velocity, acceleration,
                                 displacement_tilde);
-                profile.newmark_predict_s += elapsed_since(stage_start);
+                GF_PROFILE_ACCUMULATE(profile.newmark_predict_s, stage_start);
 
                 // 2. Sync predicted displacement at shared interface nodes.
                 //    Each rank's predictor uses its own (u,v,a) which may differ
@@ -793,7 +854,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                 //    hardcoded 0.5, so nodes shared by 3+ ranks are averaged
                 //    correctly.
                 if (!exchange_patterns.empty()) {
-                    stage_start = std::chrono::steady_clock::now();
+                    GF_PROFILE_RESTART(stage_start);
                     std::vector<double> ut_avg(displacement_tilde);
                     exchange_halo(exchange_patterns, ut_avg, 3);
                     for (const auto& pat : exchange_patterns) {
@@ -803,37 +864,37 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                                 ut_avg[dof_idx] / node_share_count[node_id];
                         }
                     }
-                    profile.displacement_exchange_s += elapsed_since(stage_start);
+                    GF_PROFILE_ACCUMULATE(profile.displacement_exchange_s, stage_start);
                 }
 
                 // 3. Gather predicted displacement → element-local for kernel
-                stage_start = std::chrono::steady_clock::now();
+                GF_PROFILE_RESTART(stage_start);
                 gather_from_rank(displacement_tilde, part.local_cell2rank_node, n_local_cell,
                                  n_node, local_cell_displacement);
-                profile.gather_s += elapsed_since(stage_start);
+                GF_PROFILE_ACCUMULATE(profile.gather_s, stage_start);
 
                 // 3a. C-PML: Save PML_displ_new AFTER predictor (uses predicted fields)
                 if (part.has_cpml) {
-                    stage_start = std::chrono::steady_clock::now();
+                    GF_PROFILE_RESTART(stage_start);
                     cpml_save_displ_new(part, displacement_tilde, velocity, acceleration,
                                         solver_dt, n_node);
-                    profile.cpml_displacement_state_s += elapsed_since(stage_start);
+                    GF_PROFILE_ACCUMULATE(profile.cpml_displacement_state_s, stage_start);
                 }
 
                 // 3b. C-PML: Update memory variables BEFORE kernel (matches SPECFEM3D
                 //     where rmemory update is inside pml_compute_accel_contribution,
                 //     before the accel contribution is computed)
                 if (part.has_cpml) {
-                    stage_start = std::chrono::steady_clock::now();
+                    GF_PROFILE_RESTART(stage_start);
                     cpml_update_displ_memory(part, n_node);
-                    profile.cpml_displacement_memory_s += elapsed_since(stage_start);
-                    stage_start = std::chrono::steady_clock::now();
+                    GF_PROFILE_ACCUMULATE(profile.cpml_displacement_memory_s, stage_start);
+                    GF_PROFILE_RESTART(stage_start);
                     cpml_update_strain_memory(part, D_mat.data(), gll_wts.data(), ngll);
-                    profile.cpml_strain_memory_s += elapsed_since(stage_start);
+                    GF_PROFILE_ACCUMULATE(profile.cpml_strain_memory_s, stage_start);
                 }
 
                 // 3. Zero element-local residual, compute element kernel
-                stage_start = std::chrono::steady_clock::now();
+                GF_PROFILE_RESTART(stage_start);
                 std::fill(local_cell_residual.begin(), local_cell_residual.end(), 0.0);
                 compute_element_residual(
                     n_local_cell, part.dxi_dx.data(), part.jacobian.data(), part.lambda_.data(),
@@ -848,10 +909,10 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                     part.has_attenuation ? part.sls_forcing_mu.data() : nullptr,
                     part.has_attenuation ? part.sls_forcing_kappa.data() : nullptr,
                     part.has_attenuation);
-                profile.element_residual_s += elapsed_since(stage_start);
+                GF_PROFILE_ACCUMULATE(profile.element_residual_s, stage_start);
 
                 // 4. PML damping / C-PML accel contribution
-                stage_start = std::chrono::steady_clock::now();
+                GF_PROFILE_RESTART(stage_start);
                 if (part.has_cpml) {
                     // C-PML: Add acceleration correction to element-local residual
                     // Uses PREDICTED displacement (displacement_tilde) and velocity
@@ -870,10 +931,10 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                         }
                     }
                 }
-                profile.cpml_acceleration_s += elapsed_since(stage_start);
+                GF_PROFILE_ACCUMULATE(profile.cpml_acceleration_s, stage_start);
 
                 // 5. Source injection into element-local residual
-                stage_start = std::chrono::steady_clock::now();
+                GF_PROFILE_RESTART(stage_start);
                 {
                     int dir = (direction == "x") ? 0 : ((direction == "y") ? 1 : 2);
                     double stf_val = 0.0;
@@ -903,65 +964,74 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
                         }
                     }
                 }
-                profile.source_injection_s += elapsed_since(stage_start);
+                GF_PROFILE_ACCUMULATE(profile.source_injection_s, stage_start);
 
                 // 6. Scatter element-local → global (accumulates at shared nodes)
-                stage_start = std::chrono::steady_clock::now();
+                GF_PROFILE_RESTART(stage_start);
                 scatter_to_rank(local_cell_residual, part.local_cell2rank_node, n_local_cell,
                                 n_node, residual);
-                profile.scatter_s += elapsed_since(stage_start);
+                GF_PROFILE_ACCUMULATE(profile.scatter_s, stage_start);
 
                 // 6. MPI halo exchange on global residual
-                stage_start = std::chrono::steady_clock::now();
+                GF_PROFILE_RESTART(stage_start);
                 exchange_halo(exchange_patterns, residual, 3);
-                profile.residual_exchange_s += elapsed_since(stage_start);
+                GF_PROFILE_ACCUMULATE(profile.residual_exchange_s, stage_start);
 
                 // 7. Newmark corrector (global arrays, global mass)
-                stage_start = std::chrono::steady_clock::now();
+                GF_PROFILE_RESTART(stage_start);
                 newmark_correct(solver_dt, beta, gamma, rank_node_mass, displacement, velocity,
                                 acceleration, residual);
-                profile.newmark_correct_s += elapsed_since(stage_start);
+                GF_PROFILE_ACCUMULATE(profile.newmark_correct_s, stage_start);
 
                 // 8. C-PML memory updates moved to step 3b (before kernel)
             }
 
             // --- Write restart (every restart_stride solver steps) ---
             if (do_restart && step > 0 && step % restart_stride == 0) {
-                const auto stage_start = std::chrono::steady_clock::now();
+                GF_PROFILE_START(stage_start);
                 restart_writer->write(step, step * solver_dt, displacement, velocity, acceleration,
                                       part.pml_damping, &part);
-                profile.restart_io_s += elapsed_since(stage_start);
+                GF_PROFILE_ACCUMULATE(profile.restart_io_s, stage_start);
             }
 
             // --- Write snapshot (every snapshot_stride solver steps) ---
             if (cfg.snapshot_stride > 0 && step % cfg.snapshot_stride == 0) {
                 // Convert all dynamic fields to element-local layout. Selection by depth,
                 // PML status, and tile is intentionally deferred to postprocessing.
-                auto stage_start = std::chrono::steady_clock::now();
+                GF_PROFILE_START(stage_start);
                 if (use_global_dof) {
                     gather_from_rank(displacement, part.local_cell2rank_node, n_local_cell, n_node,
                                      local_cell_displacement);
+#ifdef DEBUG
                     gather_from_rank(velocity, part.local_cell2rank_node, n_local_cell, n_node,
                                      local_cell_velocity);
                     gather_from_rank(acceleration, part.local_cell2rank_node, n_local_cell, n_node,
                                      local_cell_acceleration);
+#endif
                 }
-                profile.snapshot_gather_s += elapsed_since(stage_start);
+                GF_PROFILE_ACCUMULATE(profile.snapshot_gather_s, stage_start);
                 const double* snapshot_displacement =
                     use_global_dof ? local_cell_displacement.data() : displacement.data();
+#ifdef DEBUG
                 const double* snapshot_velocity =
                     use_global_dof ? local_cell_velocity.data() : velocity.data();
                 const double* snapshot_acceleration =
                     use_global_dof ? local_cell_acceleration.data() : acceleration.data();
+#endif
 
-                stage_start = std::chrono::steady_clock::now();
+                GF_PROFILE_RESTART(stage_start);
                 auto full_strain = compute_full_strain(snapshot_displacement);
-                profile.snapshot_strain_s += elapsed_since(stage_start);
+                GF_PROFILE_ACCUMULATE(profile.snapshot_strain_s, stage_start);
 
-                const auto write_start = std::chrono::steady_clock::now();
+                GF_PROFILE_START(write_start);
+#ifdef DEBUG
                 record.write_step(step, full_strain.data(), snapshot_displacement,
                                   snapshot_velocity, snapshot_acceleration);
-                profile.snapshot_write_s += elapsed_since(write_start);
+#else
+                auto recording_strain = extract_recording_strain(full_strain);
+                record.write_step(step, recording_strain.data());
+#endif
+                GF_PROFILE_ACCUMULATE(profile.snapshot_write_s, write_start);
             }
 #endif
 
@@ -995,7 +1065,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
 
         logger.progress_done();
 
-        const auto close_start = std::chrono::steady_clock::now();
+        GF_PROFILE_START(close_start);
 #ifdef GF_WITH_CUDA
         cuda_free_state(gpu_state);
 #endif
@@ -1005,7 +1075,7 @@ int run_forward(const std::string& direction, bool resume_mode, int effective_np
         if (restart_writer) {
             restart_writer->close();
         }
-        profile.output_close_s += elapsed_since(close_start);
+        GF_PROFILE_ACCUMULATE(profile.output_close_s, close_start);
 
         auto t_end = std::chrono::steady_clock::now();
         double total_elapsed = std::chrono::duration<double>(t_end - t_start).count();

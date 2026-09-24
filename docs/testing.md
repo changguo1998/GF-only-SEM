@@ -69,7 +69,7 @@ GF_RUN_CPP_PREPROCESS_SMOKE=1 .venv/bin/python -m pytest \
 | `tests/test_sls_finite_q.cpp` | 3 | SPECFEM Qμ=20 剪切、Qκ=10 体积与时间步细化 |
 | `tests/test_io.cpp` | 2 | 分区与配置 HDF5 往返 |
 | `tests/test_restart.cpp` | 1 | C-PML 运行态 HDF5 重启往返 |
-| `tests/test_record.cpp` | 2 | 全域四类动态字段、无压缩 schema 和 float32 写入 |
+| `tests/test_record*.cpp` | 3 | Release 紧凑应变、Debug 全域四类动态字段、无压缩与 float32 |
 | `tests/test_assembly.cpp` | 8 | 全局装配、震源 RHS、scatter/gather |
 | `tests/test_exchange.cpp` | 3 | MPI halo、累加与空模式 |
 | `tests/test_integration.cpp` | 3 | 单单元正演、刚体残差与 PML 阻尼 |

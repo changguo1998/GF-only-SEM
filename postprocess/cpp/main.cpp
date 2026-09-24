@@ -41,6 +41,12 @@
 #include "reader.hpp"
 #include "writer.hpp"
 
+#ifdef DEBUG
+#define GF_POST_DEBUG_LOG(...) fprintf(stderr, __VA_ARGS__)
+#else
+#define GF_POST_DEBUG_LOG(...) ((void)0)
+#endif
+
 // -----------------------------------------------------------------------
 // CLI argument parsing
 // -----------------------------------------------------------------------
@@ -104,9 +110,11 @@ struct DirectionRecords {
     std::vector<StepGroup> groups;  // discarded after record_paths is built
     std::vector<int> steps;
     std::vector<std::vector<std::string>> record_paths;  // [step][rank-map index]
+#ifdef DEBUG
     bool has_displacement = false;
     bool has_velocity = false;
     bool has_acceleration = false;
+#endif
 };
 
 // -----------------------------------------------------------------------
@@ -122,6 +130,7 @@ static DirectionRecords scan_direction_records(const char* dir_path) {
     }
     result.groups = group_by_step(files);
 
+#ifdef DEBUG
     hid_t probe = H5Fopen(files[0].path.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
     if (probe >= 0) {
         result.has_displacement = H5Lexists(probe, "displacement", H5P_DEFAULT) > 0;
@@ -129,6 +138,7 @@ static DirectionRecords scan_direction_records(const char* dir_path) {
         result.has_acceleration = H5Lexists(probe, "acceleration", H5P_DEFAULT) > 0;
         H5Fclose(probe);
     }
+#endif
     return result;
 }
 
@@ -213,7 +223,8 @@ static std::pair<int, int> record_partition_range(const DirectionRecords& record
 static LayoutMetadata merge_partition_metadata(const std::filesystem::path& partition_dir,
                                                const DirectionRecords& records) {
     LayoutMetadata result;
-    fprintf(stderr, "[postprocess] Building recording layout from %s...\n", partition_dir.c_str());
+    GF_POST_DEBUG_LOG("[postprocess] Building recording layout from %s...\n",
+                      partition_dir.c_str());
 
     std::set<int> ranks;
     for (const auto& group : records.groups)
@@ -379,10 +390,10 @@ static LayoutMetadata merge_partition_metadata(const std::filesystem::path& part
             result.n_rec_cell_merged++;
         }
     }
-    fprintf(stderr, "[postprocess]   %lld merged recording cells\n",
-            (long long)result.n_rec_cell_merged);
-    fprintf(stderr, "[postprocess]   %lld unique GLL nodes from %zu output rank(s)\n",
-            (long long)result.n_unique_gll, rank_maps.size());
+    GF_POST_DEBUG_LOG("[postprocess]   %lld merged recording cells\n",
+                      (long long)result.n_rec_cell_merged);
+    GF_POST_DEBUG_LOG("[postprocess]   %lld unique GLL nodes from %zu output rank(s)\n",
+                      (long long)result.n_unique_gll, rank_maps.size());
 
     result.rank_maps = std::move(rank_maps);
     return result;
@@ -503,6 +514,7 @@ static void broadcast_layout(LayoutMetadata& layout, int worker_rank) {
 
 static void broadcast_direction_records(DirectionRecords& records, const LayoutMetadata& layout,
                                         int worker_rank) {
+#ifdef DEBUG
     int flags[3] = {records.has_displacement ? 1 : 0, records.has_velocity ? 1 : 0,
                     records.has_acceleration ? 1 : 0};
     MPI_Bcast(flags, 3, MPI_INT, 0, MPI_COMM_WORLD);
@@ -511,6 +523,7 @@ static void broadcast_direction_records(DirectionRecords& records, const LayoutM
         records.has_velocity = flags[1] != 0;
         records.has_acceleration = flags[2] != 0;
     }
+#endif
     broadcast_vector(records.steps, MPI_INT, worker_rank);
     if (worker_rank != 0) {
         records.record_paths.assign(records.steps.size(),
@@ -773,12 +786,15 @@ static TilePlan read_tile_index(const std::filesystem::path& path) {
 // -----------------------------------------------------------------------
 
 struct DirFields {
-    std::vector<double> strain;        // [n_steps, n_local, 6]
+    std::vector<double> strain;  // [n_steps, n_local, 6]
+#ifdef DEBUG
     std::vector<double> displacement;  // [n_steps, n_local, 3]
     std::vector<double> velocity;      // [n_steps, n_local, 3]
     std::vector<double> acceleration;  // [n_steps, n_local, 3]
+#endif
 };
 
+#ifdef DEBUG
 struct PostprocessProfile {
     bool enabled = std::getenv("GF_POST_PROFILE") != nullptr;
     double argument_parse_s = 0.0;
@@ -817,6 +833,32 @@ static double profile_now() {
     return std::chrono::duration<double>(now).count();
 }
 
+#define GF_POST_PROFILE_ENABLED(profile) ((profile).enabled)
+#define GF_POST_PROFILE_START(name, profile) \
+    const double name = (profile).enabled ? profile_now() : 0.0
+#define GF_POST_PROFILE_PTR_START(name, profile) \
+    const double name = ((profile) && (profile)->enabled) ? profile_now() : 0.0
+#define GF_POST_PROFILE(profile, ...) \
+    do {                              \
+        if ((profile).enabled) {      \
+            __VA_ARGS__;              \
+        }                             \
+    } while (0)
+#define GF_POST_PROFILE_PTR(profile, ...)      \
+    do {                                       \
+        if ((profile) && (profile)->enabled) { \
+            __VA_ARGS__;                       \
+        }                                      \
+    } while (0)
+#else
+struct PostprocessProfile {};
+#define GF_POST_PROFILE_ENABLED(profile) false
+#define GF_POST_PROFILE_START(name, profile)
+#define GF_POST_PROFILE_PTR_START(name, profile)
+#define GF_POST_PROFILE(profile, ...)
+#define GF_POST_PROFILE_PTR(profile, ...)
+#endif
+
 struct TileRankRoute {
     size_t tile_index = 0;
     int64_t entry_begin = 0;
@@ -845,9 +887,11 @@ static std::vector<std::vector<TileRankRoute>> build_worker_record_routes(
 
 struct TileStepCounts {
     std::vector<double> strain_weights;
+#ifdef DEBUG
     std::vector<int32_t> displacement;
     std::vector<int32_t> velocity;
     std::vector<int32_t> acceleration;
+#endif
 };
 
 // Phase 3: read every record once per worker and scatter it to all assigned
@@ -859,35 +903,39 @@ static std::vector<DirFields> extract_worker_tile_fields(
     const int64_t n_steps = static_cast<int64_t>(records.steps.size());
     std::vector<DirFields> results(plans.size());
 
-    const double field_allocation_start = profile && profile->enabled ? profile_now() : 0.0;
+    GF_POST_PROFILE_PTR_START(field_allocation_start, profile);
     for (size_t tile_index = 0; tile_index < plans.size(); ++tile_index) {
         const size_t node_count = plans[tile_index].node_ids.size();
         results[tile_index].strain.resize((size_t)n_steps * node_count * 6, 0.0);
+#ifdef DEBUG
         if (records.has_displacement)
             results[tile_index].displacement.resize((size_t)n_steps * node_count * 3, 0.0);
         if (records.has_velocity)
             results[tile_index].velocity.resize((size_t)n_steps * node_count * 3, 0.0);
         if (records.has_acceleration)
             results[tile_index].acceleration.resize((size_t)n_steps * node_count * 3, 0.0);
+#endif
     }
-    if (profile && profile->enabled)
-        profile->field_allocation_s += profile_now() - field_allocation_start;
+    GF_POST_PROFILE_PTR(profile,
+                        profile->field_allocation_s += profile_now() - field_allocation_start);
 
     for (int64_t snap_idx = 0; snap_idx < n_steps; ++snap_idx) {
-        const double step_buffer_init_start = profile && profile->enabled ? profile_now() : 0.0;
+        GF_POST_PROFILE_PTR_START(step_buffer_init_start, profile);
         std::vector<TileStepCounts> counts(plans.size());
         for (size_t tile_index = 0; tile_index < plans.size(); ++tile_index) {
             const size_t node_count = plans[tile_index].node_ids.size();
             counts[tile_index].strain_weights.resize(node_count, 0.0);
+#ifdef DEBUG
             if (records.has_displacement)
                 counts[tile_index].displacement.resize(node_count, 0);
             if (records.has_velocity)
                 counts[tile_index].velocity.resize(node_count, 0);
             if (records.has_acceleration)
                 counts[tile_index].acceleration.resize(node_count, 0);
+#endif
         }
-        if (profile && profile->enabled)
-            profile->step_buffer_init_s += profile_now() - step_buffer_init_start;
+        GF_POST_PROFILE_PTR(profile,
+                            profile->step_buffer_init_s += profile_now() - step_buffer_init_start);
 
         for (size_t mapping_index = 0; mapping_index < routes.size(); ++mapping_index) {
             if (routes[mapping_index].empty())
@@ -896,38 +944,33 @@ static std::vector<DirFields> extract_worker_tile_fields(
             if (record_path.empty())
                 continue;
 
-            const double file_open_start = profile && profile->enabled ? profile_now() : 0.0;
+            GF_POST_PROFILE_PTR_START(file_open_start, profile);
             hid_t file = H5Fopen(record_path.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
-            if (profile && profile->enabled)
-                profile->file_open_s += profile_now() - file_open_start;
+            GF_POST_PROFILE_PTR(profile, profile->file_open_s += profile_now() - file_open_start);
             if (file < 0)
                 continue;
-            if (profile && profile->enabled)
-                ++profile->files_opened;
+            GF_POST_PROFILE_PTR(profile, ++profile->files_opened);
 
             hsize_t recording_cell_count = 0;
             hsize_t nodes_per_cell = 0;
             std::vector<double> field_buffer;
             const auto& selected_cells = layout.rank_maps[mapping_index].record_cell_indices;
-            const double strain_io_start = profile && profile->enabled ? profile_now() : 0.0;
+            GF_POST_PROFILE_PTR_START(strain_io_start, profile);
             read_field_cells_4d(file, "strain", 6, selected_cells, recording_cell_count,
                                 nodes_per_cell, field_buffer);
-            if (profile && profile->enabled) {
-                ++profile->dataset_reads;
-                const double elapsed_s = profile_now() - strain_io_start;
-                profile->hdf5_read_s += elapsed_s;
-                profile->field_read_s[0] += elapsed_s;
-            }
+            GF_POST_PROFILE_PTR(profile, ++profile->dataset_reads;
+                                const double elapsed_s = profile_now() - strain_io_start;
+                                profile->hdf5_read_s += elapsed_s;
+                                profile->field_read_s[0] += elapsed_s;);
 
-            double aggregation_start = profile && profile->enabled ? profile_now() : 0.0;
+            GF_POST_PROFILE_PTR_START(aggregation_start, profile);
             for (const auto& route : routes[mapping_index]) {
                 const auto& plan = plans[route.tile_index];
                 const size_t node_count = plan.node_ids.size();
                 double* destination_step =
                     results[route.tile_index].strain.data() + (size_t)snap_idx * node_count * 6;
                 for (int64_t entry = route.entry_begin; entry < route.entry_end; ++entry) {
-                    if (profile && profile->enabled)
-                        ++profile->cell_values_visited;
+                    GF_POST_PROFILE_PTR(profile, ++profile->cell_values_visited);
                     const int64_t point_index = plan.record_cell_point_index[(size_t)entry];
                     const hsize_t cell = point_index / plan.n_node_per_cell;
                     const hsize_t point = point_index % plan.n_node_per_cell;
@@ -946,12 +989,12 @@ static std::vector<DirFields> extract_worker_tile_fields(
                     counts[route.tile_index].strain_weights[(size_t)tile_node] += weight;
                 }
             }
-            if (profile && profile->enabled) {
-                const double elapsed_s = profile_now() - aggregation_start;
-                profile->aggregation_s += elapsed_s;
-                profile->field_aggregation_s[0] += elapsed_s;
-            }
+            GF_POST_PROFILE_PTR(profile,
+                                const double elapsed_s = profile_now() - aggregation_start;
+                                profile->aggregation_s += elapsed_s;
+                                profile->field_aggregation_s[0] += elapsed_s;);
 
+#ifdef DEBUG
             auto read_and_accumulate_vector = [&](const char* dataset_name, int field_index,
                                                   std::vector<DirFields>& tile_results) {
                 hsize_t field_cell_count = 0;
@@ -1011,14 +1054,15 @@ static std::vector<DirFields> extract_worker_tile_fields(
                 read_and_accumulate_vector("velocity", 2, results);
             if (records.has_acceleration)
                 read_and_accumulate_vector("acceleration", 3, results);
+#endif
 
-            const double file_close_start = profile && profile->enabled ? profile_now() : 0.0;
+            GF_POST_PROFILE_PTR_START(file_close_start, profile);
             H5Fclose(file);
-            if (profile && profile->enabled)
-                profile->file_close_s += profile_now() - file_close_start;
+            GF_POST_PROFILE_PTR(profile,
+                                profile->file_close_s += profile_now() - file_close_start);
         }
 
-        const double normalization_start = profile && profile->enabled ? profile_now() : 0.0;
+        GF_POST_PROFILE_PTR_START(normalization_start, profile);
         for (size_t tile_index = 0; tile_index < plans.size(); ++tile_index) {
             const size_t node_count = plans[tile_index].node_ids.size();
             double* strain_step =
@@ -1030,6 +1074,7 @@ static std::vector<DirFields> extract_worker_tile_fields(
                         strain_step[node * 6 + (size_t)component] /= weight;
                 }
             }
+#ifdef DEBUG
             auto normalize_vector = [&](std::vector<double>& values,
                                         const std::vector<int32_t>& sample_counts) {
                 if (values.empty())
@@ -1046,9 +1091,10 @@ static std::vector<DirFields> extract_worker_tile_fields(
             normalize_vector(results[tile_index].displacement, counts[tile_index].displacement);
             normalize_vector(results[tile_index].velocity, counts[tile_index].velocity);
             normalize_vector(results[tile_index].acceleration, counts[tile_index].acceleration);
+#endif
         }
-        if (profile && profile->enabled)
-            profile->normalization_s += profile_now() - normalization_start;
+        GF_POST_PROFILE_PTR(profile,
+                            profile->normalization_s += profile_now() - normalization_start);
     }
     return results;
 }
@@ -1074,13 +1120,13 @@ int main(int argc, char** argv) {
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &worker_rank);
     MPI_Comm_size(MPI_COMM_WORLD, &worker_count);
-    fprintf(stderr, "[postprocess] MPI rank %d/%d\n", worker_rank, worker_count);
+    GF_POST_DEBUG_LOG("[postprocess] MPI rank %d/%d\n", worker_rank, worker_count);
     // Stagger file access to avoid HDF5 metadata contention
     MPI_Barrier(MPI_COMM_WORLD);
     usleep((unsigned int)(worker_rank * 200000));  // 200ms stagger
     MPI_Barrier(MPI_COMM_WORLD);
 #else
-    fprintf(stderr, "[postprocess] Serial tile worker 0/1\n");
+    GF_POST_DEBUG_LOG("[postprocess] Serial tile worker 0/1\n");
 #endif
 
     double start = 0.0;
@@ -1091,41 +1137,38 @@ int main(int argc, char** argv) {
     }
 
     PostprocessProfile profile;
-    if (profile.enabled)
+    if (GF_POST_PROFILE_ENABLED(profile))
         fprintf(stderr, "[postprocess] Profiling enabled (GF_POST_PROFILE=1)\n");
 
-    fprintf(stderr, "[postprocess] Starting...\n");
+    if (worker_rank == 0)
+        fprintf(stderr, "[postprocess] Starting...\n");
 
-    const double argument_parse_start = profile.enabled ? profile_now() : 0.0;
+    GF_POST_PROFILE_START(argument_parse_start, profile);
     auto args = gf_postprocess_common::parse_args(argc, argv, print_usage);
-    if (profile.enabled)
-        profile.argument_parse_s += profile_now() - argument_parse_start;
+    GF_POST_PROFILE(profile, profile.argument_parse_s += profile_now() - argument_parse_start);
 
     // ---- Read config ----
-    fprintf(stderr, "[postprocess] Reading config from %s\n", args.config_path.c_str());
-    const double config_read_start = profile.enabled ? profile_now() : 0.0;
+    GF_POST_DEBUG_LOG("[postprocess] Reading config from %s\n", args.config_path.c_str());
+    GF_POST_PROFILE_START(config_read_start, profile);
     ConfigParams cfg = read_config(args.config_path.c_str());
-    if (profile.enabled)
-        profile.config_read_s += profile_now() - config_read_start;
+    GF_POST_PROFILE(profile, profile.config_read_s += profile_now() - config_read_start);
 
     // ---- Read mesh ----
-    fprintf(stderr, "[postprocess] Reading mesh geometry from %s\n", args.model_path.c_str());
-    const double model_read_start = profile.enabled ? profile_now() : 0.0;
+    GF_POST_DEBUG_LOG("[postprocess] Reading mesh geometry from %s\n", args.model_path.c_str());
+    GF_POST_PROFILE_START(model_read_start, profile);
     ModelData model = read_model(args.model_path.c_str());
-    if (profile.enabled)
-        profile.model_read_s += profile_now() - model_read_start;
+    GF_POST_PROFILE(profile, profile.model_read_s += profile_now() - model_read_start);
     int64_t n_vertex = model.n_vertex;  // kept for domain bounds
-    fprintf(stderr, "[postprocess]   domain vertex count = %lld\n", (long long)n_vertex);
+    GF_POST_DEBUG_LOG("[postprocess]   domain vertex count = %lld\n", (long long)n_vertex);
 
     // ---- Read cell mass from model.h5 for L2 projection ----
     std::vector<double> cell_mass;
     int64_t n_model_cell = 0;
     int ngll_model = 0;
-    const double mass_read_start = profile.enabled ? profile_now() : 0.0;
+    GF_POST_PROFILE_START(mass_read_start, profile);
     gf_postprocess_common::read_cell_mass(args.model_path.c_str(), cell_mass, n_model_cell,
                                           ngll_model);
-    if (profile.enabled)
-        profile.mass_read_s += profile_now() - mass_read_start;
+    GF_POST_PROFILE(profile, profile.mass_read_s += profile_now() - mass_read_start);
 
     // ---- Phase 1: rank 0 builds all shared indexes before field processing ----
     LayoutMetadata layout;
@@ -1141,28 +1184,24 @@ int main(int argc, char** argv) {
         x_record_directory = x_record_directory.parent_path();
     const auto tile_index_directory = x_record_directory.parent_path() / "tile_indexes";
     if (worker_rank == 0) {
-        const double record_scan_start = profile.enabled ? profile_now() : 0.0;
+        GF_POST_PROFILE_START(record_scan_start, profile);
         directions[0] = scan_direction_records(args.fx_dir.c_str());
         directions[1] = scan_direction_records(args.fy_dir.c_str());
         directions[2] = scan_direction_records(args.fz_dir.c_str());
-        if (profile.enabled)
-            profile.record_scan_s += profile_now() - record_scan_start;
+        GF_POST_PROFILE(profile, profile.record_scan_s += profile_now() - record_scan_start);
 
-        const double layout_merge_start = profile.enabled ? profile_now() : 0.0;
+        GF_POST_PROFILE_START(layout_merge_start, profile);
         layout = merge_partition_metadata(partition_directory, directions[0]);
-        if (profile.enabled)
-            profile.layout_merge_s += profile_now() - layout_merge_start;
+        GF_POST_PROFILE(profile, profile.layout_merge_s += profile_now() - layout_merge_start);
 
-        const double mass_index_start = profile.enabled ? profile_now() : 0.0;
+        GF_POST_PROFILE_START(mass_index_start, profile);
         build_mass_indexes(layout, n_model_cell, ngll_model);
-        if (profile.enabled)
-            profile.mass_index_s += profile_now() - mass_index_start;
+        GF_POST_PROFILE(profile, profile.mass_index_s += profile_now() - mass_index_start);
 
-        const double record_index_start = profile.enabled ? profile_now() : 0.0;
+        GF_POST_PROFILE_START(record_index_start, profile);
         for (auto& direction : directions)
             build_direction_record_index(direction, layout);
-        if (profile.enabled)
-            profile.record_index_s += profile_now() - record_index_start;
+        GF_POST_PROFILE(profile, profile.record_index_s += profile_now() - record_index_start);
 
         if (directions[0].steps != directions[1].steps ||
             directions[0].steps != directions[2].steps) {
@@ -1173,12 +1212,11 @@ int main(int argc, char** argv) {
             return 1;
 #endif
         }
-        const double tile_bin_start = profile.enabled ? profile_now() : 0.0;
+        GF_POST_PROFILE_START(tile_bin_start, profile);
         tile_bins = build_tile_bins(layout, cfg, model);
-        if (profile.enabled)
-            profile.tile_bin_s += profile_now() - tile_bin_start;
+        GF_POST_PROFILE(profile, profile.tile_bin_s += profile_now() - tile_bin_start);
 
-        const double tile_plan_start = profile.enabled ? profile_now() : 0.0;
+        GF_POST_PROFILE_START(tile_plan_start, profile);
         std::filesystem::create_directories(tile_index_directory);
         for (const auto& entry : std::filesystem::directory_iterator(tile_index_directory)) {
             const std::string filename = entry.path().filename().string();
@@ -1203,26 +1241,25 @@ int main(int argc, char** argv) {
         }
         tile_assignments =
             gf_postprocess_common::assign_tiles_by_rank_overlap(assignment_inputs, worker_count);
-        if (profile.enabled)
-            profile.tile_plan_s += profile_now() - tile_plan_start;
+        GF_POST_PROFILE(profile, profile.tile_plan_s += profile_now() - tile_plan_start);
     }
 
 #ifdef GF_POST_MPI
-    const double broadcast_start = profile.enabled ? profile_now() : 0.0;
+    GF_POST_PROFILE_START(broadcast_start, profile);
     broadcast_layout(layout, worker_rank);
     for (auto& direction : directions)
         broadcast_direction_records(direction, layout, worker_rank);
     broadcast_tile_bins(tile_bins, worker_rank);
     broadcast_vector(tile_assignments, MPI_INT, worker_rank);
-    if (profile.enabled)
-        profile.broadcast_s += profile_now() - broadcast_start;
+    GF_POST_PROFILE(profile, profile.broadcast_s += profile_now() - broadcast_start);
 #endif
 
     int64_t n_steps = static_cast<int64_t>(directions[0].steps.size());
 
     // GLL node IDs (1-based, shared across directions)
     int64_t n_recorded = layout.n_unique_gll;
-    fprintf(stderr, "[postprocess] %lld unique GLL nodes recorded\n", (long long)n_recorded);
+    if (worker_rank == 0)
+        fprintf(stderr, "[postprocess] %lld unique GLL nodes recorded\n", (long long)n_recorded);
 
     if (n_recorded == 0) {
         fprintf(stderr, "ERROR: no GLL nodes recorded\n");
@@ -1230,7 +1267,7 @@ int main(int argc, char** argv) {
     }
 
     // ---- Build time array ----
-    const double time_stf_start = profile.enabled ? profile_now() : 0.0;
+    GF_POST_PROFILE_START(time_stf_start, profile);
     std::vector<double> time_arr((size_t)n_steps);
     for (int64_t s = 0; s < n_steps; ++s) {
         time_arr[(size_t)s] = (double)s * cfg.output_dt_s;
@@ -1240,9 +1277,9 @@ int main(int argc, char** argv) {
     // config STF is at solver_dt; tile time axis is at output_dt_s.
     std::vector<double> stf_t_ds, stf_values_ds;
     gf_postprocess_common::downsample_stf(cfg, n_steps, stf_t_ds, stf_values_ds);
-    if (profile.enabled)
-        profile.time_stf_s += profile_now() - time_stf_start;
+    GF_POST_PROFILE(profile, profile.time_stf_s += profile_now() - time_stf_start);
 
+#ifdef DEBUG
     bool has_displacement = directions[0].has_displacement && directions[1].has_displacement &&
                             directions[2].has_displacement;
     bool has_velocity =
@@ -1252,25 +1289,27 @@ int main(int argc, char** argv) {
     fprintf(stderr, "[postprocess]   displacement=%s velocity=%s acceleration=%s\n",
             has_displacement ? "yes" : "no", has_velocity ? "yes" : "no",
             has_acceleration ? "yes" : "no");
+#endif
 
     // ---- Phase 2: prepare assigned tile indexes before any field I/O ----
     double xmin = model.xmin, ymin = model.ymin, xmax = model.xmax, ymax = model.ymax;
     int64_t n_tiles = static_cast<int64_t>(tile_bins.size());
-    fprintf(stderr, "[postprocess]   %lld tiles\n", (long long)n_tiles);
+    if (worker_rank == 0)
+        fprintf(stderr, "[postprocess]   %lld tiles\n", (long long)n_tiles);
 
     const size_t assigned_tile_count = static_cast<size_t>(
         std::count(tile_assignments.begin(), tile_assignments.end(), worker_rank));
     // ---- Worker exit check: idle workers exit BEFORE any field allocation ----
     if (assigned_tile_count == 0) {
-        fprintf(stderr, "[postprocess] Worker %d: no tile assigned (n_tiles=%lld), exiting\n",
-                worker_rank, (long long)n_tiles);
+        GF_POST_DEBUG_LOG("[postprocess] Worker %d: no tile assigned (n_tiles=%lld), exiting\n",
+                          worker_rank, (long long)n_tiles);
 #ifdef GF_POST_MPI
         MPI_Finalize();
 #endif
         return 0;
     }
 
-    const double tile_plan_load_start = profile.enabled ? profile_now() : 0.0;
+    GF_POST_PROFILE_START(tile_plan_load_start, profile);
     std::vector<TilePlan> assigned_tile_plans;
     assigned_tile_plans.reserve(assigned_tile_count);
     for (int64_t tile_position = 0; tile_position < n_tiles; ++tile_position) {
@@ -1279,10 +1318,9 @@ int main(int argc, char** argv) {
         const TileKey key = tile_bins[(size_t)tile_position].key;
         assigned_tile_plans.push_back(read_tile_index(tile_index_path(tile_index_directory, key)));
     }
-    if (profile.enabled)
-        profile.tile_plan_s += profile_now() - tile_plan_load_start;
-    fprintf(stderr, "[postprocess]   worker %d prepared %zu tile index plan(s)\n", worker_rank,
-            assigned_tile_plans.size());
+    GF_POST_PROFILE(profile, profile.tile_plan_s += profile_now() - tile_plan_load_start);
+    GF_POST_DEBUG_LOG("[postprocess]   worker %d prepared %zu tile index plan(s)\n", worker_rank,
+                      assigned_tile_plans.size());
 
     // Divide the aggregate output + one-direction field budget across active
     // workers. Each batch still maximizes record reuse within that budget.
@@ -1297,8 +1335,14 @@ int main(int argc, char** argv) {
     }
     std::vector<uint64_t> tile_memory_bytes;
     tile_memory_bytes.reserve(assigned_tile_plans.size());
+#ifdef DEBUG
+    constexpr uint64_t field_components_per_node = 60;
+#else
+    constexpr uint64_t field_components_per_node = 24;
+#endif
     for (const auto& plan : assigned_tile_plans) {
-        tile_memory_bytes.push_back(static_cast<uint64_t>(n_steps) * plan.node_ids.size() * 60 *
+        tile_memory_bytes.push_back(static_cast<uint64_t>(n_steps) * plan.node_ids.size() *
+                                    field_components_per_node *
                                     static_cast<uint64_t>(sizeof(double)));
     }
     std::vector<std::vector<TilePlan>> tile_plan_batches;
@@ -1311,17 +1355,16 @@ int main(int argc, char** argv) {
     }
     assigned_tile_plans.clear();
     assigned_tile_plans.shrink_to_fit();
-    fprintf(stderr, "[postprocess]   worker %d grouped tiles into %zu memory batch(es)\n",
-            worker_rank, tile_plan_batches.size());
+    GF_POST_DEBUG_LOG("[postprocess]   worker %d grouped tiles into %zu memory batch(es)\n",
+                      worker_rank, tile_plan_batches.size());
 
-    const double output_prepare_start = profile.enabled ? profile_now() : 0.0;
+    GF_POST_PROFILE_START(output_prepare_start, profile);
     std::string mkdir_cmd = "mkdir -p " + args.output_dir;
     if (system(mkdir_cmd.c_str()) != 0) {
         fprintf(stderr, "WARNING: could not create output directory %s\n",
                 args.output_dir.c_str());
     }
-    if (profile.enabled)
-        profile.output_prepare_s += profile_now() - output_prepare_start;
+    GF_POST_PROFILE(profile, profile.output_prepare_s += profile_now() - output_prepare_start);
 
     double zmin = model.zmin, zmax = model.zmax;
 
@@ -1347,30 +1390,34 @@ int main(int argc, char** argv) {
     for (const auto& tile_plans : tile_plan_batches) {
         // ---- Allocate final arrays for as many assigned tiles as fit the
         //      worker memory budget. Each record feeds every tile in the batch. ----
-        const double tile_allocation_start = profile.enabled ? profile_now() : 0.0;
+        GF_POST_PROFILE_START(tile_allocation_start, profile);
         std::vector<std::vector<double>> tile_greens(tile_plans.size());
+#ifdef DEBUG
         std::vector<std::vector<double>> tile_displacements(tile_plans.size());
         std::vector<std::vector<double>> tile_velocities(tile_plans.size());
         std::vector<std::vector<double>> tile_accelerations(tile_plans.size());
+#endif
         for (size_t tile_index = 0; tile_index < tile_plans.size(); ++tile_index) {
             const size_t node_count = tile_plans[tile_index].node_ids.size();
             tile_greens[tile_index].resize((size_t)n_steps * node_count * 18, 0.0);
+#ifdef DEBUG
             if (has_displacement)
                 tile_displacements[tile_index].resize((size_t)n_steps * node_count * 9, 0.0);
             if (has_velocity)
                 tile_velocities[tile_index].resize((size_t)n_steps * node_count * 9, 0.0);
             if (has_acceleration)
                 tile_accelerations[tile_index].resize((size_t)n_steps * node_count * 9, 0.0);
+#endif
         }
-        if (profile.enabled)
-            profile.tile_allocation_s += profile_now() - tile_allocation_start;
+        GF_POST_PROFILE(profile,
+                        profile.tile_allocation_s += profile_now() - tile_allocation_start);
 
         const auto record_routes = build_worker_record_routes(tile_plans, layout);
         // Direction 0 = fx, 1 = fy, 2 = fz.
         for (int direction = 0; direction < 3; ++direction) {
             auto fields = extract_worker_tile_fields(directions[direction], layout, tile_plans,
                                                      record_routes, cell_mass, &profile);
-            const double assembly_start = profile.enabled ? profile_now() : 0.0;
+            GF_POST_PROFILE_START(assembly_start, profile);
             for (size_t tile_index = 0; tile_index < tile_plans.size(); ++tile_index) {
                 const size_t node_count = tile_plans[tile_index].node_ids.size();
                 for (int64_t step = 0; step < n_steps; ++step) {
@@ -1382,6 +1429,7 @@ int main(int argc, char** argv) {
                             strain, tile_greens[tile_index].data() + tensor_offset, direction);
                     }
                 }
+#ifdef DEBUG
                 auto assemble_vector_field = [&](const std::vector<double>& source,
                                                  std::vector<double>& destination) {
                     if (source.empty())
@@ -1403,9 +1451,9 @@ int main(int argc, char** argv) {
                 assemble_vector_field(fields[tile_index].velocity, tile_velocities[tile_index]);
                 assemble_vector_field(fields[tile_index].acceleration,
                                       tile_accelerations[tile_index]);
+#endif
             }
-            if (profile.enabled)
-                profile.assembly_s += profile_now() - assembly_start;
+            GF_POST_PROFILE(profile, profile.assembly_s += profile_now() - assembly_start);
         }
 
         // ---- Each tile remains exclusively owned and is written once. ----
@@ -1424,7 +1472,8 @@ int main(int argc, char** argv) {
             std::snprintf(fname, sizeof(fname), "%s/tile_x%03d_y%03d.h5", args.output_dir.c_str(),
                           key.tx, key.ty);
 
-            const double write_start = profile.enabled ? profile_now() : 0.0;
+            GF_POST_PROFILE_START(write_start, profile);
+#ifdef DEBUG
             write_tile(fname, key.tx, key.ty, tx_min, tx_max, ty_min, ty_max, zmin, zmax,
                        cfg.record_depth_max_m, cfg.record_depth_actual_m, plan.node_ids, time_arr,
                        cfg.solver_dt, tile_greens[tile_index], source_xyz_m, plan.node_coords,
@@ -1433,22 +1482,28 @@ int main(int argc, char** argv) {
                        has_velocity ? tile_velocities[tile_index].data() : nullptr,
                        has_acceleration ? tile_accelerations[tile_index].data() : nullptr,
                        stf_t_ds, stf_values_ds, use_float32);
-            if (profile.enabled)
-                profile.write_s += profile_now() - write_start;
-            fprintf(stderr, "[postprocess]   worker %d wrote tile x%03d y%03d\n", worker_rank,
-                    key.tx, key.ty);
+#else
+            write_tile(fname, key.tx, key.ty, tx_min, tx_max, ty_min, ty_max, zmin, zmax,
+                       cfg.record_depth_max_m, cfg.record_depth_actual_m, plan.node_ids, time_arr,
+                       cfg.solver_dt, tile_greens[tile_index], source_xyz_m, plan.node_coords,
+                       plan.cell_gll_index, (int)plan.n_node_per_cell, stf_t_ds, stf_values_ds,
+                       use_float32);
+#endif
+            GF_POST_PROFILE(profile, profile.write_s += profile_now() - write_start);
+            GF_POST_DEBUG_LOG("[postprocess]   worker %d wrote tile x%03d y%03d\n", worker_rank,
+                              key.tx, key.ty);
         }
     }
 
 #ifdef GF_POST_MPI
-    const double mpi_finalize_start = profile.enabled ? profile_now() : 0.0;
+    GF_POST_PROFILE_START(mpi_finalize_start, profile);
     MPI_Finalize();
-    if (profile.enabled)
-        profile.mpi_finalize_s += profile_now() - mpi_finalize_start;
+    GF_POST_PROFILE(profile, profile.mpi_finalize_s += profile_now() - mpi_finalize_start);
 #endif
 
     // ---- Print machine-parseable stats ----
     gf_postprocess_common::print_stats(start, n_steps, n_vertex, n_recorded, n_tiles);
+#ifdef DEBUG
     if (profile.enabled) {
         const double total_s = profile_now() - start;
         const double measured_s =
@@ -1515,6 +1570,7 @@ int main(int argc, char** argv) {
         print_stage("mpi_finalize", profile.mpi_finalize_s);
         print_stage("unclassified", other_s);
     }
+#endif
 
     return 0;
 }

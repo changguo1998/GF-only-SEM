@@ -111,9 +111,11 @@ inline void write_tile(
     const std::vector<double>& tile_vertex_coords,    // [n_local, 3]
     const std::vector<int32_t>& cell_gll_node_index,  // [n_rec_cell, n_node] tile-local
     int n_node,                                       // nodes per cell (125 for NGLL=5)
-    const double* displacement_tensor,                // nullptr = strain-only
-    const double* velocity_tensor = nullptr,          // [nt, n_local, 3, 3]
-    const double* acceleration_tensor = nullptr,      // [nt, n_local, 3, 3]
+#ifdef DEBUG
+    const double* displacement_tensor,            // nullptr = strain-only
+    const double* velocity_tensor = nullptr,      // [nt, n_local, 3, 3]
+    const double* acceleration_tensor = nullptr,  // [nt, n_local, 3, 3]
+#endif
     const std::vector<double>& stf_t = {},  // [nt] STF time [s], downsampled to output_dt_s
     const std::vector<double>& stf_values =
         {},  // [nt] STF amplitude [N], downsampled to output_dt_s
@@ -180,12 +182,14 @@ inline void write_tile(
     }
     write_str_attr("source_directions", "x,y,z");
     std::string qstr = "strain";
+#ifdef DEBUG
     if (displacement_tensor)
         qstr += ",displacement";
     if (velocity_tensor)
         qstr += ",velocity";
     if (acceleration_tensor)
         qstr += ",acceleration";
+#endif
     write_str_attr("greens_quantities", qstr.c_str());
 
     // excludes_pml: int
@@ -284,6 +288,7 @@ inline void write_tile(
         hsize_t gdims[4] = {(hsize_t)nt, (hsize_t)n_local, (hsize_t)ncomp, (hsize_t)ndir};
         write_tensor_ds(field_gid, "greens_tensor", tile_greens.data(), gdims, 4, use_float32);
 
+#ifdef DEBUG
         // displacement_tensor: [nt, n_local, 3, 3] (optional)
         if (displacement_tensor != nullptr) {
             hsize_t ddims[4] = {(hsize_t)nt, (hsize_t)n_local, 3, 3};
@@ -303,6 +308,7 @@ inline void write_tile(
             write_tensor_ds(field_gid, "acceleration_tensor", acceleration_tensor, adims, 4,
                             use_float32);
         }
+#endif
     }
     H5Gclose(field_gid);
 

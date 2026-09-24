@@ -198,16 +198,18 @@ partition_{r}.h5
 
 ### Record and Restart Format
 
-Forward writes full-domain element-local GLL records (strain +
-displacement/velocity/acceleration), including PML cells, and separate latest-only restarts. Static
-coordinates and cell-to-node relations remain in the partition files written by preprocess. The
-recording map is applied only in postprocess so intermediate wavefields retain the maximum diagnostic
-value.
+The production build writes only compact recording-cell strain. The `DEBUG` build instead writes
+full-domain element-local GLL strain plus displacement/velocity/acceleration, including PML cells,
+to retain maximum diagnostic value. Both modes keep static coordinates and cell-to-node relations
+in partition files and write separate latest-only restarts.
 
 ```
 wavefields/{direction}/record_{r}_{step}.h5
-├── attrs: rank, source_direction, source_partition_start, source_partition_count,
-│          cell_scope="all_local_cells", n_local_cell
+├── common attrs: rank, source_direction, source_partition_start, source_partition_count
+├── production attrs: cell_scope="recording_cells", n_record_cell
+├── production strain : float32[1, n_record_cell, NGLL³, 6]
+│
+├── DEBUG attrs: cell_scope="all_local_cells", n_local_cell
 ├── strain              : float32[1, n_local_cell, NGLL³, 6]
 ├── displacement        : float32[1, n_local_cell, NGLL³, 3]
 ├── velocity            : float32[1, n_local_cell, NGLL³, 3]
@@ -232,9 +234,10 @@ restart/{direction}/restart_{r}.h5
 └── pml_memory_*      : float64[...]             # all C-PML state required for exact resume
 ```
 
-Postprocess reconstructs the merged local-cell order from `source_partition_start/count`, converts
-each partition's `/recording/rec_cell_local` to a full-domain record index, and reads only those
-cells. Legacy compact records without `cell_scope` remain readable in their existing order.
+Postprocess reconstructs the merged recording layout from `source_partition_start/count`.
+Production compact records are read directly; Debug full-domain records use each partition's
+`/recording/rec_cell_local` index. Legacy compact records without `cell_scope` remain readable in
+their existing order.
 
 ### config.h5 Format
 

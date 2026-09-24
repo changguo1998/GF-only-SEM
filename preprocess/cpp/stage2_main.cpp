@@ -34,6 +34,8 @@
 #include <string>
 #include <vector>
 
+#include "debug.hpp"
+
 static const int MAX_STRIDE = 100;
 
 // -----------------------------------------------------------------------
@@ -392,7 +394,7 @@ int stage2_main(int argc, char** argv) {
     printf("STAT_N_RANKS=%lld\n", (long long)n_ranks);
     fflush(stdout);
 
-    fprintf(stderr, "Stage2 done: λ/μ, solver_dt=%.6e, nsteps=%lld, nsnapshots=%lld\n", solver_dt,
-            (long long)nsteps, (long long)n_snapshots);
+    GF_PREPROCESS_DEBUG_LOG("Stage2 done: λ/μ, solver_dt=%.6e, nsteps=%lld, nsnapshots=%lld\n",
+                            solver_dt, (long long)nsteps, (long long)n_snapshots);
     return 0;
 }

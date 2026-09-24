@@ -75,16 +75,30 @@ if(MPI_FOUND)
                                        "${CMAKE_CURRENT_BINARY_DIR}")
 
     # Record test cases (registered manually to depend on fixture)
-    add_test(NAME "RecordWriter creates file and writes GLL strain"
-             COMMAND test_record "RecordWriter creates file and writes GLL strain")
+    add_test(NAME "RecordWriter writes full-domain dynamic fields"
+             COMMAND test_record "RecordWriter writes full-domain dynamic fields")
     set_tests_properties(
-        "RecordWriter creates file and writes GLL strain"
+        "RecordWriter writes full-domain dynamic fields"
         PROPERTIES FIXTURES_REQUIRED "record_test" WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
     add_test(NAME "RecordWriter with float32" COMMAND test_record "RecordWriter with float32")
     set_tests_properties(
         "RecordWriter with float32" PROPERTIES FIXTURES_REQUIRED "record_test" WORKING_DIRECTORY
                                                "${CMAKE_CURRENT_BINARY_DIR}")
+
+    # Compile the production RecordWriter branch inside the DEBUG-only test suite.
+    add_executable(test_record_release test_record_release.cpp
+                                       ${CMAKE_SOURCE_DIR}/forward/share/src/record.cpp)
+    target_include_directories(
+        test_record_release PRIVATE ${CMAKE_SOURCE_DIR}/forward/share/include
+                                    ${EIGEN3_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
+    target_link_libraries(test_record_release PRIVATE Catch2::Catch2WithMain ${HDF5_C_LIBRARIES})
+    target_compile_features(test_record_release PRIVATE cxx_std_17)
+    target_compile_options(test_record_release PRIVATE -UDEBUG)
+    add_test(NAME "Release RecordWriter writes compact strain only" COMMAND test_record_release)
+    set_tests_properties(
+        "Release RecordWriter writes compact strain only"
+        PROPERTIES FIXTURES_REQUIRED "record_test" WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
     # Assembly tests
     add_gf_test(test_assembly test_assembly.cpp)
 
@@ -153,9 +167,11 @@ target_compile_features(test_postprocess_tile PRIVATE cxx_std_17)
 # instead of silently matching no tests.
 add_test(NAME test_postprocess_tile COMMAND $<TARGET_FILE:test_postprocess_tile>)
 set_tests_properties(
-    test_postprocess_tile PROPERTIES SKIP_REGULAR_EXPRESSION "GF_TILE_PATH not set"
-                                     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    test_postprocess_tile
+    PROPERTIES SKIP_REGULAR_EXPRESSION "GF_TILE_PATH not set" WORKING_DIRECTORY
+               "${CMAKE_SOURCE_DIR}" RESOURCE_LOCK postprocess_record_reader)
 add_test(NAME "postprocess full-domain record selection"
          COMMAND $<TARGET_FILE:test_postprocess_tile> "[record-reader]")
-set_tests_properties("postprocess full-domain record selection" PROPERTIES WORKING_DIRECTORY
-                                                                           "${CMAKE_SOURCE_DIR}")
+set_tests_properties(
+    "postprocess full-domain record selection" PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+                                                          RESOURCE_LOCK postprocess_record_reader)

@@ -9,13 +9,15 @@
 #   scripts/build.sh                           # build all, auto-detect backend
 #   scripts/build.sh --backend cpu             # CPU only
 #   scripts/build.sh --backend cuda            # CPU + CUDA
-#   scripts/build.sh --clean                   # clean rebuild
+#   scripts/build.sh --debug                   # diagnostic build + tests
+#   scripts/build.sh --clean                   # clean selected build
 #   scripts/build.sh --target gf_postprocess   # single target
 #
 # Options:
 #   --backend cpu|cuda    Device backend (default: auto-detect)
 #   --target TARGET       Build a specific target
-#   --clean               Remove build/ and rebuild
+#   --debug               Compile diagnostic code and tests
+#   --clean               Remove selected build directory and rebuild
 #   -j N                  Parallel jobs (default: nproc)
 #   -h, --help            Show this help
 # ===========================================================================
@@ -25,10 +27,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-BUILD_DIR="${PROJECT_ROOT}/build"
 BACKEND="auto"
 TARGET=""
 CLEAN=false
+DEBUG_MODE=OFF
 
 # ── Colors ────────────────────────────────────────────────────────────────
 
@@ -41,12 +43,13 @@ NC='\033[0m'
 
 usage() {
 	cat <<EOF
-Usage: $0 [--backend BACKEND] [--target TARGET] [--clean] [-j N]
+Usage: $0 [--backend BACKEND] [--target TARGET] [--debug] [--clean] [-j N]
 
 Options:
   --backend cpu|cuda    Device backend (default: auto-detect)
   --target TARGET       Build a specific target (e.g. gf_solver_elastic_mpi)
-  --clean               Remove build/ directory and rebuild
+  --debug               Compile diagnostic code and tests (uses build-debug/)
+  --clean               Remove selected build directory and rebuild
   -j N                  Parallel jobs (default: \$(nproc))
   -h, --help            Show this help
 
@@ -54,6 +57,7 @@ Examples:
   $0                                     # build all, auto-backend
   $0 --backend cpu                       # CPU only
   $0 --backend cuda                      # CPU + CUDA
+  $0 --debug                              # diagnostic build + tests
   $0 --clean                             # clean rebuild
   $0 --target gf_postprocess             # single target
 EOF
@@ -79,7 +83,7 @@ configure() {
 		[ -n "$eigen_root" ] && spack_prefixes="${eigen_root};${spack_prefixes}"
 	fi
 
-	local cmake_args=(-B "$BUILD_DIR" -DGF_DEVICE_BACKEND="$backend")
+	local cmake_args=(-B "$BUILD_DIR" -DGF_DEVICE_BACKEND="$backend" -DDEBUG="$DEBUG_MODE")
 	if [ -n "$spack_prefixes" ]; then
 		cmake_args+=(-DCMAKE_PREFIX_PATH="$spack_prefixes")
 	fi
@@ -108,6 +112,10 @@ while [ $# -gt 0 ]; do
 		TARGET="$2"
 		shift 2
 		;;
+	--debug)
+		DEBUG_MODE=ON
+		shift
+		;;
 	--clean)
 		CLEAN=true
 		shift
@@ -128,32 +136,35 @@ while [ $# -gt 0 ]; do
 done
 
 JOBS="${JOBS:-$(nproc)}"
+if [ "$DEBUG_MODE" = "ON" ]; then
+	BUILD_DIR="${PROJECT_ROOT}/build-debug"
+	BIN_DIR="${PROJECT_ROOT}/bin-debug"
+else
+	BUILD_DIR="${PROJECT_ROOT}/build"
+	BIN_DIR="${PROJECT_ROOT}/bin"
+fi
 
 if $CLEAN; then
 	echo -e "${YELLOW}Cleaning build directory...${NC}"
 	rm -rf "$BUILD_DIR"
 fi
 
-# Configure if needed
-if [ ! -d "$BUILD_DIR" ] || [ ! -f "$BUILD_DIR/CMakeCache.txt" ]; then
-	if [ "$BACKEND" = "auto" ]; then
-		if command -v nvcc &>/dev/null || [ -n "${CUDACXX:-}" ]; then
-			BACKEND="CUDA"
-		else
-			BACKEND="CPU"
-		fi
+# Configure every invocation so DEBUG/backend changes cannot reuse stale targets.
+if [ "$BACKEND" = "auto" ]; then
+	if command -v nvcc &>/dev/null || [ -n "${CUDACXX:-}" ]; then
+		BACKEND="CUDA"
+	else
+		BACKEND="CPU"
 	fi
-	configure "$BACKEND"
-elif [ -f "$BUILD_DIR/CMakeCache.txt" ]; then
-	echo -e "${GREEN}Reusing existing build configuration${NC}"
 fi
+configure "$BACKEND"
 
 # Build
 if [ -n "$TARGET" ]; then
 	echo -e "${YELLOW}Building target: ${TARGET}${NC}"
 	cmake --build "$BUILD_DIR" --target "$TARGET" -j "$JOBS"
 	echo ""
-	echo -e "${GREEN}Done. Binary at: bin/${TARGET}${NC}"
+	echo -e "${GREEN}Done. Binary at: ${BIN_DIR}/${TARGET}${NC}"
 	echo "  Run: source scripts/env.sh"
 else
 	echo -e "${YELLOW}Building all targets...${NC}"
@@ -162,9 +173,9 @@ else
 	echo -e "${GREEN}=== Build complete ===${NC}"
 	echo ""
 
-	if [ -d "${PROJECT_ROOT}/bin" ]; then
+	if [ -d "${BIN_DIR}" ]; then
 		echo "Built executables:"
-		ls -1 "${PROJECT_ROOT}/bin/" 2>/dev/null | while read -r f; do
+		ls -1 "${BIN_DIR}/" 2>/dev/null | while read -r f; do
 			printf "  %s\n" "$f"
 		done
 	fi

@@ -2,8 +2,8 @@
 
 ## Purpose
 
-Read full-domain element-local snapshots from 3 runs (`x`, `y`, `z`), select the configured shallow
-non-PML cells, build `3×6` strain Green tensors at recorded nodes, and write horizontal HDF5 tiles.
+Read production compact-strain or Debug full-domain snapshots from 3 runs (`x`, `y`, `z`), build
+`3×6` strain Green tensors at recorded nodes, and write horizontal HDF5 tiles.
 
 No receivers. Output is the configured shallow GLL-node field.
 
@@ -57,11 +57,11 @@ model.h5 + config.h5
 → read mesh (/topology/vertex_to_coord + /domain/ bounds)
 → discover record_{r}_{step}.h5 per direction (--fx, --fy, --fz)
 → rank 0 reads `/recording` maps from source partitions and rebuilds output-rank layouts
-→ map compact recording cells to indices in each full-domain record
+→ map recording cells to compact records or indices in each Debug full-domain record
 → rank 0 writes compact per-tile node, record-point, and mass indexes
 → each worker reads its assigned tile index files
 → each worker extracts assigned tiles without rebuilding indexes
-→ mass-lumped L2 project strain; count-average continuous vector fields
+→ mass-lumped L2 project strain; Debug only: count-average continuous vector fields
 → assemble Green's tensor [nt, n_tile_node, 6, 3]
 → write uncompressed tile_x{i}_y{j}.h5 (precision follows config snapshot_precision)
 ```

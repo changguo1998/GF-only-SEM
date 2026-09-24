@@ -18,6 +18,12 @@
 
 namespace gf {
 
+#ifdef DEBUG
+#define GF_FORWARD_DEBUG_LOG(logger, message) (logger).debug(message)
+#else
+#define GF_FORWARD_DEBUG_LOG(logger, message) ((void)0)
+#endif
+
 class Logger {
 public:
     Logger(const std::string& direction, int rank) : rank_(rank) {
@@ -43,7 +49,9 @@ public:
     }
 
     /// Log a debug-level message (rank 0 only).
+#ifdef DEBUG
     void debug(const std::string& msg) { write("DEBUG", msg); }
+#endif
 
     /// Log a error-level message (rank 0 only).
     void error(const std::string& msg) {

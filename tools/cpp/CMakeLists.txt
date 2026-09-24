@@ -7,6 +7,9 @@ project(gf_vtk_tools LANGUAGES CXX)
 find_package(HDF5 REQUIRED COMPONENTS C)
 find_package(OpenMP QUIET)
 include(GNUInstallDirs)
+if(NOT DEFINED GF_RUNTIME_OUTPUT_DIRECTORY)
+    set(GF_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
+endif()
 
 # Common include
 set(TOOLS_CPP_DIR ${CMAKE_CURRENT_SOURCE_DIR})
@@ -44,7 +47,8 @@ endif()
 
 foreach(tgt gf_model2vtk gf_partition2vtk gf_wavefield2vtk gf_wavefield2vtk_detail)
     target_compile_features(${tgt} PRIVATE cxx_std_17)
-    set_target_properties(${tgt} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
+    set_target_properties(${tgt} PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                            "${GF_RUNTIME_OUTPUT_DIRECTORY}")
 endforeach()
 
 install(TARGETS gf_model2vtk gf_partition2vtk gf_wavefield2vtk gf_wavefield2vtk_detail

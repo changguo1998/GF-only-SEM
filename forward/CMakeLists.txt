@@ -5,6 +5,9 @@ if(CMAKE_CUDA_COMPILER OR DEFINED ENV{CUDACXX})
     enable_language(CUDA)
 endif()
 include(GNUInstallDirs)
+if(NOT DEFINED GF_RUNTIME_OUTPUT_DIRECTORY)
+    set(GF_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
+endif()
 
 # -----------------------------------------------------------------------
 # Dependencies (propagated to subdirectories)
@@ -65,7 +68,7 @@ function(add_gf_physics_solvers)
         add_executable(${EXE_MPI} src/main.cpp)
         target_link_libraries(${EXE_MPI} PRIVATE ${LIB_CPU})
         set_target_properties(${EXE_MPI} PROPERTIES RUNTIME_OUTPUT_DIRECTORY
-                                                    "${CMAKE_SOURCE_DIR}/bin")
+                                                    "${GF_RUNTIME_OUTPUT_DIRECTORY}")
         message(STATUS "  -> ${EXE_MPI} (CPU + MPI)")
         install(TARGETS ${EXE_MPI} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT gf_solver)
     endif()
@@ -89,7 +92,7 @@ function(add_gf_physics_solvers)
         target_link_libraries(${EXE_CUDA} PRIVATE ${LIB_CUDA_NOSPI})
         target_compile_definitions(${EXE_CUDA} PRIVATE GF_WITH_CUDA GF_NO_MPI)
         set_target_properties(${EXE_CUDA} PROPERTIES RUNTIME_OUTPUT_DIRECTORY
-                                                     "${CMAKE_SOURCE_DIR}/bin")
+                                                     "${GF_RUNTIME_OUTPUT_DIRECTORY}")
         message(STATUS "  -> ${EXE_CUDA} (CUDA, no MPI)")
         install(TARGETS ${EXE_CUDA} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
                                             COMPONENT gf_solver)
@@ -113,7 +116,7 @@ function(add_gf_physics_solvers)
         target_link_libraries(${EXE_MPI_CUDA} PRIVATE ${LIB_CUDA})
         target_compile_definitions(${EXE_MPI_CUDA} PRIVATE GF_WITH_CUDA)
         set_target_properties(${EXE_MPI_CUDA} PROPERTIES RUNTIME_OUTPUT_DIRECTORY
-                                                         "${CMAKE_SOURCE_DIR}/bin")
+                                                         "${GF_RUNTIME_OUTPUT_DIRECTORY}")
         message(STATUS "  -> ${EXE_MPI_CUDA} (CUDA + MPI)")
         install(TARGETS ${EXE_MPI_CUDA} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
                                                 COMPONENT gf_solver)

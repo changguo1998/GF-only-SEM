@@ -51,6 +51,7 @@ Build all solvers and tools:
 scripts/build.sh                       # auto-detect CPU / CUDA
 scripts/build.sh --backend cpu         # CPU only
 scripts/build.sh --backend cuda        # CPU + CUDA
+scripts/build.sh --debug               # diagnostic build → build-debug/, bin-debug/
 scripts/build.sh -t gf_postprocess     # single target
 ```
 

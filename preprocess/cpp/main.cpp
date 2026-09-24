@@ -29,6 +29,8 @@
 #include <string>
 #include <vector>
 
+#include "debug.hpp"
+
 // -----------------------------------------------------------------------
 // HDF5 helpers
 // -----------------------------------------------------------------------
@@ -956,9 +958,9 @@ int stage1_main(int argc, char** argv) {
 
     // Read topology
     Topology topo = read_topology(mesh_path);
-    fprintf(stderr, "Topology: n_cell=%lld, n_vertex=%lld, n_surface=%lld, n_edge=%lld\n",
-            (long long)topo.n_cell, (long long)topo.n_vertex, (long long)topo.n_surface,
-            (long long)topo.n_edge);
+    GF_PREPROCESS_DEBUG_LOG("Topology: n_cell=%lld, n_vertex=%lld, n_surface=%lld, n_edge=%lld\n",
+                            (long long)topo.n_cell, (long long)topo.n_vertex,
+                            (long long)topo.n_surface, (long long)topo.n_edge);
 
     // Read domain bounds from /domain/ attrs (written by mesh generator or Python)
     double domain_bounds[6] = {0, 0, 0, 0, 0, 0};
@@ -1000,11 +1002,13 @@ int stage1_main(int argc, char** argv) {
         H5Fclose(fid);
     }
 
-    fprintf(stderr, "Domain: x=[%g,%g] y=[%g,%g] z=[%g,%g]\n", domain_bounds[0], domain_bounds[1],
-            domain_bounds[2], domain_bounds[3], domain_bounds[4], domain_bounds[5]);
-    fprintf(stderr, "N=%d, ngll=%d, cfl_safety=%g\n", N, N + 1, cfl_safety);
-    fprintf(stderr, "PML thickness: [%g %g %g %g %g %g]\n", pml_thickness[0], pml_thickness[1],
-            pml_thickness[2], pml_thickness[3], pml_thickness[4], pml_thickness[5]);
+    GF_PREPROCESS_DEBUG_LOG("Domain: x=[%g,%g] y=[%g,%g] z=[%g,%g]\n", domain_bounds[0],
+                            domain_bounds[1], domain_bounds[2], domain_bounds[3], domain_bounds[4],
+                            domain_bounds[5]);
+    GF_PREPROCESS_DEBUG_LOG("N=%d, ngll=%d, cfl_safety=%g\n", N, N + 1, cfl_safety);
+    GF_PREPROCESS_DEBUG_LOG("PML thickness: [%g %g %g %g %g %g]\n", pml_thickness[0],
+                            pml_thickness[1], pml_thickness[2], pml_thickness[3], pml_thickness[4],
+                            pml_thickness[5]);
 
     // Step: boundary detection (pure topology, no material needed)
     int64_t n_surface = topo.n_surface;
@@ -1012,14 +1016,14 @@ int stage1_main(int argc, char** argv) {
     std::vector<int64_t> boundary_tag(n_surface, 0);
     std::vector<int64_t> bd_is_pml(n_cell, 0);  // 1-layer (not used if grid PML active)
     detect_boundaries(topo, domain_bounds, boundary_tag.data(), bd_is_pml.data());
-    fprintf(stderr, "Boundary: %lld free, %lld absorbing\n",
-            (long long)std::count(boundary_tag.begin(), boundary_tag.end(), 1),
-            (long long)std::count(boundary_tag.begin(), boundary_tag.end(), 2));
+    GF_PREPROCESS_DEBUG_LOG("Boundary: %lld free, %lld absorbing\n",
+                            (long long)std::count(boundary_tag.begin(), boundary_tag.end(), 1),
+                            (long long)std::count(boundary_tag.begin(), boundary_tag.end(), 2));
 
     ComputeResult res =
         compute_all(topo, N, cfl_safety, pml_thickness, domain_bounds, nx_elements, ny_elements);
 
-    fprintf(stderr, "Computation done. h_min=%.15e\n", res.cfl_dt);
+    GF_PREPROCESS_DEBUG_LOG("Computation done. h_min=%.15e\n", res.cfl_dt);
 
     // Write results to HDF5
     write_results(mesh_path, topo.n_cell, N + 1, res, cfl_safety, res.cfl_dt);
@@ -1050,6 +1054,6 @@ int stage1_main(int argc, char** argv) {
     // Print CFL info for Python
     print_cfl_info(res.cfl_dt, cfl_safety);
 
-    fprintf(stderr, "Done. Wrote coords, dxi_dx, jacobian, mass, damping, info\n");
+    GF_PREPROCESS_DEBUG_LOG("Done. Wrote coords, dxi_dx, jacobian, mass, damping, info\n");
     return 0;
 }

@@ -35,7 +35,8 @@ partitions/partition_{r}.h5 (local subset per rank: topology + field/element + P
     │   │                    u += dt·v + dt²·(½-β)·a_old + dt²·β·a_new,
     │   │                    v += dt·((1-γ)·a_old + γ·a_new)
     │   ├── Element-local GLL strain — compute ε from ∇u via GATHER + derivative matrix
-    │   ├── Write full-domain GLL field record when step % snapshot_stride == 0
+    │   ├── Write compact strain (production) or full-domain fields (Debug)
+    │   │   when step % snapshot_stride == 0
     │   └── Overwrite restart when step % restart_stride == 0 (use_global_dof flag)
     │
     ├── wavefields/{direction}/record_{r}_{step}.h5  (field-only, one per snapshot)
@@ -166,7 +167,7 @@ SLS attenuation data (`tau_sigma`, `tau_epsilon_mu`, `tau_epsilon_kappa`) is sto
 | **newmark** | NewmarkPredictor, NewmarkCorrector (2nd order explicit, β=0, γ=½) |
 | **source** | Reads precomputed element list + Lagrange weights from config.h5. Distributes STF(t) × w_ijk to global residual |
 | **exchange** | MPI halo exchange using precomputed face-pair lists from /partition/exchange/neighbor\_{N}/ |
-| **record/snapshot** | Element-local full-domain GLL fields; partition recording maps select the postprocess subset |
+| **record/snapshot** | Production compact recording-cell strain; Debug full-domain dynamic fields |
 | **solver** | `run_forward()` main time loop; shallow strain output + latest-only restart/resume |
 
 ## Core Types
@@ -363,7 +364,16 @@ partitions/partition_{r}.h5:/recording
 └── rec_cell_global_ids           : int64[n_record_cells]
 ```
 
-每个快照文件只保存动态场（`step % snapshot_stride == 0`）：
+每个快照文件只保存动态场（`step % snapshot_stride == 0`）。生产构建使用紧凑格式：
+
+```
+wavefields/{direction}/record_{r}_{step}.h5
+├── attrs: rank, source_direction, source_partition_start, source_partition_count
+├── attrs: cell_scope = "recording_cells", n_record_cell
+└── strain : float32[1, n_record_cell, NGLL³, 6]
+```
+
+`DEBUG` 构建使用全域诊断格式：
 
 ```
 wavefields/{direction}/record_{r}_{step}.h5
@@ -380,9 +390,9 @@ wavefields/{direction}/record_{r}_{step}.h5
 └── acceleration                : float32[1, n_local_cell, NGLL³, 3]
 ```
 
-字段保持单元局部 GLL 排列，包含 PML 单元。每个 record 的 partition 范围属性记录求解器
-合并或重分配后实际使用的连续 partition 区间；后处理按同样顺序重建全域单元下标，再依据
-`/recording/rec_cell_local` 延迟选择浅层非 PML 单元并完成全局节点合并与投影。
+两种格式都保持单元局部 GLL 排列。Debug 格式包含 PML 单元；生产格式在写入前应用
+`/recording/rec_cell_local`。每个 record 的 partition 范围属性记录求解器合并或重分配后
+实际使用的连续 partition 区间，后处理据此重建节点合并与投影关系。
 
 ## Restart Output
 
@@ -437,8 +447,8 @@ Green extraction uses 3 runs per source: force x, y, z. Each run calls `gf_solve
 
 ## 性能调试输出
 
-开发测试时设置 `GF_FORWARD_PROFILE=1`，求解结束后会输出每个阶段的累计用时和相对整个
-进程的占比：
+性能计时代码只存在于 `DEBUG=ON` 构建。开发测试时设置 `GF_FORWARD_PROFILE=1`，求解
+结束后会输出每个阶段的累计用时和相对整个进程的占比：
 
 ```bash
 GF_FORWARD_PROFILE=1 gf_solver_elastic_cuda --direction x

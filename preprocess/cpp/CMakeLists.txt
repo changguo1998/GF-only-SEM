@@ -4,9 +4,9 @@ cmake_minimum_required(VERSION 3.16)
 project(gf_preprocess_cpp LANGUAGES CXX)
 
 get_filename_component(GF_PROJECT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
-set(GF_PREPROCESS_RUNTIME_DIR
-    "${GF_PROJECT_ROOT}/bin"
-    CACHE PATH "Output directory for gf_preprocess")
+if(NOT DEFINED GF_RUNTIME_OUTPUT_DIRECTORY)
+    set(GF_RUNTIME_OUTPUT_DIRECTORY "${GF_PROJECT_ROOT}/bin")
+endif()
 
 find_package(Eigen3 REQUIRED)
 find_package(HDF5 REQUIRED COMPONENTS C)
@@ -117,5 +117,5 @@ endif()
 
 target_compile_features(gf_preprocess PRIVATE cxx_std_17)
 set_target_properties(gf_preprocess PROPERTIES RUNTIME_OUTPUT_DIRECTORY
-                                               "${GF_PREPROCESS_RUNTIME_DIR}")
+                                               "${GF_RUNTIME_OUTPUT_DIRECTORY}")
 install(TARGETS gf_preprocess RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT gf_tools)

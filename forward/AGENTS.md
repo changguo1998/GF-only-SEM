@@ -2,7 +2,9 @@
 
 ## Purpose
 
-Elastic CG-SEM solver. Reads `config.h5` + `partition_{r}.h5`. Computes full volume. Writes full-domain element-local GLL field snapshots and latest-only restart files.
+Elastic CG-SEM solver. Reads `config.h5` + `partition_{r}.h5` and computes the full volume.
+Production builds write compact recording-cell strain; `DEBUG` builds write full-domain
+element-local dynamic fields. Both write latest-only restart files.
 
 ## Architecture
 
@@ -22,7 +24,7 @@ Elastic CG-SEM solver. Reads `config.h5` + `partition_{r}.h5`. Computes full vol
 | `pml.hpp` | `pml.cpp` | C-PML update |
 | `exchange.hpp` | `exchange.cpp`, `exchange_noop.cpp` | MPI halo exchange (or no-op stub) |
 | `io.hpp` | `io.cpp` | HDF5 input |
-| `record.hpp` | `record.cpp` | full-domain dynamic-field writer |
+| `record.hpp` | `record.cpp` | production compact-strain / Debug full-domain field writer |
 | `solver.hpp` | `solver.cpp` | time loop — calls `compute_element_residual` (link-time dispatch) |
 | `attenuation.hpp` | `attenuation.cpp` | SLS coefficient precomputation (used by viscoelastic only) |
 | — | `main.cpp` | CLI for all 3 binaries, `--direction` |
@@ -124,7 +126,7 @@ Newmark predict (global)
 → scatter element-local → global (atomic accumulation)
 → MPI halo exchange on residual
 → Newmark correct (global, with global mass)
-→ write full-domain fields if step % snapshot_stride == 0
+→ write production compact strain or Debug full-domain fields if step % snapshot_stride == 0
 → overwrite restart if step % restart_stride == 0
 ```
 
@@ -143,13 +145,13 @@ estimated finish time (yyyy-mm-dd HH:MM:SS). Updated in-place via carriage retur
   forwarding (orte/iof), which line-buffers rank output pipes.
 - Log file gets full timestamped lines without escape sequences (no in-place).
 
-Every rank writes all of its local elements, including PML elements. The forward solver does not
-apply the shallow recording map; depth, PML, and tile selection are deferred to postprocess.
+Production builds apply the partition recording-cell map before writing. Debug builds write all
+local elements, including PML elements, so depth, PML, and tile selection can be inspected later.
 
 ## Config Fields
 
 - `solver_dt`: Newmark timestep
-- `snapshot_stride`: full-domain snapshot write cadence
+- `snapshot_stride`: snapshot write cadence
 - `restart_stride`: restart write cadence
 - `record_depth_actual_m`: snapped bottom depth for records
 
@@ -159,11 +161,11 @@ Static recording geometry and indexes live only in
 `partitions/partition_{r}.h5:/recording`. The solver does not duplicate them under
 `wavefields/`.
 
-`wavefields/{direction}/record_{r}_{step}.h5` — one field-only file per snapshot.
-Attrs: `rank`, `source_direction`, `source_partition_start`, `source_partition_count`,
-`cell_scope="all_local_cells"`, and `n_local_cell`. The partition range identifies the partitions
-merged into an output rank, including reduced-rank GPU execution. Datasets: `strain`,
-`displacement`, `velocity`, and `acceleration`, each shaped
+`wavefields/{direction}/record_{r}_{step}.h5` — one field-only file per snapshot. Common attrs are
+`rank`, `source_direction`, `source_partition_start`, and `source_partition_count`. Production
+records add `cell_scope="recording_cells"`, `n_record_cell`, and only `strain` shaped
+`[1, n_record_cell, NGLL³, 6]`. Debug records add `cell_scope="all_local_cells"`, `n_local_cell`,
+and strain/displacement/velocity/acceleration shaped
 `[1, n_local_cell, NGLL³, n_component]`.
 
 ## Restart Schema

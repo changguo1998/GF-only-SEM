@@ -20,6 +20,7 @@
 #include <utility>
 #include <vector>
 
+#include "debug.hpp"
 #include "gf_config.h"
 #include "gf_hdf5_helpers.hpp"
 
@@ -528,7 +529,7 @@ void write_one_partition(hid_t model_file, const std::filesystem::path& path,
 
 double write_partition_files(const char* model_path, const Config& cfg,
                              const std::vector<int32_t>& element_to_rank) {
-    fprintf(stderr, "=== Writing solver partitions ===\n");
+    GF_PREPROCESS_DEBUG_LOG("=== Writing solver partitions ===\n");
     hid_t model_file = h5::open_or_fail(model_path, H5F_ACC_RDWR);
     std::vector<hsize_t> coordinate_dimensions = h5::get_dims(model_file, "field/element/coords");
     int n_cell = static_cast<int>(coordinate_dimensions[0]);
@@ -603,9 +604,9 @@ double write_partition_files(const char* model_path, const Config& cfg,
             partition_directory / ("partition_" + std::to_string(rank) + ".h5");
         write_one_partition(model_file, partition_path, ranks[rank], element_to_rank, tile_index,
                             cfg.n_ranks, ngll, cfg.record_depth_max_m, actual_depth);
-        fprintf(stderr, "  rank %d: %zu cells, %d nodes, %zu recording cells\n", rank,
-                ranks[rank].local_cell_ids.size(), ranks[rank].n_rank_node,
-                ranks[rank].recording.global_cell_ids.size());
+        GF_PREPROCESS_DEBUG_LOG("  rank %d: %zu cells, %d nodes, %zu recording cells\n", rank,
+                                ranks[rank].local_cell_ids.size(), ranks[rank].n_rank_node,
+                                ranks[rank].recording.global_cell_ids.size());
     }
 
     H5Fclose(model_file);

@@ -132,9 +132,9 @@ MPI broadcasts this result; other workers do not repeat layout reads or index co
 
 ### `extract_worker_tile_fields(records, tile_plans, routes, ...) -> vector<DirFields>`
 
-Second pass over field-only record files. For each step and needed record rank, reads strain and
-optional displacement/velocity/acceleration once. Prebuilt worker routes identify every assigned
-tile and compact entry range consuming that rank. The index includes every element copy
+Second pass over field-only record files. For each step and needed record rank, reads strain and,
+in Debug builds, displacement/velocity/acceleration once. Prebuilt worker routes identify every
+assigned tile and compact entry range consuming that rank. The index includes every element copy
 contributing to a tile-local node, including copies from cells assigned to adjacent tiles.
 
 - **Strain**: mass-weighted average (`node_weight_sum` per tile-local node)
@@ -173,7 +173,8 @@ optional MPI finalize + print stats
 ### Tensor layouts
 
 - `tile_greens`: `[n_steps, n_local, comp(6), dir(3)]` — 18 doubles per (s, li)
-- `tile_displacement/velocity/acceleration`: `[n_steps, n_local, comp(3), dir(3)]` — 9 per (s, li)
+- Debug only: `tile_displacement/velocity/acceleration`:
+  `[n_steps, n_local, comp(3), dir(3)]` — 9 per (s, li)
 
 ## Averaging Correctness
 

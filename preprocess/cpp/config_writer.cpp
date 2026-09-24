@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "debug.hpp"
 #include "gf_config.h"
 
 namespace gf {
@@ -72,7 +73,7 @@ void write_config_h5(const char* config_path, const Config& cfg, double solver_d
                      int snapshot_stride, int nsteps, const std::vector<double>& stf_t,
                      const std::vector<double>& stf_values, const SourceResult& source_result,
                      const double* domain_bounds, int nz_elements, double record_depth_actual_m) {
-    fprintf(stderr, "=== Writing config.h5 ===\n");
+    GF_PREPROCESS_DEBUG_LOG("=== Writing config.h5 ===\n");
     hid_t config_file = create_config_file(config_path);
 
     // Simulation metadata uses the same schema as preprocess/config_writer.py.
@@ -150,7 +151,7 @@ void write_config_h5(const char* config_path, const Config& cfg, double solver_d
     H5Gclose(source);
 
     H5Fclose(config_file);
-    fprintf(stderr, "  %s written\n", config_path);
+    GF_PREPROCESS_DEBUG_LOG("  %s written\n", config_path);
 }
 
 }  // namespace gf

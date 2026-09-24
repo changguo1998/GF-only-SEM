@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "debug.hpp"
 #include "gf_config.h"
 #include "gf_hdf5_helpers.hpp"
 
@@ -93,14 +94,14 @@ static int run_main(int argc, char** argv) {
     // ═════════════════════════════════════════════════════════════════════════
 
 #ifdef GF_HAS_USER_MATERIAL
-    fprintf(stderr, "=== Material evaluation (user C++ model) ===\n");
+    GF_PREPROCESS_DEBUG_LOG("=== Material evaluation (user C++ model) ===\n");
 
     hid_t material_fid = gf::h5::open_or_fail(model_path, H5F_ACC_RDWR);
 
     std::vector<double> gll_coords_local =
         gf::h5::read_double(material_fid, "field/element/coords");
     std::size_t n_points = gll_coords_local.size() / 3;
-    fprintf(stderr, "  GLL nodes: %zu\n", n_points);
+    GF_PREPROCESS_DEBUG_LOG("  GLL nodes: %zu\n", n_points);
 
     // Extract coordinate arrays
     std::vector<double> x_arr(n_points), y_arr(n_points), z_arr(n_points);
@@ -128,12 +129,12 @@ static int run_main(int argc, char** argv) {
                          field_dims_local);
 
     H5Fclose(material_fid);
-    fprintf(stderr, "  vp/vs/density written to model.h5\n");
+    GF_PREPROCESS_DEBUG_LOG("  vp/vs/density written to model.h5\n");
 #else
-    fprintf(stderr,
-            "=== Material evaluation ===\n"
-            "  No user material compiled in (GF_HAS_USER_MATERIAL not defined).\n"
-            "  Looking for vp/vs/density in HDF5 (Python path)...\n");
+    GF_PREPROCESS_DEBUG_LOG(
+        "=== Material evaluation ===\n"
+        "  No user material compiled in (GF_HAS_USER_MATERIAL not defined).\n"
+        "  Looking for vp/vs/density in HDF5 (Python path)...\n");
 #endif
 
     // Write /config group attributes before stage2 (stage2 reads them from HDF5)
@@ -192,7 +193,7 @@ static int run_main(int argc, char** argv) {
     //  Stage 2: λ/μ, solver_dt
     // ═════════════════════════════════════════════════════════════════════════
 
-    fprintf(stderr, "=== Stage 2 (λ/μ + CFL) ===\n");
+    GF_PREPROCESS_DEBUG_LOG("=== Stage 2 (λ/μ + CFL) ===\n");
     char* stage2_args[] = {argv[0], const_cast<char*>(model_path), nullptr};
     rc = stage2_main(2, stage2_args);
     if (rc != 0) {
@@ -204,7 +205,7 @@ static int run_main(int argc, char** argv) {
     //  C-PML + STF + source location
     // ═════════════════════════════════════════════════════════════════════════
 
-    fprintf(stderr, "=== Post-stage2 steps (C-PML + source + STF) ===\n");
+    GF_PREPROCESS_DEBUG_LOG("=== Post-stage2 steps (C-PML + source + STF) ===\n");
 
     hid_t model_fid = gf::h5::open_or_fail(model_path, H5F_ACC_RDWR);
 
@@ -392,8 +393,8 @@ static int run_main(int argc, char** argv) {
     std::vector<int32_t> pml_regions_i32(pml_regions.begin(), pml_regions.end());
     gf::h5::write_int32(model_fid, "field/element/pml_region", pml_regions_i32,
                         {static_cast<hsize_t>(n_cell)});
-    fprintf(stderr, "  C-PML: %zu nodes with complete convolution coefficients written\n",
-            cpml_K.size() / 3);
+    GF_PREPROCESS_DEBUG_LOG("  C-PML: %zu nodes with complete convolution coefficients written\n",
+                            cpml_K.size() / 3);
 
     // STF
     std::vector<double> stf_times, stf_values;
@@ -404,10 +405,10 @@ static int run_main(int argc, char** argv) {
         gf::h5::write_double(model_fid, "config/stf_t", stf_times, stf_shape);
         gf::h5::write_double(model_fid, "config/stf_values", stf_values, stf_shape);
     }
-    fprintf(stderr, "  STF: %d steps, dt=%g\n", nsteps, solver_dt);
+    GF_PREPROCESS_DEBUG_LOG("  STF: %d steps, dt=%g\n", nsteps, solver_dt);
 
     // Source location
-    fprintf(stderr, "=== Source location ===\n");
+    GF_PREPROCESS_DEBUG_LOG("=== Source location ===\n");
 
     std::vector<int64_t> cell_to_surface =
         gf::h5::read_int64(model_fid, "topology/cell_to_surface");
@@ -423,10 +424,10 @@ static int run_main(int argc, char** argv) {
         gf::locate_source(cfg, gll_coords.data(), n_cell, ngll, cell_to_surface.data(),
                           static_cast<int>(s2e_dims[0]), boundary_tag.data(), is_pml.data());
 
-    fprintf(stderr, "  Source in %d element(s)\n", source_result.n_src_cell);
+    GF_PREPROCESS_DEBUG_LOG("  Source in %d element(s)\n", source_result.n_src_cell);
     if (!source_result.cell_ids.empty()) {
-        fprintf(stderr, "  Cell %d, xi=(%g,%g,%g)\n", source_result.cell_ids[0],
-                source_result.xi[0], source_result.eta[0], source_result.zeta[0]);
+        GF_PREPROCESS_DEBUG_LOG("  Cell %d, xi=(%g,%g,%g)\n", source_result.cell_ids[0],
+                                source_result.xi[0], source_result.eta[0], source_result.zeta[0]);
         // Write source cell count to source attrs
         if (!source_result.cell_ids.empty()) {
             hid_t src_grp = -1;
@@ -482,7 +483,7 @@ static int run_main(int argc, char** argv) {
                         stf_values, source_result, domain_bounds, nz_elements,
                         record_depth_actual_m);
 
-    fprintf(stderr, "=== Preprocess complete ===\n");
+    GF_PREPROCESS_DEBUG_LOG("=== Preprocess complete ===\n");
     return 0;
 }
 

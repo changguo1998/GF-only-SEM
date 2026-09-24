@@ -12,13 +12,17 @@ project(gf_postprocess_cpp LANGUAGES CXX)
 find_package(HDF5 REQUIRED COMPONENTS C)
 find_package(MPI QUIET)
 include(GNUInstallDirs)
+if(NOT DEFINED GF_RUNTIME_OUTPUT_DIRECTORY)
+    set(GF_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
+endif()
 
 # ---- Serial target ----
 add_executable(gf_postprocess main.cpp)
 target_include_directories(gf_postprocess PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${HDF5_INCLUDE_DIRS})
 target_link_libraries(gf_postprocess PRIVATE ${HDF5_C_LIBRARIES} ${CMAKE_DL_LIBS})
 target_compile_features(gf_postprocess PRIVATE cxx_std_17)
-set_target_properties(gf_postprocess PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
+set_target_properties(gf_postprocess PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                                "${GF_RUNTIME_OUTPUT_DIRECTORY}")
 install(TARGETS gf_postprocess RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT gf_tools)
 
 # ---- Optional MPI target ----
@@ -31,7 +35,7 @@ if(MPI_FOUND)
     target_compile_definitions(gf_postprocess_mpi PRIVATE GF_POST_MPI)
     target_compile_features(gf_postprocess_mpi PRIVATE cxx_std_17)
     set_target_properties(gf_postprocess_mpi PROPERTIES RUNTIME_OUTPUT_DIRECTORY
-                                                        "${CMAKE_SOURCE_DIR}/bin")
+                                                        "${GF_RUNTIME_OUTPUT_DIRECTORY}")
     install(TARGETS gf_postprocess_mpi RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
                                                COMPONENT gf_tools)
 endif()

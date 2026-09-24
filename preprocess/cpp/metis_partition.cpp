@@ -13,6 +13,7 @@
 #include <map>
 #include <vector>
 
+#include "debug.hpp"
 #include "gf_config.h"
 #include "gf_hdf5_helpers.hpp"
 
@@ -73,7 +74,7 @@ std::vector<int> face_gll_nodes(int face_index, int ngll) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 void partition_metis(const char* model_path, int n_ranks) {
-    fprintf(stderr, "=== METIS partition ===\n");
+    GF_PREPROCESS_DEBUG_LOG("=== METIS partition ===\n");
 
     hid_t model_fid = h5::open_or_fail(model_path, H5F_ACC_RDWR);
 
@@ -89,7 +90,7 @@ void partition_metis(const char* model_path, int n_ranks) {
         h5::write_int32(model_fid, "partition/element_to_rank", element_to_rank,
                         {static_cast<hsize_t>(n_cell)});
         H5Fclose(model_fid);
-        fprintf(stderr, "  Single rank — all %d elements on rank 0\n", n_cell);
+        GF_PREPROCESS_DEBUG_LOG("  Single rank — all %d elements on rank 0\n", n_cell);
         return;
     }
 
@@ -149,8 +150,8 @@ void partition_metis(const char* model_path, int n_ranks) {
         std::exit(1);
     }
 
-    fprintf(stderr, "  METIS: %d elements → %d ranks, edgecut=%d\n", n_cell, n_ranks,
-            static_cast<int>(edgecut));
+    GF_PREPROCESS_DEBUG_LOG("  METIS: %d elements → %d ranks, edgecut=%d\n", n_cell, n_ranks,
+                            static_cast<int>(edgecut));
 
     // Write element_to_rank (METIS returns 0-based partition)
     std::vector<int32_t> element_to_rank(n_cell);
@@ -178,7 +179,7 @@ void partition_metis(const char* model_path, int n_ranks) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 void compute_global_node_ids(const char* model_path, int ngll) {
-    fprintf(stderr, "=== Global node numbering (topology) ===\n");
+    GF_PREPROCESS_DEBUG_LOG("=== Global node numbering (topology) ===\n");
 
     hid_t model_fid = h5::open_or_fail(model_path, H5F_ACC_RDWR);
 
@@ -249,7 +250,8 @@ void compute_global_node_ids(const char* model_path, int ngll) {
             global_node_ids[flat] = next_global_id++;
     }
 
-    fprintf(stderr, "  Global nodes: %d (n_cell=%d, ngll=%d)\n", next_global_id, n_cell, ngll);
+    GF_PREPROCESS_DEBUG_LOG("  Global nodes: %d (n_cell=%d, ngll=%d)\n", next_global_id, n_cell,
+                            ngll);
 
     // Write to HDF5
     std::vector<hsize_t> gnode_dims = {static_cast<hsize_t>(n_cell), static_cast<hsize_t>(ngll),

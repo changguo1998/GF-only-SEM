@@ -70,8 +70,15 @@ Six solver binaries, selected via `scripts/solver.sh` or directly:
 scripts/build.sh              # all targets (auto-detect CPU/CUDA)
 scripts/build.sh --backend cpu          # CPU only
 scripts/build.sh --backend cuda         # CPU + CUDA
+scripts/build.sh --debug                # diagnostics + C++ tests, output to bin-debug/
 scripts/build.sh -t gf_postprocess  # single target
 ````
+
+The default `DEBUG=OFF` build writes production binaries to `bin/`. It records only compact
+recording-cell strain, writes only the strain Green tensor, and excludes profiling code, verbose
+diagnostics, Catch2, and C++ test targets. `--debug` sets `DEBUG=ON`, uses `build-debug/` and
+`bin-debug/`, and retains full-domain strain/displacement/velocity/acceleration records, diagnostic
+tile fields, profiling, and tests.
 
 ### Run
 
@@ -130,8 +137,8 @@ Key fields: `polynomial_order`, `output_dt_s`, `total_duration_s`, `cfl_safety`,
 
 ## Design Highlights
 
-- **No receivers** — full-domain element-local snapshots with late shallow-GLL extraction; no
-  CSV/search/interpolation
+- **No receivers** — production snapshots contain compact shallow non-PML recording-cell strain;
+  Debug builds retain full-domain dynamic fields for diagnosis
 - **Timestep split** — `solver_dt` (CFL) + `output_dt_s` (snapshot interval)
 - **Source direction** not in config — CLI `--direction {x,y,z}` per run
 - **Elastic + viscoelastic** — SLS attenuation complete; Q→∞ elastic-limit regression is bit-identical
@@ -142,7 +149,7 @@ Key fields: `polynomial_order`, `output_dt_s`, `total_duration_s`, `cfl_safety`,
 
 ```bash
 .venv/bin/python -m pytest tests -q                 # Python (238 pass, 1 skip)
-ctest --test-dir build --output-on-failure          # C++/CUDA (63 registered tests)
+ctest --test-dir build-debug --output-on-failure    # C++/CUDA (DEBUG build only)
 bash scripts/run_all_examples.sh                    # Three complementary pipelines
 ```
 
