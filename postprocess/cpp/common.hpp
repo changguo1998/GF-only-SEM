@@ -186,7 +186,29 @@ struct Args {
     std::string fy_dir;
     std::string fz_dir;
     std::string output_dir = "greenfun";
+    std::vector<std::pair<int, int>> selected_tiles;
 };
+
+inline int parse_tile_index(const char* value, const char* option) {
+    if (value == nullptr || value[0] == '\0')
+        throw std::invalid_argument(std::string(option) + " requires a non-negative integer");
+    int result = 0;
+    for (const char* character = value; *character != '\0'; ++character) {
+        if (*character < '0' || *character > '9')
+            throw std::invalid_argument(std::string(option) + " requires a non-negative integer");
+        const int digit = *character - '0';
+        if (result > (std::numeric_limits<int>::max() - digit) / 10)
+            throw std::invalid_argument(std::string(option) + " is too large");
+        result = result * 10 + digit;
+    }
+    return result;
+}
+
+inline bool tile_is_selected(const Args& args, int tile_x_index, int tile_y_index) {
+    return args.selected_tiles.empty() ||
+           std::find(args.selected_tiles.begin(), args.selected_tiles.end(),
+                     std::make_pair(tile_x_index, tile_y_index)) != args.selected_tiles.end();
+}
 
 /// Parse CLI into `Args`. On error prints `usage(prog)` (per-binary help text)
 /// and exits(1).
@@ -198,21 +220,56 @@ inline Args parse_args(int argc, char** argv, void (*usage)(const char*)) {
     Args args;
     args.model_path = argv[1];
     args.config_path = argv[2];
+    int pending_tile_x = -1;
+    int pending_tile_y = -1;
 
-    for (int i = 3; i < argc; ++i) {
-        if (std::strcmp(argv[i], "--fx") == 0 && i + 1 < argc) {
-            args.fx_dir = argv[++i];
-        } else if (std::strcmp(argv[i], "--fy") == 0 && i + 1 < argc) {
-            args.fy_dir = argv[++i];
-        } else if (std::strcmp(argv[i], "--fz") == 0 && i + 1 < argc) {
-            args.fz_dir = argv[++i];
-        } else if (std::strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
-            args.output_dir = argv[++i];
+    auto finish_tile_pair = [&]() {
+        if (pending_tile_x >= 0 && pending_tile_y >= 0) {
+            args.selected_tiles.emplace_back(pending_tile_x, pending_tile_y);
+            pending_tile_x = -1;
+            pending_tile_y = -1;
         }
+    };
+
+    try {
+        for (int i = 3; i < argc; ++i) {
+            if (std::strcmp(argv[i], "--fx") == 0 && i + 1 < argc) {
+                args.fx_dir = argv[++i];
+            } else if (std::strcmp(argv[i], "--fy") == 0 && i + 1 < argc) {
+                args.fy_dir = argv[++i];
+            } else if (std::strcmp(argv[i], "--fz") == 0 && i + 1 < argc) {
+                args.fz_dir = argv[++i];
+            } else if (std::strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
+                args.output_dir = argv[++i];
+            } else if (std::strcmp(argv[i], "--tile-x") == 0) {
+                if (i + 1 >= argc)
+                    throw std::invalid_argument("--tile-x requires a non-negative integer");
+                if (pending_tile_x >= 0)
+                    throw std::invalid_argument("--tile-x repeated before completing a tile pair");
+                pending_tile_x = parse_tile_index(argv[++i], "--tile-x");
+                finish_tile_pair();
+            } else if (std::strcmp(argv[i], "--tile-y") == 0) {
+                if (i + 1 >= argc)
+                    throw std::invalid_argument("--tile-y requires a non-negative integer");
+                if (pending_tile_y >= 0)
+                    throw std::invalid_argument("--tile-y repeated before completing a tile pair");
+                pending_tile_y = parse_tile_index(argv[++i], "--tile-y");
+                finish_tile_pair();
+            }
+        }
+    } catch (const std::invalid_argument& error) {
+        fprintf(stderr, "ERROR: %s\n", error.what());
+        usage(argv[0]);
+        exit(1);
     }
 
     if (args.fx_dir.empty() || args.fy_dir.empty() || args.fz_dir.empty()) {
         fprintf(stderr, "ERROR: --fx, --fy, and --fz are required\n");
+        usage(argv[0]);
+        exit(1);
+    }
+    if (pending_tile_x >= 0 || pending_tile_y >= 0) {
+        fprintf(stderr, "ERROR: --tile-x and --tile-y must be specified together\n");
         usage(argv[0]);
         exit(1);
     }

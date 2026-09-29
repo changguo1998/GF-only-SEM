@@ -68,6 +68,7 @@ gf_postprocess model.h5 config.h5 \
 | `config.h5` | Simulation params, source, tiles |
 | `--fx/y/z dir` | Force-direction record directories |
 | `-o dir` | Output dir (default: `greenfun/`) |
+| `--tile-x/y index` | Optional repeatable zero-based pair selecting output tiles |
 
 Per-step record files (`record_{r}_{step}.h5`) are auto-discovered via POSIX glob in each wavefield
 directory. Tile sizes come from `config.h5` (`/simulation/tilex_elements`/`tiley_elements` for

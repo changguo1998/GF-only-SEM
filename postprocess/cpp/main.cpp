@@ -55,6 +55,7 @@
 static void print_usage(const char* prog) {
     fprintf(stderr,
             "Usage: %s <model.h5> <config.h5> --fx <dir> --fy <dir> --fz <dir> [-o <dir>]\n"
+            "       [--tile-x <index> --tile-y <index>]...\n"
             "\n"
             "Extract strain Green's functions from SEM record files (tile-batched).\n"
             "Reads per-step record_{r}_{step}.h5 files from three force-direction\n"
@@ -70,6 +71,7 @@ static void print_usage(const char* prog) {
             "  --fy dir   Directory with y-direction record files\n"
             "  --fz dir   Directory with z-direction record files\n"
             "  -o dir     Output directory (default: greenfun/)\n"
+            "  --tile-x/y Process selected zero-based output tiles; repeat the pair\n"
             "\n"
             "Environment:\n"
             "  GF_POST_MEMORY_GB  Aggregate field-array budget in GiB (default: 32)\n",
@@ -1152,6 +1154,22 @@ int main(int argc, char** argv) {
     GF_POST_PROFILE_START(config_read_start, profile);
     ConfigParams cfg = read_config(args.config_path.c_str());
     GF_POST_PROFILE(profile, profile.config_read_s += profile_now() - config_read_start);
+    bool tile_selection_valid = true;
+    for (const auto& [tile_x_index, tile_y_index] : args.selected_tiles) {
+        if (tile_x_index >= static_cast<int>(cfg.tilex_elements.size()) ||
+            tile_y_index >= static_cast<int>(cfg.tiley_elements.size())) {
+            fprintf(
+                stderr, "ERROR: selected tile x%d y%d is outside the configured %zux%zu grid\n",
+                tile_x_index, tile_y_index, cfg.tilex_elements.size(), cfg.tiley_elements.size());
+            tile_selection_valid = false;
+        }
+    }
+    if (!tile_selection_valid) {
+#ifdef GF_POST_MPI
+        MPI_Finalize();
+#endif
+        return 1;
+    }
 
     // ---- Read mesh ----
     GF_POST_DEBUG_LOG("[postprocess] Reading mesh geometry from %s\n", args.model_path.c_str());
@@ -1214,6 +1232,12 @@ int main(int argc, char** argv) {
         }
         GF_POST_PROFILE_START(tile_bin_start, profile);
         tile_bins = build_tile_bins(layout, cfg, model);
+        tile_bins.erase(std::remove_if(tile_bins.begin(), tile_bins.end(),
+                                       [&](const TileBin& tile_bin) {
+                                           return !gf_postprocess_common::tile_is_selected(
+                                               args, tile_bin.key.tx, tile_bin.key.ty);
+                                       }),
+                        tile_bins.end());
         GF_POST_PROFILE(profile, profile.tile_bin_s += profile_now() - tile_bin_start);
 
         GF_POST_PROFILE_START(tile_plan_start, profile);
@@ -1253,6 +1277,15 @@ int main(int argc, char** argv) {
     broadcast_vector(tile_assignments, MPI_INT, worker_rank);
     GF_POST_PROFILE(profile, profile.broadcast_s += profile_now() - broadcast_start);
 #endif
+
+    if (tile_bins.empty()) {
+        if (worker_rank == 0)
+            fprintf(stderr, "ERROR: selected tile contains no recorded cells\n");
+#ifdef GF_POST_MPI
+        MPI_Finalize();
+#endif
+        return 1;
+    }
 
     int64_t n_steps = static_cast<int64_t>(directions[0].steps.size());
 

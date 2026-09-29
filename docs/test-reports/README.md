@@ -22,6 +22,7 @@
 | 后处理数值一致性与性能 | 通过 | [12-postprocess.md](12-postprocess.md) |
 | 阶段性能与容量 | 完成基线测量 | [13-performance-capacity.md](13-performance-capacity.md) |
 | 40³ Debug 扩域与回波前远场 | 通过 | [14-fullspace-40cube.md](14-fullspace-40cube.md) |
+| 50×50×25大型半空间远场 | 11 km通过；14 km显示色散累积 | [15-large-halfspace.md](15-large-halfspace.md) |
 
 ## 历史数据处理规则
 

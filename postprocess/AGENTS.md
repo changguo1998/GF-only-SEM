@@ -38,10 +38,14 @@ rank 0 rebuilds output-rank layouts and indexes direction files
 
 ```bash
 gf_postprocess model.h5 config.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ -o greenfun/
+gf_postprocess model.h5 config.h5 --fx wavefields/x/ --fy wavefields/y/ --fz wavefields/z/ \
+  --tile-x 1 --tile-y 2 --tile-x 2 --tile-y 2 --tile-x 3 --tile-y 2 -o greenfun/
 ```
 
 Per-step record files (`record_{r}_{step}.h5`) are auto-discovered in each wavefield directory.
 Tile sizes come from `config.h5` (`/simulation/tilex_elements`, `tiley_elements`) or `green_tile_size_m` (optional spatial tile size).
+`--tile-x` and `--tile-y` must be supplied as pairs. Repeat the pair to select multiple zero-based
+tiles; omitting both options preserves the full-grid behavior.
 
 两个目标编译同一个 `main.cpp`。`gf_postprocess` 以单 worker 串行处理全部 tile；
 `gf_postprocess_mpi` 按 record-rank 重叠度聚类 tile，并在 MPI workers 间平衡工作量。

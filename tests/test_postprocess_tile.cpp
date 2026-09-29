@@ -218,6 +218,23 @@ TEST_CASE("postprocess tile assignment balances a shared record rank", "[tile]")
     }
 }
 
+TEST_CASE("postprocess can select multiple configured tiles", "[tile]") {
+    gf_postprocess_common::Args args;
+    CHECK(gf_postprocess_common::tile_is_selected(args, 0, 0));
+    CHECK(gf_postprocess_common::tile_is_selected(args, 3, 2));
+
+    args.selected_tiles = {{1, 2}, {2, 2}, {3, 2}};
+    CHECK(gf_postprocess_common::tile_is_selected(args, 1, 2));
+    CHECK(gf_postprocess_common::tile_is_selected(args, 2, 2));
+    CHECK(gf_postprocess_common::tile_is_selected(args, 3, 2));
+    CHECK_FALSE(gf_postprocess_common::tile_is_selected(args, 0, 2));
+    CHECK_FALSE(gf_postprocess_common::tile_is_selected(args, 3, 1));
+    CHECK(gf_postprocess_common::parse_tile_index("0", "--tile-x") == 0);
+    CHECK(gf_postprocess_common::parse_tile_index("12", "--tile-y") == 12);
+    CHECK_THROWS_AS(gf_postprocess_common::parse_tile_index("-1", "--tile-x"),
+                    std::invalid_argument);
+}
+
 TEST_CASE("postprocess tile assignment reuses overlapping record ranks", "[tile]") {
     std::vector<gf_postprocess_common::TileAssignmentInput> tiles(4);
     for (auto& tile : tiles)
