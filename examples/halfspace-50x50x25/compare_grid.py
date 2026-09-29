@@ -48,7 +48,10 @@ def _earliest_pml_return_s(query_xyz_m: np.ndarray) -> float:
     element_x_m = config.lx / config.nx_elements
     element_y_m = config.ly / config.ny_elements
     element_z_m = config.lz / config.nz_elements
-    source_xyz_m = np.array([config.source_x_m, config.source_y_m, 0.0], dtype=np.float64)
+    source_depth_m = 0.0 if config.source_z_m is None else config.source_z_m
+    source_xyz_m = np.array(
+        [config.source_x_m, config.source_y_m, source_depth_m], dtype=np.float64
+    )
     pml_planes = (
         (0, config.pml_thickness["xmin"] * element_x_m),
         (0, config.lx - config.pml_thickness["xmax"] * element_x_m),
@@ -67,9 +70,21 @@ def _earliest_pml_return_s(query_xyz_m: np.ndarray) -> float:
 def main() -> int:
     library_root = CASE_DIR / "greenfun"
     library = GreenFunctionLibrary(library_root, rebuild_index=True)
-    sem_source_xyz_m = np.array([config.source_x_m, config.source_y_m, 0.0], dtype=np.float64)
+    source_depth_m = 0.0 if config.source_z_m is None else config.source_z_m
+    sem_source_xyz_m = np.array(
+        [config.source_x_m, config.source_y_m, source_depth_m], dtype=np.float64
+    )
     rows: list[dict[str, float]] = []
     with h5py.File(CASE_DIR / "config.h5", "r") as config_file:
+        source_attributes = config_file["source"].attrs
+        preprocessed_source_xyz_m = np.array(
+            [source_attributes["x"], source_attributes["y"], source_attributes["z"]]
+        )
+        if not np.allclose(preprocessed_source_xyz_m, sem_source_xyz_m):
+            raise ValueError(
+                f"preprocessed source {preprocessed_source_xyz_m} does not match "
+                f"config.py {sem_source_xyz_m}"
+            )
         stf_time_s = np.asarray(config_file["source/stf_t"], dtype=np.float64)
         stf_values = np.asarray(config_file["source/stf_values"], dtype=np.float64)
 
@@ -77,32 +92,30 @@ def main() -> int:
         config.validation_offsets_m, config.validation_end_times_s, strict=True
     ):
         for depth_m in config.validation_depths_m:
-            query_xyz_m = sem_source_xyz_m + np.array([offset_m, 0.0, depth_m])
+            query_xyz_m = np.array(
+                [config.source_x_m + offset_m, config.source_y_m, depth_m], dtype=np.float64
+            )
             sem_result = library.query(query_xyz_m, sem_source_xyz_m, quantity="displacement")
             if sem_result.displacement is None:
                 raise ValueError(f"missing displacement at {query_xyz_m}")
 
-            # Johnson's formulation expects a buried source and a surface receiver.
-            # Swap source/receiver and transpose by reciprocity to match the direct
-            # SEM convention: surface source -> buried sampling point.
-            analytic_source_xyz_m = query_xyz_m.copy()
-            analytic_source_xyz_m[2] = max(analytic_source_xyz_m[2], 1.0)
             time_s = np.asarray(sem_result.time, dtype=np.float64)
+            if sem_source_xyz_m[2] <= 0.0 or query_xyz_m[2] != 0.0:
+                raise ValueError("Johnson reference requires a buried source and surface receiver")
             step_response = compute_step_response(
                 vp=float(config.vp_m_s(*query_xyz_m)),
                 vs=float(config.vs_m_s(*query_xyz_m)),
                 density=float(config.density_kg_m3(*query_xyz_m)),
-                source_xyz=analytic_source_xyz_m,
-                receiver_xyz=sem_source_xyz_m,
+                source_xyz=sem_source_xyz_m,
+                receiver_xyz=query_xyz_m,
                 time=time_s,
                 n_quad_pts=24,
                 n_seg=800,
             )
             source_values = np.interp(time_s, stf_time_s, stf_values)
-            reciprocal_displacement = convolve_with_stf(
+            reference_displacement = convolve_with_stf(
                 step_response, source_values, float(config.output_dt_s)
             )
-            reference_displacement = np.swapaxes(reciprocal_displacement, 1, 2)
             correlation, scale, fitted_relative_l2 = _metrics(
                 time_s, reference_displacement, np.asarray(sem_result.displacement), end_time_s
             )

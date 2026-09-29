@@ -44,8 +44,8 @@ physical section. See `docs/test-reports/05-finite-q.md`.
 Homogeneous elastic half-space with a buried point force at 278 m depth.
 
 同等计算规模的远场验证见 `halfspace-50x50x25/`：62,500个1 km单元、40×40×20 km
-物理区、1 Hz偏置地表震源。该算例后处理长轴上的三个tile，比较2–14 km距离及0–2 km
-深度，同时避免输出与验证无关的区域。
+物理区、1 Hz偏置震源埋深1 km。该算例后处理长轴上的三个tile，覆盖2–14 km水平距离
+及0–2 km接收深度，同时避免输出与验证无关的区域。
 后续大范围网格研究统一以该几何和震源布置为基线，速度与密度模型可按研究目标替换。
 
 | File | Purpose |

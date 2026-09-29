@@ -28,10 +28,25 @@ for tile_x, tile_y in config.postprocess_tiles:
     print(f"greenfun/tile_x{tile_x:03d}_y{tile_y:03d}.h5")')
 
 cd "${CASE_DIR}"
+check_preprocessed_source() {
+	PYTHONPATH="${CASE_DIR}" "${PROJECT_ROOT}/.venv/bin/python" -c \
+		'import h5py
+import numpy as np
+import config
+expected_z = 0.0 if config.source_z_m is None else config.source_z_m
+expected = np.array([config.source_x_m, config.source_y_m, expected_z])
+with h5py.File("config.h5", "r") as config_file:
+    source = config_file["source"].attrs
+    actual = np.array([source["x"], source["y"], source["z"]])
+if not np.allclose(actual, expected):
+    raise SystemExit(f"ERROR: preprocessed source {actual} does not match config.py {expected}")'
+}
+
 if [ "${GF_REUSE_WAVEFIELDS:-0}" = "1" ]; then
 	test -f model.h5
 	test -f config.h5
 	test -d partitions
+	check_preprocessed_source
 	for direction in x y z; do
 		test -n "$(find "wavefields/${direction}" -maxdepth 1 -name 'record_*.h5' -print -quit)"
 	done
@@ -40,6 +55,7 @@ elif [ "${GF_REUSE_PREPROCESSED:-0}" = "1" ]; then
 	test -f model.h5
 	test -f config.h5
 	test -d partitions
+	check_preprocessed_source
 	rm -rf wavefields greenfun lamb_reference.npz lamb_comparison.npz lamb_distance_depth.csv
 else
 	rm -rf model.h5 config.h5 partitions log wavefields greenfun lamb_reference.npz lamb_comparison.npz \

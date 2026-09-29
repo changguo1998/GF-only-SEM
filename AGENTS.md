@@ -219,8 +219,9 @@ adds round-robin worker scheduling through `GF_POST_MPI`.
 - **Pipeline scripts read config**: `compare.sh` derives `N_RANKS` and runtime params from `config.py`, not hardcoded values.
 - **Large-domain baseline**: New large-domain studies use the `examples/halfspace-50x50x25`
   geometry: 50×50×25 one-kilometre elements, a free surface, five-element side/bottom C-PML,
-  and a 1 Hz surface source offset to one third of the physical x extent. Material velocity and
-  density functions may change between studies; the geometry and source layout remain the baseline.
+  and a 1 Hz source buried 1 km below the free surface, offset to one third of the physical x
+  extent. Material velocity and density functions may change between studies; the geometry and
+  source layout remain the baseline.
 - **HDF5 写入不压缩 (强制)**: All `.h5` writes must explicitly disable compression. Python: every `create_dataset`/`require_dataset` call must pass `compression=None` explicitly (no gzip/shuffle/deflate, no omission). C++: dataset creation uses `H5P_DEFAULT` or chunking only (`H5Pset_chunk`); `H5Pset_deflate`/`H5Pset_gzip` etc. are forbidden. All compression was removed 2026-08-09 (see `docs/design-decisions.md` §10); re-enabling requires a design review and a coordinated update of this rule.
 - **Run formatter before stage/commit**: Run `bash format.sh` before `git add` or `git commit`. It formats Python, Markdown, C/C++, CUDA, and CMake files.
 
