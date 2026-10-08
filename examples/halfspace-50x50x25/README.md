@@ -41,9 +41,26 @@ GF_SOURCE_DEPTH_M=1 "$PWD/../../bin-cpp-halfspace/gf_preprocess" run model.h5 \
   --pml-xmin 5 --pml-xmax 5 --pml-ymin 5 --pml-ymax 5 --pml-zmax 5 --n-ranks 16
 ```
 
-若接着运行 `run.sh` 的正演、后处理和 Lamb 对比，应先确保 `config.py` 中震源深度与
-`GF_SOURCE_DEPTH_M` 一致，再用 `GF_REUSE_PREPROCESSED=1` 保留 C++ 生成的预处理结果。
+`config.py` 和 C++ 配置均读取 `GF_SOURCE_DEPTH_M`（默认1000 m）。若接着运行 `run.sh`
+的正演、后处理和 Lamb 对比，应保持相同的环境变量，并用 `GF_REUSE_PREPROCESSED=1`
+保留 C++ 生成的预处理结果。
 同深度的1 m/1 km对照结果见测试报告。
+
+完成上述C++编译后，可运行五档埋深扫描（500/200/100/50/10 m）：
+
+```bash
+source scripts/env.sh
+python examples/halfspace-50x50x25/run_depth_sweep.py
+```
+
+每档单独保留`depth_sweep/depth_XXXXm/`中的日志、指标、配置和三个tile，完成比较后
+清理该档全域快照；已有指标和tile的档位会跳过。该脚本使用当前算例工作目录，不应
+与其他运行并发执行；若修改测试参数，应先另行归档旧结果，避免复用旧档位。
+命令包装工具的超时需足够长（本次设置12小时）。扫描结束后工作目录的预处理数据
+属于最后的10 m档，复用时需设置`GF_SOURCE_DEPTH_M=10`，默认1 km需重新预处理。
+
+本次扫描已完成：1000–50 m五个距离均通过，10/1 m仅14 km未通过；完整指标、曲线
+和结论边界见[测试报告](../../docs/test-reports/15-large-halfspace.md)。
 
 运行Debug CUDA全流程：
 

@@ -6,6 +6,8 @@ source is offset to one third of the physical x extent and buried 1 km below
 the free surface.
 """
 
+import os
+
 import numpy as np
 
 title = "halfspace_50x50x25_shallow_source"
@@ -49,7 +51,7 @@ pml_thickness = {"xmin": 5, "xmax": 5, "ymin": 5, "ymax": 5, "zmin": 0, "zmax": 
 # 18.333 km; 18.5 km is the nearest element centre and avoids an interface.
 source_x_m = 18500.0
 source_y_m = 25500.0
-source_z_m = 1000.0
+source_z_m = float(os.environ.get("GF_SOURCE_DEPTH_M", "1000.0"))
 
 source_force_amplitude_n = 1.0e20
 f0_for_pml_hz = 1.0

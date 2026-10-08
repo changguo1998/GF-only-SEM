@@ -16,6 +16,7 @@ preprocess/cpp/gf_preprocess
 *_nothread
 bin/
 bin-debug/
+bin-cpp-halfspace/
 
 # Simulation output (reproducible from preprocess + solver)
 wavefields/
@@ -29,6 +30,7 @@ examples/*/vtk/
 examples/*/record_*.h5
 examples/*/output_*.h5
 examples/*/config.h5
+examples/halfspace-50x50x25/depth_sweep/
 
 # Rebuildable greenfun cache
 _greenfun_index.h5
