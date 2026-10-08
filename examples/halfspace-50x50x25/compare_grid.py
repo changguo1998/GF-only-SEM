@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import csv
 import sys
 from pathlib import Path
@@ -23,6 +24,9 @@ from examples.halfspace.reference import (  # noqa: E402
     convolve_with_stf,
 )
 from greenfun.library import GreenFunctionLibrary  # noqa: E402
+
+
+FORCE_DIRECTION_INDEX = {"x": 0, "y": 1, "z": 2}
 
 
 def _metrics(
@@ -68,13 +72,32 @@ def _earliest_pml_return_s(query_xyz_m: np.ndarray) -> float:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Compare large-halfspace displacement with the Johnson reference"
+    )
+    parser.add_argument(
+        "--force-direction",
+        choices=("all", "x", "y", "z"),
+        default="all",
+        help="Restrict metrics to one point-force direction",
+    )
+    parser.add_argument(
+        "--surface-reference-depth-m",
+        type=float,
+        default=1.0,
+        help="Positive Johnson source depth used for a strict SEM surface source",
+    )
+    args = parser.parse_args()
+    if args.surface_reference_depth_m <= 0.0:
+        parser.error("--surface-reference-depth-m must be positive")
+
     library_root = CASE_DIR / "greenfun"
     library = GreenFunctionLibrary(library_root, rebuild_index=True)
     source_depth_m = 0.0 if config.source_z_m is None else config.source_z_m
     sem_source_xyz_m = np.array(
         [config.source_x_m, config.source_y_m, source_depth_m], dtype=np.float64
     )
-    rows: list[dict[str, float]] = []
+    rows: list[dict[str, float | str]] = []
     with h5py.File(CASE_DIR / "config.h5", "r") as config_file:
         source_attributes = config_file["source"].attrs
         preprocessed_source_xyz_m = np.array(
@@ -100,13 +123,16 @@ def main() -> int:
                 raise ValueError(f"missing displacement at {query_xyz_m}")
 
             time_s = np.asarray(sem_result.time, dtype=np.float64)
-            if sem_source_xyz_m[2] <= 0.0 or query_xyz_m[2] != 0.0:
-                raise ValueError("Johnson reference requires a buried source and surface receiver")
+            if query_xyz_m[2] != 0.0:
+                raise ValueError("Johnson reference requires a surface receiver")
+            reference_source_xyz_m = sem_source_xyz_m.copy()
+            if reference_source_xyz_m[2] <= 0.0:
+                reference_source_xyz_m[2] = args.surface_reference_depth_m
             step_response = compute_step_response(
                 vp=float(config.vp_m_s(*query_xyz_m)),
                 vs=float(config.vs_m_s(*query_xyz_m)),
                 density=float(config.density_kg_m3(*query_xyz_m)),
-                source_xyz=sem_source_xyz_m,
+                source_xyz=reference_source_xyz_m,
                 receiver_xyz=query_xyz_m,
                 time=time_s,
                 n_quad_pts=24,
@@ -116,10 +142,16 @@ def main() -> int:
             reference_displacement = convolve_with_stf(
                 step_response, source_values, float(config.output_dt_s)
             )
+            sem_displacement = np.asarray(sem_result.displacement)
+            if args.force_direction != "all":
+                force_direction_index = FORCE_DIRECTION_INDEX[args.force_direction]
+                reference_displacement = reference_displacement[:, :, force_direction_index]
+                sem_displacement = sem_displacement[:, :, force_direction_index]
             correlation, scale, fitted_relative_l2 = _metrics(
-                time_s, reference_displacement, np.asarray(sem_result.displacement), end_time_s
+                time_s, reference_displacement, sem_displacement, end_time_s
             )
             row = {
+                "force_direction": args.force_direction,
                 "offset_m": offset_m,
                 "depth_m": depth_m,
                 "end_time_s": end_time_s,
@@ -130,7 +162,8 @@ def main() -> int:
             }
             rows.append(row)
             print(
-                f"offset={offset_m / 1000:g} km depth={depth_m / 1000:g} km "
+                f"force={args.force_direction} offset={offset_m / 1000:g} km "
+                f"depth={depth_m / 1000:g} km "
                 f"corr={correlation:.6f} scale={scale:.6f} "
                 f"fitted_l2={fitted_relative_l2:.6f}"
             )

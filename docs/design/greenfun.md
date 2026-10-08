@@ -276,7 +276,7 @@ The library auto-detects the tile basis at load time:
 
 Postprocess writes tiles with `basis="gll"`, storing unique GLL node IDs,
 coordinates, and `cell_gll_node_index` mapping each recording cell to its
-125 GLL nodes. `GLLInterpolator` (`gll_interpolator.py`) locates the cell
+`ngll³` GLL nodes. `GLLInterpolator` (`gll_interpolator.py`) infers `ngll`, locates the cell
 containing a query point, maps to reference coordinates `(ξ,η,ζ) ∈ [-1,1]³`,
 and evaluates the 3D tensor-product GLL Lagrange basis for spectral-accuracy
 interpolation. Exact GLL-node matches are returned directly via KDTree

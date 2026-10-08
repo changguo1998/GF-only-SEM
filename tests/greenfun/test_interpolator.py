@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from numpy.polynomial.legendre import Legendre
 
+from greenfun.gll_interpolator import GLLInterpolator
 from greenfun.interpolator import TrilinearInterpolator
 
 
@@ -177,3 +179,28 @@ class TestTrilinearInterpolator:
         interp = TrilinearInterpolator(coords)
         with pytest.raises(ValueError, match="first dimension"):
             interp.interpolate(np.array([1.0, 2.0, 3.0]), np.ones(10))
+
+
+class TestGLLInterpolator:
+    """Suite for arbitrary-order GLL interpolation."""
+
+    @pytest.mark.parametrize("ngll", [5, 6])
+    def test_infers_order_and_recovers_polynomial(self, ngll: int) -> None:
+        """N=4 and N=5 cells infer their order and reproduce a cubic field."""
+        interior = Legendre.basis(ngll - 1).deriv().roots()
+        gll_points = np.concatenate(([-1.0], interior, [1.0]))
+        mesh = np.meshgrid(gll_points, gll_points, gll_points, indexing="ij")
+        coordinates = np.column_stack([axis.ravel() for axis in mesh])
+        cell_index = np.arange(ngll**3, dtype=np.int64).reshape(1, -1)
+        values = (
+            1.0
+            + coordinates[:, 0] ** 3
+            - 2.0 * coordinates[:, 1] ** 2
+            + 0.5 * coordinates[:, 2]
+        )
+
+        interpolator = GLLInterpolator(coordinates, cell_index)
+        query = np.array([0.23, -0.31, 0.47])
+        expected = 1.0 + query[0] ** 3 - 2.0 * query[1] ** 2 + 0.5 * query[2]
+
+        assert np.isclose(interpolator.interpolate(query, values), expected, atol=1.0e-12)

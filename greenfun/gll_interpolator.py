@@ -1,7 +1,7 @@
 """GLL Lagrange interpolation for Green's function tiles with basis='gll'.
 
 For GLL tiles, each tile stores unique GLL nodes (L2-projected in postprocess)
-plus ``cell_gll_node_index`` mapping each recording cell to its 125 GLL nodes.
+plus ``cell_gll_node_index`` mapping each recording cell to its GLL nodes.
 This interpolator locates the cell containing a query point, maps to reference
 coordinates (xi, eta, zeta) in [-1, 1]^3, and evaluates the 3D tensor-product
 GLL Lagrange basis for spectral-accuracy interpolation.
@@ -14,31 +14,32 @@ from __future__ import annotations
 
 import numpy as np
 import numpy.typing as npt
+from numpy.polynomial.legendre import Legendre
 from scipy.spatial import KDTree
 
 # Tolerance for treating a query point as an exact GLL-node match (1 micron).
 EXACT_GLL_NODE_TOLERANCE_M = 1e-6
 
-# 1D GLL points for N=4 (5 nodes) on the reference interval [-1, 1].
-# Roots of (1 - xi^2) * P'_N(xi) = 0 where P_N is the Legendre polynomial.
-_NGLL = 5
-_GLL_XI_1D = np.array([-1.0, -np.sqrt(3.0 / 7.0), 0.0, np.sqrt(3.0 / 7.0), 1.0], dtype=np.float64)
+def _gll_points(ngll: int) -> np.ndarray:
+    """Return the GLL points for ``ngll`` nodes on ``[-1, 1]``."""
+    if ngll < 2:
+        raise ValueError(f"ngll must be at least 2, got {ngll}")
+    interior_points = Legendre.basis(ngll - 1).deriv().roots()
+    return np.concatenate(([-1.0], interior_points, [1.0])).astype(np.float64)
 
-# Indices of the 8 corner nodes within a cell's 125-node flat array
-# (layout: i*NGLL*NGLL + j*NGLL + k, x-major, y-middle, z-minor).
-_CORNER_LOCAL_INDICES = np.array(
-    [
-        0 * _NGLL * _NGLL + 0 * _NGLL + 0,  # (0,0,0) = index   0
-        0 * _NGLL * _NGLL + 0 * _NGLL + 4,  # (0,0,4) = index   4
-        0 * _NGLL * _NGLL + 4 * _NGLL + 0,  # (0,4,0) = index  20
-        0 * _NGLL * _NGLL + 4 * _NGLL + 4,  # (0,4,4) = index  24
-        4 * _NGLL * _NGLL + 0 * _NGLL + 0,  # (4,0,0) = index 100
-        4 * _NGLL * _NGLL + 0 * _NGLL + 4,  # (4,0,4) = index 104
-        4 * _NGLL * _NGLL + 4 * _NGLL + 0,  # (4,4,0) = index 120
-        4 * _NGLL * _NGLL + 4 * _NGLL + 4,  # (4,4,4) = index 124
-    ],
-    dtype=np.intp,
-)
+
+def _corner_local_indices(ngll: int) -> np.ndarray:
+    """Return the eight corner indices for a flattened tensor-product cell."""
+    last = ngll - 1
+    return np.array(
+        [
+            i * ngll * ngll + j * ngll + k
+            for i in (0, last)
+            for j in (0, last)
+            for k in (0, last)
+        ],
+        dtype=np.intp,
+    )
 
 
 class GLLInterpolator:
@@ -50,31 +51,49 @@ class GLLInterpolator:
         Shape ``(n_unique_gll, 3)``, float64.  Coordinates of each unique GLL
         node in the tile (deduplicated by postprocess L2 projection).
     cell_gll_node_index:
-        Shape ``(n_recording_cell, 125)``, int32/int64.  For each recording
-        cell, the indices (into *gll_node_coords*) of its 125 GLL nodes,
+        Shape ``(n_recording_cell, ngll**3)``, int32/int64.  For each recording
+        cell, the indices (into *gll_node_coords*) of its GLL nodes,
         in standard 3D tensor-product order (x-major, y-middle, z-minor).
     ngll:
-        Number of GLL nodes per dimension (default 5 for N=4 polynomial).
+        Number of GLL nodes per dimension.  Inferred from
+        ``cell_gll_node_index`` when omitted.
     """
 
     def __init__(
-        self, gll_node_coords: np.ndarray, cell_gll_node_index: np.ndarray, ngll: int = 5
+        self,
+        gll_node_coords: np.ndarray,
+        cell_gll_node_index: np.ndarray,
+        ngll: int | None = None,
     ) -> None:
-        if ngll != 5:
-            raise NotImplementedError("Only ngll=5 (N=4) is currently supported")
-
-        self._ngll = ngll
         self._gll_node_coords = np.asarray(gll_node_coords, dtype=np.float64)
         self._cell_gll_node_index = np.asarray(cell_gll_node_index, dtype=np.int64)
+        if self._cell_gll_node_index.ndim != 2:
+            raise ValueError(
+                "cell_gll_node_index must be two-dimensional, "
+                f"got {self._cell_gll_node_index.shape}"
+            )
 
-        n_unique = self._gll_node_coords.shape[0]
-        n_cell = self._cell_gll_node_index.shape[0]
-
-        if self._cell_gll_node_index.shape[1] != ngll**3:
+        nodes_per_cell = self._cell_gll_node_index.shape[1]
+        inferred_ngll = round(nodes_per_cell ** (1.0 / 3.0))
+        if inferred_ngll**3 != nodes_per_cell:
+            raise ValueError(
+                "cell_gll_node_index second dimension must be a perfect cube, "
+                f"got {nodes_per_cell}"
+            )
+        if ngll is None:
+            ngll = inferred_ngll
+        if ngll**3 != nodes_per_cell:
             raise ValueError(
                 f"cell_gll_node_index must have shape (n_cell, {ngll**3}), "
                 f"got {self._cell_gll_node_index.shape}"
             )
+
+        self._ngll = ngll
+        self._gll_xi_1d = _gll_points(ngll)
+        corner_local_indices = _corner_local_indices(ngll)
+
+        n_unique = self._gll_node_coords.shape[0]
+        n_cell = self._cell_gll_node_index.shape[0]
 
         # KDTree for exact-node-match queries.
         self._node_tree = KDTree(self._gll_node_coords)
@@ -89,7 +108,7 @@ class GLLInterpolator:
         self._cell_z_max = np.empty(n_cell, dtype=np.float64)
 
         for c in range(n_cell):
-            node_idx = self._cell_gll_node_index[c, _CORNER_LOCAL_INDICES]
+            node_idx = self._cell_gll_node_index[c, corner_local_indices]
             corners = self._gll_node_coords[node_idx]
             xc = corners[:, 0]
             yc = corners[:, 1]
@@ -215,15 +234,15 @@ class GLLInterpolator:
         ell_zeta = self._lagrange_basis(zeta)  # [ngll]
 
         # 3D tensor-product weights: w_{ijk} = ell_xi[i] * ell_eta[j] * ell_zeta[k]
-        # Shape: [125]
+        # Shape: [ngll**3]
         weights = np.outer(np.outer(ell_xi, ell_eta).ravel(), ell_zeta).ravel()
         weights /= weights.sum()  # partition of unity
 
         # ------------------------------------------------------------------
-        # 5. Weighted sum over the cell's 125 GLL nodes.
+        # 5. Weighted sum over the cell's GLL nodes.
         # ------------------------------------------------------------------
-        node_indices = self._cell_gll_node_index[cell_idx]  # [125]
-        cell_values = values[node_indices]  # [125, ...]
+        node_indices = self._cell_gll_node_index[cell_idx]  # [ngll**3]
+        cell_values = values[node_indices]  # [ngll**3, ...]
         return np.tensordot(weights, cell_values, axes=(0, 0))
 
     # ------------------------------------------------------------------
@@ -242,12 +261,16 @@ class GLLInterpolator:
         for i in range(n):
             for j in range(n):
                 if i != j:
-                    ell[i] *= (xi - _GLL_XI_1D[j]) / (_GLL_XI_1D[i] - _GLL_XI_1D[j])
+                    ell[i] *= (xi - self._gll_xi_1d[j]) / (
+                        self._gll_xi_1d[i] - self._gll_xi_1d[j]
+                    )
         return ell
 
     def _idw_fallback(self, point: np.ndarray, values: np.ndarray) -> np.ndarray:
         """Inverse-distance-weighted average (degenerate-cell fallback)."""
-        distances, indices = self._node_tree.query(point, k=min(125, len(self._gll_node_coords)))
+        distances, indices = self._node_tree.query(
+            point, k=min(self._ngll**3, len(self._gll_node_coords))
+        )
         if isinstance(indices, np.integer):
             indices = np.array([indices])
             distances = np.array([distances])
@@ -262,7 +285,7 @@ def reconstruct_cell_gll_index(gll_node_coords: np.ndarray, ngll: int = 5) -> np
 
     For a rectilinear Cartesian tile, GLL nodes form a structured grid.
     This function extracts the unique axis positions and reconstructs
-    which 125 GLL nodes belong to each cell.
+    which GLL nodes belong to each cell.
 
     Args:
         gll_node_coords: Shape ``(n_unique_gll, 3)``, float64.
