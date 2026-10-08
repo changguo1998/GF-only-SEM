@@ -22,6 +22,29 @@
 匹配步长后谱阶提升仅带来小幅改善。详见
 [`docs/test-reports/15-large-halfspace.md`](../../docs/test-reports/15-large-halfspace.md)。
 
+## 纯 C++ 预处理
+
+该算例提供 [`config_user.cpp`](config_user.cpp)，可通过 `GF_USER_CONFIG` 编译进
+`gf_preprocess`，用 `gf_preprocess run` 完成包括 C-PML 在内的全 C++ 预处理。默认震源深度
+为1 km；测试其他深度时可设置 `GF_SOURCE_DEPTH_M`。例如：
+
+```bash
+cmake -S preprocess/cpp -B build/preprocess-halfspace \
+  -DGF_USER_CONFIG="$PWD/examples/halfspace-50x50x25/config_user.cpp" \
+  -DGF_RUNTIME_OUTPUT_DIRECTORY="$PWD/bin-cpp-halfspace"
+cmake --build build/preprocess-halfspace --target gf_preprocess -j8
+cd examples/halfspace-50x50x25
+# Regenerate topology-only model.h5 before each source-depth preprocessing run.
+python mesh_gen.py
+GF_SOURCE_DEPTH_M=1 "$PWD/../../bin-cpp-halfspace/gf_preprocess" run model.h5 \
+  --N 4 --cfl-safety 0.5 --nx 50 --ny 50 \
+  --pml-xmin 5 --pml-xmax 5 --pml-ymin 5 --pml-ymax 5 --pml-zmax 5 --n-ranks 16
+```
+
+若接着运行 `run.sh` 的正演、后处理和 Lamb 对比，应先确保 `config.py` 中震源深度与
+`GF_SOURCE_DEPTH_M` 一致，再用 `GF_REUSE_PREPROCESSED=1` 保留 C++ 生成的预处理结果。
+同深度的1 m/1 km对照结果见测试报告。
+
 运行Debug CUDA全流程：
 
 ```bash
