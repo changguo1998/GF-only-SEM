@@ -22,7 +22,7 @@
 | 后处理数值一致性与性能 | 通过 | [12-postprocess.md](12-postprocess.md) |
 | 阶段性能与容量 | 完成基线测量 | [13-performance-capacity.md](13-performance-capacity.md) |
 | 40³ Debug 扩域与回波前远场 | 通过 | [14-fullspace-40cube.md](14-fullspace-40cube.md) |
-| 50×50×25大型半空间远场 | 七档埋深扫描完成；1000–50 m全部通过，10/1 m源14 km点未通过 | [15-large-halfspace.md](15-large-halfspace.md) |
+| 50×50×25大型半空间远场 | 参考修复后500–1 m的30点通过；地表与1 m SEM原始L2差异0.192%–0.217%，已对比六档埋深 | [15-large-halfspace.md](15-large-halfspace.md) |
 
 ## 历史数据处理规则
 

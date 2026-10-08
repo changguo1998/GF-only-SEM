@@ -184,6 +184,7 @@ def compute_step_response(
     time: npt.ArrayLike,
     n_quad_pts: int = 7,
     n_seg: int = 20,
+    integrate_segments=None,
 ) -> npt.NDArray[np.float64]:
     r"""Displacement Green tensor G^H for a Heavisite step source.
 
@@ -203,6 +204,8 @@ def compute_step_response(
         Gauss-Legendre quadrature points per segment (default 7).
     n_seg : int
         Number of integration segments (default 20).
+    integrate_segments : callable, optional
+        Quadrature implementation; defaults to the original scalar integrator.
 
     Returns
     -------
@@ -223,6 +226,7 @@ def compute_step_response(
     phi = np.arctan2(dr[1], dr[0])
 
     nodes, weights = _gauss_quad(n_quad_pts)
+    integrate = _integrate_segments if integrate_segments is None else integrate_segments
     g_fn = np.zeros((nt, 3, 3), dtype=np.float64)
 
     for i in range(nt):
@@ -233,13 +237,11 @@ def compute_step_response(
 
         if pp > 0.0:
             p_max = np.sqrt(pp)
-            g_fn[i] += _integrate_segments(_integrand_p, 0.0, p_max, nodes, weights, args, n_seg)
+            g_fn[i] += integrate(_integrand_p, 0.0, p_max, nodes, weights, args, n_seg)
 
         if pb > 0.0:
             p_max = np.sqrt(pb)
-            g_fn[i] += _integrate_segments(
-                _integrand_s_cagniard, 0.0, p_max, nodes, weights, args, n_seg
-            )
+            g_fn[i] += integrate(_integrand_s_cagniard, 0.0, p_max, nodes, weights, args, n_seg)
 
         # Branch-cut correction for S-wave (beyond critical angle)
         if np.sin(theta) > vs / vp:
@@ -248,11 +250,11 @@ def compute_step_response(
             if p2 > 0.0:
                 p2_max = np.sqrt(p2)
                 if t0 < r / vs:
-                    g_fn[i] -= _integrate_segments(
+                    g_fn[i] -= integrate(
                         _integrand_s_branch, 0.0, p2_max, nodes, weights, args, n_seg
                     )
                 elif pb > 0.0:
-                    g_fn[i] -= _integrate_segments(
+                    g_fn[i] -= integrate(
                         _integrand_s_branch, np.sqrt(pb), p2_max, nodes, weights, args, n_seg
                     )
 

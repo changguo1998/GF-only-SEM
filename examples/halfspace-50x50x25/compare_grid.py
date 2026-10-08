@@ -19,12 +19,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import config  # noqa: E402
-from examples.halfspace.reference import (  # noqa: E402
-    compute_step_response,
-    convolve_with_stf,
+
+from examples.halfspace.reference_sampling import (  # noqa: E402
+    converged_displacement,
+    sampled_displacement,
 )
 from greenfun.library import GreenFunctionLibrary  # noqa: E402
-
 
 FORCE_DIRECTION_INDEX = {"x": 0, "y": 1, "z": 2}
 
@@ -87,9 +87,19 @@ def main() -> int:
         default=1.0,
         help="Positive Johnson source depth used for a strict SEM surface source",
     )
+    parser.add_argument("--reference-initial-refinement", type=int, default=16)
+    parser.add_argument("--reference-max-refinement", type=int, default=1024)
+    parser.add_argument("--reference-tolerance", type=float, default=0.002)
     args = parser.parse_args()
     if args.surface_reference_depth_m <= 0.0:
         parser.error("--surface-reference-depth-m must be positive")
+    if (
+        args.reference_initial_refinement < 1
+        or args.reference_max_refinement < 2 * args.reference_initial_refinement
+    ):
+        parser.error("Reference refinement range must contain at least two levels")
+    if not np.isfinite(args.reference_tolerance) or args.reference_tolerance <= 0.0:
+        parser.error("--reference-tolerance must be positive and finite")
 
     library_root = CASE_DIR / "greenfun"
     library = GreenFunctionLibrary(library_root, rebuild_index=True)
@@ -128,19 +138,29 @@ def main() -> int:
             reference_source_xyz_m = sem_source_xyz_m.copy()
             if reference_source_xyz_m[2] <= 0.0:
                 reference_source_xyz_m[2] = args.surface_reference_depth_m
-            step_response = compute_step_response(
-                vp=float(config.vp_m_s(*query_xyz_m)),
-                vs=float(config.vs_m_s(*query_xyz_m)),
-                density=float(config.density_kg_m3(*query_xyz_m)),
-                source_xyz=reference_source_xyz_m,
-                receiver_xyz=query_xyz_m,
-                time=time_s,
-                n_quad_pts=24,
-                n_seg=800,
-            )
-            source_values = np.interp(time_s, stf_time_s, stf_values)
-            reference_displacement = convolve_with_stf(
-                step_response, source_values, float(config.output_dt_s)
+
+            def evaluate_reference(refinement):
+                return sampled_displacement(
+                    vp=float(config.vp_m_s(*query_xyz_m)),
+                    vs=float(config.vs_m_s(*query_xyz_m)),
+                    density=float(config.density_kg_m3(*query_xyz_m)),
+                    source_xyz=reference_source_xyz_m,
+                    receiver_xyz=query_xyz_m,
+                    time_s=time_s,
+                    stf_time_s=stf_time_s,
+                    stf_values=stf_values,
+                    refinement=refinement,
+                )
+
+            reference_displacement, reference_refinement, reference_change = (
+                converged_displacement(
+                    evaluate_reference,
+                    time_s,
+                    end_time_s,
+                    initial_refinement=args.reference_initial_refinement,
+                    max_refinement=args.reference_max_refinement,
+                    tolerance=args.reference_tolerance,
+                )
             )
             sem_displacement = np.asarray(sem_result.displacement)
             if args.force_direction != "all":
@@ -159,6 +179,8 @@ def main() -> int:
                 "correlation": correlation,
                 "scale": scale,
                 "fitted_relative_l2": fitted_relative_l2,
+                "reference_dt_s": float(time_s[1] - time_s[0]) / reference_refinement,
+                "reference_relative_change": reference_change,
             }
             rows.append(row)
             print(
@@ -176,13 +198,13 @@ def main() -> int:
         writer.writerows(rows)
     print(f"Wrote {output_path}")
 
-    baseline = next(row for row in rows if row["offset_m"] == 11000.0 and row["depth_m"] == 0.0)
-    passed = (
-        baseline["correlation"] >= 0.95
-        and baseline["fitted_relative_l2"] <= 0.30
-        and 0.8 <= baseline["scale"] <= 1.2
+    passed = all(
+        row["correlation"] >= 0.95
+        and row["fitted_relative_l2"] <= 0.30
+        and 0.8 <= row["scale"] <= 1.2
+        for row in rows
     )
-    print(f"11 km surface baseline: {'PASS' if passed else 'FAIL'}")
+    print(f"All {len(rows)} points with converged reference: {'PASS' if passed else 'FAIL'}")
     return 0 if passed else 1
 
 
