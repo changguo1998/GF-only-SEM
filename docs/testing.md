@@ -14,6 +14,9 @@
 `GF_REUSE_WAVEFIELDS=1` 可保留已有正演record并仅重做后处理与解析对比。
 当前1 km埋深源的2–14 km地表主体波均通过门限，corr≥0.994963、scale接近1、
 拟合L2≤0.100242，且比较窗均早于最早PML返回。
+严格地表源z向专项中，14 km拟合L2从N=4/16.67 ms的0.430252降至N=4/10 ms的0.414918，
+再到N=5/10 ms的0.412111；时间步长细化的影响大于谱阶提升。详见
+[`15-large-halfspace.md`](test-reports/15-large-halfspace.md)。
 
 ## 测试分层
 
