@@ -23,6 +23,7 @@
 | 阶段性能与容量 | 完成基线测量 | [13-performance-capacity.md](13-performance-capacity.md) |
 | 40³ Debug 扩域与回波前远场 | 通过 | [14-fullspace-40cube.md](14-fullspace-40cube.md) |
 | 50×50×25大型半空间远场 | 参考修复后500–1 m的30点通过；地表与1 m SEM原始L2差异0.192%–0.217%，已对比六档埋深 | [15-large-halfspace.md](15-large-halfspace.md) |
+| 50×50×25层状半空间埋深测试 | 七档全流程完成；地表至1 m无突变；与PyFK相关系数0.9847–0.9907 | [16-layered-large-source-depth.md](16-layered-large-source-depth.md) |
 
 ## 历史数据处理规则
 

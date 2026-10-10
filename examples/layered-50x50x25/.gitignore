@@ -1,0 +1,8 @@
+config.h5
+model.h5
+partitions/
+wavefields/
+depth_sweep/
+log/
+build.log
+build_configure.log
