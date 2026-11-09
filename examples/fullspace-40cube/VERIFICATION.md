@@ -2,9 +2,11 @@
 
 ## Configuration
 
-以下解析比较指标使用旧的输出步长 Stokes 参考解。之后的 20³、5 s 算例在 15 个选点
-发现旧/新参考解最大相差 31.4%；40³ 波形尚未用新参考解重算，因此旧相关系数和误差指标
-只能作为历史记录，不能直接用于当前验收。
+以下解析比较指标使用旧的输出步长 Stokes 参考解，仅作历史记录。2026-11-09 已用
+新参考解重跑 40³：回波前远场五组平均相关系数为 0.999893、scale 为 1.001077、
+拟合 L2 为 0.014649；同批波形用旧参考解计算拟合 L2 为 0.194647。当前方法、指标
+与抽样差异见
+[`docs/test-reports/18-fullspace-40cube-new-reference.md`](../../docs/test-reports/18-fullspace-40cube-new-reference.md)。
 
 This diagnostic case keeps the verified 1 km element size and expands the
 physical domain to 40 km on each axis. The five-element C-PML therefore starts
@@ -52,9 +54,8 @@ three full-domain directions in 2346.7 s (39.1 min). The workers used four
 memory batches in total under an 80 GiB aggregate field budget; peak resident
 memory was below the 95 GiB cgroup limit.
 
-The comparison tool now validates `solver_dt × snapshot_stride = output_dt_s`
-and downsamples the solver-grid STF at `snapshot_stride`; this is required when
-the output interval is larger than the CFL timestep.
+旧比较器检查 `solver_dt × snapshot_stride = output_dt_s` 后将 STF 降采样至输出步长；
+新比较器仍检查该时间关系，但使用完整求解步长 STF、分数延迟和分段线性近场积分。
 
 | Receiver set | Mean correlation | Scale-fitted L2 | SEM / analytical scale |
 |---|---:|---:|---:|

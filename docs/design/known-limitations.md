@@ -2,10 +2,14 @@
 
 ## 1. Full-Space Waveform Shape Error
 
-以下指标使用旧的输出步长 Stokes 参考解，属于历史结果。2026-11-09 的 20³、5 s
-CPU-MPI Debug 算例在 15 个选点发现旧/新参考解最大相差 31.4%；与新参考解比较，
-64 个固定点平均相对 L2 为 0.0040，SEM/参考解 scale 为 1.001。这不能说明旧的 8 s
-及 40³ 算例剩余误差的成因；所有旧全空间比较和边界/PML 归因均待复算。
+以下五网格与 28 km 扩域指标使用旧的输出步长 Stokes 参考解，属于历史结果。
+2026-11-09 的 20³、5 s CPU-MPI Debug 算例在 15 个选点发现旧/新参考解最大相差
+31.4%；与新参考解比较，64 个固定点平均相对 L2 为 0.0040、scale 为 1.001。
+40³、8 s 的新参考解复测中，回波前远场五组在同批波形上旧/新拟合 L2 为
+0.194647/0.014649，相关系数由 0.980852 提升到 0.999893；全非 PML 内域新参考
+拟合 L2 为 0.0203。历史约 19% 的回波前误差主要来自旧参考解时间处理，
+剩余误差仍不能据此单独归因于边界/PML、点源表示或数值色散。详见
+[`18-fullspace-40cube-new-reference.md`](../test-reports/18-fullspace-40cube-new-reference.md)。
 
 The five-grid full-space study reports mean component-wise correlation of about 0.83–0.85.
 All five grids were regenerated on 2026-09-20 after the postprocess averaging and fitted-L2

@@ -151,8 +151,12 @@ fitted rel_l2=0.3458.
 
 **全空间参考解复核（2026-11-09）：** 20³、5 s、Debug CPU-MPI 的快速测试使用新的分段线性
 Stokes 参考解得到平均 L2=0.0040、scale=1.001；旧参考实现与新实现的选点最大相对差异
-为 31.4%。上段五网格、扩域及 40³ 与解析解的比较数值是旧参考下的历史结果，边界/PML
-误差归因待新参考解重算，不能据此继续确认主因。见 `docs/test-reports/17-fullspace-reference-time.md`。
+为 31.4%。40³、8 s Debug CUDA 全流程也已用新参考解复测：回波前远场五组同批波形的
+新/旧参考拟合 L2 为 0.014649/0.194647，新参考相关系数为 0.999893、scale 为
+1.001077；历史约 19% 回波前误差主要由旧参考解时间处理造成。五网格与 28 km 扩域
+仍待重算，不得继续按旧值确认边界/PML 是主因。见
+`docs/test-reports/17-fullspace-reference-time.md` 和
+`docs/test-reports/18-fullspace-40cube-new-reference.md`。
 
 After fixing the postprocess mass-weighting and per-field count bugs and the Green tensor
 index convention mismatch, scaled waveform correlation is 0.991 (halfspace) / 0.745
