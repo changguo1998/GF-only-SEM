@@ -14,16 +14,17 @@
 | 层状介质与浅源/地表源 | 通过 | [04-layered-pyfk.md](04-layered-pyfk.md) |
 | 有限 Q 本构与传播 | 通过 | [05-finite-q.md](05-finite-q.md) |
 | CPU-MPI/CUDA 一致性 | 通过 | [06-backend-consistency.md](06-backend-consistency.md) |
-| 紧凑全空间网格研究 | 完成；无网格收敛趋势 | [07-compact-grid-study.md](07-compact-grid-study.md) |
-| 扩域全空间研究 | 通过 | [08-expanded-fullspace.md](08-expanded-fullspace.md) |
+| 紧凑全空间网格研究 | 历史数值已记录；旧 Stokes 参考解的误差趋势待复核 | [07-compact-grid-study.md](07-compact-grid-study.md) |
+| 扩域全空间研究 | 历史数值已记录；边界/PML 归因待新参考解复核 | [08-expanded-fullspace.md](08-expanded-fullspace.md) |
 | C-PML 实现、稳定性与厚度 | 实现/稳定性通过；厚度误差已量化 | [09-cpml.md](09-cpml.md) |
 | Restart/Resume | 状态往返通过；缺少连续/恢复波场差分档案 | [10-restart-resume.md](10-restart-resume.md) |
 | Debug/Release record schema | 通过 | [11-record-schema.md](11-record-schema.md) |
 | 后处理数值一致性与性能 | 通过 | [12-postprocess.md](12-postprocess.md) |
 | 阶段性能与容量 | 完成基线测量 | [13-performance-capacity.md](13-performance-capacity.md) |
-| 40³ Debug 扩域与回波前远场 | 通过 | [14-fullspace-40cube.md](14-fullspace-40cube.md) |
+| 40³ Debug 扩域与回波前远场 | 正演通过；旧 Stokes 波形指标待新参考解复核 | [14-fullspace-40cube.md](14-fullspace-40cube.md) |
 | 50×50×25大型半空间远场 | 参考修复后500–1 m的30点通过；地表与1 m SEM原始L2差异0.192%–0.217%，已对比六档埋深 | [15-large-halfspace.md](15-large-halfspace.md) |
 | 50×50×25层状半空间埋深测试 | 七档全流程完成；地表至1 m无突变；与PyFK相关系数0.9847–0.9907 | [16-layered-large-source-depth.md](16-layered-large-source-depth.md) |
+| 全空间参考解时间收敛 | 20³快速组合通过；旧时间处理与新参考解最大差异31.4%，新参考解与SEM平均L2=0.0040 | [17-fullspace-reference-time.md](17-fullspace-reference-time.md) |
 
 ## 历史数据处理规则
 
@@ -36,6 +37,8 @@
 - 有限 Q 传播旧结果使用旧 record schema。2026-09-24 用当前 1 Hz Debug schema 重算
   20×12×12 模型时，CPU/CUDA 的 1 Hz 振幅误差均为 13.67%；该模型的非 PML 横截面只有
   2 km。扩至 20×14×14 后两后端最大振幅/相位误差降至 6.25%/0.0084 rad，当前结论为通过。
+- 2026-11-09 的 20³ 验证发现旧全空间 Stokes 时间实现与新参考解在选点最大相差 31.4%；
+  此前全空间五网格、扩域及 40³ 的解析比较指标和误差归因均待用新参考解重算。
 - 相关系数对统一幅值缩放不敏感；只有同时报告 `scale` 与相对 L2 才能判断绝对幅值。
 
 除明确标注为“历史”的内容外，本目录只用修复后的数据形成当前结论。

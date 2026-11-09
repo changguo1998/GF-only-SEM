@@ -144,11 +144,15 @@ run passed: default interior sample mean_corr=0.8573, raw rel_l2=0.4496, scale=1
 fitted rel_l2=0.3454; 64 fixed receivers mean_corr=0.8476, raw rel_l2=0.4629, scale=1.038,
 fitted rel_l2=0.3458.
 
-The full five-grid study was regenerated 2026-09-20 with the corrected postprocess and metric:
-18³/20³/22³/24³/28³ fitted relative L2 = 0.3414/0.3458/0.3436/0.3468/0.3443,
-with scale 1.013–1.038. The absence of convergence from 3.0 to 4.7 elements/λs, together
-with the expanded-domain source-region L2=0.0882, confirms finite-boundary/C-PML returned
-energy as the dominant compact-domain residual.
+2026-09-20 曾用旧 Stokes 参考解重算五网格：18³/20³/22³/24³/28³ 的拟合相对 L2
+分别为 0.3414/0.3458/0.3436/0.3468/0.3443，scale 为 1.013–1.038。
+结合扩域源区的旧参考解 L2=0.0882，历史上曾推测边界/C-PML 返回是紧凑域残差主因；
+这一归因需要用新参考解复算确认。
+
+**全空间参考解复核（2026-11-09）：** 20³、5 s、Debug CPU-MPI 的快速测试使用新的分段线性
+Stokes 参考解得到平均 L2=0.0040、scale=1.001；旧参考实现与新实现的选点最大相对差异
+为 31.4%。上段五网格、扩域及 40³ 与解析解的比较数值是旧参考下的历史结果，边界/PML
+误差归因待新参考解重算，不能据此继续确认主因。见 `docs/test-reports/17-fullspace-reference-time.md`。
 
 After fixing the postprocess mass-weighting and per-field count bugs and the Green tensor
 index convention mismatch, scaled waveform correlation is 0.991 (halfspace) / 0.745

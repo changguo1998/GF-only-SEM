@@ -213,6 +213,28 @@ bash examples/finite-q-propagation/run.sh auto
 bash examples/meshsize/run_study.sh
 ```
 
+### 全空间 Stokes 参考解时间收敛
+
+`fullspace-40cube` 的输出间隔为 50 ms，而正演时间步约为 16.667 ms。参考解验证必须保留
+solver-grid STF，并在内部时间步 `50/R ms` 上计算，再抽取回 SEM 输出时刻。测试同时比较
+旧的输出步长参考解与分段线性 STF 的高精度参考解，避免把参考解时间误差归因于 SEM。
+
+```bash
+python examples/fullspace-40cube/check_reference_convergence.py
+```
+
+可通过 `--output PATH` 将指标写入临时目录，避免生成仓库内结果文件。
+
+测试使用 1、2、4、8、16、32、64、128 倍细化；连续级别变化不超过 0.2%，且最高级别与
+同一分段线性模型的直接积分结果差异不超过 0.05% 时通过。检查 40³ 时需先完成正演和
+后处理，默认结果写入 `examples/fullspace-40cube/reference_convergence.csv`。
+
+20³ 快速验证已完成并记录在
+[`17-fullspace-reference-time.md`](test-reports/17-fullspace-reference-time.md)：新参考解与
+SEM 的平均相关系数为 1.0000、平均 L2 为 0.0040；旧参考算法与新结果最大差异为 31.4%。
+该结果支持 20³ 参数下的时间处理；历史五网格、扩域和 40³ 波形指标使用旧 Stokes 参考
+算法，均待用新参考解重算，不能直接沿用旧的误差归因。
+
 ## 结论与证据
 
 | 结论 | 首要证据 | 交叉证据 | 不能外推的范围 |
@@ -224,7 +246,7 @@ bash examples/meshsize/run_study.sh
 | SLS 有限 Q 本构正确 | SPECFEM Qμ=20 剪切、Qκ=10 体积复模量 | 时间步减半稳定 | 单元本构不替代传播验证 |
 | SLS 有限 Q 传播正确 | `finite-q-propagation` 当前 1 Hz Debug 全域 record 重算 | 20×14×14 上 CPU/CUDA 在报告精度内相同：最大振幅误差 6.25%、最大相位误差 0.0084 rad | 当前只覆盖均匀介质横向 S 波和 Qκ→∞；20×12×12 失败源于非 PML 横截面过窄 |
 | 震源绝对幅值正确 | 三个解析算例的 scale 门限 | 扩大全空间源区 scale=0.999 | 不代表晚期反射波形正确 |
-| 主要剩余误差来自边界/PML | `fullspace-expanded` 源区 corr=0.9672、拟合 L2=0.0882 | 18³–28³紧凑域拟合 L2 稳定在 0.3414–0.3468 | 近场震源与解析离散仍未单独分离 |
+| 全空间旧结果提示边界/PML 影响（待复核） | `fullspace-expanded` 源区旧参考 corr=0.9672、拟合 L2=0.0882 | 18³–28³旧参考拟合 L2 为 0.3414–0.3468 | 20³新参考与旧参考差异明显；旧结果不能用于确定误差主因 |
 | 串行/MPI 后处理一致 | halfspace 9 tiles 历史逐位对比 | 20³全域record：16 tiles、160 datasets逐元素一致 | 大模型内存峰值仍需单独监控 |
 
 ## 推荐运行节奏

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import pytest
 
 SCRIPT_PATH = Path(__file__).parents[1] / "examples" / "_shared" / "analytical_compare.py"
 SPEC = importlib.util.spec_from_file_location("analytical_compare", SCRIPT_PATH)
@@ -69,6 +70,23 @@ def test_load_sem_tiles_reads_only_selected_displacement_traces(tmp_path):
     np.testing.assert_array_equal(sampled[:, 2], expected[1][:, 1])
 
 
+def test_load_sem_tiles_accepts_strain_only_tiles(tmp_path):
+    tile_path = tmp_path / "tile_0.h5"
+    with h5py.File(tile_path, "w") as output:
+        output.create_dataset(
+            "/field/greens_tensor", data=np.zeros((2, 1, 6, 3)), compression=None
+        )
+        output.create_dataset("/mesh/gll_node_coords", data=np.zeros((1, 3)), compression=None)
+        output.create_dataset("/time/t", data=np.array([0.0, 0.1]), compression=None)
+
+    sem = ANALYTICAL_COMPARE.load_sem_tiles(str(tmp_path))
+
+    assert sem["n_steps"] == 2
+    assert sem["displacement_dtype"] == np.dtype(np.float64)
+    with pytest.raises(ValueError, match="run Debug solver and postprocess"):
+        ANALYTICAL_COMPARE.load_sampled_displacement(sem, [0])
+
+
 def test_nearest_node_indices_preserve_fixed_receiver_count():
     coordinates = np.array([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]])
     receivers = np.array([[0.1, 0.0, 0.0], [0.2, 0.0, 0.0]])
@@ -123,5 +141,7 @@ def test_load_sem_parameters_downsamples_solver_stf_to_output_frames(tmp_path):
 
     parameters = ANALYTICAL_COMPARE.load_sem_parameters(str(config_path), str(model_path), 3)
 
-    np.testing.assert_array_equal(parameters["stf"], [0, 2, 4])
+    np.testing.assert_array_equal(parameters["output_stf_values"], [0, 2, 4])
+    np.testing.assert_array_equal(parameters["stf_values"], [0, 1, 2, 3, 4, 5])
+    np.testing.assert_array_equal(parameters["stf_time"], np.arange(6) * 0.01)
     assert parameters["output_dt_s"] == 0.02

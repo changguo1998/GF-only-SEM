@@ -3,7 +3,9 @@
 
 For a full-space setup (all PML boundaries, source away from boundaries),
 the full-space Stokes solution is the exact reference — no free-surface
-reflections to exclude. Comparison uses the entire waveform.
+reflections to exclude. The source is treated as piecewise linear on the
+solver time grid, with fractional P/S delays and exact near-field primitives.
+Comparison uses the entire waveform.
 
 For a half-space setup (free surface at z=0), comparison is time-windowed
 to before the first surface-reflected phase.
@@ -48,6 +50,7 @@ from analytical_green import (  # noqa: E402
     stokes_displacement_green_tensor,
     wavelet_correlation,
 )
+from stokes_reference import stokes_displacement_piecewise_linear  # noqa: E402
 
 FORCE_LABELS = ["x", "y", "z"]
 MIN_ACCEPTABLE_SCALE = 0.8
@@ -154,8 +157,8 @@ def load_sem_parameters(config_h5: str, model_h5: str, n_steps: int) -> dict:
             f"from config nsteps={nsteps_artifact}, snapshot_stride={snapshot_stride} — "
             "stale/mixed-run records; re-run the pipeline"
         )
-    stf_values = stf_values[::snapshot_stride][:n_steps]
-    if len(stf_values) < n_steps:
+    output_stf_values = stf_values[::snapshot_stride][:n_steps]
+    if len(output_stf_values) < n_steps:
         raise ValueError(
             f"config.h5 STF shorter ({len(stf_values)}) than recorded frames ({n_steps})"
         )
@@ -166,7 +169,10 @@ def load_sem_parameters(config_h5: str, model_h5: str, n_steps: int) -> dict:
         "density_kg_m3": rho,
         "source_xyz": source_xyz,
         "output_dt_s": output_dt_s,
-        "stf": stf_values,
+        "solver_dt_s": solver_dt_s,
+        "stf_time": stf_time,
+        "stf_values": stf_values,
+        "output_stf_values": output_stf_values,
     }
 
 
@@ -256,10 +262,18 @@ def load_sem_tiles(greenfun_dir: str) -> dict:
     for tp in tiles:
         with h5py.File(tp, "r") as f:
             c = np.asarray(f["/mesh/gll_node_coords"])
-            displacement = f["/field/displacement_tensor"]
+            if "/field/displacement_tensor" in f:
+                field_path = "/field/displacement_tensor"
+            elif "/field/greens_tensor" in f:
+                field_path = "/field/greens_tensor"
+            else:
+                raise KeyError(
+                    f"{tp}: missing /field/displacement_tensor and /field/greens_tensor"
+                )
+            field_dataset = f[field_path]
             if n_steps is None:
-                n_steps = displacement.shape[0]
-                displacement_dtype = displacement.dtype
+                n_steps = field_dataset.shape[0]
+                displacement_dtype = field_dataset.dtype
             if dt_s is None:
                 times = np.asarray(f["/time/t"])
                 dt_s = _to_float(times[1] - times[0], "time/t.dt") if len(times) > 1 else 0.01
@@ -293,6 +307,11 @@ def load_sampled_displacement(sem: dict, sample_indices: list[int]) -> np.ndarra
         local_indices = indices[sample_positions] - vertex_start
         unique_local_indices, inverse = np.unique(local_indices, return_inverse=True)
         with h5py.File(tile_path, "r") as f:
+            if "/field/displacement_tensor" not in f:
+                raise ValueError(
+                    f"{tile_path}: displacement_tensor is required for Stokes comparison; "
+                    "run Debug solver and postprocess"
+                )
             unique_displacement = f["/field/displacement_tensor"][:, unique_local_indices, :, :]
             sampled[:, sample_positions, :, :] = unique_displacement[:, inverse, :, :]
     return sampled
@@ -399,7 +418,9 @@ def run(
     vs = params["vs_m_s"]
     rho = params["density_kg_m3"]
     source_xyz = params["source_xyz"]
-    stf = params["stf"]
+    stf_time = params["stf_time"]
+    stf_values = params["stf_values"]
+    output_stf_values = params["output_stf_values"]
     output_dt_s = params["output_dt_s"]
 
     # Hard consistency assertion: tile dt must equal config output_dt_s.
@@ -424,11 +445,12 @@ def run(
     print(f"  material: vp={vp:.1f}, vs={vs:.1f}, rho={rho:.1f} (from model.h5)")
 
     # Dominant frequency of the SEM STF (for distance grouping below).
-    stf_centered = stf - _to_float(np.mean(stf), "stf mean")
+    stf_centered = stf_values - _to_float(np.mean(stf_values), "stf mean")
     spec = np.abs(np.fft.rfft(stf_centered))
-    freqs = np.fft.rfftfreq(len(stf), dt_s)
+    freqs = np.fft.rfftfreq(len(stf_values), params["solver_dt_s"])
     f_dom = _to_float(freqs[1:][np.argmax(spec[1:])], "stf dominant frequency")
     lambda_s = vs / f_dom
+    output_time_s = np.arange(n_steps, dtype=np.float64) * dt_s
     print(f"  SEM STF dominant frequency: {f_dom:.3f} Hz (lambda_s={lambda_s:.0f} m)")
 
     # Subsample receivers from interior (exclude PML region). The interior is
@@ -483,6 +505,7 @@ def run(
     all_l2 = []
     all_sem = []
     all_ana = []
+    fullspace_reference_cache = {}
     # Distance-grouped diagnostics (in S wavelengths).
     dist_bins = [(0.0, 2.0), (2.0, 4.0), (4.0, 6.0), (6.0, np.inf)]
     bin_corrs = {b: [] for b in dist_bins}
@@ -507,9 +530,16 @@ def run(
                     continue
 
             try:
-                analytical = stokes_displacement_green_tensor(
-                    receiver, source_xyz, force_dir, vp, vs, rho, stf, dt_s
-                )
+                if fullspace:
+                    if pt_idx not in fullspace_reference_cache:
+                        fullspace_reference_cache[pt_idx] = stokes_displacement_piecewise_linear(
+                            receiver, source_xyz, vp, vs, rho, output_time_s, stf_time, stf_values
+                        )
+                    analytical = fullspace_reference_cache[pt_idx][:, :, force_dir]
+                else:
+                    analytical = stokes_displacement_green_tensor(
+                        receiver, source_xyz, force_dir, vp, vs, rho, output_stf_values, dt_s
+                    )
             except Exception:
                 continue
 

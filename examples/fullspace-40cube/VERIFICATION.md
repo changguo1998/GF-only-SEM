@@ -2,6 +2,10 @@
 
 ## Configuration
 
+以下解析比较指标使用旧的输出步长 Stokes 参考解。之后的 20³、5 s 算例在 15 个选点
+发现旧/新参考解最大相差 31.4%；40³ 波形尚未用新参考解重算，因此旧相关系数和误差指标
+只能作为历史记录，不能直接用于当前验收。
+
 This diagnostic case keeps the verified 1 km element size and expands the
 physical domain to 40 km on each axis. The five-element C-PML therefore starts
 5 km from each boundary, while the source is 14.5 km from the nearest PML

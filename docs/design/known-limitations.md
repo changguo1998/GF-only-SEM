@@ -2,6 +2,11 @@
 
 ## 1. Full-Space Waveform Shape Error
 
+以下指标使用旧的输出步长 Stokes 参考解，属于历史结果。2026-11-09 的 20³、5 s
+CPU-MPI Debug 算例在 15 个选点发现旧/新参考解最大相差 31.4%；与新参考解比较，
+64 个固定点平均相对 L2 为 0.0040，SEM/参考解 scale 为 1.001。这不能说明旧的 8 s
+及 40³ 算例剩余误差的成因；所有旧全空间比较和边界/PML 归因均待复算。
+
 The five-grid full-space study reports mean component-wise correlation of about 0.83–0.85.
 All five grids were regenerated on 2026-09-20 after the postprocess averaging and fitted-L2
 fixes. From 18³ to 28³ (3.0–4.7 elements per S wavelength), the corrected fitted relative L2
@@ -9,11 +14,9 @@ is flat at 0.3414–0.3468, while the SEM/analytical amplitude scale remains 1.0
 neither the waveform residual nor the absolute amplitude improves with compact-domain grid
 refinement.
 
-The expanded-domain source-centred comparison reaches correlation 0.9672 and fitted relative
-L2 0.0882 even at only 3.0 elements per S wavelength. This isolates finite-boundary/C-PML
-returned energy as the dominant source of the compact-domain residual. Near-field point-source
-representation and analytical time/integral discretization may contribute to the remaining
-expanded-domain error, but the five-grid compact-domain study cannot separate them further.
+扩域算例在约 3 单元/S 波长时，旧参考解下源区相关系数为 0.9672、拟合相对 L2 为
+0.0882。历史数据提示边界/C-PML 可能有贡献，但参考解时间误差使主因无法确定；
+应先统一复算，再分析点源表示与数值色散。
 
 ## Resolved: Systematic ~3× Amplitude Factor
 
