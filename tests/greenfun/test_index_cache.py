@@ -13,7 +13,6 @@ import os
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from greenfun.index_cache import (
     CACHE_FILENAME,
@@ -23,7 +22,6 @@ from greenfun.index_cache import (
     load_or_rebuild_index,
     scan_tiles,
 )
-
 
 # ── helpers ──────────────────────────────────────────────────────────────
 
@@ -287,7 +285,7 @@ class TestLoadOrRebuildIndex:
         root = greenfun_library.root
         cache = _cache_path(root)
 
-        index1 = load_or_rebuild_index(root)
+        load_or_rebuild_index(root)
         assert cache.is_file()
         mtime_before = cache.stat().st_mtime_ns
 

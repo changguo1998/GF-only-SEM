@@ -6,7 +6,6 @@ from pathlib import Path
 
 import numpy as np
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 VALIDATOR = PROJECT_ROOT / "examples" / "_shared" / "verify_waveform.py"
 

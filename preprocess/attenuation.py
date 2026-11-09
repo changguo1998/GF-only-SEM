@@ -13,12 +13,13 @@ References:
 
 from __future__ import annotations
 
-import numpy as np
+from typing import Optional, Tuple
+
 import h5py
+import numpy as np
 from scipy.optimize import nnls
 
 NO_ATTENUATION_Q = 1.0e8
-from typing import Optional, Tuple
 
 
 def compute_tau_from_q(

@@ -12,14 +12,15 @@ spack load llvm
 
 # find target files
 SKIP_DIRS=(.venv '*.pyfk-venv' '*.egg-info' __pycache__ .pytest_cache .ruff_cache
-	build build_mpi build_test build_tmp build.bak bin CMakeFiles
+	build build-debug build_mpi build_test build_tmp build.bak bin bin-debug CMakeFiles
 	.git .pi .pi-subagents
-	log wavefields vtk greenfun partitions external_reference_codes)
+	log wavefields vtk partitions external_reference_codes
+	postprocess/_archive tools/_archive docs/_archive)
 SKIP_EXPR=()
 for d in "${SKIP_DIRS[@]}"; do SKIP_EXPR+=(-path "*/$d" -prune -o); done
 ALL_TMP=$(mktemp)
 trap 'rm -rf "$ALL_TMP"' EXIT
-find . "${SKIP_EXPR[@]}" -type f -print >"$ALL_TMP"
+find . "${SKIP_EXPR[@]}" -path '*/examples/*/greenfun' -prune -o -type f -print >"$ALL_TMP"
 
 echo "plan to format $(cat "$ALL_TMP" | wc -l) files"
 

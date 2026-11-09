@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Generate the regular mesh for the 50 x 50 x 25 half-space case."""
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import meshio
 import numpy as np
-
 
 CASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = CASE_DIR.parents[1]
@@ -14,6 +13,7 @@ sys.path.insert(0, str(CASE_DIR))
 sys.path.insert(0, str(PROJECT_ROOT))
 
 import config  # noqa: E402
+
 from tools.gmsh_to_hdf5 import extract_topology, write_topology  # noqa: E402
 
 

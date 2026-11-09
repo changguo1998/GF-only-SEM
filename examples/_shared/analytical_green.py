@@ -189,8 +189,6 @@ def halfspace_displacement(
     For receivers ON the free surface (z≈0), the direct and reflected
     waves coalesce; the free-surface amplification is computed directly.
     """
-    nt = len(source_time_function)
-
     # Direct wave from the actual source
     direct = stokes_displacement_green_tensor(
         receiver_xyz_m,
@@ -241,39 +239,12 @@ def halfspace_displacement(
         dt_s,
     )
 
-    # Apply Zoeppritz reflection coefficients to the image contribution
-    # The image source represents the SPECULAR reflection from the free
-    # surface. The reflected displacement is a linear combination of
-    # the P-reflected (R_PP) and S-reflected (R_PS) contributions.
-
-    # For the half-space, the reflected field involves both P and S waves.
-    # The image source with the Stokes solution represents the P-wave
-    # reflection path. The S-wave reflection is along a different path.
-    # We use a simplified approach: the total reflected field at the
-    # receiver is approximately R_PP × u_image_P + R_PS × u_image_S.
-
-    # For receivers at the free surface, compute the free-surface
-    # amplification directly using the Zoeppritz factors.
+    # Approximation: use vertical doubling at the surface and only the
+    # P-wave reflection coefficient for receivers below the surface.
 
     if zr < 50.0:  # receiver within 50m of surface
         # Free-surface amplification for surface receivers
         # The total displacement at the free surface = amplification × incident wave
-        # For the z-component: Amp_z = 2 cos(i) / (...) from Zoeppritz
-        R_pp = coeffs["R_PP"]
-        R_ps = coeffs["R_PS"]
-        a_val = vp_m_s / vs_m_s
-        c_i = coeffs["cos_i_p"]
-        c_j = coeffs["cos_j_s"]
-        s_i = sin_i
-        s_j = coeffs["sin_j_s"]
-
-        # Free-surface displacement for incident P wave (Aki & Richards, §5.2.5)
-        # u_x^free / u_x^inc = (1+R_PP) + (vs/vp)(c_j/c_i)R_PS (approx for horizontal)
-        # The exact factors depend on which component of the incident field
-        # is being amplified. For a general point-source wavefield, use
-        # the doubling approximation for vertical and the Zoeppritz for
-        # the relative amplitudes.
-
         # Simplified: apply factor-of-2 doubling to vertical component,
         # and keep the Stokes solution for horizontals (which is the
         # standard free-surface correction for near-vertical incidence).

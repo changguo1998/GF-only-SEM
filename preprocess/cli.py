@@ -68,7 +68,6 @@ def _profile_report(profile: dict[str, float] | None, total_s: float) -> None:
 
 
 _PREPROCESS_BINARY: str | None = None
-_PREPROCESS_BINARY: str | None = None
 
 
 def _find_binary(name: str, extra_dirs: list[str] | None = None) -> str | None:
@@ -94,8 +93,7 @@ def _find_binary(name: str, extra_dirs: list[str] | None = None) -> str | None:
 
 
 def _init_accelerators() -> None:
-    global _PREPROCESS_BINARY, _PREPROCESS_BINARY
-    _PREPROCESS_BINARY = _find_binary("gf_preprocess")
+    global _PREPROCESS_BINARY
     _PREPROCESS_BINARY = _find_binary("gf_preprocess")
 
 
@@ -131,8 +129,8 @@ def _run_binary(
 def step_gll_geometry(
     model_path: str, topology: object, config: object, domain_bounds: dict[str, float]
 ) -> dict:
-    N = int(config.polynomial_order)
     """Compute GLL geometry + CFL h_min. C++ accelerator if available."""
+    N = int(config.polynomial_order)
     if _PREPROCESS_BINARY is not None:
         # Ensure domain attrs for C++
         from preprocess.accelerator import _ensure_domain_attrs
@@ -163,8 +161,6 @@ def step_gll_geometry(
                 line = line.strip()
                 if line.startswith("H_MIN="):
                     h_min = float(line.split("=", 1)[1])
-                elif line.startswith("CFL_DT="):
-                    cfl_dt_cpp = float(line.split("=", 1)[1])
             if h_min is None:
                 logger.warning("C++ stage1 didn't print H_MIN — falling to Python")
             else:
@@ -611,7 +607,6 @@ def main() -> None:
     solver_dt = lame["solver_dt"]
     snapshot_stride = lame["snapshot_stride"]
     nsteps = lame["nsteps"]
-    cfl_dt = lame["cfl_dt"]
     _profile_record(profile, "lame_cfl", stage_start)
 
     # ── Step 5b: C-PML parameters ──

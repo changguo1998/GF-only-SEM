@@ -816,8 +816,6 @@ def compute_abar_coefficients(
     n_cell, n_node, _ = K_store.shape
     coef_abar = np.zeros((n_cell, n_node, 5), dtype=np.float64)
 
-    beta = alpha_store + d_store / np.maximum(K_store, 1.0)  # [n_cell, n_node, 3]
-
     for e in range(n_cell):
         region = _get_region(pml_regions, e)
         if region == 0:
@@ -826,8 +824,6 @@ def compute_abar_coefficients(
         kx, ky, kz = K_store[e, :, 0], K_store[e, :, 1], K_store[e, :, 2]
         dx, dy, dz = d_store[e, :, 0], d_store[e, :, 1], d_store[e, :, 2]
         ax, ay, az = alpha_store[e, :, 0], alpha_store[e, :, 1], alpha_store[e, :, 2]
-        bx, by, bz = beta[e, :, 0], beta[e, :, 1], beta[e, :, 2]
-
         A1, A2, A3, A4, A5 = _l_parameter(region, kx, dx, ax, ky, dy, ay, kz, dz, az)
         coef_abar[e, :, 0] = A1
         coef_abar[e, :, 1] = A2

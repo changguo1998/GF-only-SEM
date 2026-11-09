@@ -1,7 +1,6 @@
 # GPU/DCU Device Abstraction — Implementation
 
 > Parent: [../design-decisions.md](../design-decisions.md)
-> Precedent: [design.md](design.md)
 > Status: **CUDA backend implemented** (CPU+CUDA). HIP/SYCL deferred.
 
 ## Goal

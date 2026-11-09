@@ -374,7 +374,6 @@ def _write_partition_files(
             # Write local_cell2rank_node and n_rank_node (compact solver ibool)
             local_cell2rank_node_4d = rk.get("local_cell2rank_node")
             if local_cell2rank_node_4d is not None and n_local_cell > 0:
-                n_node = int(local_cell2rank_node_4d[0].size)  # NGLL³
                 local_cell2rank_node_local = (
                     local_cell2rank_node_4d[:n_local_cell].ravel().astype(np.int32)
                 )

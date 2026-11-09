@@ -9,7 +9,6 @@ from numpy.polynomial.legendre import Legendre
 from greenfun.gll_interpolator import GLLInterpolator
 from greenfun.interpolator import TrilinearInterpolator
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -48,8 +47,6 @@ class TestTrilinearInterpolator:
         """Trilinear interpolation recovers an analytic linear field exactly."""
         # 5³ grid, spacing 2 → vertices at 0, 2, 4, 6, 8 in each axis
         grid_coords = _regular_3d_grid(nx=5, ny=5, nz=5, dx=2.0, dy=2.0, dz=2.0)
-        n_vert = grid_coords.shape[0]
-
         # Linear field: f(x,y,z) = 1 + 3x + 2y + 0.5z
         a, b, c, d = 1.0, 3.0, 2.0, 0.5
         field = a + b * grid_coords[:, 0] + c * grid_coords[:, 1] + d * grid_coords[:, 2]
@@ -146,7 +143,6 @@ class TestTrilinearInterpolator:
     def test_point_at_cell_face_center(self) -> None:
         """Point at the center of a cell face (2-D plane) still works."""
         coords = _regular_3d_grid(nx=6, ny=6, nz=6, dx=1.5, dy=1.5, dz=1.5)
-        n_vert = coords.shape[0]
         field = 2.0 + 0.5 * coords[:, 0] - 1.0 * coords[:, 1] + 3.0 * coords[:, 2]
 
         interp = TrilinearInterpolator(coords)
@@ -193,10 +189,7 @@ class TestGLLInterpolator:
         coordinates = np.column_stack([axis.ravel() for axis in mesh])
         cell_index = np.arange(ngll**3, dtype=np.int64).reshape(1, -1)
         values = (
-            1.0
-            + coordinates[:, 0] ** 3
-            - 2.0 * coordinates[:, 1] ** 2
-            + 0.5 * coordinates[:, 2]
+            1.0 + coordinates[:, 0] ** 3 - 2.0 * coordinates[:, 1] ** 2 + 0.5 * coordinates[:, 2]
         )
 
         interpolator = GLLInterpolator(coordinates, cell_index)

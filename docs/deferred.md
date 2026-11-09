@@ -40,8 +40,7 @@ all 4 MPI C++/Python variants (halfspace + layer).
 - `gf_solver_viscoelastic_cuda` (CUDA, no MPI)
 - `gf_solver_viscoelastic_mpi_cuda` (CUDA + MPI)
 
-**Spec:** [`docs/_archive/specs/2026-07-21-sls-viscoelastic-design.md`](../_archive/specs/2026-07-21-sls-viscoelastic-design.md)
-**Plan:** [`docs/_archive/plans/2026-07-21-sls-viscoelastic.md`](../_archive/plans/2026-07-21-sls-viscoelastic.md)
+**Design:** [`docs/design/forward.md`](design/forward.md)
 
 ______________________________________________________________________
 
@@ -49,8 +48,8 @@ ______________________________________________________________________
 
 **Status:** Placeholder - not in current scope. The `compress/` module (header-only
 HDF5 compression/chunking/precision utilities) has been removed. Record files are
-written uncompressed. If compression is needed in the future, re-implement from
-[`design/compress.md`](design/compress.md) (kept as historical design reference).
+written uncompressed. Any future change requires a design review; see
+[`docs/design-decisions.md`](design-decisions.md) §10.
 
 ______________________________________________________________________
 

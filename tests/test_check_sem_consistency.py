@@ -6,7 +6,6 @@ from pathlib import Path
 
 import h5py
 
-
 SCRIPT_PATH = Path(__file__).parents[1] / "examples" / "_shared" / "check_sem_consistency.py"
 SPEC = importlib.util.spec_from_file_location("check_sem_consistency", SCRIPT_PATH)
 assert SPEC is not None and SPEC.loader is not None

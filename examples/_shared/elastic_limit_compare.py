@@ -93,7 +93,6 @@ def main() -> None:
     print(f"  common tiles: {len(common)}")
 
     max_rel_l2 = 0.0
-    per_component = np.zeros(9)  # 3x3 displacement tensor flattened
     component_max = np.zeros(9)
     tile_errors: dict[str, float] = {}
 

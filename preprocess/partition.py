@@ -11,9 +11,9 @@ other ranks), and face-pair exchange patterns for MPI communication.
 
 from __future__ import annotations
 
-import pymetis  # required — bundles native METIS, no system lib needed
 import numpy as np
 import numpy.typing as npt
+import pymetis  # required — bundles native METIS, no system lib needed
 
 from preprocess.topology_reader import TopologyData
 
@@ -134,7 +134,6 @@ def compute_global_cell2global_node(
         n_global_node: number of unique global nodes.
     """
     n_cell = topology.n_cell
-    n_node = ngll * ngll * ngll
     c2s = topology.cell_to_surface
 
     global_ids = np.full((n_cell, ngll, ngll, ngll), -1, dtype=np.int32)
@@ -333,10 +332,6 @@ def compute_per_rank(
             node_owner_ranks.setdefault(int(global_node), set()).add(owner_rank)
 
     # Per-rank compaction
-    n_global_node = (
-        int(global_cell2global_node.max()) + 1 if global_cell2global_node.size > 0 else 0
-    )
-
     for rank in range(n_ranks):
         rd = per_rank[rank]
         locals_list = list(rd["local_cell_ids"])

@@ -139,7 +139,7 @@ class TestBoundaryDetector:
         assert np.sum(boundary_tag == 0) == 0  # no interior
 
         assert is_pml.shape == (1,)
-        assert is_pml[0] == True
+        assert is_pml[0]
 
     def test_free_surface_at_zmin(self):
         """Verify free surface is at zmin."""

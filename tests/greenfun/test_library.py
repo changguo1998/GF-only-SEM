@@ -10,7 +10,6 @@ import pytest
 
 from greenfun.library import GreenFunctionLibrary
 
-
 # ---------------------------------------------------------------------------
 # Helpers — tile writer (mirrors test_source_run for independence)
 # ---------------------------------------------------------------------------
@@ -55,17 +54,13 @@ def _write_tile(
 
         h5.create_dataset("/time/t", data=time, compression=None)
         h5.create_dataset("/mesh/vertex_ids", data=vertex_ids, compression=None)
-        h5.create_dataset("/mesh/vertex_coords", data=vertex_coords, dtype=np.float64, compression=None)
         h5.create_dataset(
-            "/field/greens_tensor",
-            data=strain,
-            dtype=np.float32, compression=None
+            "/mesh/vertex_coords", data=vertex_coords, dtype=np.float64, compression=None
         )
+        h5.create_dataset("/field/greens_tensor", data=strain, dtype=np.float32, compression=None)
         if displacement is not None:
             h5.create_dataset(
-                "/field/displacement_tensor",
-                data=displacement,
-                dtype=np.float32, compression=None
+                "/field/displacement_tensor", data=displacement, dtype=np.float32, compression=None
             )
 
 

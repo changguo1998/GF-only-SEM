@@ -317,7 +317,7 @@ Each tile stores projected global GLL nodes in its x/y bounds for all saved dept
 - **Mesh output**: Preprocess adds GLL geometry and `is_pml` to `model.h5`. Rank-local data and `/recording/` go to `partition_{r}.h5`.
 - **STF precompute**: Preprocess samples `stf_func(t_s)` at `solver_dt` and writes an array. Forward does no STF eval.
 - **Mass computation**: After material interpolation (ρ needed for lumped mass).
-  - **CPML precompute**: Tag PML elements and write C-PML profiles (K/d/α per direction) and convolution coefficients (α/β 9 each, Ā₁…Ā₅, A₆…A₂₃). Both displacement-based correction (Ā₁…Ā₅) and strain-based correction (A₆…A₂₃) implemented. See [`docs/design/cpml.md`](cpml.md).
+- **CPML precompute**: Tag PML elements and write C-PML profiles (K/d/α per direction) and convolution coefficients (α/β 9 each, Ā₁…Ā₅, A₆…A₂₃). Both displacement-based correction (Ā₁…Ā₅) and strain-based correction (A₆…A₂₃) implemented. See [`docs/design/cpml.md`](design/cpml.md).
 - **Partitioning**: METIS k-way partition + GLL node global numbering (ibool equivalent) + precomputed exchange patterns. Each rank gets its own partition\_{r}.h5 with local subset.
 - **ibool (local_cell2rank_node)**: Per-rank unique GLL node numbering computed via coordinate sorting (matching SPECFEM3D's `get_global.f90`). Written as flat `int64[n_local * NGLL^3]` to `/field/cell/local_cell2rank_node`. Backward-compatible: absent → element-local DOF. Per-rank `n_rank_node` written as attribute.
 - **Exchange pattern conversion**: Send/recv DOF indices use global per-rank DOF numbers (`iglob * 3 + dir`) instead of element-local (`elem * n_node * 3 + dir`).

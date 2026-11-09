@@ -12,16 +12,15 @@ Usage:
     .venv-pyfk/bin/python analytical_pyfk_compare.py <greenfun_dir>
 """
 
-import sys
-import os
 import glob
+import os
+import sys
 
-import numpy as np
 import h5py
+import numpy as np
 
 # pyfk imports
 from pyfk import Config, SeisModel, SourceModel, calculate_gf
-
 
 # ── pyfk post-processing ────────────────────────────────────────────────
 
@@ -183,8 +182,6 @@ def run(greenfun_dir: str):
     dt_s = sem["dt_s"]
     coords = sem["coords"]
     n_vertex = coords.shape[0]
-    total_s = n_steps * dt_s
-
     print(f"  n_steps={n_steps}, dt_s={dt_s:.4f}s, n_vertex={n_vertex}")
 
     # Halfspace model: Vp=5 km/s, Vs=3 km/s, rho=2.7 g/cm³

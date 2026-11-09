@@ -33,6 +33,7 @@ markers = ["slow: production-scale tests skipped by default"]
 [tool.ruff]
 target-version = "py310"
 line-length = 99
+exclude = ["postprocess/_archive", "tools/_archive"]
 [tool.ruff.format]
 quote-style = "double"
 skip-magic-trailing-comma = true
@@ -43,7 +44,18 @@ split-on-trailing-comma = false
 select = ["E", "F", "I", "N", "W"]
 ignore = ["E501"]
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["N802", "N803", "N806"]
+"tests/*" = ["E402", "N802", "N803", "N806"]
+"preprocess/accelerator.py" = ["N803", "N806"]
+"preprocess/cfl_validator.py" = ["N806"]
+"preprocess/cli.py" = ["N806"]
+"preprocess/gll_geometry.py" = ["N803", "N806"]
+"preprocess/partition.py" = ["N806"]
+"preprocess/pml.py" = ["N806"]
+"preprocess/pml_cpml.py" = ["N803", "N806"]
+"preprocess/preflight.py" = ["N803"]
+"preprocess/source_locator.py" = ["N803", "N806"]
+"examples/_shared/analytical_green.py" = ["N806"]
+"examples/_shared/analytical_pyfk_compare.py" = ["N806"]
 
 [build-system]
 requires = ["setuptools>=64"]

@@ -21,7 +21,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.spatial import KDTree
 
-from greenfun.index_cache import load_or_rebuild_index, SourceIndexEntry
+from greenfun.index_cache import SourceIndexEntry, load_or_rebuild_index
 from greenfun.query import GreenQuery
 from greenfun.source_run import SourceRun
 

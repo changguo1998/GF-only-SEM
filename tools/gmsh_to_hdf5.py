@@ -56,7 +56,6 @@ def extract_topology(mesh):
         raise ValueError("No hexahedron cells found in mesh")
 
     n_cell = hex_cells.shape[0]
-    n_vertex = mesh.points.shape[0]
     vertex_to_coord = mesh.points.astype(np.float64)
 
     # ── Edge deduplication ─────────────────────────────────────────────
@@ -64,7 +63,6 @@ def extract_topology(mesh):
     edge_key_to_id = {}
     edge_pairs = []
 
-    per_cell_edge_ids = []  # [ncells][12]  local-edge-index -> global edge id
     for cell_hex in hex_cells:
         v = cell_hex
         local_edges = [
@@ -81,15 +79,12 @@ def extract_topology(mesh):
             (2, 6),
             (3, 7),
         ]
-        eids = []
         for a, b in local_edges:
             va, vb = int(v[a]), int(v[b])
             key = (va, vb) if va < vb else (vb, va)
             if key not in edge_key_to_id:
                 edge_key_to_id[key] = len(edge_pairs) + 1
                 edge_pairs.append(key)
-            eids.append(edge_key_to_id[key])
-        per_cell_edge_ids.append(eids)
 
     n_edge = len(edge_pairs)
     edge_to_vertex = np.zeros((n_edge, 2), dtype=np.int64)
@@ -103,7 +98,6 @@ def extract_topology(mesh):
 
     for ci, cell_hex in enumerate(hex_cells):
         v = cell_hex
-        local_eids = per_cell_edge_ids[ci]
 
         for fi, face_verts in enumerate(HEX_FACES):
             signed_edges = []

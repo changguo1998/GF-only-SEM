@@ -8,16 +8,12 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import shlex
 import subprocess
-import sys
 import types
-from collections.abc import Callable
 
 import h5py
 import numpy as np
-import numpy.typing as npt
 
 logger = logging.getLogger("preprocess")
 

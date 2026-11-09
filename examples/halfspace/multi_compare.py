@@ -146,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
             sem_result = lib.query(pos, sem_source, quantity="displacement")
             sem_disp = sem_result.displacement
             if sem_disp is None:
-                print(f"  SEM: no displacement data, skipping")
+                print("  SEM: no displacement data, skipping")
                 continue
             interp = sem_result.interpolation_used
             print(f"  SEM: interpolated={interp}, max_abs={np.max(np.abs(sem_disp)):.4e}")

@@ -26,8 +26,8 @@ import math
 import os
 import sys
 
-import numpy as np
 import h5py
+import numpy as np
 
 RTOL = 1e-9
 ATOL_STF = 1e-6  # absolute tolerance scaled to the ~1e20 amplitude

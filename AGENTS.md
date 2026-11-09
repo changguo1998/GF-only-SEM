@@ -117,7 +117,7 @@ model left only a 2 km non-PML transverse width and failed through boundary cont
 see `docs/test-reports/05-finite-q.md`.
 
 CG-SEM global-DOF assembly fix complete — waves correctly propagate across element
-interfaces (both within-rank and cross-rank). The current Python suite has 248 passing tests and
+interfaces (both within-rank and cross-rank). The current Python suite has 268 passing tests and
 one opt-in C++ preprocess smoke test skipped by default. The current CTest layout registers 69
 entries and requires an MPI-enabled build configuration.
 

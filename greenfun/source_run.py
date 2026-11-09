@@ -15,7 +15,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.spatial import KDTree
 
-from greenfun.gll_interpolator import EXACT_GLL_NODE_TOLERANCE_M, GLLInterpolator
+from greenfun.gll_interpolator import GLLInterpolator
 from greenfun.interpolator import EXACT_VERTEX_TOLERANCE_M, TrilinearInterpolator
 from greenfun.query import GreenQuery
 

@@ -1,6 +1,6 @@
 # gf-calculation
 
-3D elastic SEM wave-equation solver + strain Green's function extraction.
+3D elastic/viscoelastic SEM wave-equation solver + strain Green's function extraction.
 
 Python pre-processing, C++17 postprocess + MPI compute, HDF5 I/O, METIS partitioning.
 
@@ -17,7 +17,7 @@ config.py + model.h5 → preprocess → partition_{r}.h5 + config.h5
 
 ## Quick Start
 
-````bash
+```bash
 # Environment
 # Install dependencies
 uv sync --group dev
@@ -34,6 +34,7 @@ scripts/solver.sh
 # Or run directly:
 scripts/solver.sh elastic cpu mpi -- --direction x
 scripts/solver.sh elastic cuda -- --direction x
+```
 
 ## Forward Solvers
 
@@ -72,7 +73,7 @@ scripts/build.sh --backend cpu          # CPU only
 scripts/build.sh --backend cuda         # CPU + CUDA
 scripts/build.sh --debug                # diagnostics + C++ tests, output to bin-debug/
 scripts/build.sh -t gf_postprocess  # single target
-````
+```
 
 The default `DEBUG=OFF` build writes production binaries to `bin/`. It records only compact
 recording-cell strain, writes only the strain Green tensor, and excludes profiling code, verbose
@@ -80,14 +81,14 @@ diagnostics, Catch2, and C++ test targets. `--debug` sets `DEBUG=ON`, uses `buil
 `bin-debug/`, and retains full-domain strain/displacement/velocity/acceleration records, diagnostic
 tile fields, profiling, and tests.
 
-### Run
+### Solver run
 
 ```bash
 scripts/solver.sh                       # interactive menu
 scripts/solver.sh elastic cpu mpi -- --direction x
 ```
 
-### Run
+### Full pipeline run
 
 ```bash
 # Preprocess
@@ -151,10 +152,13 @@ frequency are kept consistent with the source frequency.
 ## Testing
 
 ```bash
-.venv/bin/python -m pytest tests -q                 # Python (248 pass, 1 skip)
+.venv/bin/python -m pytest tests -q                 # Python (268 pass, 1 skip)
 ctest --test-dir build-debug --output-on-failure    # C++/CUDA (DEBUG build only)
 bash scripts/run_all_examples.sh                    # Three complementary pipelines
 ```
+
+CTest requires a CUDA-capable GPU for CUDA tests and a working two-process MPI runtime for
+exchange tests; tests are not skipped automatically when the runtime is unavailable.
 
 完整清单、参数组合、判据及“结论—证据”对应关系见
 [`docs/testing.md`](docs/testing.md)。

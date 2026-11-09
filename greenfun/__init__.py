@@ -1,6 +1,6 @@
 """Green's function reader for SEM-based Green's tensor query."""
 
-from greenfun.query import GreenQuery
 from greenfun.library import GreenFunctionLibrary
+from greenfun.query import GreenQuery
 
 __all__ = ["GreenQuery", "GreenFunctionLibrary"]

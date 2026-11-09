@@ -25,7 +25,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 from greenfun.library import GreenFunctionLibrary  # noqa: E402
 
 sys.path.insert(0, str(_SCRIPT_DIR))
-from reference import compute_green_tensor, _read_time_and_stf  # noqa: E402
+from reference import _read_time_and_stf, compute_green_tensor  # noqa: E402
 
 
 def select_source_positions(
@@ -134,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
             sem_result = lib.query(pos, sem_source, quantity="displacement")
             sem_disp = sem_result.displacement
             if sem_disp is None:
-                print(f"  SEM: no displacement, skipping")
+                print("  SEM: no displacement, skipping")
                 continue
             interp = sem_result.interpolation_used
             print(f"  SEM: interpolated={interp}, max_abs={np.max(np.abs(sem_disp)):.4e}")

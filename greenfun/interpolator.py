@@ -6,7 +6,6 @@ import numpy as np
 import numpy.typing as npt
 from scipy.spatial import KDTree
 
-
 # Tolerance for treating a query point as an exact mesh-vertex match.
 # float64 rounding at geophysical coordinate scales (~1e3–1e6 m) is ~1e-12 to
 # ~1e-10 m, well above 1e-15. 1e-6 m (1 µm) safely absorbs that error while

@@ -20,6 +20,7 @@ from scipy.spatial import KDTree
 # Tolerance for treating a query point as an exact GLL-node match (1 micron).
 EXACT_GLL_NODE_TOLERANCE_M = 1e-6
 
+
 def _gll_points(ngll: int) -> np.ndarray:
     """Return the GLL points for ``ngll`` nodes on ``[-1, 1]``."""
     if ngll < 2:
@@ -32,12 +33,7 @@ def _corner_local_indices(ngll: int) -> np.ndarray:
     """Return the eight corner indices for a flattened tensor-product cell."""
     last = ngll - 1
     return np.array(
-        [
-            i * ngll * ngll + j * ngll + k
-            for i in (0, last)
-            for j in (0, last)
-            for k in (0, last)
-        ],
+        [i * ngll * ngll + j * ngll + k for i in (0, last) for j in (0, last) for k in (0, last)],
         dtype=np.intp,
     )
 
@@ -60,10 +56,7 @@ class GLLInterpolator:
     """
 
     def __init__(
-        self,
-        gll_node_coords: np.ndarray,
-        cell_gll_node_index: np.ndarray,
-        ngll: int | None = None,
+        self, gll_node_coords: np.ndarray, cell_gll_node_index: np.ndarray, ngll: int | None = None
     ) -> None:
         self._gll_node_coords = np.asarray(gll_node_coords, dtype=np.float64)
         self._cell_gll_node_index = np.asarray(cell_gll_node_index, dtype=np.int64)
@@ -92,7 +85,6 @@ class GLLInterpolator:
         self._gll_xi_1d = _gll_points(ngll)
         corner_local_indices = _corner_local_indices(ngll)
 
-        n_unique = self._gll_node_coords.shape[0]
         n_cell = self._cell_gll_node_index.shape[0]
 
         # KDTree for exact-node-match queries.
@@ -261,9 +253,7 @@ class GLLInterpolator:
         for i in range(n):
             for j in range(n):
                 if i != j:
-                    ell[i] *= (xi - self._gll_xi_1d[j]) / (
-                        self._gll_xi_1d[i] - self._gll_xi_1d[j]
-                    )
+                    ell[i] *= (xi - self._gll_xi_1d[j]) / (self._gll_xi_1d[i] - self._gll_xi_1d[j])
         return ell
 
     def _idw_fallback(self, point: np.ndarray, values: np.ndarray) -> np.ndarray:

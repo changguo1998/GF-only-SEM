@@ -1,6 +1,7 @@
 """Tests for GLL-node recording map generation."""
 
 import numpy as np
+
 from preprocess.recording_map import build_recording_map
 from preprocess.topology_reader import TopologyData
 

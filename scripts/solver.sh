@@ -68,13 +68,13 @@ ${BOLD}Available binaries in ${BIN_DIR}:${NC}
 EOF
 	find_binaries | while read -r b; do
 		local tag=""
-		case "$b" in
-		*elastic*cpu* | *elastic_mpi*) tag="${GREEN}[elastic CPU+MPI]${NC}" ;;
-		*elastic*cuda*mpi*) tag="${CYAN}[elastic CUDA+MPI]${NC}" ;;
-		*elastic*cuda*) tag="${CYAN}[elastic CUDA]${NC}" ;;
-		*viscoelastic*cpu* | *viscoelastic_mpi*) tag="${YELLOW}[visco CPU+MPI]${NC}" ;;
-		*viscoelastic*cuda*mpi*) tag="${YELLOW}[visco CUDA+MPI]${NC}" ;;
-		*viscoelastic*cuda*) tag="${YELLOW}[visco CUDA]${NC}" ;;
+		case "$(basename "$b")" in
+		gf_solver_viscoelastic_mpi) tag="${YELLOW}[visco CPU+MPI]${NC}" ;;
+		gf_solver_viscoelastic_cuda) tag="${YELLOW}[visco CUDA]${NC}" ;;
+		gf_solver_viscoelastic_mpi_cuda) tag="${YELLOW}[visco CUDA+MPI]${NC}" ;;
+		gf_solver_elastic_mpi) tag="${GREEN}[elastic CPU+MPI]${NC}" ;;
+		gf_solver_elastic_cuda) tag="${CYAN}[elastic CUDA]${NC}" ;;
+		gf_solver_elastic_mpi_cuda) tag="${CYAN}[elastic CUDA+MPI]${NC}" ;;
 		esac
 		printf "  %-45s %b\n" "$b" "$tag"
 	done
@@ -139,13 +139,13 @@ interactive() {
 	local labels=()
 	while IFS= read -r b; do
 		bins+=("$b")
-		case "$b" in
-		*elastic_mpi*) labels+=("elastic  | CPU + MPI") ;;
-		*elastic_cuda) labels+=("elastic  | CUDA (single GPU)") ;;
-		*elastic_mpi_cuda) labels+=("elastic  | CUDA + MPI (multi-GPU)") ;;
-		*viscoelastic_mpi*) labels+=("viscoelastic | CPU + MPI") ;;
-		*viscoelastic_cuda) labels+=("viscoelastic | CUDA (single GPU)") ;;
-		*viscoelastic_mpi_cuda) labels+=("viscoelastic | CUDA + MPI (multi-GPU)") ;;
+		case "$(basename "$b")" in
+		gf_solver_viscoelastic_mpi) labels+=("viscoelastic | CPU + MPI") ;;
+		gf_solver_viscoelastic_cuda) labels+=("viscoelastic | CUDA (single GPU)") ;;
+		gf_solver_viscoelastic_mpi_cuda) labels+=("viscoelastic | CUDA + MPI (multi-GPU)") ;;
+		gf_solver_elastic_mpi) labels+=("elastic  | CPU + MPI") ;;
+		gf_solver_elastic_cuda) labels+=("elastic  | CUDA (single GPU)") ;;
+		gf_solver_elastic_mpi_cuda) labels+=("elastic  | CUDA + MPI (multi-GPU)") ;;
 		*) labels+=("$(basename "$b")") ;;
 		esac
 	done < <(find_binaries)

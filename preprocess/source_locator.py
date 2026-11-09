@@ -19,6 +19,7 @@ the forward solver can inject the source without runtime search.
 from __future__ import annotations
 
 import logging
+
 import numpy as np
 import numpy.typing as npt
 
@@ -151,7 +152,6 @@ def compute_source_weights(
     Returns:
         weights: [NGLL, NGLL, NGLL] Lagrange interpolation weights.
     """
-    NGLL = len(gll_pts)
     lx = _lagrange_basis_at(xi_vec[0], gll_pts)
     ly = _lagrange_basis_at(xi_vec[1], gll_pts)
     lz = _lagrange_basis_at(xi_vec[2], gll_pts)
